@@ -93,8 +93,13 @@ export async function listLibraries(): Promise<Library[]> {
   return data
 }
 
-export async function scanLibraryById(id: number): Promise<{ added: number }> {
-  const res = await fetch(`${BASE_URL}/api/libraries/${id}/scan`, {
+export async function scanLibraryById(
+  id: number,
+  options?: { identify?: boolean },
+): Promise<{ added: number }> {
+  const identify = options?.identify !== false
+  const url = `${BASE_URL}/api/libraries/${id}/scan${identify ? '' : '?identify=false'}`
+  const res = await fetch(url, {
     ...defaultFetchOpts,
     method: 'POST',
   })

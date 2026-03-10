@@ -32,6 +32,7 @@ export interface MediaItem {
   subtitles?: Subtitle[]
   embeddedSubtitles?: EmbeddedSubtitle[]
   tmdb_id?: number
+  tvdb_id?: string
   overview?: string
   poster_path?: string
   backdrop_path?: string

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +47,7 @@ type MediaItem struct {
 	Subtitles         []Subtitle         `json:"subtitles"`
 	EmbeddedSubtitles []EmbeddedSubtitle `json:"embeddedSubtitles"`
 	TMDBID            int                `json:"tmdb_id"`
+	TVDBID            string             `json:"tvdb_id,omitempty"`
 	Overview          string             `json:"overview"`
 	PosterPath        string             `json:"poster_path"`
 	BackdropPath      string             `json:"backdrop_path"`
@@ -162,6 +164,7 @@ CREATE TABLE IF NOT EXISTS movies (
   path TEXT NOT NULL,
   duration INTEGER NOT NULL DEFAULT 0,
   tmdb_id INTEGER,
+  tvdb_id TEXT,
   overview TEXT,
   poster_path TEXT,
   backdrop_path TEXT,
@@ -178,6 +181,7 @@ CREATE TABLE IF NOT EXISTS tv_episodes (
   path TEXT NOT NULL,
   duration INTEGER NOT NULL DEFAULT 0,
   tmdb_id INTEGER,
+  tvdb_id TEXT,
   overview TEXT,
   poster_path TEXT,
   backdrop_path TEXT,
@@ -194,6 +198,7 @@ CREATE TABLE IF NOT EXISTS anime_episodes (
   path TEXT NOT NULL,
   duration INTEGER NOT NULL DEFAULT 0,
   tmdb_id INTEGER,
+  tvdb_id TEXT,
   overview TEXT,
   poster_path TEXT,
   backdrop_path TEXT,
@@ -231,8 +236,14 @@ CREATE TABLE IF NOT EXISTS embedded_subtitles (
 );
 CREATE INDEX IF NOT EXISTS idx_embedded_subtitles_media_id ON embedded_subtitles(media_id);
 `
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	// Migration: add tvdb_id to category tables if missing (existing DBs).
+	for _, table := range []string{"movies", "tv_episodes", "anime_episodes"} {
+		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN tvdb_id TEXT", table))
+	}
+	return nil
 }
 
 func SeedSample(db *sql.DB) error {
@@ -270,7 +281,7 @@ func queryAllMediaByKind(db *sql.DB, kind string) ([]MediaItem, error) {
 			q = `SELECT g.id, m.library_id, m.title, m.path, m.duration FROM music_tracks m JOIN media_global g ON g.kind = ? AND g.ref_id = m.id ORDER BY g.id`
 			args = []interface{}{k}
 		} else {
-			q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, m.tmdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average FROM ` + table + ` m JOIN media_global g ON g.kind = ? AND g.ref_id = m.id ORDER BY g.id`
+			q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average FROM ` + table + ` m JOIN media_global g ON g.kind = ? AND g.ref_id = m.id ORDER BY g.id`
 			args = []interface{}{k}
 		}
 		rows, err := db.Query(q, args...)
@@ -283,11 +294,15 @@ func queryAllMediaByKind(db *sql.DB, kind string) ([]MediaItem, error) {
 			var overview, posterPath, backdropPath, releaseDate sql.NullString
 			var voteAvg sql.NullFloat64
 			var tmdbID sql.NullInt64
+			var tvdbID sql.NullString
 			if table == "music_tracks" {
 				err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration)
 			} else {
-				err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &tmdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg)
+				err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg)
 				m.TMDBID = int(tmdbID.Int64)
+				if tvdbID.Valid {
+					m.TVDBID = tvdbID.String
+				}
 				if overview.Valid {
 					m.Overview = overview.String
 				}
@@ -428,11 +443,12 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 	var overview, posterPath, backdropPath, releaseDate sql.NullString
 	var voteAvg sql.NullFloat64
 	var tmdbID sql.NullInt64
+	var tvdbID sql.NullString
 	if table == "music_tracks" {
 		err = db.QueryRow(`SELECT m.id, m.library_id, m.title, m.path, m.duration FROM music_tracks m WHERE m.id = ?`, refID).Scan(&refID, &libID, &title, &path, &duration)
 	} else {
-		err = db.QueryRow(`SELECT m.id, m.library_id, m.title, m.path, m.duration, m.tmdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average FROM `+table+` m WHERE m.id = ?`, refID).
-			Scan(&refID, &libID, &title, &path, &duration, &tmdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg)
+		err = db.QueryRow(`SELECT m.id, m.library_id, m.title, m.path, m.duration, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average FROM `+table+` m WHERE m.id = ?`, refID).
+			Scan(&refID, &libID, &title, &path, &duration, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg)
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -465,6 +481,9 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 	}
 	if tmdbID.Valid {
 		m.TMDBID = int(tmdbID.Int64)
+	}
+	if tvdbID.Valid {
+		m.TVDBID = tvdbID.String
 	}
 	subs, err := getSubtitlesForMedia(db, id)
 	if err != nil {
@@ -499,7 +518,7 @@ func GetMediaByLibraryID(db *sql.DB, libraryID int) ([]MediaItem, error) {
 // queryMediaByLibraryID queries the single category table for this library.
 func queryMediaByLibraryID(db *sql.DB, libraryID int, kind string) ([]MediaItem, error) {
 	table := mediaTableForKind(kind)
-	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, m.tmdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ?
@@ -530,11 +549,15 @@ ORDER BY g.id`
 		var overview, posterPath, backdropPath, releaseDate sql.NullString
 		var voteAvg sql.NullFloat64
 		var tmdbID sql.NullInt64
+		var tvdbID sql.NullString
 		if table == "music_tracks" {
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration)
 		} else {
-			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &tmdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg)
+			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg)
 			m.TMDBID = int(tmdbID.Int64)
+			if tvdbID.Valid {
+				m.TVDBID = tvdbID.String
+			}
 			if overview.Valid {
 				m.Overview = overview.String
 			}
@@ -741,8 +764,9 @@ func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPat
 // HandleScanLibrary walks the given filesystem path and inserts supported media files
 // into the category table for this library type only (movies, tv_episodes, anime_episodes, or music_tracks).
 // libraryID must be > 0. mediaType must be tv, movie, music, or anime.
+// id may be nil; then no metadata lookup is performed.
 // It returns the number of new records added.
-func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType, tmdbKey string, libraryID int) (int, error) {
+func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType string, libraryID int, id metadata.Identifier) (int, error) {
 	if root == "" {
 		return 0, fmt.Errorf("path is required")
 	}
@@ -755,7 +779,6 @@ func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType, tmd
 
 	kind := mediaType
 	table := mediaTableForKind(kind)
-	tmdb := metadata.NewTMDBClient(tmdbKey)
 
 	info, err := os.Stat(root)
 	if err != nil {
@@ -793,14 +816,16 @@ func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType, tmd
 
 		var refID int
 		var tmdbID int
+		var tvdbIDExisting sql.NullString
 		var existingGlobalID int
 		var rowErr error
 		if table == "music_tracks" {
 			rowErr = dbConn.QueryRow(`SELECT m.id FROM music_tracks m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).Scan(&refID)
-			tmdbID = 0
+			tvdbIDExisting = sql.NullString{}
 		} else {
-			rowErr = dbConn.QueryRow(`SELECT m.id, COALESCE(m.tmdb_id, 0) FROM `+table+` m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).Scan(&refID, &tmdbID)
+			rowErr = dbConn.QueryRow(`SELECT m.id, COALESCE(m.tmdb_id, 0), m.tvdb_id FROM `+table+` m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).Scan(&refID, &tmdbID, &tvdbIDExisting)
 		}
+		hasMetadata := tmdbID != 0 || (tvdbIDExisting.Valid && tvdbIDExisting.String != "")
 		if rowErr == nil {
 			_ = dbConn.QueryRow(`SELECT id FROM media_global WHERE kind = ? AND ref_id = ?`, kind, refID).Scan(&existingGlobalID)
 		}
@@ -819,50 +844,40 @@ func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType, tmd
 		mItem.Path = path
 		mItem.Type = kind
 
-		doTMDB := (kind == LibraryTypeTV || kind == LibraryTypeAnime || kind == LibraryTypeMovie) && tmdbKey != ""
-		if doTMDB {
+		if id != nil && !hasMetadata && (kind == LibraryTypeTV || kind == LibraryTypeAnime || kind == LibraryTypeMovie) {
+			info := metadata.ParseFilename(d.Name())
 			switch kind {
 			case LibraryTypeTV, LibraryTypeAnime:
-				info := metadata.ParseFilename(d.Name())
-				results, _ := tmdb.SearchTV(info.Title)
-				if len(results) > 0 {
-					series := results[0]
-					if info.Season > 0 && info.Episode > 0 {
-						episode, err := tmdb.GetEpisodeDetails(series.ID, info.Season, info.Episode)
-						if err == nil {
-							mItem.TMDBID = episode.ID
-							mItem.Title = fmt.Sprintf("%s - S%02dE%02d - %s", series.Name, info.Season, info.Episode, episode.Name)
-							mItem.Overview = episode.Overview
-							mItem.PosterPath = episode.PosterPath
-							if mItem.PosterPath == "" {
-								mItem.PosterPath = series.PosterPath
-							}
-							mItem.BackdropPath = series.BackdropPath
-							mItem.ReleaseDate = episode.ReleaseDate
-							mItem.VoteAverage = episode.VoteAverage
+				if res := id.IdentifyTV(ctx, info); res != nil {
+					mItem.Title = res.Title
+					mItem.Overview = res.Overview
+					mItem.PosterPath = res.PosterURL
+					mItem.BackdropPath = res.BackdropURL
+					mItem.ReleaseDate = res.ReleaseDate
+					mItem.VoteAverage = res.VoteAverage
+					if res.Provider == "tmdb" {
+						if id, err := parseInt(res.ExternalID); err == nil {
+							mItem.TMDBID = id
 						}
-					} else {
-						mItem.TMDBID = series.ID
-						mItem.Title = series.Name
-						mItem.Overview = series.Overview
-						mItem.PosterPath = series.PosterPath
-						mItem.BackdropPath = series.BackdropPath
-						mItem.ReleaseDate = series.FirstAirDate
-						mItem.VoteAverage = series.VoteAverage
+					} else if res.Provider == "tvdb" {
+						mItem.TVDBID = res.ExternalID
 					}
 				}
 			case LibraryTypeMovie:
-				info := metadata.ParseFilename(d.Name())
-				results, _ := tmdb.SearchMovie(info.Title)
-				if len(results) > 0 {
-					movie := results[0]
-					mItem.TMDBID = movie.ID
-					mItem.Title = movie.Title
-					mItem.Overview = movie.Overview
-					mItem.PosterPath = movie.PosterPath
-					mItem.BackdropPath = movie.BackdropPath
-					mItem.ReleaseDate = movie.ReleaseDate
-					mItem.VoteAverage = movie.VoteAverage
+				if res := id.IdentifyMovie(ctx, info); res != nil {
+					mItem.Title = res.Title
+					mItem.Overview = res.Overview
+					mItem.PosterPath = res.PosterURL
+					mItem.BackdropPath = res.BackdropURL
+					mItem.ReleaseDate = res.ReleaseDate
+					mItem.VoteAverage = res.VoteAverage
+					if res.Provider == "tmdb" {
+						if id, err := parseInt(res.ExternalID); err == nil {
+							mItem.TMDBID = id
+						}
+					} else if res.Provider == "tvdb" {
+						mItem.TVDBID = res.ExternalID
+					}
 				}
 			}
 		}
@@ -872,8 +887,8 @@ func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType, tmd
 			if table == "music_tracks" {
 				err = dbConn.QueryRowContext(ctx, `INSERT INTO music_tracks (library_id, title, path, duration) VALUES (?, ?, ?, 0) RETURNING id`, libraryID, mItem.Title, mItem.Path).Scan(&refID)
 			} else {
-				err = dbConn.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, tmdb_id, overview, poster_path, backdrop_path, release_date, vote_average) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?) RETURNING id`,
-					libraryID, mItem.Title, mItem.Path, mItem.TMDBID, nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage)).Scan(&refID)
+				err = dbConn.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+					libraryID, mItem.Title, mItem.Path, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage)).Scan(&refID)
 			}
 			if err != nil {
 				return err
@@ -885,9 +900,9 @@ func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType, tmd
 			added++
 		} else {
 			globalID = existingGlobalID
-			if tmdbID == 0 && table != "music_tracks" {
-				_, _ = dbConn.ExecContext(ctx, `UPDATE `+table+` SET title = ?, tmdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ? WHERE id = ?`,
-					mItem.Title, mItem.TMDBID, nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), refID)
+			if !hasMetadata && table != "music_tracks" {
+				_, _ = dbConn.ExecContext(ctx, `UPDATE `+table+` SET title = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ? WHERE id = ?`,
+					mItem.Title, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), refID)
 			}
 		}
 
@@ -924,6 +939,10 @@ func nullStr(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+func parseInt(s string) (int, error) {
+	return strconv.Atoi(s)
 }
 
 func nullFloat64(v float64) interface{} {

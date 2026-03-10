@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  fetchLibraryMedia,
-  listLibraries,
-  startTranscode,
-  type Library,
-  type MediaItem,
-} from '../api'
+import { fetchLibraryMedia, listLibraries, type Library, type MediaItem } from '../api'
 import { useAuthActions, useAuthState } from '../contexts/AuthContext'
-import { PlayerPanel } from '../components/PlayerPanel'
-import { Login } from './Login'
 
 const LIBRARY_MEDIA_TIMEOUT_MS = 15_000
 
@@ -20,13 +12,6 @@ function fetchLibraryMediaWithTimeout(id: number): Promise<MediaItem[]> {
     ),
   ])
 }
-
-type WsEvent =
-  | { type: 'welcome'; message: string }
-  | { type: 'pong' }
-  | { type: 'transcode_started'; id: number }
-  | { type: 'transcode_complete'; id: number; output?: string; elapsed?: number }
-  | { type: string; [k: string]: unknown }
 
 function getShowName(title: string): string {
   const match = title.match(/^(.+?)\s*-\s*S\d+/i)
@@ -66,9 +51,6 @@ export function Home() {
   const [loadLibsError, setLoadLibsError] = useState<string | null>(null)
   const [loadingMedia, setLoadingMedia] = useState<number | null>(null)
   const [errorByLibrary, setErrorByLibrary] = useState<Record<number, string>>({})
-  const [selected, setSelected] = useState<MediaItem | undefined>()
-  const [wsConnected, setWsConnected] = useState(false)
-  const [lastEvent, setLastEvent] = useState<string | undefined>()
   const selectedLibraryIdRef = useRef<number | null>(null)
   selectedLibraryIdRef.current = selectedLibraryId
 
@@ -135,39 +117,6 @@ export function Home() {
       loadLibraryMedia(selectedLibraryId)
     }
   }, [selectedLibraryId, mediaByLibrary, loadLibraryMedia])
-
-  useEffect(() => {
-    const wsUrl =
-      (import.meta.env.VITE_WS_URL as string | undefined) ||
-      (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'
-    const ws = new WebSocket(wsUrl)
-    ws.addEventListener('open', () => setWsConnected(true))
-    ws.addEventListener('close', () => setWsConnected(false))
-    ws.addEventListener('error', () => setWsConnected(false))
-    ws.addEventListener('message', (event) => {
-      try {
-        const data = JSON.parse(event.data) as WsEvent
-        if (data.type === 'welcome') setLastEvent('Connected.')
-        else if (data.type === 'transcode_started') setLastEvent(`Transcode started for id=${data.id}`)
-        else if (data.type === 'transcode_complete')
-          setLastEvent(`Transcode complete for id=${data.id}`)
-      } catch {
-        // ignore
-      }
-    })
-    return () => ws.close()
-  }, [])
-
-  const handlePlay = useCallback(async (item: MediaItem) => {
-    setSelected(item)
-    try {
-      await startTranscode(item.id)
-      setLastEvent(`Requested transcode for "${item.title}"`)
-    } catch (err) {
-      console.error(err)
-      setLastEvent('Failed to start transcode')
-    }
-  }, [])
 
   const selectLibrary = useCallback((id: number) => {
     setSelectedLibraryId(id)
@@ -288,13 +237,6 @@ export function Home() {
                                 <span className="episode-title" title={ep.title}>
                                   {ep.title}
                                 </span>
-                                <button
-                                  type="button"
-                                  className="play-button small"
-                                  onClick={() => handlePlay(ep)}
-                                >
-                                  Play
-                                </button>
                               </li>
                             ))}
                           </ul>
@@ -307,11 +249,6 @@ export function Home() {
             </>
           )}
         </section>
-        <PlayerPanel
-          selected={selected}
-          wsConnected={wsConnected}
-          lastEvent={lastEvent}
-        />
       </main>
     </div>
   )

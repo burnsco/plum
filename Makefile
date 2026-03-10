@@ -9,7 +9,7 @@ YELLOW := \033[1;33m
 RED := \033[1;31m
 NC := \033[0m # No Color
 
-.PHONY: help dev build up down logs logs-app logs-frontend ps restart clean lint fmt test
+.PHONY: help dev dev-clean build up down logs logs-app logs-frontend ps restart clean lint fmt test
 
 # Default target
 help:
@@ -18,8 +18,9 @@ help:
 	@echo "$(BLUE)╚════════════════════════════════════════════════════════════════╝$(NC)"
 	@echo ""
 	@echo "$(GREEN)Development:$(NC)"
-	@echo "  make dev         - 🚀 Start full stack in development mode"
-	@echo "  make build       - 🔨 Build all Docker images"
+	@echo "  make dev         - 🚀 Start full stack in development mode (fresh DB, no users/libraries)"
+	@echo "  make dev-clean  - 🧹 Same as dev: clean DB then start (onboarding from scratch)"
+	@echo "  make build      - 🔨 Build all Docker images"
 	@echo "  make up          - ⬆️  Start services in background"
 	@echo "  make down        - ⬇️  Stop all services"
 	@echo "  make restart     - 🔄 Restart all services"
@@ -43,6 +44,8 @@ dev:
 	# Remove volumes so each dev run starts with a clean DB (e.g. no "admin already exists").
 	$(DOCKER_COMPOSE) down -v
 	$(DOCKER_COMPOSE) up --build
+
+dev-clean: dev
 
 build:
 	# Explicit rebuild of all images without starting containers.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MediaItem } from '../api'
 import { BASE_URL } from '../api'
-import { mediaStreamUrl } from '@plum/shared'
+import { mediaStreamUrl, tmdbBackdropUrl } from '@plum/shared'
 
 interface Props {
   selected?: MediaItem
@@ -57,11 +57,6 @@ export function PlayerPanel({ selected, wsConnected, lastEvent }: Props) {
     }
   }, [selectedTrackKey])
 
-  const getBackdropURL = (path: string | undefined) => {
-    if (!path) return ''
-    return `https://image.tmdb.org/t/p/w500${path}`
-  }
-
   return (
     <section className="player-panel">
       <header className="player-header">
@@ -74,7 +69,7 @@ export function PlayerPanel({ selected, wsConnected, lastEvent }: Props) {
         <div className="player-body">
           {selected.backdrop_path && (
             <div className="player-backdrop">
-              <img src={getBackdropURL(selected.backdrop_path)} alt="backdrop" />
+              <img src={tmdbBackdropUrl(selected.backdrop_path)} alt="backdrop" />
             </div>
           )}
           <div className="player-title">{selected.title}</div>

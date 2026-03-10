@@ -16,6 +16,7 @@ import (
 
 	"plum/internal/db"
 	httpapi "plum/internal/http"
+	"plum/internal/metadata"
 	"plum/internal/transcoder"
 	"plum/internal/ws"
 )
@@ -24,6 +25,8 @@ func main() {
 	addr := getEnv("PLUM_ADDR", ":8080")
 	conn := getEnv("PLUM_DATABASE_URL", "./data/plum.db")
 	tmdbKey := getEnv("TMDB_API_KEY", "")
+	tvdbKey := getEnv("TVDB_API_KEY", "")
+	pipeline := metadata.NewPipeline(tmdbKey, tvdbKey)
 
 	sqlDB, err := db.InitDB(conn)
 	if err != nil {
@@ -40,7 +43,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      buildRouter(sqlDB, hub, tmdbKey),
+		Handler:      buildRouter(sqlDB, hub, pipeline),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -73,7 +76,7 @@ func getEnv(key, def string) string {
 	return def
 }
 
-func buildRouter(sqlDB *sql.DB, hub *ws.Hub, tmdbKey string) http.Handler {
+func buildRouter(sqlDB *sql.DB, hub *ws.Hub, pipeline *metadata.Pipeline) http.Handler {
 	r := chi.NewRouter()
 
 	// CORS: allow credentials (cookies) by reflecting Origin when set
@@ -98,7 +101,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, tmdbKey string) http.Handler {
 	r.Use(httpapi.AuthMiddleware(sqlDB))
 
 	authHandler := &httpapi.AuthHandler{DB: sqlDB}
-	libHandler := &httpapi.LibraryHandler{DB: sqlDB, TMDBKey: tmdbKey}
+	libHandler := &httpapi.LibraryHandler{DB: sqlDB, Meta: pipeline}
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

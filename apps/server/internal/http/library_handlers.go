@@ -9,11 +9,12 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"plum/internal/db"
+	"plum/internal/metadata"
 )
 
 type LibraryHandler struct {
-	DB      *sql.DB
-	TMDBKey string
+	DB   *sql.DB
+	Meta metadata.Identifier
 }
 
 type createLibraryRequest struct {
@@ -137,7 +138,13 @@ func (h *LibraryHandler) ScanLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	added, err := db.HandleScanLibrary(r.Context(), h.DB, path, typ, h.TMDBKey, libraryID)
+	identify := r.URL.Query().Get("identify") != "false"
+	var id metadata.Identifier
+	if identify {
+		id = h.Meta
+	}
+
+	added, err := db.HandleScanLibrary(r.Context(), h.DB, path, typ, libraryID, id)
 	if err != nil {
 		http.Error(w, "scan error: "+err.Error(), http.StatusInternalServerError)
 		return

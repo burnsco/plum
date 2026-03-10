@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"plum/internal/metadata"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -92,7 +94,7 @@ func TestHandleScanLibrary_RecursesSubdirectories(t *testing.T) {
 
 	ctx := context.Background()
 
-	addedTV, err := HandleScanLibrary(ctx, db, tvRoot, LibraryTypeTV, "", tvLibID)
+	addedTV, err := HandleScanLibrary(ctx, db, tvRoot, LibraryTypeTV, tvLibID, nil)
 	if err != nil {
 		t.Fatalf("scan tv library: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestHandleScanLibrary_RecursesSubdirectories(t *testing.T) {
 		t.Fatalf("expected 2 tv items added, got %d", addedTV)
 	}
 
-	addedMovies, err := HandleScanLibrary(ctx, db, movieRoot, LibraryTypeMovie, "", movieLibID)
+	addedMovies, err := HandleScanLibrary(ctx, db, movieRoot, LibraryTypeMovie, movieLibID, nil)
 	if err != nil {
 		t.Fatalf("scan movie library: %v", err)
 	}
@@ -162,7 +164,7 @@ func TestHandleScanLibrary_IsIdempotent(t *testing.T) {
 
 	ctx := context.Background()
 
-	addedFirst, err := HandleScanLibrary(ctx, db, filepath.Join(tmp, "SomeShow"), LibraryTypeTV, "", tvLibID)
+	addedFirst, err := HandleScanLibrary(ctx, db, filepath.Join(tmp, "SomeShow"), LibraryTypeTV, tvLibID, nil)
 	if err != nil {
 		t.Fatalf("first scan: %v", err)
 	}
@@ -170,7 +172,7 @@ func TestHandleScanLibrary_IsIdempotent(t *testing.T) {
 		t.Fatalf("expected 1 item on first scan, got %d", addedFirst)
 	}
 
-	addedSecond, err := HandleScanLibrary(ctx, db, filepath.Join(tmp, "SomeShow"), LibraryTypeTV, "", tvLibID)
+	addedSecond, err := HandleScanLibrary(ctx, db, filepath.Join(tmp, "SomeShow"), LibraryTypeTV, tvLibID, nil)
 	if err != nil {
 		t.Fatalf("second scan: %v", err)
 	}
@@ -184,5 +186,74 @@ func TestHandleScanLibrary_IsIdempotent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 tv_episode row after two scans, got %d", count)
+	}
+}
+
+// mockIdentifier returns fixed metadata for tests.
+type mockIdentifier struct {
+	tvResult    *metadata.MatchResult
+	movieResult *metadata.MatchResult
+}
+
+func (m *mockIdentifier) IdentifyTV(_ context.Context, _ metadata.MediaInfo) *metadata.MatchResult {
+	return m.tvResult
+}
+
+func (m *mockIdentifier) IdentifyMovie(_ context.Context, _ metadata.MediaInfo) *metadata.MatchResult {
+	return m.movieResult
+}
+
+// TestHandleScanLibrary_WithMockIdentifier verifies that when a mock identifier returns a match,
+// the stored row has the expected title and overview.
+func TestHandleScanLibrary_WithMockIdentifier(t *testing.T) {
+	db := newTestDB(t)
+	tvLibID := getLibraryID(t, db, "tv")
+
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "Show", "Season 1")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir tree: %v", err)
+	}
+	file := filepath.Join(root, "Show.S01E03.mkv")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write fake media: %v", err)
+	}
+
+	prevSkip := SkipFFprobeInScan
+	SkipFFprobeInScan = true
+	defer func() { SkipFFprobeInScan = prevSkip }()
+
+	ctx := context.Background()
+	mock := &mockIdentifier{
+		tvResult: &metadata.MatchResult{
+			Title:       "Mock Show - S01E03 - The Episode",
+			Overview:    "Mock overview for testing.",
+			PosterURL:   "https://example.com/poster.jpg",
+			BackdropURL: "https://example.com/backdrop.jpg",
+			ReleaseDate: "2024-01-15",
+			VoteAverage: 8.5,
+			Provider:    "tmdb",
+			ExternalID:  "12345",
+		},
+	}
+
+	added, err := HandleScanLibrary(ctx, db, filepath.Join(tmp, "Show"), LibraryTypeTV, tvLibID, mock)
+	if err != nil {
+		t.Fatalf("scan with mock: %v", err)
+	}
+	if added != 1 {
+		t.Fatalf("expected 1 item added, got %d", added)
+	}
+
+	var title, overview string
+	err = db.QueryRow(`SELECT title, overview FROM tv_episodes WHERE library_id = ? AND path = ?`, tvLibID, file).Scan(&title, &overview)
+	if err != nil {
+		t.Fatalf("query stored row: %v", err)
+	}
+	if title != "Mock Show - S01E03 - The Episode" {
+		t.Errorf("title: got %q", title)
+	}
+	if overview != "Mock overview for testing." {
+		t.Errorf("overview: got %q", overview)
 	}
 }

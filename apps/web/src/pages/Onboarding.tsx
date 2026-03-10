@@ -101,7 +101,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
         type: libraryType,
         path: libraryPath.trim(),
       })
-      const result = await scanLibraryById(lib.id)
+      const result = await scanLibraryById(lib.id, { identify: false })
       setAddedLibraries((prev) => [
         ...prev,
         { id: lib.id, name: lib.name, type: lib.type, path: lib.path, addedCount: result.added },
@@ -125,7 +125,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
         const lib = await createLibrary({ name: def.name, type: def.type, path: def.path })
         let addedCount = 0
         try {
-          const result = await scanLibraryById(lib.id)
+          const result = await scanLibraryById(lib.id, { identify: false })
           addedCount = result.added
         } catch {
           // Path may not exist (e.g. /anime not mounted); library is still created
@@ -210,14 +210,6 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
                 </button>
               )}
             </form>
-            <button
-              type="button"
-              className="link-button"
-              style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}
-              onClick={onGoToHome}
-            >
-              Already have an account? Sign in instead
-            </button>
           </div>
         )}
 
@@ -225,7 +217,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
           <div className="auth-card">
             <h1 className="auth-title">Add libraries</h1>
             <p className="auth-sub">
-              Choose a type (TV, movies, or music), name the library, and set the folder path. You can add multiple libraries.
+              Add at least one library and run a scan to continue. Choose a type, name the library, and set the folder path (e.g. /tv, /movies).
             </p>
             <div className="onboarding-library-actions" style={{ marginBottom: '1rem' }}>
               <button

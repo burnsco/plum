@@ -1,16 +1,16 @@
 package metadata
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
-	"strings"
 )
 
 const tmdbBaseURL = "https://api.themoviedb.org/3"
+const tmdbImageBase = "https://image.tmdb.org/t/p"
 
 type TMDBClient struct {
 	APIKey string
@@ -36,9 +36,13 @@ func NewTMDBClient(apiKey string) *TMDBClient {
 	return &TMDBClient{APIKey: apiKey}
 }
 
-func (c *TMDBClient) SearchTV(query string) ([]TMDBResult, error) {
+func (c *TMDBClient) SearchTV(ctx context.Context, query string) ([]MatchResult, error) {
 	u := fmt.Sprintf("%s/search/tv?api_key=%s&query=%s", tmdbBaseURL, c.APIKey, url.QueryEscape(query))
-	resp, err := http.Get(u)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -48,12 +52,20 @@ func (c *TMDBClient) SearchTV(query string) ([]TMDBResult, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return nil, err
 	}
-	return res.Results, nil
+	out := make([]MatchResult, 0, len(res.Results))
+	for _, r := range res.Results {
+		out = append(out, c.tmdbResultToMatch(r, r.Name, r.FirstAirDate))
+	}
+	return out, nil
 }
 
-func (c *TMDBClient) SearchMovie(query string) ([]TMDBResult, error) {
+func (c *TMDBClient) SearchMovie(ctx context.Context, query string) ([]MatchResult, error) {
 	u := fmt.Sprintf("%s/search/movie?api_key=%s&query=%s", tmdbBaseURL, c.APIKey, url.QueryEscape(query))
-	resp, err := http.Get(u)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -63,17 +75,72 @@ func (c *TMDBClient) SearchMovie(query string) ([]TMDBResult, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return nil, err
 	}
-	return res.Results, nil
+	out := make([]MatchResult, 0, len(res.Results))
+	for _, r := range res.Results {
+		out = append(out, c.tmdbResultToMatch(r, r.Title, r.ReleaseDate))
+	}
+	return out, nil
 }
 
-func (c *TMDBClient) GetTVDetails(id int) (*TMDBResult, error) {
+func (c *TMDBClient) GetEpisode(ctx context.Context, seriesID string, season, episode int) (*MatchResult, error) {
+	tvID, err := strconv.Atoi(seriesID)
+	if err != nil {
+		return nil, err
+	}
+	ep, err := c.getEpisodeDetails(tvID, season, episode)
+	if err != nil {
+		return nil, err
+	}
+	series, _ := c.getTVDetails(tvID)
+	posterPath := ep.PosterPath
+	if posterPath == "" && series != nil {
+		posterPath = series.PosterPath
+	}
+	releaseDate := ep.ReleaseDate
+	if releaseDate == "" && series != nil {
+		releaseDate = series.FirstAirDate
+	}
+	title := ep.Name
+	if title == "" && series != nil {
+		title = fmt.Sprintf("%s - S%02dE%02d", series.Name, season, episode)
+	} else if series != nil {
+		title = fmt.Sprintf("%s - S%02dE%02d - %s", series.Name, season, episode, ep.Name)
+	}
+	m := c.tmdbResultToMatch(TMDBResult{
+		Overview:     ep.Overview,
+		PosterPath:   posterPath,
+		BackdropPath: ep.BackdropPath,
+		ReleaseDate:  releaseDate,
+		VoteAverage:  ep.VoteAverage,
+	}, title, releaseDate)
+	if m.BackdropURL == "" && series != nil {
+		m.BackdropURL = tmdbImageURL(series.BackdropPath, "w500")
+	}
+	m.Provider = "tmdb"
+	m.ExternalID = strconv.Itoa(ep.ID)
+	return &m, nil
+}
+
+func (c *TMDBClient) tmdbResultToMatch(r TMDBResult, title, releaseDate string) MatchResult {
+	return MatchResult{
+		Title:       title,
+		Overview:    r.Overview,
+		PosterURL:   tmdbImageURL(r.PosterPath, "w500"),
+		BackdropURL: tmdbImageURL(r.BackdropPath, "w500"),
+		ReleaseDate: releaseDate,
+		VoteAverage: r.VoteAverage,
+		Provider:    "tmdb",
+		ExternalID:  strconv.Itoa(r.ID),
+	}
+}
+
+func (c *TMDBClient) getTVDetails(id int) (*TMDBResult, error) {
 	u := fmt.Sprintf("%s/tv/%d?api_key=%s", tmdbBaseURL, id, c.APIKey)
 	resp, err := http.Get(u)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
 	var res TMDBResult
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return nil, err
@@ -81,14 +148,13 @@ func (c *TMDBClient) GetTVDetails(id int) (*TMDBResult, error) {
 	return &res, nil
 }
 
-func (c *TMDBClient) GetEpisodeDetails(tvID, season, episode int) (*TMDBResult, error) {
+func (c *TMDBClient) getEpisodeDetails(tvID, season, episode int) (*TMDBResult, error) {
 	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s", tmdbBaseURL, tvID, season, episode, c.APIKey)
 	resp, err := http.Get(u)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
 	var res TMDBResult
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return nil, err
@@ -96,56 +162,18 @@ func (c *TMDBClient) GetEpisodeDetails(tvID, season, episode int) (*TMDBResult, 
 	return &res, nil
 }
 
-type MediaInfo struct {
-	Title   string
-	Season  int
-	Episode int
-	IsTV    bool
-}
-
-var (
-	tvRegex1 = regexp.MustCompile(`(?i)(.*?)s(\d+)e(\d+)`)
-	tvRegex2 = regexp.MustCompile(`(?i)(.*?)(\d+)x(\d+)`)
-)
-
-func ParseFilename(filename string) MediaInfo {
-	filename = strings.ReplaceAll(filename, ".", " ")
-	filename = strings.ReplaceAll(filename, "_", " ")
-
-	if m := tvRegex1.FindStringSubmatch(filename); len(m) == 4 {
-		s, _ := strconv.Atoi(m[2])
-		e, _ := strconv.Atoi(m[3])
-		return MediaInfo{
-			Title:   strings.TrimSpace(m[1]),
-			Season:  s,
-			Episode: e,
-			IsTV:    true,
-		}
-	}
-
-	if m := tvRegex2.FindStringSubmatch(filename); len(m) == 4 {
-		s, _ := strconv.Atoi(m[2])
-		e, _ := strconv.Atoi(m[3])
-		return MediaInfo{
-			Title:   strings.TrimSpace(m[1]),
-			Season:  s,
-			Episode: e,
-			IsTV:    true,
-		}
-	}
-
-	return MediaInfo{
-		Title: strings.TrimSpace(filename),
-		IsTV:  false,
-	}
-}
-
-func GetPosterURL(path string, size string) string {
+func tmdbImageURL(path, size string) string {
 	if path == "" {
 		return ""
 	}
 	if size == "" {
 		size = "w500"
 	}
-	return fmt.Sprintf("https://image.tmdb.org/t/p/%s%s", size, path)
+	return fmt.Sprintf("%s/%s%s", tmdbImageBase, size, path)
+}
+
+// GetPosterURL returns the full TMDB poster URL for a path (e.g. from DB).
+// Kept for backward compatibility with existing code that stores paths.
+func GetPosterURL(path string, size string) string {
+	return tmdbImageURL(path, size)
 }

@@ -1,8 +1,3 @@
-Your plan is already strong. The main thing missing is that **TVDB should not just appear as a fallback** — in real media servers it is often **a primary provider for TV content** alongside TMDB.
-
-Below is a **clean revised version of your plan** with **TVDB properly integrated into the architecture**, not just mentioned.
-
----
 
 # Metadata Strategy for Plum
 
