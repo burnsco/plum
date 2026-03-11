@@ -1,17 +1,23 @@
-import type { MouseEvent } from 'react'
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { Play } from 'lucide-react'
 import { tmdbPosterUrl } from '@plum/shared'
+
+export type PosterCardState = 'default' | 'identifying' | 'identify-failed'
 
 export type PosterGridItem = {
   key: string
   title: string
   subtitle: string
   posterPath?: string
-  isIdentifying?: boolean
+  cardState?: PosterCardState
   statusLabel?: string
+  statusActionLabel?: string
   href?: string
   onClick?: () => void
-  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
+  onPlay?: () => void
+  onStatusAction?: () => void
+  onContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void
 }
 
 interface Props {
@@ -25,40 +31,94 @@ export function LibraryPosterGrid({ items, compact = false }: Props) {
       {items.map((item) => (
         <div
           key={item.key}
-          className="relative"
+          className="show-card"
           onContextMenu={item.onContextMenu}
         >
-          {item.href ? (
-            <Link to={item.href} className="show-card">
-              <PosterCardBody item={item} />
-            </Link>
-          ) : (
-            <button type="button" className="show-card show-card-button" onClick={item.onClick}>
-              <PosterCardBody item={item} />
+          <CardHitArea item={item} />
+          {item.onPlay && (item.cardState ?? 'default') === 'default' && (
+            <button
+              type="button"
+              className="show-card-play-button"
+              aria-label={`Play ${item.title}`}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                item.onPlay?.()
+              }}
+            >
+              <Play className="size-5 fill-current" />
             </button>
           )}
+          <PosterCardBody item={item} />
         </div>
       ))}
     </div>
   )
 }
 
+function CardHitArea({ item }: { item: PosterGridItem }) {
+  if (item.href) {
+    return <Link to={item.href} className="show-card-hit-area" aria-label={item.title} />
+  }
+
+  if (item.onClick) {
+    return (
+      <button
+        type="button"
+        className="show-card-hit-area show-card-hit-area-button"
+        aria-label={item.title}
+        onClick={item.onClick}
+      />
+    )
+  }
+
+  return <div className="show-card-hit-area" aria-hidden="true" />
+}
+
 function PosterCardBody({ item }: { item: PosterGridItem }) {
   const posterUrl = tmdbPosterUrl(item.posterPath)
+  const [posterErrored, setPosterErrored] = useState(false)
+  const cardState = item.cardState ?? 'default'
+  const showIdentifyingShell = cardState === 'identifying' && (!posterUrl || posterErrored)
+  const showFailedShell = cardState === 'identify-failed' && (!posterUrl || posterErrored)
+  const showPlaceholderPoster = cardState === 'default' && (!posterUrl || posterErrored)
+
+  useEffect(() => {
+    setPosterErrored(false)
+  }, [posterUrl])
 
   return (
-    <>
-      <div className={`show-card-poster${item.isIdentifying ? ' show-card-poster--identifying' : ''}`}>
-        {posterUrl ? (
-          <img src={posterUrl} alt="" />
-        ) : item.isIdentifying ? (
+    <div className="show-card-content">
+      <div
+        className={`show-card-poster${cardState === 'identifying' ? ' show-card-poster--identifying' : ''}`}
+      >
+        {showIdentifyingShell ? (
           <div className="show-card-poster-shell show-card-poster-shell--identifying" aria-hidden="true" />
-        ) : (
+        ) : showFailedShell ? (
+          <div className="show-card-poster-shell show-card-poster-shell--failed" aria-hidden="true" />
+        ) : showPlaceholderPoster ? (
           <img src="/placeholder-poster.png" alt="" />
+        ) : (
+          <img src={posterUrl} alt="" onError={() => setPosterErrored(true)} />
         )}
-        {item.isIdentifying && (
-          <div className="show-card-identifying">
-            <span className="show-card-identifying-label">{item.statusLabel || 'Identifying…'}</span>
+        {cardState !== 'default' && (
+          <div className={`show-card-status show-card-status--${cardState}`}>
+            {item.statusLabel && (
+              <span className="show-card-status-label">{item.statusLabel}</span>
+            )}
+            {cardState === 'identify-failed' && item.statusActionLabel && item.onStatusAction && (
+              <button
+                type="button"
+                className="show-card-status-action"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  item.onStatusAction?.()
+                }}
+              >
+                {item.statusActionLabel}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -66,6 +126,6 @@ function PosterCardBody({ item }: { item: PosterGridItem }) {
         <div className="show-card-title">{item.title}</div>
         <div className="show-card-count">{item.subtitle}</div>
       </div>
-    </>
+    </div>
   )
 }

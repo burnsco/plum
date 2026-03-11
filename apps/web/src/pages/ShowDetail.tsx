@@ -36,7 +36,7 @@ export function ShowDetail() {
 
   const { data: items = [], isLoading: loading, error } = useLibraryMedia(libraryId)
   const { data: series, isLoading: seriesLoading } = useSeries(tmdbId)
-  const { playMedia } = usePlayer()
+  const { playEpisode } = usePlayer()
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null)
 
   const episodes = useMemo(() => {
@@ -183,7 +183,7 @@ export function ShowDetail() {
                       <button
                         type="button"
                         className="play-button small"
-                        onClick={() => playMedia(ep)}
+                        onClick={() => playEpisode(ep)}
                       >
                         Play
                       </button>

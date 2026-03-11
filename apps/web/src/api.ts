@@ -124,10 +124,14 @@ export interface IdentifyResult {
   failed: number
 }
 
-export async function identifyLibrary(id: number): Promise<IdentifyResult> {
+export async function identifyLibrary(
+  id: number,
+  options?: { signal?: AbortSignal },
+): Promise<IdentifyResult> {
   const res = await fetch(`${BASE_URL}/api/libraries/${id}/identify`, {
     ...defaultFetchOpts,
     method: 'POST',
+    signal: options?.signal,
   })
   if (!res.ok) {
     const text = await res.text()

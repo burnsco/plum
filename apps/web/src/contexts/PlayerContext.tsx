@@ -11,27 +11,55 @@ import {
 import type { MediaItem } from '../api'
 import { BASE_URL, startTranscode } from '../api'
 import { sortMusicTracks } from '../lib/musicGrouping'
+import { sortEpisodes } from '../lib/showGrouping'
 
-export type PlayerViewMode = 'inline' | 'theatre' | 'fullscreen'
+export type PlaybackKind = 'video' | 'music'
+export type PlayerViewMode = 'docked' | 'fullscreen'
 export type MusicRepeatMode = 'off' | 'all' | 'one'
+export type MediaElementSlot = 'audio' | 'video'
+
+export type PlaybackSession = {
+  activeMode: PlaybackKind
+  isDockOpen: boolean
+  viewMode: PlayerViewMode
+  queue: MediaItem[]
+  queueIndex: number
+  shuffle: boolean
+  repeatMode: MusicRepeatMode
+}
 
 type PlayerContextValue = {
-  selectedMedia: MediaItem | null
-  setSelectedMedia: (item: MediaItem | null) => void
+  playbackSession: PlaybackSession | null
+  activeItem: MediaItem | null
+  activeMode: PlaybackKind | null
+  isDockOpen: boolean
+  viewMode: PlayerViewMode
+  queue: MediaItem[]
+  queueIndex: number
+  shuffle: boolean
+  repeatMode: MusicRepeatMode
+  volume: number
+  muted: boolean
   playMedia: (item: MediaItem) => void
+  playMovie: (item: MediaItem) => void
+  playEpisode: (item: MediaItem) => void
+  playShowGroup: (items: MediaItem[]) => void
   playMusicCollection: (items: MediaItem[], startItem?: MediaItem) => void
-  musicQueue: MediaItem[]
-  musicQueueIndex: number
-  musicShuffle: boolean
-  musicRepeatMode: MusicRepeatMode
-  playNextTrack: () => void
-  playPreviousTrack: () => void
-  toggleMusicShuffle: () => void
-  cycleMusicRepeatMode: () => void
+  dismissDock: () => void
+  closePlayer: () => void
+  togglePlayPause: () => void
+  seekTo: (seconds: number) => void
+  setMuted: (muted: boolean) => void
+  setVolume: (volume: number) => void
+  enterFullscreen: () => void
+  exitFullscreen: () => void
+  registerMediaElement: (slot: MediaElementSlot, element: HTMLMediaElement | null) => void
+  playNextInQueue: () => void
+  playPreviousInQueue: () => void
+  toggleShuffle: () => void
+  cycleRepeatMode: () => void
   wsConnected: boolean
   lastEvent: string
-  viewMode: PlayerViewMode
-  setViewMode: (mode: PlayerViewMode | ((current: PlayerViewMode) => PlayerViewMode)) => void
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null)
@@ -53,47 +81,150 @@ function shuffleQueue(items: MediaItem[], currentId: number): MediaItem[] {
   return current ? [current, ...rest] : rest
 }
 
-function indexOfTrack(items: MediaItem[], trackId: number): number {
-  return items.findIndex((item) => item.id === trackId)
+function indexOfQueueItem(items: MediaItem[], itemId: number): number {
+  return items.findIndex((item) => item.id === itemId)
+}
+
+function clampVolume(volume: number): number {
+  return Math.max(0, Math.min(volume, 1))
 }
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
-  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null)
+  const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null)
+  const [musicBaseQueue, setMusicBaseQueue] = useState<MediaItem[]>([])
+  const [volume, setVolumeState] = useState(1)
+  const [muted, setMutedState] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
   const [lastEvent, setLastEvent] = useState('')
-  const [viewMode, setViewMode] = useState<PlayerViewMode>('inline')
-  const [musicBaseQueue, setMusicBaseQueue] = useState<MediaItem[]>([])
-  const [musicQueue, setMusicQueue] = useState<MediaItem[]>([])
-  const [musicQueueIndex, setMusicQueueIndex] = useState(0)
-  const [musicShuffle, setMusicShuffle] = useState(false)
-  const [musicRepeatMode, setMusicRepeatMode] = useState<MusicRepeatMode>('off')
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(0)
   const mountedRef = useRef(true)
+  const mediaElementsRef = useRef<Record<MediaElementSlot, HTMLMediaElement | null>>({
+    audio: null,
+    video: null,
+  })
 
-  const playVideo = useCallback((item: MediaItem) => {
-    setSelectedMedia(item)
-    setViewMode('theatre')
-    startTranscode(item.id).catch((err) => {
+  const activeItem = playbackSession?.queue[playbackSession.queueIndex] ?? null
+  const activeMode = playbackSession?.activeMode ?? null
+  const isDockOpen = playbackSession?.isDockOpen ?? false
+  const viewMode = playbackSession?.viewMode ?? 'docked'
+  const queue = useMemo(() => playbackSession?.queue ?? [], [playbackSession])
+  const queueIndex = playbackSession?.queueIndex ?? 0
+  const shuffle = playbackSession?.shuffle ?? false
+  const repeatMode = playbackSession?.repeatMode ?? 'off'
+
+  const pauseAllMediaElements = useCallback(() => {
+    mediaElementsRef.current.audio?.pause()
+    mediaElementsRef.current.video?.pause()
+  }, [])
+
+  const exitBrowserFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) return
+    void document.exitFullscreen().catch(() => {})
+  }, [])
+
+  const registerMediaElement = useCallback(
+    (slot: MediaElementSlot, element: HTMLMediaElement | null) => {
+      mediaElementsRef.current[slot] = element
+      if (!element) return
+      element.volume = volume
+      element.muted = muted
+    },
+    [muted, volume],
+  )
+
+  useEffect(() => {
+    for (const element of Object.values(mediaElementsRef.current)) {
+      if (!element) continue
+      element.volume = volume
+      element.muted = muted
+    }
+  }, [muted, volume])
+
+  const getActiveMediaElement = useCallback(() => {
+    if (activeMode === 'music') return mediaElementsRef.current.audio
+    if (activeMode === 'video') return mediaElementsRef.current.video
+    return null
+  }, [activeMode])
+
+  const dismissDock = useCallback(() => {
+    pauseAllMediaElements()
+    exitBrowserFullscreen()
+    setPlaybackSession(null)
+    setMusicBaseQueue([])
+  }, [exitBrowserFullscreen, pauseAllMediaElements])
+
+  const playVideoQueue = useCallback((items: MediaItem[], startIndex = 0) => {
+    if (items.length === 0) return
+    pauseAllMediaElements()
+    const clampedIndex = Math.max(0, Math.min(startIndex, items.length - 1))
+    const nextItem = items[clampedIndex] ?? items[0]
+    setPlaybackSession((current) => ({
+      activeMode: 'video',
+      isDockOpen: true,
+      viewMode: 'docked',
+      queue: items,
+      queueIndex: clampedIndex,
+      shuffle: false,
+      repeatMode: current?.repeatMode ?? 'off',
+    }))
+    setMusicBaseQueue([])
+    if (!nextItem) return
+    startTranscode(nextItem.id).catch((err) => {
       console.error('[Player] startTranscode failed', err)
       setLastEvent(`Error: ${err instanceof Error ? err.message : 'Failed to start transcode'}`)
     })
-  }, [])
+  }, [pauseAllMediaElements])
+
+  const playMovie = useCallback(
+    (item: MediaItem) => {
+      playVideoQueue([item])
+    },
+    [playVideoQueue],
+  )
+
+  const playEpisode = useCallback(
+    (item: MediaItem) => {
+      playVideoQueue([item])
+    },
+    [playVideoQueue],
+  )
+
+  const playShowGroup = useCallback(
+    (items: MediaItem[]) => {
+      if (items.length === 0) return
+      const episodes = [...items]
+      sortEpisodes(episodes)
+      playVideoQueue(episodes)
+    },
+    [playVideoQueue],
+  )
 
   const playMusicCollection = useCallback(
     (items: MediaItem[], startItem?: MediaItem) => {
       const baseQueue = sortMusicTracks(items.filter((item) => item.type === 'music'))
       if (baseQueue.length === 0) return
+
+      pauseAllMediaElements()
+
       const target = startItem ?? baseQueue[0]
-      const orderedQueue = musicShuffle ? shuffleQueue(baseQueue, target.id) : baseQueue
-      const nextIndex = Math.max(0, indexOfTrack(orderedQueue, target.id))
+      const nextShuffle = activeMode === 'music' ? shuffle : false
+      const nextRepeatMode = activeMode === 'music' ? repeatMode : 'off'
+      const orderedQueue = nextShuffle ? shuffleQueue(baseQueue, target.id) : baseQueue
+      const nextIndex = Math.max(0, indexOfQueueItem(orderedQueue, target.id))
+
       setMusicBaseQueue(baseQueue)
-      setMusicQueue(orderedQueue)
-      setMusicQueueIndex(nextIndex)
-      setSelectedMedia(orderedQueue[nextIndex] ?? target)
-      setViewMode('inline')
+      setPlaybackSession({
+        activeMode: 'music',
+        isDockOpen: true,
+        viewMode: 'docked',
+        queue: orderedQueue,
+        queueIndex: nextIndex,
+        shuffle: nextShuffle,
+        repeatMode: nextRepeatMode,
+      })
     },
-    [musicShuffle]
+    [activeMode, pauseAllMediaElements, repeatMode, shuffle],
   )
 
   const playMedia = useCallback(
@@ -102,66 +233,114 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         playMusicCollection([item], item)
         return
       }
-      playVideo(item)
-    },
-    [playMusicCollection, playVideo]
-  )
-
-  const selectMusicIndex = useCallback(
-    (nextIndex: number) => {
-      if (musicQueue.length === 0) return
-      const clampedIndex = Math.max(0, Math.min(nextIndex, musicQueue.length - 1))
-      setMusicQueueIndex(clampedIndex)
-      setSelectedMedia(musicQueue[clampedIndex] ?? null)
-    },
-    [musicQueue]
-  )
-
-  const playNextTrack = useCallback(() => {
-    if (musicQueue.length === 0) return
-    const atLastTrack = musicQueueIndex >= musicQueue.length - 1
-    if (!atLastTrack) {
-      selectMusicIndex(musicQueueIndex + 1)
-      return
-    }
-    if (musicRepeatMode === 'all') {
-      selectMusicIndex(0)
-    }
-  }, [musicQueue.length, musicQueueIndex, musicRepeatMode, selectMusicIndex])
-
-  const playPreviousTrack = useCallback(() => {
-    if (musicQueue.length === 0) return
-    if (musicQueueIndex > 0) {
-      selectMusicIndex(musicQueueIndex - 1)
-      return
-    }
-    if (musicRepeatMode === 'all') {
-      selectMusicIndex(musicQueue.length - 1)
-    }
-  }, [musicQueue.length, musicQueueIndex, musicRepeatMode, selectMusicIndex])
-
-  const toggleMusicShuffle = useCallback(() => {
-    setMusicShuffle((current) => {
-      const next = !current
-      if (musicBaseQueue.length === 0 || !selectedMedia || selectedMedia.type !== 'music') {
-        return next
+      if (item.type === 'movie') {
+        playMovie(item)
+        return
       }
-      const reorderedQueue = next
-        ? shuffleQueue(musicBaseQueue, selectedMedia.id)
-        : musicBaseQueue
-      setMusicQueue(reorderedQueue)
-      setMusicQueueIndex(Math.max(0, indexOfTrack(reorderedQueue, selectedMedia.id)))
-      return next
-    })
-  }, [musicBaseQueue, selectedMedia])
+      playEpisode(item)
+    },
+    [playEpisode, playMovie, playMusicCollection],
+  )
 
-  const cycleMusicRepeatMode = useCallback(() => {
-    setMusicRepeatMode((current) => {
-      if (current === 'off') return 'all'
-      if (current === 'all') return 'one'
-      return 'off'
+  const playNextInQueue = useCallback(() => {
+    setPlaybackSession((current) => {
+      if (!current || current.activeMode !== 'music' || current.queue.length === 0) return current
+      const atLastItem = current.queueIndex >= current.queue.length - 1
+      if (!atLastItem) {
+        return { ...current, queueIndex: current.queueIndex + 1, isDockOpen: true, viewMode: 'docked' }
+      }
+      if (current.repeatMode === 'all') {
+        return { ...current, queueIndex: 0, isDockOpen: true, viewMode: 'docked' }
+      }
+      return current
     })
   }, [])
+
+  const playPreviousInQueue = useCallback(() => {
+    setPlaybackSession((current) => {
+      if (!current || current.activeMode !== 'music' || current.queue.length === 0) return current
+      if (current.queueIndex > 0) {
+        return { ...current, queueIndex: current.queueIndex - 1, isDockOpen: true, viewMode: 'docked' }
+      }
+      if (current.repeatMode === 'all') {
+        return {
+          ...current,
+          queueIndex: current.queue.length - 1,
+          isDockOpen: true,
+          viewMode: 'docked',
+        }
+      }
+      return current
+    })
+  }, [])
+
+  const toggleShuffle = useCallback(() => {
+    setPlaybackSession((current) => {
+      if (!current || current.activeMode !== 'music') return current
+      const currentTrack = current.queue[current.queueIndex]
+      if (!currentTrack || musicBaseQueue.length === 0) {
+        return { ...current, shuffle: !current.shuffle }
+      }
+      const nextShuffle = !current.shuffle
+      const nextQueue = nextShuffle ? shuffleQueue(musicBaseQueue, currentTrack.id) : musicBaseQueue
+      return {
+        ...current,
+        shuffle: nextShuffle,
+        queue: nextQueue,
+        queueIndex: Math.max(0, indexOfQueueItem(nextQueue, currentTrack.id)),
+      }
+    })
+  }, [musicBaseQueue])
+
+  const cycleRepeatMode = useCallback(() => {
+    setPlaybackSession((current) => {
+      if (!current || current.activeMode !== 'music') return current
+      if (current.repeatMode === 'off') return { ...current, repeatMode: 'all' }
+      if (current.repeatMode === 'all') return { ...current, repeatMode: 'one' }
+      return { ...current, repeatMode: 'off' }
+    })
+  }, [])
+
+  const togglePlayPause = useCallback(() => {
+    const active = getActiveMediaElement()
+    if (!active) return
+    if (active.paused) {
+      void active.play().catch(() => {})
+      return
+    }
+    active.pause()
+  }, [getActiveMediaElement])
+
+  const seekTo = useCallback(
+    (seconds: number) => {
+      const active = getActiveMediaElement()
+      if (!active) return
+      active.currentTime = Math.max(0, seconds)
+    },
+    [getActiveMediaElement],
+  )
+
+  const setMuted = useCallback((nextMuted: boolean) => {
+    setMutedState(nextMuted)
+  }, [])
+
+  const setVolume = useCallback((nextVolume: number) => {
+    const clamped = clampVolume(nextVolume)
+    setVolumeState(clamped)
+    if (clamped > 0) {
+      setMutedState(false)
+    }
+  }, [])
+
+  const enterFullscreen = useCallback(() => {
+    if (activeMode !== 'video' || !activeItem) return
+    setPlaybackSession((current) => (current ? { ...current, isDockOpen: true, viewMode: 'fullscreen' } : current))
+  }, [activeItem, activeMode])
+
+  const exitFullscreen = useCallback(() => {
+    exitBrowserFullscreen()
+    setPlaybackSession((current) => (current ? { ...current, viewMode: 'docked' } : current))
+  }, [exitBrowserFullscreen])
 
   useEffect(() => {
     if (!BASE_URL) return
@@ -183,7 +362,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         try {
           const data = JSON.parse(event.data as string)
           if (data.type === 'transcode_started') {
-            setLastEvent('Transcoding…')
+            setLastEvent('Transcoding...')
           } else if (data.type === 'transcode_complete') {
             setLastEvent('Ready')
           } else if (data.type) {
@@ -209,39 +388,70 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<PlayerContextValue>(
     () => ({
-      selectedMedia,
-      setSelectedMedia,
+      playbackSession,
+      activeItem,
+      activeMode,
+      isDockOpen,
+      viewMode,
+      queue,
+      queueIndex,
+      shuffle,
+      repeatMode,
+      volume,
+      muted,
       playMedia,
+      playMovie,
+      playEpisode,
+      playShowGroup,
       playMusicCollection,
-      musicQueue,
-      musicQueueIndex,
-      musicShuffle,
-      musicRepeatMode,
-      playNextTrack,
-      playPreviousTrack,
-      toggleMusicShuffle,
-      cycleMusicRepeatMode,
+      dismissDock,
+      closePlayer: dismissDock,
+      togglePlayPause,
+      seekTo,
+      setMuted,
+      setVolume,
+      enterFullscreen,
+      exitFullscreen,
+      registerMediaElement,
+      playNextInQueue,
+      playPreviousInQueue,
+      toggleShuffle,
+      cycleRepeatMode,
       wsConnected,
       lastEvent,
-      viewMode,
-      setViewMode,
     }),
     [
-      selectedMedia,
+      playbackSession,
+      activeItem,
+      activeMode,
+      isDockOpen,
+      viewMode,
+      queue,
+      queueIndex,
+      shuffle,
+      repeatMode,
+      volume,
+      muted,
       playMedia,
+      playMovie,
+      playEpisode,
+      playShowGroup,
       playMusicCollection,
-      musicQueue,
-      musicQueueIndex,
-      musicShuffle,
-      musicRepeatMode,
-      playNextTrack,
-      playPreviousTrack,
-      toggleMusicShuffle,
-      cycleMusicRepeatMode,
+      dismissDock,
+      togglePlayPause,
+      seekTo,
+      setMuted,
+      setVolume,
+      enterFullscreen,
+      exitFullscreen,
+      registerMediaElement,
+      playNextInQueue,
+      playPreviousInQueue,
+      toggleShuffle,
+      cycleRepeatMode,
       wsConnected,
       lastEvent,
-      viewMode,
-    ]
+    ],
   )
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

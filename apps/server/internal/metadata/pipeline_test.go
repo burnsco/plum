@@ -281,6 +281,38 @@ func TestIdentifyAnime_UsesTMDBResultEvenWhenTVDBAlsoMatches(t *testing.T) {
 	}
 }
 
+func TestIdentifyAnime_PrefersExactSeriesOverHigherRankedSequelSearchResult(t *testing.T) {
+	tmdb := &stubTVProvider{
+		name: "tmdb",
+		searchResults: []MatchResult{
+			{Title: "Dragon Ball Z", ReleaseDate: "1989-04-26", Provider: "tmdb", ExternalID: "20"},
+			{Title: "Dragon Ball", ReleaseDate: "1986-02-26", Provider: "tmdb", ExternalID: "10"},
+		},
+		episodeResult: &MatchResult{
+			Title:      "Dragon Ball - S01E01 - Secret of the Dragon Balls",
+			Provider:   "tmdb",
+			ExternalID: "10",
+		},
+	}
+	p := &Pipeline{tvProviders: []TVProvider{tmdb}}
+
+	res := p.IdentifyAnime(context.Background(), MediaInfo{
+		Title:   "Dragon Ball",
+		Year:    1986,
+		Season:  1,
+		Episode: 1,
+	})
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.Provider != "tmdb" || res.ExternalID != "10" {
+		t.Fatalf("unexpected result = %#v", res)
+	}
+	if len(tmdb.episodeCalls) != 1 || tmdb.episodeCalls[0] != "10" {
+		t.Fatalf("tmdb episode lookup calls = %#v", tmdb.episodeCalls)
+	}
+}
+
 func TestIdentifyAnime_ExplicitTMDBIDUsesEpisodeMetadata(t *testing.T) {
 	tmdb := &stubTVProvider{
 		name: "tmdb",

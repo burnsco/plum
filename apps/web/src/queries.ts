@@ -39,12 +39,13 @@ export function useLibraries(): UseQueryResult<Library[], Error> {
 
 export function useLibraryMedia(
   libraryId: number | null,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; refetchInterval?: number | false },
 ): UseQueryResult<MediaItem[], Error> {
   return useQuery({
     queryKey: queryKeys.library(libraryId ?? 0),
     queryFn: () => fetchLibraryMedia(libraryId!),
     enabled: (options?.enabled ?? true) && libraryId != null,
+    refetchInterval: options?.refetchInterval,
     staleTime: LIBRARY_MEDIA_STALE_MS,
   })
 }
@@ -68,12 +69,12 @@ export function useScanLibrary(): UseMutationResult<
 export function useIdentifyLibrary(): UseMutationResult<
   IdentifyResult,
   Error,
-  number
+  { libraryId: number; signal?: AbortSignal }
 > {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: identifyLibrary,
-    onSuccess: (_, libraryId) => {
+    mutationFn: ({ libraryId, signal }) => identifyLibrary(libraryId, { signal }),
+    onSuccess: (_, { libraryId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraries })
     },

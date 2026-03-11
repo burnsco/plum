@@ -55,6 +55,7 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
             subtitle: `${album.artist} • ${album.trackCount} tracks${album.year ? ` • ${album.year}` : ''}`,
             posterPath: album.posterPath,
             onClick: () => onPlayCollection(album.tracks, album.tracks[0]),
+            onPlay: () => onPlayCollection(album.tracks, album.tracks[0]),
           }))}
         />
       </MusicSection>
@@ -71,6 +72,7 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
             subtitle: `${artist.albumCount} albums • ${artist.trackCount} tracks`,
             posterPath: artist.posterPath,
             onClick: () => onPlayCollection(artist.tracks, artist.tracks[0]),
+            onPlay: () => onPlayCollection(artist.tracks, artist.tracks[0]),
           }))}
         />
       </MusicSection>

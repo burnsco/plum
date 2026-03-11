@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import * as api from './api'
 import App from './App'
 
@@ -23,6 +23,10 @@ function deferred<T>() {
     reject = rej
   })
   return { promise, resolve, reject }
+}
+
+function identifyLibraryIds() {
+  return vi.mocked(api.identifyLibrary).mock.calls.map((call) => call[0])
 }
 
 describe('App library and player wiring', () => {
@@ -85,12 +89,41 @@ describe('App library and player wiring', () => {
 
     renderApp()
 
-    const movieCard = await screen.findByRole('button', { name: /Die My Love/i })
+    const movieCard = await screen.findByRole('button', { name: /^Die My Love$/i })
     expect(movieCard).toBeTruthy()
     expect(screen.getByText(/2025/)).toBeTruthy()
   })
 
-  it('shows identifying state only on incomplete TV cards while background identify is active', async () => {
+  it('plays a movie from the poster overlay and opens the fullscreen overlay from the dock surface', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 99,
+        title: 'Die My Love',
+        path: '/movies/Die My Love (2025)/Die My Love.mp4',
+        duration: 7200,
+        type: 'movie',
+        poster_path: '/poster.jpg',
+        backdrop_path: '/backdrop.jpg',
+        release_date: '2025-01-01',
+      },
+    ])
+
+    renderApp()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Play Die My Love/i }))
+
+    expect(api.startTranscode).toHaveBeenCalledWith(99)
+    expect(await screen.findByLabelText('Playback dock')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Open fullscreen player for Die My Love/i }))
+
+    expect(await screen.findByRole('button', { name: /Return to docked player/i })).toBeTruthy()
+  })
+
+  it('hides incomplete TV cards until soft reveal while background identify is active', async () => {
     const identifyRequest = deferred<{ identified: number; failed: number }>()
 
     vi.spyOn(api, 'listLibraries').mockResolvedValue([
@@ -124,87 +157,103 @@ describe('App library and player wiring', () => {
 
     renderApp()
 
-    const searchingCard = await screen.findByRole('link', { name: /Searching Show/i })
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1)
     })
     expect(vi.mocked(api.identifyLibrary).mock.calls[0]?.[0]).toBe(1)
 
-    expect(within(searchingCard).getByText('Identifying…')).toBeVisible()
-    expect(screen.getAllByText('Identifying…')).toHaveLength(1)
+    expect(await screen.findByRole('link', { name: /Matched Show/i })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Searching Show/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Identifying…')).not.toBeInTheDocument()
   })
 
-  it('shows and clears identifying state on incomplete movie cards as metadata refreshes', async () => {
+  it('shows an identifying placeholder when every movie card is still deferred', async () => {
     const identifyRequest = deferred<{ identified: number; failed: number }>()
 
     vi.spyOn(api, 'listLibraries').mockResolvedValue([
       { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
     ])
-    vi.spyOn(api, 'fetchLibraryMedia')
-      .mockResolvedValueOnce([
-        {
-          id: 99,
-          title: 'Die My Love',
-          path: '/movies/Die My Love (2025)/Die My Love.mp4',
-          duration: 7200,
-          type: 'movie',
-          match_status: 'unmatched',
-        },
-        {
-          id: 100,
-          title: 'Already Matched',
-          path: '/movies/Already Matched (2024)/Already Matched.mp4',
-          duration: 7100,
-          type: 'movie',
-          match_status: 'identified',
-          poster_path: '/poster.jpg',
-          release_date: '2024-01-01',
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 99,
-          title: 'Die My Love',
-          path: '/movies/Die My Love (2025)/Die My Love.mp4',
-          duration: 7200,
-          type: 'movie',
-          match_status: 'identified',
-          poster_path: '/poster-identified.jpg',
-          release_date: '2025-01-01',
-        },
-        {
-          id: 100,
-          title: 'Already Matched',
-          path: '/movies/Already Matched (2024)/Already Matched.mp4',
-          duration: 7100,
-          type: 'movie',
-          match_status: 'identified',
-          poster_path: '/poster.jpg',
-          release_date: '2024-01-01',
-        },
-      ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 99,
+        title: 'Die My Love',
+        path: '/movies/Die My Love (2025)/Die My Love.mp4',
+        duration: 7200,
+        type: 'movie',
+        match_status: 'unmatched',
+      },
+    ])
     vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise)
 
     renderApp()
 
-    const movieCard = await screen.findByRole('button', { name: /Die My Love/i })
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1)
     })
     expect(vi.mocked(api.identifyLibrary).mock.calls[0]?.[0]).toBe(2)
 
-    expect(within(movieCard).getByText('Identifying…')).toBeVisible()
-    expect(screen.getAllByText('Identifying…')).toHaveLength(1)
-
-    identifyRequest.resolve({ identified: 1, failed: 0 })
-
-    await waitFor(() => {
-      expect(api.fetchLibraryMedia).toHaveBeenCalledTimes(2)
-    })
-    await waitFor(() => {
-      expect(screen.queryByText('Identifying…')).not.toBeInTheDocument()
-    })
+    expect(await screen.findByText('Identifying library…')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Die My Love$/i })).not.toBeInTheDocument()
   })
+
+  it('polls active library media and reveals movie cards once metadata lands', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const identifyRequest = deferred<{ identified: number; failed: number }>()
+
+      vi.spyOn(api, 'listLibraries').mockResolvedValue([
+        { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
+      ])
+      vi.spyOn(api, 'fetchLibraryMedia')
+        .mockResolvedValueOnce([
+          {
+            id: 99,
+            title: 'Die My Love',
+            path: '/movies/Die My Love (2025)/Die My Love.mp4',
+            duration: 7200,
+            type: 'movie',
+            match_status: 'unmatched',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 99,
+            title: 'Die My Love',
+            path: '/movies/Die My Love (2025)/Die My Love.mp4',
+            duration: 7200,
+            type: 'movie',
+            match_status: 'identified',
+            poster_path: '/poster-identified.jpg',
+            release_date: '2025-01-01',
+          },
+      ])
+      vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise)
+
+      await act(async () => {
+        renderApp()
+        await vi.advanceTimersByTimeAsync(1)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(screen.getByRole('button', { name: /^Die My Love$/i })).toBeTruthy()
+      expect(screen.queryByText('Identifying library…')).not.toBeInTheDocument()
+
+      await act(async () => {
+        identifyRequest.resolve({ identified: 1, failed: 0 })
+        await Promise.resolve()
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 10_000)
 
   it('runs background identify for all non-music libraries sequentially', async () => {
     vi.spyOn(api, 'listLibraries').mockResolvedValue([
@@ -229,16 +278,68 @@ describe('App library and player wiring', () => {
     await Promise.resolve()
     expect(api.identifyLibrary).toHaveBeenCalledTimes(1)
 
-    firstIdentify.resolve({ identified: 1, failed: 0 })
+    await act(async () => {
+      firstIdentify.resolve({ identified: 1, failed: 0 })
+      await Promise.resolve()
+    })
 
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(2)
     })
     expect(vi.mocked(api.identifyLibrary).mock.calls[1]?.[0]).toBe(2)
-    expect(vi.mocked(api.identifyLibrary).mock.calls.map((call) => call[0])).not.toContain(3)
+    expect(identifyLibraryIds()).not.toContain(3)
 
-    secondIdentify.resolve({ identified: 1, failed: 0 })
+    await act(async () => {
+      secondIdentify.resolve({ identified: 1, failed: 0 })
+      await Promise.resolve()
+    })
   })
+
+  it('times out a hung identify request and continues with the next library', async () => {
+    vi.useFakeTimers()
+
+    try {
+      vi.spyOn(api, 'listLibraries').mockResolvedValue([
+        { id: 1, name: 'TV', type: 'tv', path: '/tv', user_id: 1 },
+        { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
+      ])
+      vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([])
+      vi.mocked(api.identifyLibrary)
+        .mockImplementationOnce(
+          (_libraryId, options) =>
+            new Promise((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => {
+                reject(new DOMException('Aborted', 'AbortError'))
+              })
+            })
+        )
+        .mockResolvedValueOnce({ identified: 0, failed: 0 })
+
+      await act(async () => {
+        renderApp()
+        await vi.advanceTimersByTimeAsync(1)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+        await Promise.resolve()
+      })
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(1)
+      expect(identifyLibraryIds()).toEqual([1])
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2)
+      expect(identifyLibraryIds()).toEqual([1, 2])
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 10_000)
 
   it('navigates to show detail and shows episode list with Play', async () => {
     vi.spyOn(api, 'listLibraries').mockResolvedValue([
@@ -267,6 +368,44 @@ describe('App library and player wiring', () => {
     const playButton = await screen.findByRole('button', { name: /Play/i })
     fireEvent.click(playButton)
     expect(api.startTranscode).toHaveBeenCalledWith(42)
+    expect(await screen.findByLabelText('Playback dock')).toBeTruthy()
+  })
+
+  it('plays the first episode in a TV group from the poster overlay', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 1, name: 'TV', type: 'tv', path: '/tv', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 100,
+        title: 'Grouped Show - S01E02 - Second',
+        path: '/tv/Grouped Show/S01E02.mkv',
+        duration: 1800,
+        type: 'tv',
+        tmdb_id: 100,
+        poster_path: '/poster.jpg',
+        season: 1,
+        episode: 2,
+      },
+      {
+        id: 99,
+        title: 'Grouped Show - S01E01 - First',
+        path: '/tv/Grouped Show/S01E01.mkv',
+        duration: 1800,
+        type: 'tv',
+        tmdb_id: 100,
+        poster_path: '/poster.jpg',
+        season: 1,
+        episode: 1,
+      },
+    ])
+
+    renderApp()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Play Grouped Show/i }))
+
+    expect(api.startTranscode).toHaveBeenCalledWith(99)
+    expect(await screen.findByLabelText('Playback dock')).toBeTruthy()
   })
 
   it('renders music sections and opens the bottom player without transcoding', async () => {
@@ -315,6 +454,46 @@ describe('App library and player wiring', () => {
     expect(api.startTranscode).not.toHaveBeenCalled()
   })
 
+  it('plays a music album from the poster overlay without rendering video controls', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 3, name: 'Music', type: 'music', path: '/music', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 11,
+        title: 'Track One',
+        path: '/music/Artist/Album/01 - Track One.flac',
+        duration: 245,
+        type: 'music',
+        artist: 'Artist',
+        album: 'Album',
+        album_artist: 'Artist',
+        track_number: 1,
+        poster_path: '/album.jpg',
+      },
+      {
+        id: 12,
+        title: 'Track Two',
+        path: '/music/Artist/Album/02 - Track Two.flac',
+        duration: 255,
+        type: 'music',
+        artist: 'Artist',
+        album: 'Album',
+        album_artist: 'Artist',
+        track_number: 2,
+        poster_path: '/album.jpg',
+      },
+    ])
+
+    renderApp()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Play Album/i }))
+
+    expect(await screen.findByLabelText('Music player')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Open fullscreen player/i })).not.toBeInTheDocument()
+    expect(api.startTranscode).not.toHaveBeenCalled()
+  })
+
   it('retries auto-identify after a failed first attempt', async () => {
     const firstIdentify = deferred<{ identified: number; failed: number }>()
     const secondIdentify = deferred<{ identified: number; failed: number }>()
@@ -355,11 +534,10 @@ describe('App library and player wiring', () => {
 
     renderApp()
 
-    const retryCard = await screen.findByRole('link', { name: /Retry Show/i })
     await waitFor(() => {
       expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1)
     })
-    expect(within(retryCard).getByText('Identifying…')).toBeVisible()
+    expect(await screen.findByText('Identifying library…')).toBeTruthy()
 
     firstIdentify.reject(new Error('temporary failure'))
 
@@ -372,8 +550,220 @@ describe('App library and player wiring', () => {
     await waitFor(() => {
       expect(api.fetchLibraryMedia).toHaveBeenCalledTimes(2)
     })
+    expect(await screen.findByRole('link', { name: /Retry Show/i })).toBeTruthy()
+  })
+
+  it('shows sidebar activity, soft reveal, and hard-timeout failure for deferred cards', async () => {
+    vi.useFakeTimers()
+
+    try {
+      vi.spyOn(api, 'listLibraries').mockResolvedValue([
+        { id: 1, name: 'TV', type: 'tv', path: '/tv', user_id: 1 },
+      ])
+      vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+        {
+          id: 42,
+          title: 'Missing Show - S01E01 - Pilot',
+          path: '/tv/Missing Show/S01E01.mkv',
+          duration: 1800,
+          type: 'tv',
+          match_status: 'local',
+          season: 1,
+          episode: 1,
+        },
+      ])
+      vi.spyOn(api, 'searchSeries').mockResolvedValue([])
+      vi.mocked(api.identifyLibrary).mockImplementation(
+        (_libraryId, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              reject(new DOMException('Aborted', 'AbortError'))
+            })
+          }),
+      )
+
+      await act(async () => {
+        renderApp()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(screen.getByTestId('library-identifying-1')).toBeTruthy()
+      const softRevealCard = screen.getByRole('link', { name: /Missing Show/i })
+      expect(within(softRevealCard.closest('.show-card')!).getByText('Identifying…')).toBeVisible()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText("Couldn't match automatically")).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Identify manually/i })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 10_000)
+
+  it('shows a terminal TV failure state with manual identify action', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 1, name: 'TV', type: 'tv', path: '/tv', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 42,
+        title: 'Missing Show - S01E01 - Pilot',
+        path: '/tv/Missing Show/S01E01.mkv',
+        duration: 1800,
+        type: 'tv',
+        match_status: 'local',
+        season: 1,
+        episode: 1,
+      },
+    ])
+    vi.spyOn(api, 'searchSeries').mockResolvedValue([])
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 })
+
+    renderApp()
+
+    expect(await screen.findByText("Couldn't match automatically")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Identify manually/i }))
+
+    expect(await screen.findByRole('heading', { name: /Identify show/i })).toBeTruthy()
+  })
+
+  it('shows retry identify for failed movie auto-matches', async () => {
+    const retryIdentify = deferred<{ identified: number; failed: number }>()
+
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 99,
+        title: 'Die My Love',
+        path: '/movies/Die My Love (2025)/Die My Love.mp4',
+        duration: 7200,
+        type: 'movie',
+        match_status: 'unmatched',
+      },
+    ])
+    vi.mocked(api.identifyLibrary)
+      .mockResolvedValueOnce({ identified: 0, failed: 1 })
+      .mockImplementationOnce(() => retryIdentify.promise)
+
+    renderApp()
+
+    expect(await screen.findByRole('button', { name: /Retry identify/i })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Retry identify/i }))
+
     await waitFor(() => {
-      expect(screen.queryByText('Identifying…')).not.toBeInTheDocument()
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2)
+    })
+    expect(identifyLibraryIds()).toEqual([2, 2])
+
+    retryIdentify.resolve({ identified: 0, failed: 1 })
+  })
+
+  it('does not mark movies as failed when they already have poster art but omit match status', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 99,
+        title: 'Has Poster',
+        path: '/movies/Has Poster (2025)/Has Poster.mp4',
+        duration: 7200,
+        type: 'movie',
+        poster_path: '/poster.jpg',
+        release_date: '2025-01-01',
+      },
+    ])
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 })
+
+    renderApp()
+
+    expect(await screen.findByRole('button', { name: /^Has Poster$/i })).toBeTruthy()
+    expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retry identify/i })).not.toBeInTheDocument()
+  })
+
+  it('uses poster art from any matched anime episode before showing failed state', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 3, name: 'Anime', type: 'anime', path: '/anime', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 41,
+        title: 'Frieren - S01E01 - Journey',
+        path: '/anime/Frieren/S01E01.mkv',
+        duration: 1800,
+        type: 'anime',
+        match_status: 'identified',
+        tmdb_id: 123,
+        season: 1,
+        episode: 1,
+      },
+      {
+        id: 42,
+        title: 'Frieren - S01E02 - Magic',
+        path: '/anime/Frieren/S01E02.mkv',
+        duration: 1800,
+        type: 'anime',
+        match_status: 'identified',
+        tmdb_id: 123,
+        poster_path: '/frieren.jpg',
+        season: 1,
+        episode: 2,
+      },
+    ])
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 2, failed: 0 })
+
+    renderApp()
+
+    expect(await screen.findByRole('link', { name: /Frieren/i })).toBeTruthy()
+    expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Identify manually/i })).not.toBeInTheDocument()
+  })
+
+  it('falls back to a placeholder poster when poster loading fails', async () => {
+    vi.spyOn(api, 'listLibraries').mockResolvedValue([
+      { id: 2, name: 'Movies', type: 'movie', path: '/movies', user_id: 1 },
+    ])
+    vi.spyOn(api, 'fetchLibraryMedia').mockResolvedValue([
+      {
+        id: 99,
+        title: 'Broken Poster',
+        path: '/movies/Broken Poster (2025)/Broken Poster.mp4',
+        duration: 7200,
+        type: 'movie',
+        match_status: 'identified',
+        poster_path: '/broken.jpg',
+        release_date: '2025-01-01',
+      },
+    ])
+
+    renderApp()
+
+    const movieCard = await screen.findByRole('button', { name: /^Broken Poster$/i })
+    const poster = movieCard.closest('.show-card')?.querySelector('img') as HTMLImageElement | null
+    expect(poster).toBeTruthy()
+    expect(poster?.getAttribute('src')).toContain('/broken.jpg')
+
+    fireEvent.error(poster!)
+
+    await waitFor(() => {
+      const fallbackPoster = movieCard.closest('.show-card')?.querySelector('img')
+      expect(fallbackPoster).toHaveAttribute('src', '/placeholder-poster.png')
     })
   })
 
@@ -438,7 +828,7 @@ describe('App library and player wiring', () => {
     fireEvent.click(screen.getByRole('button', { name: /Finish setup/i }))
 
     expect(await screen.findByText(/No media in this library yet/i)).toBeTruthy()
-    expect(vi.mocked(api.identifyLibrary).mock.calls.map((call) => call[0])).toContain(10)
+    expect(identifyLibraryIds()).toContain(10)
   })
 
   it('auto-enters the app after adding default libraries with scan-only import', async () => {

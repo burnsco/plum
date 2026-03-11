@@ -74,13 +74,16 @@ func (p *Pipeline) IdentifyAnime(ctx context.Context, info MediaInfo) *MatchResu
 	if err != nil || len(results) == 0 {
 		return nil
 	}
-	series := results[0]
+	best, _ := bestScored(results, info, ScoreTV, ScoreAutoMatch, ScoreMargin)
+	if best == nil {
+		return nil
+	}
 	if info.Season > 0 && info.Episode > 0 {
-		if ep, err := tmdbProv.GetEpisode(ctx, series.ExternalID, info.Season, info.Episode); err == nil && ep != nil {
+		if ep, err := tmdbProv.GetEpisode(ctx, best.ExternalID, info.Season, info.Episode); err == nil && ep != nil {
 			return ep
 		}
 	}
-	return &series
+	return best
 }
 
 func (p *Pipeline) identifySeries(ctx context.Context, info MediaInfo, allowTVDBFallback bool) *MatchResult {

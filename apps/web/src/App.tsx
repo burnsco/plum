@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuthActions, useAuthState } from './contexts/AuthContext'
+import { IdentifyQueueProvider } from './contexts/IdentifyQueueContext'
 import { PlayerProvider } from './contexts/PlayerContext'
 import { MainLayout } from './components/MainLayout'
 import { Home } from './pages/Home'
@@ -40,16 +41,18 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <PlayerProvider>
-          <Routes>
-            <Route path="/" element={<MainLayout />}>
-              <Route index element={<Home />} />
-              <Route path="library/:libraryId" element={<Home />} />
-              <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
-          </Routes>
-        </PlayerProvider>
+        <IdentifyQueueProvider>
+          <PlayerProvider>
+            <Routes>
+              <Route path="/" element={<MainLayout />}>
+                <Route index element={<Home />} />
+                <Route path="library/:libraryId" element={<Home />} />
+                <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
+                <Route path="settings" element={<Settings />} />
+              </Route>
+            </Routes>
+          </PlayerProvider>
+        </IdentifyQueueProvider>
       </BrowserRouter>
     </QueryClientProvider>
   )
