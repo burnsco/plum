@@ -6,26 +6,29 @@ import (
 )
 
 type LibraryJobStatus struct {
-	LibraryID         int
-	Path              string
-	Type              string
-	Phase             string
-	Enriching         bool
-	IdentifyPhase     string
-	Identified        int
-	IdentifyFailed    int
-	Processed         int
-	Added             int
-	Updated           int
-	Removed           int
-	Unmatched         int
-	Skipped           int
-	IdentifyRequested bool
-	QueuedAt          string
-	EstimatedItems    int
-	Error             string
-	StartedAt         string
-	FinishedAt        string
+	LibraryID                int
+	Path                     string
+	Type                     string
+	Phase                    string
+	Enriching                bool
+	IdentifyPhase            string
+	Identified               int
+	IdentifyFailed           int
+	IdentifyPending          int
+	IdentifyInFlight         int
+	IdentifyCompletedBatches int
+	Processed                int
+	Added                    int
+	Updated                  int
+	Removed                  int
+	Unmatched                int
+	Skipped                  int
+	IdentifyRequested        bool
+	QueuedAt                 string
+	EstimatedItems           int
+	Error                    string
+	StartedAt                string
+	FinishedAt               string
 }
 
 func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
@@ -33,15 +36,19 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 	_, err := dbConn.Exec(
 		`INSERT INTO library_job_status (
 			library_id, phase, enriching, identify_phase, identified, identify_failed,
+			identify_pending, identify_in_flight, identify_completed_batches,
 			processed, added, updated, removed, unmatched, skipped,
 			identify_requested, queued_at, estimated_items, error, started_at, finished_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(library_id) DO UPDATE SET
 			phase = excluded.phase,
 			enriching = excluded.enriching,
 			identify_phase = excluded.identify_phase,
 			identified = excluded.identified,
 			identify_failed = excluded.identify_failed,
+			identify_pending = excluded.identify_pending,
+			identify_in_flight = excluded.identify_in_flight,
+			identify_completed_batches = excluded.identify_completed_batches,
 			processed = excluded.processed,
 			added = excluded.added,
 			updated = excluded.updated,
@@ -61,6 +68,9 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 		status.IdentifyPhase,
 		status.Identified,
 		status.IdentifyFailed,
+		status.IdentifyPending,
+		status.IdentifyInFlight,
+		status.IdentifyCompletedBatches,
 		status.Processed,
 		status.Added,
 		status.Updated,
@@ -89,6 +99,9 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			COALESCE(s.identify_phase, 'idle'),
 			COALESCE(s.identified, 0),
 			COALESCE(s.identify_failed, 0),
+			COALESCE(s.identify_pending, 0),
+			COALESCE(s.identify_in_flight, 0),
+			COALESCE(s.identify_completed_batches, 0),
 			COALESCE(s.processed, 0),
 			COALESCE(s.added, 0),
 			COALESCE(s.updated, 0),
@@ -123,6 +136,9 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			&status.IdentifyPhase,
 			&status.Identified,
 			&status.IdentifyFailed,
+			&status.IdentifyPending,
+			&status.IdentifyInFlight,
+			&status.IdentifyCompletedBatches,
 			&status.Processed,
 			&status.Added,
 			&status.Updated,

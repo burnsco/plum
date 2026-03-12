@@ -128,17 +128,31 @@ func (p *Pipeline) identifySeries(ctx context.Context, info MediaInfo, allowTVDB
 			return res
 		}
 	}
+
+	// Try TMDB search first
 	best := p.bestSeriesMatch(ctx, info, p.searchSeriesCandidates(ctx, info, []string{"tmdb"}))
-	if best == nil {
-		if allowTVDBFallback {
-			best = p.bestSeriesMatch(ctx, info, p.searchSeriesCandidates(ctx, info, []string{"tvdb"}))
-		} else {
-			best = p.bestSeriesMatch(ctx, info, p.searchSeriesCandidates(ctx, info, providerOrder(nil)))
+	if best != nil {
+		return best
+	}
+
+	// If TMDB search failed, try fallback providers
+	if allowTVDBFallback {
+		// TVDB explicitly requested fallback
+		best = p.bestSeriesMatch(ctx, info, p.searchSeriesCandidates(ctx, info, []string{"tvdb"}))
+	} else {
+		// Try all providers EXCEPT tmdb (since we just tried it)
+		otherProviders := []string{}
+		for _, prov := range p.tvProviders {
+			name := prov.ProviderName()
+			if name != "tmdb" {
+				otherProviders = append(otherProviders, name)
+			}
+		}
+		if len(otherProviders) > 0 {
+			best = p.bestSeriesMatch(ctx, info, p.searchSeriesCandidates(ctx, info, otherProviders))
 		}
 	}
-	if best == nil {
-		return nil
-	}
+
 	return best
 }
 

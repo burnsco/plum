@@ -36,25 +36,28 @@ const (
 )
 
 type libraryScanStatus struct {
-	LibraryID         int    `json:"libraryId"`
-	Phase             string `json:"phase"`
-	Enriching         bool   `json:"enriching"`
-	IdentifyPhase     string `json:"identifyPhase"`
-	Identified        int    `json:"identified"`
-	IdentifyFailed    int    `json:"identifyFailed"`
-	Processed         int    `json:"processed"`
-	Added             int    `json:"added"`
-	Updated           int    `json:"updated"`
-	Removed           int    `json:"removed"`
-	Unmatched         int    `json:"unmatched"`
-	Skipped           int    `json:"skipped"`
-	IdentifyRequested bool   `json:"identifyRequested"`
-	QueuedAt          string `json:"queuedAt,omitempty"`
-	EstimatedItems    int    `json:"estimatedItems"`
-	QueuePosition     int    `json:"queuePosition"`
-	Error             string `json:"error,omitempty"`
-	StartedAt         string `json:"startedAt,omitempty"`
-	FinishedAt        string `json:"finishedAt,omitempty"`
+	LibraryID                int    `json:"libraryId"`
+	Phase                    string `json:"phase"`
+	Enriching                bool   `json:"enriching"`
+	IdentifyPhase            string `json:"identifyPhase"`
+	Identified               int    `json:"identified"`
+	IdentifyFailed           int    `json:"identifyFailed"`
+	IdentifyPending          int    `json:"identifyPending"`
+	IdentifyInFlight         int    `json:"identifyInFlight"`
+	IdentifyCompletedBatches int    `json:"identifyCompletedBatches"`
+	Processed                int    `json:"processed"`
+	Added                    int    `json:"added"`
+	Updated                  int    `json:"updated"`
+	Removed                  int    `json:"removed"`
+	Unmatched                int    `json:"unmatched"`
+	Skipped                  int    `json:"skipped"`
+	IdentifyRequested        bool   `json:"identifyRequested"`
+	QueuedAt                 string `json:"queuedAt,omitempty"`
+	EstimatedItems           int    `json:"estimatedItems"`
+	QueuePosition            int    `json:"queuePosition"`
+	Error                    string `json:"error,omitempty"`
+	StartedAt                string `json:"startedAt,omitempty"`
+	FinishedAt               string `json:"finishedAt,omitempty"`
 }
 
 type LibraryScanManager struct {
@@ -70,8 +73,9 @@ type LibraryScanManager struct {
 	enrichSem     chan struct{}
 	identifySem   chan struct{}
 	handler       *LibraryHandler
-	lastFlushed   map[int]libraryScanFlushState
-	activeScanID  int
+	lastFlushed        map[int]libraryScanFlushState
+	activeScans        map[int]struct{}
+	MaxConcurrentScans int
 }
 
 type libraryScanFlushState struct {
@@ -86,16 +90,18 @@ type queuedLibrary struct {
 
 func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub) *LibraryScanManager {
 	return &LibraryScanManager{
-		db:            sqlDB,
-		hub:           hub,
-		meta:          meta,
-		jobs:          make(map[int]libraryScanStatus),
-		types:         make(map[int]string),
-		paths:         make(map[int]string),
-		enrichCancels: make(map[int]context.CancelFunc),
-		enrichSem:     make(chan struct{}, 1),
-		identifySem:   make(chan struct{}, 1),
-		lastFlushed:   make(map[int]libraryScanFlushState),
+		db:                 sqlDB,
+		hub:                hub,
+		meta:               meta,
+		jobs:               make(map[int]libraryScanStatus),
+		types:              make(map[int]string),
+		paths:              make(map[int]string),
+		enrichCancels:      make(map[int]context.CancelFunc),
+		enrichSem:          make(chan struct{}, 2),
+		identifySem:        make(chan struct{}, 4),
+		lastFlushed:        make(map[int]libraryScanFlushState),
+		activeScans:        make(map[int]struct{}),
+		MaxConcurrentScans: 2,
 	}
 }
 
@@ -103,6 +109,91 @@ func (m *LibraryScanManager) AttachHandler(handler *LibraryHandler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.handler = handler
+}
+
+func (m *LibraryScanManager) enqueueIdentifyBatch(libraryID int, globalIDs []int) {
+	if len(globalIDs) == 0 {
+		return
+	}
+	m.mu.Lock()
+	status, ok := m.jobs[libraryID]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	status.IdentifyPending += len(globalIDs)
+	m.jobs[libraryID] = status
+	m.mu.Unlock()
+
+	m.flushStatus(libraryID, true)
+	m.triggerIdentifyWorker(libraryID, globalIDs)
+}
+
+func (m *LibraryScanManager) triggerIdentifyWorker(libraryID int, globalIDs []int) {
+	go func() {
+		select {
+		case m.identifySem <- struct{}{}:
+		case <-time.After(30 * time.Minute):
+			// Safety timeout to avoid leaking goroutines if something goes wrong
+			return
+		}
+		defer func() { <-m.identifySem }()
+
+		m.mu.Lock()
+		status, ok := m.jobs[libraryID]
+		if !ok {
+			m.mu.Unlock()
+			return
+		}
+		status.IdentifyInFlight += len(globalIDs)
+		status.IdentifyPending -= len(globalIDs)
+		if status.IdentifyPhase == libraryIdentifyPhaseIdle || status.IdentifyPhase == libraryIdentifyPhaseCompleted {
+			status.IdentifyPhase = libraryIdentifyPhaseIdentifying
+		}
+		m.jobs[libraryID] = status
+		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
+
+		handler := m.handler
+		if handler == nil {
+			handler = &LibraryHandler{DB: m.db, Meta: m.meta}
+		}
+
+		rows, err := db.ListIdentifiableByGlobalIDs(m.db, libraryID, globalIDs)
+		if err == nil && len(rows) > 0 {
+			result, _ := handler.identifyBatch(context.Background(), libraryID, rows)
+
+			m.mu.Lock()
+			status, ok = m.jobs[libraryID]
+			if ok {
+				status.Identified += result.Identified
+				status.IdentifyFailed += result.Failed
+				status.IdentifyInFlight -= len(globalIDs)
+				status.IdentifyCompletedBatches++
+
+				// Check if we should move to completed phase
+				if status.Phase == libraryScanPhaseCompleted && status.IdentifyPending <= 0 && status.IdentifyInFlight <= 0 {
+					status.IdentifyPhase = libraryIdentifyPhaseCompleted
+				}
+
+				m.jobs[libraryID] = status
+			}
+			m.mu.Unlock()
+			m.flushStatus(libraryID, true)
+		} else {
+			m.mu.Lock()
+			status, ok = m.jobs[libraryID]
+			if ok {
+				status.IdentifyInFlight -= len(globalIDs)
+				if status.Phase == libraryScanPhaseCompleted && status.IdentifyPending <= 0 && status.IdentifyInFlight <= 0 {
+					status.IdentifyPhase = libraryIdentifyPhaseCompleted
+				}
+				m.jobs[libraryID] = status
+			}
+			m.mu.Unlock()
+			m.flushStatus(libraryID, true)
+		}
+	}()
 }
 
 func (m *LibraryScanManager) Recover() error {
@@ -289,7 +380,7 @@ func scanStatusWarning(status libraryScanStatus, path string) string {
 
 func (m *LibraryScanManager) scheduleNext() {
 	m.mu.Lock()
-	if m.activeScanID != 0 {
+	if len(m.activeScans) >= m.MaxConcurrentScans {
 		m.mu.Unlock()
 		return
 	}
@@ -303,7 +394,7 @@ func (m *LibraryScanManager) scheduleNext() {
 	status.FinishedAt = ""
 	status.Error = ""
 	m.jobs[nextID] = status
-	m.activeScanID = nextID
+	m.activeScans[nextID] = struct{}{}
 	m.mu.Unlock()
 
 	m.flushAllStatuses(true)
@@ -312,12 +403,14 @@ func (m *LibraryScanManager) scheduleNext() {
 
 func (m *LibraryScanManager) nextQueuedLocked() (int, libraryScanStatus, string, string) {
 	queued := m.queuedLibrariesLocked()
-	if len(queued) == 0 {
-		return 0, libraryScanStatus{}, "", ""
+	for _, q := range queued {
+		if _, active := m.activeScans[q.id]; active {
+			continue
+		}
+		status := m.jobs[q.id]
+		return q.id, status, m.types[q.id], m.paths[q.id]
 	}
-	nextID := queued[0].id
-	status := m.jobs[nextID]
-	return nextID, status, m.types[nextID], m.paths[nextID]
+	return 0, libraryScanStatus{}, "", ""
 }
 
 func (m *LibraryScanManager) queuedLibrariesLocked() []queuedLibrary {
@@ -364,6 +457,11 @@ func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, librar
 		Progress: func(progress db.ScanProgress) {
 			m.updateProgress(libraryID, progress)
 		},
+		OnBatchCommitted: func(batch []int) {
+			if status.IdentifyRequested {
+				m.enqueueIdentifyBatch(libraryID, batch)
+			}
+		},
 	})
 	if err != nil {
 		m.finish(libraryID, libraryScanPhaseFailed, db.ScanResult{}, err.Error())
@@ -371,6 +469,9 @@ func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, librar
 	}
 	m.finish(libraryID, libraryScanPhaseCompleted, result, "")
 	if status.IdentifyRequested {
+		// Identify phase completion check now depends on backlog being zero.
+		// We trigger one more startIdentify pass to catch anything missed during progressive batches
+		// or if identifyRequested was set but the scan didn't produce batches.
 		m.startIdentify(libraryID)
 	}
 	m.startEnrichment(libraryID, libraryType, path)
@@ -407,8 +508,17 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 	m.flushStatus(libraryID, true)
 
 	go func() {
-		m.identifySem <- struct{}{}
-		defer func() { <-m.identifySem }()
+		rows, err := db.ListIdentifiableByLibrary(m.db, libraryID)
+		if err != nil || len(rows) == 0 {
+			m.mu.Lock()
+			if status, ok := m.jobs[libraryID]; ok {
+				status.IdentifyPhase = libraryIdentifyPhaseCompleted
+				m.jobs[libraryID] = status
+			}
+			m.mu.Unlock()
+			m.flushStatus(libraryID, true)
+			return
+		}
 
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
@@ -416,33 +526,65 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 			m.mu.Unlock()
 			return
 		}
+		status.IdentifyPending += len(rows)
 		status.IdentifyPhase = libraryIdentifyPhaseIdentifying
 		m.jobs[libraryID] = status
 		m.mu.Unlock()
 		m.flushStatus(libraryID, true)
 
-		handler := m.handler
-		if handler == nil {
-			handler = &LibraryHandler{DB: m.db, Meta: m.meta}
-		}
-		result, err := handler.identifyLibrary(context.Background(), libraryID)
+		// Process in batches of 25
+		const batchSize = 25
+		for i := 0; i < len(rows); i += batchSize {
+			end := i + batchSize
+			if end > len(rows) {
+				end = len(rows)
+			}
+			batch := rows[i:end]
 
-		m.mu.Lock()
-		status, ok = m.jobs[libraryID]
-		if !ok {
-			m.mu.Unlock()
-			return
+			go func(b []db.IdentificationRow) {
+				select {
+				case m.identifySem <- struct{}{}:
+				case <-time.After(30 * time.Minute):
+					return
+				}
+				defer func() { <-m.identifySem }()
+
+				m.mu.Lock()
+				status, ok := m.jobs[libraryID]
+				if !ok {
+					m.mu.Unlock()
+					return
+				}
+				status.IdentifyInFlight += len(b)
+				status.IdentifyPending -= len(b)
+				m.jobs[libraryID] = status
+				m.mu.Unlock()
+				m.flushStatus(libraryID, true)
+
+				handler := m.handler
+				if handler == nil {
+					handler = &LibraryHandler{DB: m.db, Meta: m.meta}
+				}
+				result, _ := handler.identifyBatch(context.Background(), libraryID, b)
+
+				m.mu.Lock()
+				status, ok = m.jobs[libraryID]
+				if ok {
+					status.Identified += result.Identified
+					status.IdentifyFailed += result.Failed
+					status.IdentifyInFlight -= len(b)
+					status.IdentifyCompletedBatches++
+
+					if (status.Phase == libraryScanPhaseCompleted || status.Phase == libraryScanPhaseIdle) &&
+						status.IdentifyPending <= 0 && status.IdentifyInFlight <= 0 {
+						status.IdentifyPhase = libraryIdentifyPhaseCompleted
+					}
+					m.jobs[libraryID] = status
+				}
+				m.mu.Unlock()
+				m.flushStatus(libraryID, true)
+			}(batch)
 		}
-		status.Identified = result.Identified
-		status.IdentifyFailed = result.Failed
-		if err != nil {
-			status.IdentifyPhase = libraryIdentifyPhaseFailed
-		} else {
-			status.IdentifyPhase = libraryIdentifyPhaseCompleted
-		}
-		m.jobs[libraryID] = status
-		m.mu.Unlock()
-		m.flushStatus(libraryID, true)
 	}()
 }
 
@@ -462,9 +604,7 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 		status.Enriching = false
 	}
 	m.jobs[libraryID] = status
-	if m.activeScanID == libraryID {
-		m.activeScanID = 0
-	}
+	delete(m.activeScans, libraryID)
 	m.mu.Unlock()
 	m.flushAllStatuses(true)
 	m.scheduleNext()
@@ -571,49 +711,55 @@ func (m *LibraryScanManager) flushStatus(libraryID int, force bool) {
 
 func runtimeLibraryStatusToPersistent(status libraryScanStatus, path, libraryType string) db.LibraryJobStatus {
 	return db.LibraryJobStatus{
-		LibraryID:         status.LibraryID,
-		Path:              path,
-		Type:              libraryType,
-		Phase:             status.Phase,
-		Enriching:         status.Enriching,
-		IdentifyPhase:     status.IdentifyPhase,
-		Identified:        status.Identified,
-		IdentifyFailed:    status.IdentifyFailed,
-		Processed:         status.Processed,
-		Added:             status.Added,
-		Updated:           status.Updated,
-		Removed:           status.Removed,
-		Unmatched:         status.Unmatched,
-		Skipped:           status.Skipped,
-		IdentifyRequested: status.IdentifyRequested,
-		QueuedAt:          status.QueuedAt,
-		EstimatedItems:    status.EstimatedItems,
-		Error:             status.Error,
-		StartedAt:         status.StartedAt,
-		FinishedAt:        status.FinishedAt,
+		LibraryID:                status.LibraryID,
+		Path:                     path,
+		Type:                     libraryType,
+		Phase:                    status.Phase,
+		Enriching:                status.Enriching,
+		IdentifyPhase:            status.IdentifyPhase,
+		Identified:               status.Identified,
+		IdentifyFailed:           status.IdentifyFailed,
+		IdentifyPending:          status.IdentifyPending,
+		IdentifyInFlight:         status.IdentifyInFlight,
+		IdentifyCompletedBatches: status.IdentifyCompletedBatches,
+		Processed:                status.Processed,
+		Added:                    status.Added,
+		Updated:                  status.Updated,
+		Removed:                  status.Removed,
+		Unmatched:                status.Unmatched,
+		Skipped:                  status.Skipped,
+		IdentifyRequested:        status.IdentifyRequested,
+		QueuedAt:                 status.QueuedAt,
+		EstimatedItems:           status.EstimatedItems,
+		Error:                    status.Error,
+		StartedAt:                status.StartedAt,
+		FinishedAt:               status.FinishedAt,
 	}
 }
 
 func persistedLibraryStatusToRuntime(status db.LibraryJobStatus) libraryScanStatus {
 	return libraryScanStatus{
-		LibraryID:         status.LibraryID,
-		Phase:             status.Phase,
-		Enriching:         status.Enriching,
-		IdentifyPhase:     status.IdentifyPhase,
-		Identified:        status.Identified,
-		IdentifyFailed:    status.IdentifyFailed,
-		Processed:         status.Processed,
-		Added:             status.Added,
-		Updated:           status.Updated,
-		Removed:           status.Removed,
-		Unmatched:         status.Unmatched,
-		Skipped:           status.Skipped,
-		IdentifyRequested: status.IdentifyRequested,
-		QueuedAt:          status.QueuedAt,
-		EstimatedItems:    status.EstimatedItems,
-		Error:             status.Error,
-		StartedAt:         status.StartedAt,
-		FinishedAt:        status.FinishedAt,
+		LibraryID:                status.LibraryID,
+		Phase:                    status.Phase,
+		Enriching:                status.Enriching,
+		IdentifyPhase:            status.IdentifyPhase,
+		Identified:               status.Identified,
+		IdentifyFailed:           status.IdentifyFailed,
+		IdentifyPending:          status.IdentifyPending,
+		IdentifyInFlight:         status.IdentifyInFlight,
+		IdentifyCompletedBatches: status.IdentifyCompletedBatches,
+		Processed:                status.Processed,
+		Added:                    status.Added,
+		Updated:                  status.Updated,
+		Removed:                  status.Removed,
+		Unmatched:                status.Unmatched,
+		Skipped:                  status.Skipped,
+		IdentifyRequested:        status.IdentifyRequested,
+		QueuedAt:                 status.QueuedAt,
+		EstimatedItems:           status.EstimatedItems,
+		Error:                    status.Error,
+		StartedAt:                status.StartedAt,
+		FinishedAt:               status.FinishedAt,
 	}
 }
 

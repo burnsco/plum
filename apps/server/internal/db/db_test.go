@@ -277,15 +277,21 @@ func TestInsertScannedItem_RollsBackOnMediaGlobalFailure(t *testing.T) {
 	dbConn := newTestDB(t)
 	libraryID := getLibraryID(t, dbConn, "movie")
 
-	_, _, err := insertScannedItem(context.Background(), dbConn, "movies", "invalid", libraryID, MediaItem{
+	tx, err := dbConn.Begin()
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	_, _, err = insertScannedItemTx(context.Background(), tx, "movies", "invalid", libraryID, MediaItem{
 		Title:       "Broken Insert",
 		Path:        "/movies/broken.mp4",
 		Duration:    60,
 		MatchStatus: MatchStatusLocal,
 	})
 	if err == nil {
-		t.Fatal("expected insertScannedItem to fail")
+		_ = tx.Commit()
+		t.Fatal("expected insertScannedItemTx to fail")
 	}
+	_ = tx.Rollback()
 
 	var count int
 	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM movies WHERE path = ?`, "/movies/broken.mp4").Scan(&count); err != nil {
@@ -494,6 +500,10 @@ func TestHandleScanLibraryWithOptions_ProgressSeesImportedRowsBeforeCompletion(t
 	}
 
 	visibleDuringProgress := false
+	oldBatchSize := LibraryScanBatchSize
+	LibraryScanBatchSize = 1
+	defer func() { LibraryScanBatchSize = oldBatchSize }()
+
 	result, err := HandleScanLibraryWithOptions(context.Background(), dbConn, root, LibraryTypeTV, tvLibID, ScanOptions{
 		Progress: func(progress ScanProgress) {
 			if progress.Processed != 1 || visibleDuringProgress {

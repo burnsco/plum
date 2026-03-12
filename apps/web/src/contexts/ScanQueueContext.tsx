@@ -14,6 +14,7 @@ import {
   type LibraryScanStatus,
 } from "../api";
 import { queryKeys, useLibraries } from "../queries";
+import { useWs } from "./WsContext";
 
 type QueueScanOptions = {
   identify?: boolean;
@@ -39,7 +40,9 @@ function isLibraryProcessing(status?: LibraryScanStatus) {
     (isActiveScan(status.phase) ||
       status.enriching ||
       status.identifyPhase === "queued" ||
-      status.identifyPhase === "identifying")
+      status.identifyPhase === "identifying" ||
+      (status.identifyPending ?? 0) > 0 ||
+      (status.identifyInFlight ?? 0) > 0)
   );
 }
 
@@ -47,6 +50,8 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { data: libraries = [] } = useLibraries();
   const [scanStatuses, setScanStatuses] = useState<Record<number, LibraryScanStatus>>({});
+  const ws = useWs();
+  const latestEvent = ws?.latestEvent;
 
   const setScanStatus = useCallback((status: LibraryScanStatus) => {
     setScanStatuses((current) => {
@@ -58,6 +63,9 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
         previous.identifyPhase === status.identifyPhase &&
         previous.identified === status.identified &&
         previous.identifyFailed === status.identifyFailed &&
+        previous.identifyPending === status.identifyPending &&
+        previous.identifyInFlight === status.identifyInFlight &&
+        previous.identifyCompletedBatches === status.identifyCompletedBatches &&
         previous.processed === status.processed &&
         previous.added === status.added &&
         previous.updated === status.updated &&
@@ -87,6 +95,20 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
     },
     [queryClient, setScanStatus],
   );
+
+  useEffect(() => {
+    if (latestEvent?.type === "library_scan_update") {
+      setScanStatus(latestEvent.scan);
+      if (
+        isLibraryProcessing(latestEvent.scan) ||
+        latestEvent.scan.phase === "completed" ||
+        latestEvent.scan.phase === "failed"
+      ) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.library(latestEvent.scan.libraryId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+      }
+    }
+  }, [latestEvent, queryClient, setScanStatus]);
 
   const queueLibraryScan = useCallback(
     async (libraryId: number, options?: QueueScanOptions) => {
@@ -148,3 +170,4 @@ export function useScanQueue() {
   if (!ctx) throw new Error("useScanQueue must be used within ScanQueueProvider");
   return ctx;
 }
+
