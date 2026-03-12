@@ -358,7 +358,7 @@ export function PlaybackDock() {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const seekToAfterReloadRef = useRef<number | null>(null);
   const resumePlaybackAfterReloadRef = useRef(false);
-  const handledTranscodeVersionRef = useRef(0);
+  const previousVideoSourceUrlRef = useRef("");
   const {
     activeItem,
     activeMode,
@@ -370,7 +370,6 @@ export function PlaybackDock() {
     repeatMode,
     volume,
     muted,
-    transcodeVersion,
     videoSourceUrl,
     wsConnected,
     lastEvent,
@@ -407,10 +406,11 @@ export function PlaybackDock() {
   );
 
   useEffect(() => {
-    if (transcodeVersion <= 0 || handledTranscodeVersionRef.current === transcodeVersion) return;
+    const previousUrl = previousVideoSourceUrlRef.current;
+    previousVideoSourceUrlRef.current = videoSourceUrl;
+    if (!videoSourceUrl || !previousUrl || previousUrl === videoSourceUrl) return;
     const video = videoRef.current;
     if (!video) return;
-    handledTranscodeVersionRef.current = transcodeVersion;
     seekToAfterReloadRef.current =
       Number.isFinite(video.currentTime) && video.currentTime > 0
         ? video.currentTime
@@ -418,7 +418,7 @@ export function PlaybackDock() {
     resumePlaybackAfterReloadRef.current = !video.paused && !video.ended;
     video.pause();
     video.load();
-  }, [playbackState.currentTime, transcodeVersion]);
+  }, [playbackState.currentTime, videoSourceUrl]);
 
   const subtitleTracks = useMemo<SubtitleTrackOption[]>(() => {
     if (!isVideo || !activeItem) return [];
@@ -619,7 +619,7 @@ export function PlaybackDock() {
       activeItemId != null ? { mediaId: activeItemId, key: "" } : null;
     seekToAfterReloadRef.current = null;
     resumePlaybackAfterReloadRef.current = false;
-    handledTranscodeVersionRef.current = 0;
+    previousVideoSourceUrlRef.current = "";
     setSubtitleMenuOpen(false);
     setAudioMenuOpen(false);
     setPlayerSettingsOpen(false);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,6 +76,214 @@ func createLibraryForTest(t *testing.T, db *sql.DB, typ, path string) int {
 		t.Fatalf("create library %s: %v", typ, err)
 	}
 	return id
+}
+
+func columnExistsForTest(t *testing.T, db *sql.DB, table, column string) bool {
+	t.Helper()
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		t.Fatalf("pragma table_info(%s): %v", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			t.Fatalf("scan pragma table_info(%s): %v", table, err)
+		}
+		if name == column {
+			return true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate pragma table_info(%s): %v", table, err)
+	}
+	return false
+}
+
+func TestCreateSchema_MigratesLegacyTables(t *testing.T) {
+	dbConn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer dbConn.Close()
+
+	legacySchema := `
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL
+);
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at DATETIME NOT NULL,
+  expires_at DATETIME NOT NULL
+);
+CREATE TABLE libraries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('tv','movie','music','anime')),
+  path TEXT NOT NULL,
+  created_at DATETIME NOT NULL
+);
+CREATE TABLE media_global (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('movie','tv','anime','music')),
+  ref_id INTEGER NOT NULL
+);
+CREATE TABLE movies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  path TEXT NOT NULL,
+  duration INTEGER NOT NULL DEFAULT 0,
+  tmdb_id INTEGER,
+  overview TEXT,
+  poster_path TEXT,
+  backdrop_path TEXT,
+  release_date TEXT,
+  vote_average REAL DEFAULT 0
+);
+CREATE TABLE tv_episodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  path TEXT NOT NULL,
+  duration INTEGER NOT NULL DEFAULT 0,
+  tmdb_id INTEGER,
+  overview TEXT,
+  poster_path TEXT,
+  backdrop_path TEXT,
+  release_date TEXT,
+  vote_average REAL DEFAULT 0
+);
+CREATE TABLE anime_episodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  path TEXT NOT NULL,
+  duration INTEGER NOT NULL DEFAULT 0,
+  tmdb_id INTEGER,
+  overview TEXT,
+  poster_path TEXT,
+  backdrop_path TEXT,
+  release_date TEXT,
+  vote_average REAL DEFAULT 0
+);
+CREATE TABLE music_tracks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  path TEXT NOT NULL,
+  duration INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE library_job_status (
+  library_id INTEGER PRIMARY KEY REFERENCES libraries(id) ON DELETE CASCADE,
+  phase TEXT NOT NULL
+);`
+	if _, err := dbConn.Exec(legacySchema); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+
+	if err := createSchema(dbConn); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	for _, tc := range []struct {
+		table  string
+		column string
+	}{
+		{table: "libraries", column: "preferred_audio_language"},
+		{table: "libraries", column: "preferred_subtitle_language"},
+		{table: "libraries", column: "subtitles_enabled_by_default"},
+		{table: "movies", column: "match_status"},
+		{table: "movies", column: "tvdb_id"},
+		{table: "movies", column: "imdb_id"},
+		{table: "movies", column: "imdb_rating"},
+		{table: "tv_episodes", column: "season"},
+		{table: "tv_episodes", column: "episode"},
+		{table: "tv_episodes", column: "thumbnail_path"},
+		{table: "music_tracks", column: "artist"},
+		{table: "music_tracks", column: "album"},
+		{table: "library_job_status", column: "identify_phase"},
+		{table: "library_job_status", column: "updated_at"},
+	} {
+		if !columnExistsForTest(t, dbConn, tc.table, tc.column) {
+			t.Fatalf("expected %s.%s to exist after migration", tc.table, tc.column)
+		}
+	}
+}
+
+func TestInsertScannedItem_RollsBackOnMediaGlobalFailure(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "movie")
+
+	_, _, err := insertScannedItem(context.Background(), dbConn, "movies", "invalid", libraryID, MediaItem{
+		Title:       "Broken Insert",
+		Path:        "/movies/broken.mp4",
+		Duration:    60,
+		MatchStatus: MatchStatusLocal,
+	})
+	if err == nil {
+		t.Fatal("expected insertScannedItem to fail")
+	}
+
+	var count int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM movies WHERE path = ?`, "/movies/broken.mp4").Scan(&count); err != nil {
+		t.Fatalf("count movies: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected rollback to remove inserted movie row, found %d", count)
+	}
+}
+
+func TestHandleStreamSubtitle_DoesNotWritePartialResponseOnConversionError(t *testing.T) {
+	dbConn := newTestDB(t)
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "Movies 2", "movie", "/movies2", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Missing", "/movies/missing.mp4", 100, MatchStatusLocal).Scan(&refID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeMovie, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	var subtitleID int
+	if err := dbConn.QueryRow(`INSERT INTO subtitles (media_id, title, language, format, path) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		mediaID, "Broken", "en", "srt", "/does/not/exist.srt").Scan(&subtitleID); err != nil {
+		t.Fatalf("insert subtitle: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/subtitles/%d", subtitleID), nil)
+	err := HandleStreamSubtitle(rec, req, dbConn, subtitleID)
+	if err == nil {
+		t.Fatal("expected subtitle conversion error")
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty response body on subtitle error, got %q", rec.Body.String())
+	}
 }
 
 // TestHandleScanLibrary_RecursesSubdirectories verifies that HandleScanLibrary walks

@@ -5,6 +5,7 @@ import { AuthProvider, useAuthActions, useAuthState } from "./contexts/AuthConte
 import { IdentifyQueueProvider } from "./contexts/IdentifyQueueContext";
 import { PlayerProvider } from "./contexts/PlayerContext";
 import { ScanQueueProvider } from "./contexts/ScanQueueContext";
+import { WsProvider } from "./contexts/WsContext";
 import { MainLayout } from "./components/MainLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { Home } from "./pages/Home";
@@ -45,16 +46,18 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
       <BrowserRouter>
         <ScanQueueProvider>
           <IdentifyQueueProvider>
-            <PlayerProvider>
-              <Routes>
-                <Route path="/" element={<MainLayout />}>
-                  <Route index element={<Dashboard />} />
-                  <Route path="library/:libraryId" element={<Home />} />
-                  <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-              </Routes>
-            </PlayerProvider>
+            <WsProvider>
+              <PlayerProvider>
+                <Routes>
+                  <Route path="/" element={<MainLayout />}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="library/:libraryId" element={<Home />} />
+                    <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
+                    <Route path="settings" element={<Settings />} />
+                  </Route>
+                </Routes>
+              </PlayerProvider>
+            </WsProvider>
           </IdentifyQueueProvider>
         </ScanQueueProvider>
       </BrowserRouter>

@@ -80,12 +80,19 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	tx, err := h.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	var userID int
-	err = h.DB.QueryRow(
+	err = tx.QueryRowContext(
+		r.Context(),
 		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
 		email, pwHash, now,
 	).Scan(&userID)
 	if err != nil {
+		_ = tx.Rollback()
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -96,10 +103,16 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expires := now.Add(auth.SessionLifetime())
-	if _, err := h.DB.Exec(
+	if _, err := tx.ExecContext(
+		r.Context(),
 		`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
 		sessID, userID, now, expires,
 	); err != nil {
+		_ = tx.Rollback()
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

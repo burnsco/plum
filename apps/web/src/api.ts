@@ -59,8 +59,6 @@ export const {
   createPlaybackSession,
   updatePlaybackSessionAudio,
   closePlaybackSession,
-  startTranscode,
-  cancelTranscode,
   getTranscodingSettings,
   updateTranscodingSettings,
   searchSeries,

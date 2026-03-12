@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"plum/internal/db"
@@ -44,6 +45,15 @@ func sessionIDFromRequest(r *http.Request) string {
 	return c.Value
 }
 
+func secureCookiesEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PLUM_SECURE_COOKIES"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func setSessionCookie(w http.ResponseWriter, sessionID string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName(),
@@ -51,7 +61,7 @@ func setSessionCookie(w http.ResponseWriter, sessionID string, expires time.Time
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   false,
+		Secure:   secureCookiesEnabled(),
 		Expires:  expires,
 	})
 }
@@ -63,7 +73,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   false,
+		Secure:   secureCookiesEnabled(),
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})

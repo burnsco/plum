@@ -10,6 +10,7 @@ vi.mock("../api", async () => {
 import type { MediaItem } from "../api";
 import * as api from "../api";
 import { PlayerProvider, usePlayer } from "./PlayerContext";
+import { WsProvider } from "./WsContext";
 
 type MockWebSocketHandle = {
   mockMessage: (data: string) => void;
@@ -29,7 +30,7 @@ const movie: MediaItem = {
 };
 
 function PlayerHarness() {
-  const { activeItem, lastEvent, playMovie, transcodeVersion } = usePlayer();
+  const { activeItem, lastEvent, playMovie, videoSourceUrl } = usePlayer();
 
   return (
     <div>
@@ -38,12 +39,12 @@ function PlayerHarness() {
       </button>
       <div data-testid="active-media-id">{activeItem?.id ?? ""}</div>
       <div data-testid="last-event">{lastEvent}</div>
-      <div data-testid="transcode-version">{transcodeVersion}</div>
+      <div data-testid="video-source-url">{videoSourceUrl}</div>
     </div>
   );
 }
 
-describe("PlayerContext WebSocket transcode events", () => {
+describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(api, "createPlaybackSession").mockResolvedValue({
@@ -66,11 +67,13 @@ describe("PlayerContext WebSocket transcode events", () => {
     (globalThis.WebSocket as unknown as MockWebSocketClass).reset();
   });
 
-  it("ignores transcode events for non-active media and applies them for the active item", async () => {
+  it("ignores unrelated playback events and applies the active session revision", async () => {
     render(
-      <PlayerProvider>
-        <PlayerHarness />
-      </PlayerProvider>,
+      <WsProvider>
+        <PlayerProvider>
+          <PlayerHarness />
+        </PlayerProvider>
+      </WsProvider>,
     );
 
     const MockWebSocket = globalThis.WebSocket as unknown as MockWebSocketClass;
@@ -87,53 +90,24 @@ describe("PlayerContext WebSocket transcode events", () => {
     await waitFor(() => {
       expect(api.createPlaybackSession).toHaveBeenCalledWith(99, { audioIndex: -1 });
       expect(screen.getByTestId("active-media-id")).toHaveTextContent("99");
+      expect(screen.getByTestId("last-event")).toHaveTextContent("Preparing stream...");
     });
-
-    act(() => {
-      socket.mockMessage(
-        JSON.stringify({
-          type: "transcode_started",
-          id: 42,
-          preferredMode: "software",
-        }),
-      );
-    });
-    expect(screen.getByTestId("last-event")).not.toHaveTextContent("Transcoding...");
-    expect(screen.getByTestId("transcode-version")).toHaveTextContent("0");
-
-    act(() => {
-      socket.mockMessage(
-        JSON.stringify({
-          type: "transcode_complete",
-          id: 42,
-          output: "/tmp/plum_transcoded_42.mp4",
-          elapsed: 1.2,
-          mode: "software",
-          fallbackUsed: false,
-          success: true,
-          error: "",
-        }),
-      );
-    });
-    expect(screen.getByTestId("transcode-version")).toHaveTextContent("0");
 
     act(() => {
       socket.mockMessage(
         JSON.stringify({
           type: "playback_session_update",
-          sessionId: "session-99",
-          mediaId: 99,
+          sessionId: "session-22",
+          mediaId: 22,
           revision: 1,
           audioIndex: -1,
-          status: "starting",
-          playlistPath: "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+          status: "ready",
+          playlistPath: "/api/playback/sessions/session-22/revisions/1/index.m3u8",
         }),
       );
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("last-event")).toHaveTextContent("Preparing stream...");
-    });
+    expect(screen.getByTestId("video-source-url")).toHaveTextContent("");
 
     act(() => {
       socket.mockMessage(
@@ -151,7 +125,9 @@ describe("PlayerContext WebSocket transcode events", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("last-event")).toHaveTextContent("Stream ready");
-      expect(screen.getByTestId("transcode-version")).toHaveTextContent("1");
+      expect(screen.getByTestId("video-source-url")).toHaveTextContent(
+        "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+      );
     });
   });
 });

@@ -8,11 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  buildPlumWebSocketUrl,
-  parsePlumWebSocketEvent,
-  playbackSessionPlaylistUrl,
-} from "@plum/shared";
+import { playbackSessionPlaylistUrl } from "@plum/shared";
 import type { MediaItem, PlaybackSession as ApiPlaybackSession } from "../api";
 import {
   BASE_URL,
@@ -22,6 +18,7 @@ import {
 } from "../api";
 import { sortMusicTracks } from "../lib/musicGrouping";
 import { sortEpisodes } from "../lib/showGrouping";
+import { useWs } from "./WsContext";
 
 export type PlaybackKind = "video" | "music";
 export type PlayerViewMode = "docked" | "fullscreen";
@@ -61,7 +58,6 @@ type PlayerContextValue = {
   repeatMode: MusicRepeatMode;
   volume: number;
   muted: boolean;
-  transcodeVersion: number;
   videoSourceUrl: string;
   playMedia: (item: MediaItem) => void;
   playMovie: (item: MediaItem) => void;
@@ -69,7 +65,6 @@ type PlayerContextValue = {
   playShowGroup: (items: MediaItem[], startItem?: MediaItem) => void;
   playMusicCollection: (items: MediaItem[], startItem?: MediaItem) => void;
   dismissDock: () => void;
-  closePlayer: () => void;
   togglePlayPause: () => void;
   seekTo: (seconds: number) => void;
   setMuted: (muted: boolean) => void;
@@ -112,12 +107,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [musicBaseQueue, setMusicBaseQueue] = useState<MediaItem[]>([]);
   const [volume, setVolumeState] = useState(1);
   const [muted, setMutedState] = useState(false);
-  const [transcodeVersion, setTranscodeVersion] = useState(0);
-  const [wsConnected, setWsConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState("");
-  const wsRef = useRef<WebSocket | null>(null);
-  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(0);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(0);
   const mountedRef = useRef(true);
   const activeVideoItemIdRef = useRef<number | null>(null);
   const videoSessionRef = useRef<VideoSessionState | null>(null);
@@ -125,6 +115,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio: null,
     video: null,
   });
+  const { wsConnected, latestEvent, eventSequence } = useWs();
 
   const activeItem = playbackSession?.queue[playbackSession.queueIndex] ?? null;
   const activeMode = playbackSession?.activeMode ?? null;
@@ -159,13 +150,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playlistPath: session.playlistPath,
       error: session.error ?? "",
     });
-    if (session.status === "ready") {
-      setTranscodeVersion(session.revision);
-      setLastEvent("Stream ready");
-    } else {
-      setTranscodeVersion(0);
-      setLastEvent("Preparing stream...");
-    }
+    setLastEvent(session.status === "ready" ? "Stream ready" : "Preparing stream...");
   }, []);
 
   const pauseAllMediaElements = useCallback(() => {
@@ -196,6 +181,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [muted, volume]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const getActiveMediaElement = useCallback(() => {
     if (activeMode === "music") return mediaElementsRef.current.audio;
     if (activeMode === "video") return mediaElementsRef.current.video;
@@ -211,7 +203,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPlaybackSession(null);
     setVideoSession(null);
     setMusicBaseQueue([]);
-    setTranscodeVersion(0);
+    setLastEvent("");
   }, [
     closeVideoSession,
     exitBrowserFullscreen,
@@ -237,7 +229,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       closeVideoSession(videoSessionRef.current?.sessionId);
       setVideoSession(null);
       setMusicBaseQueue([]);
-      setTranscodeVersion(0);
+      setLastEvent("");
       if (!nextItem) return;
       createPlaybackSession(nextItem.id, { audioIndex: -1 })
         .then((session) => {
@@ -328,7 +320,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setMusicBaseQueue(baseQueue);
       closeVideoSession(videoSessionRef.current?.sessionId);
       setVideoSession(null);
-      setTranscodeVersion(0);
+      setLastEvent("");
       setPlaybackSession({
         activeMode: "music",
         isDockOpen: true,
@@ -476,113 +468,64 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [exitBrowserFullscreen]);
 
   useEffect(() => {
-    if (!BASE_URL) return;
-    mountedRef.current = true;
-    const connect = () => {
-      if (!mountedRef.current) return;
-      const ws = new WebSocket(buildPlumWebSocketUrl(BASE_URL, window.location.origin));
-      wsRef.current = ws;
-      ws.addEventListener("open", () => {
-        if (mountedRef.current) setWsConnected(true);
-      });
-      ws.addEventListener("close", () => {
-        if (!mountedRef.current) return;
-        if (wsRef.current === ws) {
-          wsRef.current = null;
-        }
-        setWsConnected(false);
-        reconnectTimeoutRef.current = setTimeout(connect, 3000);
-      });
-      ws.addEventListener("message", (event) => {
-        if (!mountedRef.current) return;
-        const rawData = typeof event.data === "string" ? event.data : String(event.data);
-        const data = parsePlumWebSocketEvent(rawData);
-        if (!data) {
-          setLastEvent(rawData);
-          return;
-        }
-        const activeVideoItemId = activeVideoItemIdRef.current;
-        if (data.type === "transcode_started") {
-          if (activeVideoItemId == null || data.id !== activeVideoItemId) return;
-          setLastEvent("Transcoding...");
-        } else if (data.type === "transcode_complete") {
-          if (activeVideoItemId == null || data.id !== activeVideoItemId) return;
-          setLastEvent(data.success ? "Ready" : `Error: ${data.error || "Transcode failed"}`);
-          if (data.success) {
-            setTranscodeVersion((v) => v + 1);
-          }
-        } else if (data.type === "playback_session_update") {
-          const currentSession = videoSessionRef.current;
-          if (
-            activeVideoItemId == null ||
-            currentSession == null ||
-            data.mediaId !== activeVideoItemId ||
-            data.sessionId !== currentSession.sessionId
-          ) {
-            return;
-          }
-          if (data.status === "ready") {
-            const shouldActivate = data.revision >= currentSession.desiredRevision;
-            setVideoSession((current) =>
-              current == null || current.sessionId !== data.sessionId
-                ? current
-                : {
-                    ...current,
-                    currentRevision: shouldActivate ? data.revision : current.currentRevision,
-                    desiredRevision: Math.max(current.desiredRevision, data.revision),
-                    audioIndex: data.audioIndex,
-                    status: "ready",
-                    playlistPath: data.playlistPath,
-                    error: data.error ?? "",
-                  },
-            );
-            if (shouldActivate) {
-              setTranscodeVersion(data.revision);
-              setLastEvent("Stream ready");
-            }
-          } else if (data.status === "error") {
-            setVideoSession((current) =>
-              current == null || current.sessionId !== data.sessionId
-                ? current
-                : {
-                    ...current,
-                    status: "error",
-                    error: data.error ?? "Playback session failed",
-                  },
-            );
-            setLastEvent(`Error: ${data.error || "Playback session failed"}`);
-          } else if (data.status === "closed") {
-            setVideoSession((current) => (current?.sessionId === data.sessionId ? null : current));
-            setTranscodeVersion(0);
-          } else {
-            setLastEvent("Preparing stream...");
-          }
-        } else if (data.type === "transcode_warning") {
-          if (activeVideoItemId == null || data.id !== activeVideoItemId) return;
-          setLastEvent(data.warning);
-        } else if (data.type === "welcome") {
-          setLastEvent(data.message);
-        } else {
-          setLastEvent(data.type);
-        }
-      });
-      ws.addEventListener("error", () => {});
-    };
-    // Defer the initial connection so Strict Mode cleanup can cancel it
-    // without closing a socket that is still establishing.
-    connectTimeoutRef.current = setTimeout(connect, 0);
-    return () => {
-      mountedRef.current = false;
-      clearTimeout(connectTimeoutRef.current);
-      connectTimeoutRef.current = 0;
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = 0;
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+    if (!latestEvent || latestEvent.type !== "playback_session_update") {
+      return;
+    }
+
+    const activeVideoItemId = activeVideoItemIdRef.current;
+    const currentSession = videoSessionRef.current;
+    if (
+      activeVideoItemId == null ||
+      currentSession == null ||
+      latestEvent.mediaId !== activeVideoItemId ||
+      latestEvent.sessionId !== currentSession.sessionId
+    ) {
+      return;
+    }
+
+    if (latestEvent.status === "ready") {
+      const shouldActivate = latestEvent.revision >= currentSession.desiredRevision;
+      setVideoSession((current) =>
+        current == null || current.sessionId !== latestEvent.sessionId
+          ? current
+          : {
+              ...current,
+              currentRevision: shouldActivate ? latestEvent.revision : current.currentRevision,
+              desiredRevision: Math.max(current.desiredRevision, latestEvent.revision),
+              audioIndex: latestEvent.audioIndex,
+              status: "ready",
+              playlistPath: latestEvent.playlistPath,
+              error: latestEvent.error ?? "",
+            },
+      );
+      if (shouldActivate) {
+        setLastEvent("Stream ready");
       }
-    };
-  }, []);
+      return;
+    }
+
+    if (latestEvent.status === "error") {
+      setVideoSession((current) =>
+        current == null || current.sessionId !== latestEvent.sessionId
+          ? current
+          : {
+              ...current,
+              status: "error",
+              error: latestEvent.error ?? "Playback session failed",
+            },
+      );
+      setLastEvent(`Error: ${latestEvent.error || "Playback session failed"}`);
+      return;
+    }
+
+    if (latestEvent.status === "closed") {
+      setVideoSession((current) => (current?.sessionId === latestEvent.sessionId ? null : current));
+      setLastEvent("");
+      return;
+    }
+
+    setLastEvent("Preparing stream...");
+  }, [eventSequence, latestEvent]);
 
   const value = useMemo<PlayerContextValue>(
     () => ({
@@ -597,7 +540,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       repeatMode,
       volume,
       muted,
-      transcodeVersion,
       videoSourceUrl,
       playMedia,
       playMovie,
@@ -605,7 +547,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playShowGroup,
       playMusicCollection,
       dismissDock,
-      closePlayer: dismissDock,
       togglePlayPause,
       seekTo,
       setMuted,
@@ -633,7 +574,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       repeatMode,
       volume,
       muted,
-      transcodeVersion,
       videoSourceUrl,
       playMedia,
       playMovie,

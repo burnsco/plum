@@ -77,7 +77,6 @@ describe("PlaybackDock audio track selection", () => {
       repeatMode: "off",
       volume: 1,
       muted: false,
-      transcodeVersion: 0,
       videoSourceUrl:
         "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
       wsConnected: false,
@@ -125,7 +124,7 @@ describe("PlaybackDock audio track selection", () => {
     });
   });
 
-  it("reloads the active video element when a new transcode completes", async () => {
+  it("reloads the active video element when the playback revision URL changes", async () => {
     const loadSpy = vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
     const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const { container, queryClient, rerender } = renderDock();
@@ -146,7 +145,6 @@ describe("PlaybackDock audio track selection", () => {
 
     mockUsePlayer.mockReturnValue({
       ...mockUsePlayer.mock.results.at(-1)?.value,
-      transcodeVersion: 1,
       videoSourceUrl:
         "http://localhost:3000/api/playback/sessions/session-1/revisions/2/index.m3u8",
     });

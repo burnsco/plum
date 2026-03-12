@@ -544,30 +544,6 @@ export interface PongEvent {
   type: "pong";
 }
 
-export interface TranscodeStartedEvent {
-  type: "transcode_started";
-  id: number;
-  preferredMode: string;
-}
-
-export interface TranscodeWarningEvent {
-  type: "transcode_warning";
-  id: number;
-  warning: string;
-  error: string;
-}
-
-export interface TranscodeCompleteEvent {
-  type: "transcode_complete";
-  id: number;
-  output: string;
-  elapsed: number;
-  mode: string;
-  fallbackUsed: boolean;
-  success: boolean;
-  error: string;
-}
-
 export interface PlaybackSessionUpdateEvent {
   type: "playback_session_update";
   sessionId: string;
@@ -587,9 +563,6 @@ export interface LibraryScanUpdateEvent {
 export type PlumWebSocketEvent =
   | WelcomeEvent
   | PongEvent
-  | TranscodeStartedEvent
-  | TranscodeWarningEvent
-  | TranscodeCompleteEvent
   | PlaybackSessionUpdateEvent
   | LibraryScanUpdateEvent;
 
@@ -600,30 +573,6 @@ export const WelcomeEventSchema = Schema.Struct({
 
 export const PongEventSchema = Schema.Struct({
   type: Schema.Literal("pong"),
-});
-
-export const TranscodeStartedEventSchema = Schema.Struct({
-  type: Schema.Literal("transcode_started"),
-  id: Schema.Number,
-  preferredMode: Schema.String,
-});
-
-export const TranscodeWarningEventSchema = Schema.Struct({
-  type: Schema.Literal("transcode_warning"),
-  id: Schema.Number,
-  warning: Schema.String,
-  error: Schema.String,
-});
-
-export const TranscodeCompleteEventSchema = Schema.Struct({
-  type: Schema.Literal("transcode_complete"),
-  id: Schema.Number,
-  output: Schema.String,
-  elapsed: Schema.Number,
-  mode: Schema.String,
-  fallbackUsed: Schema.Boolean,
-  success: Schema.Boolean,
-  error: Schema.String,
 });
 
 export const PlaybackSessionUpdateEventSchema = Schema.Struct({
@@ -645,9 +594,6 @@ export const LibraryScanUpdateEventSchema = Schema.Struct({
 export const PlumWebSocketEventSchema = Schema.Union([
   WelcomeEventSchema,
   PongEventSchema,
-  TranscodeStartedEventSchema,
-  TranscodeWarningEventSchema,
-  TranscodeCompleteEventSchema,
   PlaybackSessionUpdateEventSchema,
   LibraryScanUpdateEventSchema,
 ]);

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -377,78 +378,262 @@ CREATE TABLE IF NOT EXISTS playback_progress (
   PRIMARY KEY (user_id, media_id)
 );
 CREATE INDEX IF NOT EXISTS idx_playback_progress_user_last_watched ON playback_progress(user_id, last_watched_at DESC);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at DATETIME NOT NULL
+);
 `
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
-	// Migration: add tvdb_id to category tables if missing (existing DBs).
-	for _, table := range []string{"movies", "tv_episodes", "anime_episodes"} {
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN tvdb_id TEXT", table))
+	return applySchemaMigrations(context.Background(), db)
+}
+
+type schemaMigration struct {
+	version int
+	name    string
+	apply   func(context.Context, *sql.Tx) error
+}
+
+var schemaMigrations = []schemaMigration{
+	{
+		version: 1,
+		name:    "category_tvdb_id",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, table := range []string{"movies", "tv_episodes", "anime_episodes"} {
+				if err := addColumnIfMissingTx(ctx, tx, table, "tvdb_id", "TEXT"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 2,
+		name:    "category_imdb_fields",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, table := range []string{"movies", "tv_episodes", "anime_episodes"} {
+				if err := addColumnIfMissingTx(ctx, tx, table, "imdb_id", "TEXT"); err != nil {
+					return err
+				}
+				if err := addColumnIfMissingTx(ctx, tx, table, "imdb_rating", "REAL DEFAULT 0"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 3,
+		name:    "match_status",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, table := range []string{"movies", "tv_episodes", "anime_episodes", "music_tracks"} {
+				if err := addColumnIfMissingTx(ctx, tx, table, "match_status", "TEXT NOT NULL DEFAULT 'local'"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 4,
+		name:    "episode_numbers",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, table := range []string{"tv_episodes", "anime_episodes"} {
+				if err := addColumnIfMissingTx(ctx, tx, table, "season", "INTEGER"); err != nil {
+					return err
+				}
+				if err := addColumnIfMissingTx(ctx, tx, table, "episode", "INTEGER"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 5,
+		name:    "thumbnail_path",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, table := range []string{"tv_episodes", "anime_episodes"} {
+				if err := addColumnIfMissingTx(ctx, tx, table, "thumbnail_path", "TEXT"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 6,
+		name:    "library_playback_preferences",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, column := range []struct {
+				name string
+				def  string
+			}{
+				{name: "preferred_audio_language", def: "TEXT"},
+				{name: "preferred_subtitle_language", def: "TEXT"},
+				{name: "subtitles_enabled_by_default", def: "INTEGER"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, "libraries", column.name, column.def); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 7,
+		name:    "music_metadata_columns",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, column := range []struct {
+				name string
+				def  string
+			}{
+				{name: "artist", def: "TEXT"},
+				{name: "album", def: "TEXT"},
+				{name: "album_artist", def: "TEXT"},
+				{name: "disc_number", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "track_number", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "release_year", def: "INTEGER NOT NULL DEFAULT 0"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, "music_tracks", column.name, column.def); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 8,
+		name:    "library_job_status_columns",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, column := range []struct {
+				name string
+				def  string
+			}{
+				{name: "enriching", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "identify_phase", def: "TEXT NOT NULL DEFAULT 'idle'"},
+				{name: "identified", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "identify_failed", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "processed", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "added", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "updated", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "removed", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "unmatched", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "skipped", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "identify_requested", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "error", def: "TEXT"},
+				{name: "started_at", def: "DATETIME"},
+				{name: "finished_at", def: "DATETIME"},
+				{name: "updated_at", def: "DATETIME"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, "library_job_status", column.name, column.def); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+}
+
+func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
+	applied, err := listAppliedSchemaMigrations(db)
+	if err != nil {
+		return err
 	}
-	for _, table := range []string{"movies", "tv_episodes", "anime_episodes"} {
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN imdb_id TEXT", table))
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN imdb_rating REAL DEFAULT 0", table))
+
+	for _, migration := range schemaMigrations {
+		if _, ok := applied[migration.version]; ok {
+			continue
+		}
+
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if err := migration.apply(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply schema migration %d (%s): %w", migration.version, migration.name, err)
+		}
+		if err := recordSchemaMigrationTx(ctx, tx, migration); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
-	for _, table := range []string{"movies", "tv_episodes", "anime_episodes", "music_tracks"} {
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN match_status TEXT NOT NULL DEFAULT 'local'", table))
-	}
-	// Migration: add season/episode to TV and anime tables.
-	for _, table := range []string{"tv_episodes", "anime_episodes"} {
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN season INTEGER", table))
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN episode INTEGER", table))
-	}
-	// Migration: add thumbnail_path for video episode thumbnails.
-	for _, table := range []string{"tv_episodes", "anime_episodes"} {
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN thumbnail_path TEXT", table))
-	}
-	for _, stmt := range []string{
-		`ALTER TABLE libraries ADD COLUMN preferred_audio_language TEXT`,
-		`ALTER TABLE libraries ADD COLUMN preferred_subtitle_language TEXT`,
-		`ALTER TABLE libraries ADD COLUMN subtitles_enabled_by_default INTEGER`,
-	} {
-		_, _ = db.Exec(stmt)
-	}
-	for _, stmt := range []string{
-		`ALTER TABLE music_tracks ADD COLUMN artist TEXT`,
-		`ALTER TABLE music_tracks ADD COLUMN album TEXT`,
-		`ALTER TABLE music_tracks ADD COLUMN album_artist TEXT`,
-		`ALTER TABLE music_tracks ADD COLUMN disc_number INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE music_tracks ADD COLUMN track_number INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE music_tracks ADD COLUMN release_year INTEGER NOT NULL DEFAULT 0`,
-	} {
-		_, _ = db.Exec(stmt)
-	}
-	for _, stmt := range []string{
-		`ALTER TABLE library_job_status ADD COLUMN enriching INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN identify_phase TEXT NOT NULL DEFAULT 'idle'`,
-		`ALTER TABLE library_job_status ADD COLUMN identified INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN identify_failed INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN processed INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN added INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN removed INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN unmatched INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN identify_requested INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE library_job_status ADD COLUMN error TEXT`,
-		`ALTER TABLE library_job_status ADD COLUMN started_at DATETIME`,
-		`ALTER TABLE library_job_status ADD COLUMN finished_at DATETIME`,
-		`ALTER TABLE library_job_status ADD COLUMN updated_at DATETIME`,
-	} {
-		_, _ = db.Exec(stmt)
-	}
+
 	return nil
 }
 
-func SeedSample(db *sql.DB) error {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM media_global`).Scan(&count); err != nil {
+func listAppliedSchemaMigrations(db *sql.DB) (map[int]struct{}, error) {
+	rows, err := db.Query(`SELECT version FROM schema_migrations`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	applied := make(map[int]struct{})
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return nil, err
+		}
+		applied[version] = struct{}{}
+	}
+	return applied, rows.Err()
+}
+
+func recordSchemaMigrationTx(ctx context.Context, tx *sql.Tx, migration schemaMigration) error {
+	_, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`,
+		migration.version,
+		migration.name,
+		time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+func addColumnIfMissingTx(ctx context.Context, tx *sql.Tx, table, column, definition string) error {
+	exists, err := columnExistsTx(ctx, tx, table, column)
+	if err != nil {
 		return err
 	}
-	if count > 0 {
+	if exists {
 		return nil
 	}
-	return nil
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	return err
+}
+
+func columnExistsTx(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func GetAllMedia(db *sql.DB) ([]MediaItem, error) {
@@ -1795,29 +1980,41 @@ func lookupExistingMedia(dbConn *sql.DB, table, kind string, libraryID int, path
 }
 
 func insertScannedItem(ctx context.Context, dbConn *sql.DB, table, kind string, libraryID int, mItem MediaItem) (int, int, error) {
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	var refID int
 	if table == "music_tracks" {
-		err := dbConn.QueryRowContext(ctx, `INSERT INTO music_tracks (library_id, title, path, duration, match_status, artist, album, album_artist, disc_number, track_number, release_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		err = tx.QueryRowContext(ctx, `INSERT INTO music_tracks (library_id, title, path, duration, match_status, artist, album, album_artist, disc_number, track_number, release_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, nullStr(mItem.Artist), nullStr(mItem.Album), nullStr(mItem.AlbumArtist), mItem.DiscNumber, mItem.TrackNumber, mItem.ReleaseYear).Scan(&refID)
 		if err != nil {
+			_ = tx.Rollback()
 			return 0, 0, err
 		}
 	} else if table == "tv_episodes" || table == "anime_episodes" {
-		err := dbConn.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		err = tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating), mItem.Season, mItem.Episode).Scan(&refID)
 		if err != nil {
+			_ = tx.Rollback()
 			return 0, 0, err
 		}
 	} else {
-		err := dbConn.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		err = tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating)).Scan(&refID)
 		if err != nil {
+			_ = tx.Rollback()
 			return 0, 0, err
 		}
 	}
 	var globalID int
-	err := dbConn.QueryRowContext(ctx, `INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, kind, refID).Scan(&globalID)
+	err = tx.QueryRowContext(ctx, `INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, kind, refID).Scan(&globalID)
 	if err != nil {
+		_ = tx.Rollback()
+		return 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, 0, err
 	}
 	return refID, globalID, nil
@@ -1928,9 +2125,8 @@ func nullFloat64(v float64) interface{} {
 	return v
 }
 
-// HandleStreamMedia looks up a media item and serves the file contents.
-// When a transcoded version exists it is preferred over the original file,
-// since the transcode may have been produced with a specific audio track.
+// HandleStreamMedia looks up a media item and serves the original file contents.
+// Transcoded playback is served exclusively through playback sessions.
 func HandleStreamMedia(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, id int) error {
 	item, err := GetMediaByID(dbConn, id)
 	if err != nil {
@@ -1938,13 +2134,6 @@ func HandleStreamMedia(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, i
 	}
 	if item == nil {
 		return ErrNotFound
-	}
-
-	// Prefer transcoded output when available.
-	transcodedPath := filepath.Join("/tmp", fmt.Sprintf("plum_transcoded_%d.mp4", id))
-	if info, statErr := os.Stat(transcodedPath); statErr == nil && info.Size() > 0 {
-		http.ServeFile(w, r, transcodedPath)
-		return nil
 	}
 
 	http.ServeFile(w, r, item.Path)
@@ -1968,12 +2157,13 @@ func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 	}
 
 	if s.Format == "srt" || s.Format == "ass" || s.Format == "ssa" {
+		out, err := convertSubtitleToVTT(r.Context(), []string{"-i", s.Path, "-f", "webvtt", "-"}...)
+		if err != nil {
+			return err
+		}
 		w.Header().Set("Content-Type", "text/vtt")
-		// Convert subtitle to VTT using ffmpeg and stream it
-		cmd := exec.Command("ffmpeg", "-i", s.Path, "-f", "webvtt", "-")
-		cmd.Stdout = w
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("ffmpeg error: %w", err)
+		if _, err := w.Write(out); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -1990,16 +2180,34 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	if item == nil {
 		return ErrNotFound
 	}
-
+	out, err := convertSubtitleToVTT(r.Context(), []string{"-i", item.Path, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...)
+	if err != nil {
+		return err
+	}
 	w.Header().Set("Content-Type", "text/vtt")
-
-	// Use the global stream index reported by ffprobe with -map 0:<index>.
-	cmd := exec.Command("ffmpeg", "-i", item.Path, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-")
-	cmd.Stdout = w
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg error: %w", err)
+	if _, err := w.Write(out); err != nil {
+		return err
 	}
 	return nil
+}
+
+func convertSubtitleToVTT(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		return nil, fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	return stdout.Bytes(), nil
 }
 
 // GenerateThumbnail extracts a single frame from the video at ~1 minute (or start if shorter) and writes it to outputPath as JPEG.

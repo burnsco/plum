@@ -662,18 +662,6 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         path: `/api/playback/sessions/${sessionId}`,
         errorMessage: ({ status, body }) => body || `Close playback session: ${status}`,
       }),
-    startTranscode: (id: number, options?: { readonly audioIndex?: number }) =>
-      voidRequestEffect({
-        method: "POST",
-        path: `/api/transcode/${id}${options?.audioIndex !== undefined && options.audioIndex >= 0 ? `?audio_index=${options.audioIndex}` : ""}`,
-        errorMessage: ({ status }) => `Failed to start transcode: ${status}`,
-      }),
-    cancelTranscode: () =>
-      voidRequestEffect({
-        method: "DELETE",
-        path: "/api/transcode",
-        errorMessage: ({ status }) => `Failed to cancel transcode: ${status}`,
-      }),
     getTranscodingSettings: () =>
       jsonRequestEffect({
         path: "/api/settings/transcoding",
@@ -759,9 +747,6 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       run(effects.updatePlaybackSessionAudio(sessionId, payload)),
     closePlaybackSession: (sessionId: string) => run(effects.closePlaybackSession(sessionId)),
-    startTranscode: (id: number, options?: { readonly audioIndex?: number }) =>
-      run(effects.startTranscode(id, options)),
-    cancelTranscode: () => run(effects.cancelTranscode()),
     getTranscodingSettings: () => run(effects.getTranscodingSettings()),
     updateTranscodingSettings: (payload: TranscodingSettings) =>
       run(effects.updateTranscodingSettings(payload)),
