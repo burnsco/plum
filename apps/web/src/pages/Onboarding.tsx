@@ -67,6 +67,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
   const [addedLibraries, setAddedLibraries] = useState<AddedLibrary[]>([]);
   const [loading, setLoading] = useState(false);
   const [addingDefaults, setAddingDefaults] = useState(false);
+  const [showManualLibraryForm, setShowManualLibraryForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,7 +165,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
         type: libraryType,
         path: libraryPath.trim(),
       });
-      const status = await startLibraryScan(lib.id);
+      const status = await startLibraryScan(lib.id, { identify: false });
       setAddedLibraries((prev) => [
         ...prev,
         mergeLibraryScanStatus(
@@ -197,10 +198,11 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
     setAddingDefaults(true);
     try {
       const existingPaths = new Set(addedLibraries.map((l) => l.path));
+      const createdLibraries: AddedLibrary[] = [];
       for (const def of DEFAULT_LIBRARIES) {
         if (existingPaths.has(def.path)) continue;
         const lib = await createLibrary({ name: def.name, type: def.type, path: def.path });
-        let nextLibrary: AddedLibrary = {
+        const nextLibrary: AddedLibrary = {
           id: lib.id,
           name: lib.name,
           type: lib.type,
@@ -213,17 +215,22 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
           skippedCount: 0,
           error: undefined,
         };
-        try {
-          const status = await startLibraryScan(lib.id);
-          nextLibrary = mergeLibraryScanStatus(nextLibrary, status);
-        } catch {
-          // Path may not exist (e.g. /anime not mounted); library is still created
-        }
-        setAddedLibraries((prev) => [
-          ...prev,
-          nextLibrary,
-        ]);
+        createdLibraries.push(nextLibrary);
         existingPaths.add(def.path);
+      }
+      const scannedLibraries = await Promise.all(
+        createdLibraries.map(async (library) => {
+          try {
+            const status = await startLibraryScan(library.id, { identify: false });
+            return mergeLibraryScanStatus(library, status);
+          } catch {
+            // Path may not exist (e.g. /anime not mounted); library is still created.
+            return library;
+          }
+        }),
+      );
+      if (createdLibraries.length > 0) {
+        setAddedLibraries((prev) => [...prev, ...scannedLibraries]);
       }
       if (existingPaths.size > 0) {
         onGoToHome();
@@ -308,71 +315,82 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
           <div className="auth-card">
             <h1 className="auth-title">Add libraries</h1>
             <p className="auth-sub">
-              Add at least one library and run a scan to continue. Choose a type, name the library,
-              and set the folder path (e.g. /tv, /movies).
+              Start with the full default library set so Plum can import TV, movies, anime, and
+              music right away. You can still add libraries manually if you want a custom setup.
             </p>
             <div className="onboarding-library-actions" style={{ marginBottom: "1rem" }}>
               <button
                 type="button"
-                className="auth-submit secondary"
+                className="auth-submit"
                 disabled={loading || addingDefaults}
                 onClick={handleAddDefaultLibraries}
               >
-                {addingDefaults ? "Adding…" : "Add default libraries (TV, Movies, Music, Anime)"}
+                {addingDefaults ? "Adding…" : "Add default libraries and continue"}
+              </button>
+              <button
+                type="button"
+                className="auth-submit secondary"
+                disabled={loading || addingDefaults}
+                onClick={() => setShowManualLibraryForm((current) => !current)}
+              >
+                {showManualLibraryForm ? "Hide manual setup" : "Add libraries manually instead"}
               </button>
             </div>
-            <form onSubmit={handleAddLibrary} className="auth-form">
-              <label className="auth-label">
-                Library type
-                <select
-                  value={libraryType}
-                  onChange={(e) => setLibraryType(e.target.value as LibraryType)}
-                  className="auth-input"
-                >
-                  {LIBRARY_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="auth-label">
-                Library name
-                <input
-                  type="text"
-                  value={libraryName}
-                  onChange={(e) => setLibraryName(e.target.value)}
-                  className="auth-input"
-                  placeholder="e.g. Shows (TV), Movies, Shows (anime)"
-                  required
-                />
-              </label>
-              <label className="auth-label">
-                Folder path (on the server)
-                <input
-                  type="text"
-                  value={libraryPath}
-                  onChange={(e) => setLibraryPath(e.target.value)}
-                  className="auth-input"
-                  placeholder="/path/to/folder"
-                  required
-                />
-              </label>
-              {error && <p className="auth-error">{error}</p>}
-              <div className="onboarding-library-actions">
-                <button type="submit" className="auth-submit" disabled={loading || addingDefaults}>
-                  {loading ? "Adding…" : "Add library"}
-                </button>
-                <button
-                  type="button"
-                  className="auth-submit secondary"
-                  disabled={addedLibraries.length === 0 || loading || addingDefaults}
-                  onClick={handleFinishSetup}
-                >
-                  Finish setup
-                </button>
-              </div>
-            </form>
+            {showManualLibraryForm && (
+              <form onSubmit={handleAddLibrary} className="auth-form">
+                <label className="auth-label">
+                  Library type
+                  <select
+                    value={libraryType}
+                    onChange={(e) => setLibraryType(e.target.value as LibraryType)}
+                    className="auth-input"
+                  >
+                    {LIBRARY_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="auth-label">
+                  Library name
+                  <input
+                    type="text"
+                    value={libraryName}
+                    onChange={(e) => setLibraryName(e.target.value)}
+                    className="auth-input"
+                    placeholder="e.g. Shows (TV), Movies, Shows (anime)"
+                    required
+                  />
+                </label>
+                <label className="auth-label">
+                  Folder path (on the server)
+                  <input
+                    type="text"
+                    value={libraryPath}
+                    onChange={(e) => setLibraryPath(e.target.value)}
+                    className="auth-input"
+                    placeholder="/path/to/folder"
+                    required
+                  />
+                </label>
+                {error && <p className="auth-error">{error}</p>}
+                <div className="onboarding-library-actions">
+                  <button type="submit" className="auth-submit" disabled={loading || addingDefaults}>
+                    {loading ? "Adding…" : "Add library"}
+                  </button>
+                  <button
+                    type="button"
+                    className="auth-submit secondary"
+                    disabled={addedLibraries.length === 0 || loading || addingDefaults}
+                    onClick={handleFinishSetup}
+                  >
+                    Finish setup
+                  </button>
+                </div>
+              </form>
+            )}
+            {!showManualLibraryForm && error && <p className="auth-error">{error}</p>}
             {addedLibraries.length > 0 && (
               <div className="onboarding-libraries-summary">
                 <p className="auth-sub">Added libraries:</p>

@@ -11,17 +11,15 @@ This is the fastest method. You wrap your existing website in a native Android "
 * **Best for:** Rapid prototyping or if your web player is already very high-performance.
 * **The Tool:** [Capacitor](https://capacitorjs.com/) is the modern successor to Cordova. It turns your web project into a real Android Studio project.
 * **The Process:**
+
 1. Install Capacitor in your web project: `npm install @capacitor/core @capacitor/cli`.
 2. Add the Android platform: `npx cap add android`.
 3. Open the project in **Android Studio**.
 4. **Crucial Step:** You must modify the `AndroidManifest.xml` to declare it as a TV app:
+
 * Add `<uses-feature android:name="android.software.leanback" android:required="false" />`.
 * Add `<uses-feature android:name="android.hardware.touchscreen" android:required="false" />`.
 * Set the intent filter to `CATEGORY_LEANBACK_LAUNCHER` so it shows up on the TV home screen.
-
-
-
-
 
 > **Warning:** WebViews on older or cheaper Android TVs can be laggy. They often struggle with 4K playback or HDR compared to native players.
 
@@ -67,12 +65,179 @@ Browsers and Android TVs support different formats.
 
 ## Which one should you pick?
 
-| Feature | Capacitor (WebView) | React Native (Hybrid) |
-| --- | --- | --- |
-| **Development Speed** | 🚀 Extremely Fast | 🛠️ Moderate |
-| **Code Reuse** | ~95% | ~70% |
-| **Performance** | Average | High |
-| **Remote Support** | Manual (via JS) | Native / Built-in |
-| **App Store Approval** | Harder (Low quality) | Easier |
+| Feature                | Capacitor (WebView)  | React Native (Hybrid) |
+| ---------------------- | -------------------- | --------------------- |
+| **Development Speed**  | 🚀 Extremely Fast     | 🛠️ Moderate            |
+| **Code Reuse**         | ~95%                 | ~70%                  |
+| **Performance**        | Average              | High                  |
+| **Remote Support**     | Manual (via JS)      | Native / Built-in     |
+| **App Store Approval** | Harder (Low quality) | Easier                |
 
-**Would you like me to walk you through the specific `AndroidManifest.xml` changes needed to make your app appear on the Android TV home screen?**
+Yes, you **can use a USB stick**, but it’s usually the **least convenient method**. There are three practical ways people install a dev app on an Android TV.
+
+---
+
+## 1️⃣ Best method: ADB over Wi-Fi (recommended)
+
+Most developers install apps directly from their computer using **ADB**.
+
+**Steps**
+
+1. Enable **Developer Options** on the TV
+
+   * Settings → About → click **Build number** 7 times
+
+2. Enable
+
+   * **USB debugging**
+   * **Network debugging** (if available)
+
+3. Find the TV's IP address
+
+   * Settings → Network
+
+4. Connect from your computer
+
+```bash
+adb connect TV_IP_ADDRESS
+```
+
+Example:
+
+```bash
+adb connect 192.168.1.42
+```
+
+1. Install the app
+
+```bash
+adb install myapp.apk
+```
+
+Your app immediately appears on the TV.
+
+**Advantages**
+
+* fastest dev workflow
+* reinstall in seconds
+* can stream logs
+* can debug crashes
+
+---
+
+## 2️⃣ Android Studio direct install
+
+If you build the app in **Android Studio**, it's even easier.
+
+When the TV is connected via ADB:
+
+```
+Run → Select device → Your TV
+```
+
+Android Studio builds and installs automatically.
+
+This is the **normal Android developer workflow**.
+
+---
+
+## 3️⃣ USB stick sideload (works but clunky)
+
+Yes, you can do this.
+
+Steps:
+
+1. Build APK
+
+```
+./gradlew assembleRelease
+```
+
+1. Copy `app.apk` to a **USB stick**
+
+2. Insert USB into TV
+
+3. Use a **file manager app** (like X-plore or File Commander)
+
+4. Open the APK → install
+
+You must enable:
+
+```
+Settings → Security → Allow unknown apps
+```
+
+**Downside**
+
+* slow for development
+* reinstalling repeatedly is annoying
+
+---
+
+## 4️⃣ Bonus: Install from your phone (also common)
+
+You can also:
+
+* upload the APK to Google Drive
+* download it on the TV
+* install it
+
+But again — slower than ADB.
+
+---
+
+## My recommendation for your project
+
+Since you're building a **Jellyfin-style media app**, do this:
+
+**Development**
+
+```
+Android Studio Emulator
++
+ADB to real Android TV
+```
+
+**Testing playback**
+
+Use a real device like:
+
+* Nvidia Shield
+* Chromecast with Google TV
+* Fire TV (if you add compatibility)
+
+Emulators sometimes struggle with video decoding.
+
+---
+
+## One important thing for your project
+
+Because your backend is **Go**, make sure the TV app streams like this:
+
+```
+TV App
+   ↓
+Your Plum API
+   ↓
+Direct stream or transcoded stream
+```
+
+Usually:
+
+```
+HLS (.m3u8)
+or
+Direct file stream
+```
+
+with **ExoPlayer**.
+
+That’s exactly how Jellyfin/Plex do it.
+
+---
+
+If you'd like, I can also show you something **extremely useful for your project**:
+
+**the typical architecture of a media server TV client** (the screens, playback pipeline, API calls, caching, etc.).
+
+That will save you a lot of trial and error when building your Jellyfin clone.

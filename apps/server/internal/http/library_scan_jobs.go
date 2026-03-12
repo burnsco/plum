@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -17,6 +18,8 @@ const (
 	libraryScanProgressFlushInterval = 500 * time.Millisecond
 	libraryScanProgressFlushEvery    = 25
 )
+
+var estimateLibraryFiles = db.EstimateLibraryFiles
 
 const (
 	libraryScanPhaseIdle      = "idle"
@@ -46,6 +49,9 @@ type libraryScanStatus struct {
 	Unmatched         int    `json:"unmatched"`
 	Skipped           int    `json:"skipped"`
 	IdentifyRequested bool   `json:"identifyRequested"`
+	QueuedAt          string `json:"queuedAt,omitempty"`
+	EstimatedItems    int    `json:"estimatedItems"`
+	QueuePosition     int    `json:"queuePosition"`
 	Error             string `json:"error,omitempty"`
 	StartedAt         string `json:"startedAt,omitempty"`
 	FinishedAt        string `json:"finishedAt,omitempty"`
@@ -65,11 +71,17 @@ type LibraryScanManager struct {
 	identifySem   chan struct{}
 	handler       *LibraryHandler
 	lastFlushed   map[int]libraryScanFlushState
+	activeScanID  int
 }
 
 type libraryScanFlushState struct {
 	at        time.Time
 	processed int
+}
+
+type queuedLibrary struct {
+	id       int
+	queuedAt string
 }
 
 func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub) *LibraryScanManager {
@@ -99,9 +111,17 @@ func (m *LibraryScanManager) Recover() error {
 		return err
 	}
 
-	var scansToResume []int
-	var enrichmentsToResume []int
-	var identifiesToResume []int
+	type pendingEstimate struct {
+		libraryID int
+		path      string
+		kind      string
+	}
+
+	var (
+		scansToEstimate     []pendingEstimate
+		enrichmentsToResume []int
+		identifiesToResume  []int
+	)
 
 	m.mu.Lock()
 	for _, persisted := range statuses {
@@ -121,7 +141,11 @@ func (m *LibraryScanManager) Recover() error {
 				status.IdentifyFailed = 0
 			}
 			m.jobs[status.LibraryID] = status
-			scansToResume = append(scansToResume, status.LibraryID)
+			scansToEstimate = append(scansToEstimate, pendingEstimate{
+				libraryID: status.LibraryID,
+				path:      persisted.Path,
+				kind:      persisted.Type,
+			})
 		case status.Enriching:
 			enrichmentsToResume = append(enrichmentsToResume, status.LibraryID)
 		}
@@ -133,10 +157,19 @@ func (m *LibraryScanManager) Recover() error {
 	}
 	m.mu.Unlock()
 
-	for _, libraryID := range scansToResume {
-		m.flushStatus(libraryID, true)
-		go m.run(libraryID)
+	for _, pending := range scansToEstimate {
+		m.mu.Lock()
+		status := m.jobs[pending.libraryID]
+		if status.QueuedAt == "" {
+			status.QueuedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		m.jobs[pending.libraryID] = status
+		m.mu.Unlock()
+		m.queueEstimate(pending.libraryID, pending.path, pending.kind)
 	}
+	m.flushAllStatuses(true)
+	m.scheduleNext()
+
 	for _, libraryID := range enrichmentsToResume {
 		m.startEnrichment(libraryID, m.types[libraryID], m.paths[libraryID])
 	}
@@ -157,46 +190,90 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 		cancel()
 		delete(m.enrichCancels, libraryID)
 	}
-	active, ok := m.jobs[libraryID]
-	if ok && (active.Phase == libraryScanPhaseQueued || active.Phase == libraryScanPhaseScanning) {
+
+	status, ok := m.jobs[libraryID]
+	if ok && (status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning) {
+		status.IdentifyRequested = status.IdentifyRequested || identify
+		m.jobs[libraryID] = status
+		m.types[libraryID] = libraryType
+		m.paths[libraryID] = path
+		result := m.statusLocked(libraryID)
 		m.mu.Unlock()
-		return active
+		m.flushAllStatuses(true)
+		return result
 	}
 
-	status := libraryScanStatus{
+	now := time.Now().UTC().Format(time.RFC3339)
+	status = libraryScanStatus{
 		LibraryID:         libraryID,
 		Phase:             libraryScanPhaseQueued,
 		IdentifyPhase:     libraryIdentifyPhaseIdle,
 		IdentifyRequested: identify,
-		StartedAt:         time.Now().UTC().Format(time.RFC3339),
+		QueuedAt:          now,
+		StartedAt:         now,
 	}
 	m.jobs[libraryID] = status
 	m.types[libraryID] = libraryType
 	m.paths[libraryID] = path
 	delete(m.lastFlushed, libraryID)
+	result := m.statusLocked(libraryID)
 	m.mu.Unlock()
 
-	m.flushStatus(libraryID, true)
+	m.flushAllStatuses(true)
+	m.queueEstimate(libraryID, path, libraryType)
+	m.scheduleNext()
+	return result
+}
 
-	go m.run(libraryID)
+func (m *LibraryScanManager) queueEstimate(libraryID int, path, libraryType string) {
+	if path == "" {
+		return
+	}
+	go func() {
+		estimatedItems, err := estimateLibraryFiles(context.Background(), path, libraryType)
+		if err != nil {
+			return
+		}
 
-	return status
+		m.mu.Lock()
+		status, ok := m.jobs[libraryID]
+		if !ok || m.paths[libraryID] != path || m.types[libraryID] != libraryType {
+			m.mu.Unlock()
+			return
+		}
+		if status.EstimatedItems == estimatedItems {
+			m.mu.Unlock()
+			return
+		}
+		status.EstimatedItems = estimatedItems
+		m.jobs[libraryID] = status
+		m.mu.Unlock()
+
+		m.flushStatus(libraryID, true)
+	}()
 }
 
 func (m *LibraryScanManager) status(libraryID int) libraryScanStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.statusLocked(libraryID)
+}
+
+func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 	if status, ok := m.jobs[libraryID]; ok {
+		status.QueuePosition = m.queuePositionLocked(libraryID)
 		if status.Error == "" {
 			status.Error = scanStatusWarning(status, m.paths[libraryID])
 		}
 		return status
 	}
 	return libraryScanStatus{
-		LibraryID:     libraryID,
-		Phase:         libraryScanPhaseIdle,
-		Enriching:     false,
-		IdentifyPhase: libraryIdentifyPhaseIdle,
+		LibraryID:      libraryID,
+		Phase:          libraryScanPhaseIdle,
+		Enriching:      false,
+		IdentifyPhase:  libraryIdentifyPhaseIdle,
+		EstimatedItems: 0,
+		QueuePosition:  0,
 	}
 }
 
@@ -210,12 +287,76 @@ func scanStatusWarning(status libraryScanStatus, path string) string {
 	return ""
 }
 
-func (m *LibraryScanManager) run(libraryID int) {
-	status, libraryType, path := m.markScanning(libraryID)
-	if status.LibraryID == 0 {
+func (m *LibraryScanManager) scheduleNext() {
+	m.mu.Lock()
+	if m.activeScanID != 0 {
+		m.mu.Unlock()
 		return
 	}
+	nextID, status, libraryType, path := m.nextQueuedLocked()
+	if nextID == 0 {
+		m.mu.Unlock()
+		return
+	}
+	status.Phase = libraryScanPhaseScanning
+	status.QueuePosition = 0
+	status.FinishedAt = ""
+	status.Error = ""
+	m.jobs[nextID] = status
+	m.activeScanID = nextID
+	m.mu.Unlock()
 
+	m.flushAllStatuses(true)
+	go m.run(nextID, status, libraryType, path)
+}
+
+func (m *LibraryScanManager) nextQueuedLocked() (int, libraryScanStatus, string, string) {
+	queued := m.queuedLibrariesLocked()
+	if len(queued) == 0 {
+		return 0, libraryScanStatus{}, "", ""
+	}
+	nextID := queued[0].id
+	status := m.jobs[nextID]
+	return nextID, status, m.types[nextID], m.paths[nextID]
+}
+
+func (m *LibraryScanManager) queuedLibrariesLocked() []queuedLibrary {
+	queued := make([]queuedLibrary, 0, len(m.jobs))
+	for libraryID, status := range m.jobs {
+		if status.Phase != libraryScanPhaseQueued {
+			continue
+		}
+		queued = append(queued, queuedLibrary{
+			id:       libraryID,
+			queuedAt: status.QueuedAt,
+		})
+	}
+	sort.Slice(queued, func(i, j int) bool {
+		if queued[i].queuedAt != queued[j].queuedAt {
+			if queued[i].queuedAt == "" {
+				return false
+			}
+			if queued[j].queuedAt == "" {
+				return true
+			}
+			return queued[i].queuedAt < queued[j].queuedAt
+		}
+		return queued[i].id < queued[j].id
+	})
+	return queued
+}
+
+func (m *LibraryScanManager) queuePositionLocked(libraryID int) int {
+	queued := m.queuedLibrariesLocked()
+	for idx, item := range queued {
+		if item.id == libraryID {
+			return idx + 1
+		}
+	}
+	return 0
+}
+
+func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, libraryType, path string) {
 	result, err := db.HandleScanLibraryWithOptions(context.Background(), m.db, path, libraryType, libraryID, db.ScanOptions{
 		ProbeMedia:             false,
 		ProbeEmbeddedSubtitles: false,
@@ -233,20 +374,6 @@ func (m *LibraryScanManager) run(libraryID int) {
 		m.startIdentify(libraryID)
 	}
 	m.startEnrichment(libraryID, libraryType, path)
-}
-
-func (m *LibraryScanManager) markScanning(libraryID int) (libraryScanStatus, string, string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	status, ok := m.jobs[libraryID]
-	if !ok {
-		return libraryScanStatus{}, "", ""
-	}
-	status.Phase = libraryScanPhaseScanning
-	m.jobs[libraryID] = status
-	go m.flushStatus(libraryID, true)
-	return status, m.types[libraryID], m.paths[libraryID]
 }
 
 func (m *LibraryScanManager) updateProgress(libraryID int, progress db.ScanProgress) {
@@ -335,8 +462,12 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 		status.Enriching = false
 	}
 	m.jobs[libraryID] = status
+	if m.activeScanID == libraryID {
+		m.activeScanID = 0
+	}
 	m.mu.Unlock()
-	m.flushStatus(libraryID, true)
+	m.flushAllStatuses(true)
+	m.scheduleNext()
 }
 
 func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path string) {
@@ -393,12 +524,28 @@ func (m *LibraryScanManager) finishEnrichment(libraryID int) {
 	m.flushStatus(libraryID, true)
 }
 
+func (m *LibraryScanManager) flushAllStatuses(force bool) {
+	m.mu.Lock()
+	ids := make([]int, 0, len(m.jobs))
+	for libraryID := range m.jobs {
+		ids = append(ids, libraryID)
+	}
+	m.mu.Unlock()
+	for _, libraryID := range ids {
+		m.flushStatus(libraryID, force)
+	}
+}
+
 func (m *LibraryScanManager) flushStatus(libraryID int, force bool) {
 	m.mu.Lock()
 	status, ok := m.jobs[libraryID]
 	if !ok {
 		m.mu.Unlock()
 		return
+	}
+	status.QueuePosition = m.queuePositionLocked(libraryID)
+	if status.Error == "" {
+		status.Error = scanStatusWarning(status, m.paths[libraryID])
 	}
 	last := m.lastFlushed[libraryID]
 	now := time.Now()
@@ -439,6 +586,8 @@ func runtimeLibraryStatusToPersistent(status libraryScanStatus, path, libraryTyp
 		Unmatched:         status.Unmatched,
 		Skipped:           status.Skipped,
 		IdentifyRequested: status.IdentifyRequested,
+		QueuedAt:          status.QueuedAt,
+		EstimatedItems:    status.EstimatedItems,
 		Error:             status.Error,
 		StartedAt:         status.StartedAt,
 		FinishedAt:        status.FinishedAt,
@@ -460,6 +609,8 @@ func persistedLibraryStatusToRuntime(status db.LibraryJobStatus) libraryScanStat
 		Unmatched:         status.Unmatched,
 		Skipped:           status.Skipped,
 		IdentifyRequested: status.IdentifyRequested,
+		QueuedAt:          status.QueuedAt,
+		EstimatedItems:    status.EstimatedItems,
 		Error:             status.Error,
 		StartedAt:         status.StartedAt,
 		FinishedAt:        status.FinishedAt,

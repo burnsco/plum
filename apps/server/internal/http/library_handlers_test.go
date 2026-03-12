@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -900,6 +901,221 @@ func TestLibraryScanManager_RecoverResumesQueuedScan(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 imported row after recovery, got %d", count)
+	}
+}
+
+func TestLibraryScanManager_RecoverPreservesFIFOOrder(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	bigRoot := t.TempDir()
+	bigShowDir := filepath.Join(bigRoot, "Big Show", "Season 1")
+	if err := os.MkdirAll(bigShowDir, 0o755); err != nil {
+		t.Fatalf("mkdir big show dir: %v", err)
+	}
+	for i := 1; i <= 3; i++ {
+		file := filepath.Join(bigShowDir, "Big Show - S01E0"+strconv.Itoa(i)+".mkv")
+		if err := os.WriteFile(file, []byte("not a real video"), 0o644); err != nil {
+			t.Fatalf("write big media file: %v", err)
+		}
+	}
+
+	smallRoot := t.TempDir()
+	smallShowDir := filepath.Join(smallRoot, "Small Show", "Season 1")
+	if err := os.MkdirAll(smallShowDir, 0o755); err != nil {
+		t.Fatalf("mkdir small show dir: %v", err)
+	}
+	smallFile := filepath.Join(smallShowDir, "Small Show - S01E01.mkv")
+	if err := os.WriteFile(smallFile, []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write small media file: %v", err)
+	}
+
+	var bigLibraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Big TV", db.LibraryTypeTV, bigRoot, now).Scan(&bigLibraryID); err != nil {
+		t.Fatalf("insert big library: %v", err)
+	}
+	var smallLibraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Small TV", db.LibraryTypeTV, smallRoot, now).Scan(&smallLibraryID); err != nil {
+		t.Fatalf("insert small library: %v", err)
+	}
+
+	for _, status := range []db.LibraryJobStatus{
+		{
+			LibraryID:         bigLibraryID,
+			Path:              bigRoot,
+			Type:              db.LibraryTypeTV,
+			Phase:             libraryScanPhaseQueued,
+			IdentifyPhase:     libraryIdentifyPhaseIdle,
+			IdentifyRequested: false,
+			QueuedAt:          now.Add(-1 * time.Minute).Format(time.RFC3339),
+			StartedAt:         now.Add(-1 * time.Minute).Format(time.RFC3339),
+		},
+		{
+			LibraryID:         smallLibraryID,
+			Path:              smallRoot,
+			Type:              db.LibraryTypeTV,
+			Phase:             libraryScanPhaseQueued,
+			IdentifyPhase:     libraryIdentifyPhaseIdle,
+			IdentifyRequested: false,
+			QueuedAt:          now.Format(time.RFC3339),
+			StartedAt:         now.Format(time.RFC3339),
+		},
+	} {
+		if err := db.UpsertLibraryJobStatus(dbConn, status); err != nil {
+			t.Fatalf("seed library job status: %v", err)
+		}
+	}
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		bigStatus := scanJobs.status(bigLibraryID)
+		smallStatus := scanJobs.status(smallLibraryID)
+		if (bigStatus.Phase == libraryScanPhaseScanning || bigStatus.Phase == libraryScanPhaseCompleted) && smallStatus.QueuePosition == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("unexpected statuses big=%+v small=%+v", bigStatus, smallStatus)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestLibraryScanManager_RequeueDoesNotDuplicateQueuedJob(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	bigRoot := t.TempDir()
+	bigDir := filepath.Join(bigRoot, "Big Show", "Season 1")
+	if err := os.MkdirAll(bigDir, 0o755); err != nil {
+		t.Fatalf("mkdir big dir: %v", err)
+	}
+	for i := 1; i <= 3; i++ {
+		file := filepath.Join(bigDir, "Big Show - S01E0"+strconv.Itoa(i)+".mkv")
+		if err := os.WriteFile(file, []byte("not a real video"), 0o644); err != nil {
+			t.Fatalf("write big file: %v", err)
+		}
+	}
+
+	smallRoot := t.TempDir()
+	smallDir := filepath.Join(smallRoot, "Small Show", "Season 1")
+	if err := os.MkdirAll(smallDir, 0o755); err != nil {
+		t.Fatalf("mkdir small dir: %v", err)
+	}
+	smallFile := filepath.Join(smallDir, "Small Show - S01E01.mkv")
+	if err := os.WriteFile(smallFile, []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write small file: %v", err)
+	}
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	bigStatus := scanJobs.start(1, bigRoot, db.LibraryTypeTV, false)
+	if bigStatus.Phase == "" {
+		t.Fatal("expected big status")
+	}
+
+	firstQueued := scanJobs.start(2, smallRoot, db.LibraryTypeTV, false)
+	secondQueued := scanJobs.start(2, smallRoot, db.LibraryTypeTV, false)
+
+	if firstQueued.LibraryID != secondQueued.LibraryID {
+		t.Fatalf("requeue returned different jobs: %+v vs %+v", firstQueued, secondQueued)
+	}
+	if len(scanJobs.jobs) != 2 {
+		t.Fatalf("expected 2 jobs tracked, got %d", len(scanJobs.jobs))
+	}
+
+	status := scanJobs.status(2)
+	if status.QueuePosition != 1 {
+		t.Fatalf("queue position = %d", status.QueuePosition)
+	}
+}
+
+func TestLibraryScanManager_StartDoesNotBlockOnEstimate(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	root := t.TempDir()
+	showDir := filepath.Join(root, "Show", "Season 1")
+	if err := os.MkdirAll(showDir, 0o755); err != nil {
+		t.Fatalf("mkdir show dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(showDir, "Show - S01E01.mkv"), []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write episode: %v", err)
+	}
+
+	estimateStarted := make(chan struct{}, 1)
+	releaseEstimate := make(chan struct{})
+	var releaseEstimateOnce sync.Once
+	originalEstimate := estimateLibraryFiles
+	estimateLibraryFiles = func(ctx context.Context, root, mediaType string) (int, error) {
+		estimateStarted <- struct{}{}
+		<-releaseEstimate
+		return originalEstimate(ctx, root, mediaType)
+	}
+	t.Cleanup(func() {
+		estimateLibraryFiles = originalEstimate
+		releaseEstimateOnce.Do(func() {
+			close(releaseEstimate)
+		})
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	startedAt := time.Now()
+	status := scanJobs.start(7, root, db.LibraryTypeTV, false)
+	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
+		t.Fatalf("start took too long: %s", elapsed)
+	}
+	if status.LibraryID != 7 {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+	if status.EstimatedItems != 0 {
+		t.Fatalf("estimated items = %d", status.EstimatedItems)
+	}
+
+	select {
+	case <-estimateStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected background estimate to start")
+	}
+
+	releaseEstimateOnce.Do(func() {
+		close(releaseEstimate)
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status = scanJobs.status(7)
+		if status.EstimatedItems == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected estimated items update, got %+v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

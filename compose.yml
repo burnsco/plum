@@ -22,14 +22,22 @@ services:
       - go_modules:/go/pkg/mod
       - go_cache:/go-cache
       # Override these host paths via env to point at your media library roots.
-      - ${PLUM_MEDIA_TV_PATH:-./media/tv}:/tv:ro
-      - ${PLUM_MEDIA_MOVIES_PATH:-./media/movies}:/movies:ro
-      - ${PLUM_MEDIA_ANIME_PATH:-./media/anime}:/anime:ro
-      - ${PLUM_MEDIA_MUSIC_PATH:-./media/music}:/music:ro
+      - ${PLUM_MEDIA_TV_PATH:-./mordor/media/tv}:/tv:ro
+      - ${PLUM_MEDIA_MOVIES_PATH:-./mordor/media/movies}:/movies:ro
+      - ${PLUM_MEDIA_ANIME_PATH:-./mordor/media/anime-series}:/anime:ro
+      - ${PLUM_MEDIA_MUSIC_PATH:-./mordor/media/music}:/music:ro
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3

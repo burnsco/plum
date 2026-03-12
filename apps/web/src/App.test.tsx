@@ -114,6 +114,8 @@ describe("App library and player wiring", () => {
       unmatched: 0,
       skipped: 0,
       identifyRequested: false,
+      estimatedItems: 0,
+      queuePosition: 0,
     }));
     vi.spyOn(api, "startLibraryScan").mockImplementation(async (libraryId) => ({
       libraryId,
@@ -129,6 +131,8 @@ describe("App library and player wiring", () => {
       unmatched: 0,
       skipped: 0,
       identifyRequested: false,
+      estimatedItems: 0,
+      queuePosition: 1,
       startedAt: new Date().toISOString(),
     }));
     vi.spyOn(api, "identifyLibrary").mockResolvedValue({ identified: 0, failed: 0 });
@@ -1030,7 +1034,9 @@ describe("App library and player wiring", () => {
       removed: 0,
       unmatched: 0,
       skipped: 0,
-      identifyRequested: true,
+      identifyRequested: false,
+      estimatedItems: 0,
+      queuePosition: 1,
       startedAt: new Date().toISOString(),
     });
     vi.spyOn(api, "listLibraries").mockResolvedValue([
@@ -1055,6 +1061,7 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create admin/i }));
 
     expect(await screen.findByRole("heading", { name: /Add libraries/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Add libraries manually instead/i }));
 
     fireEvent.change(screen.getByLabelText(/Library name/i), {
       target: { value: "TV" },
@@ -1065,7 +1072,7 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Add library$/i }));
 
     await waitFor(() => {
-      expect(api.startLibraryScan).toHaveBeenCalledWith(10);
+      expect(api.startLibraryScan).toHaveBeenCalledWith(10, { identify: false });
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Finish setup/i }));
@@ -1099,7 +1106,9 @@ describe("App library and player wiring", () => {
       removed: 0,
       unmatched: 0,
       skipped: 0,
-      identifyRequested: true,
+      identifyRequested: false,
+      estimatedItems: 0,
+      queuePosition: 1,
       startedAt: new Date().toISOString(),
     }));
     vi.spyOn(api, "listLibraries").mockResolvedValue([
@@ -1126,13 +1135,13 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create admin/i }));
 
     expect(await screen.findByRole("heading", { name: /Add libraries/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Add default libraries/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add default libraries and continue/i }));
 
     await waitFor(() => {
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11);
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(2, 12);
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(3, 13);
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14);
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(2, 12, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(3, 13, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14, { identify: false });
     });
 
     expect(await screen.findByText(/No media in this library yet/i)).toBeTruthy();

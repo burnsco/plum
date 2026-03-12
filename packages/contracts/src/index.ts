@@ -366,6 +366,9 @@ export interface LibraryScanStatus {
   unmatched: number;
   skipped: number;
   identifyRequested: boolean;
+  queuedAt?: string;
+  estimatedItems: number;
+  queuePosition: number;
   error?: string;
   startedAt?: string;
   finishedAt?: string;
@@ -385,6 +388,9 @@ export const LibraryScanStatusSchema = Schema.Struct({
   unmatched: Schema.Number,
   skipped: Schema.Number,
   identifyRequested: Schema.Boolean,
+  queuedAt: Schema.optional(Schema.String),
+  estimatedItems: Schema.Number,
+  queuePosition: Schema.Number,
   error: Schema.optional(Schema.String),
   startedAt: Schema.optional(Schema.String),
   finishedAt: Schema.optional(Schema.String),

@@ -21,6 +21,8 @@ type LibraryJobStatus struct {
 	Unmatched         int
 	Skipped           int
 	IdentifyRequested bool
+	QueuedAt          string
+	EstimatedItems    int
 	Error             string
 	StartedAt         string
 	FinishedAt        string
@@ -32,8 +34,8 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 		`INSERT INTO library_job_status (
 			library_id, phase, enriching, identify_phase, identified, identify_failed,
 			processed, added, updated, removed, unmatched, skipped,
-			identify_requested, error, started_at, finished_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			identify_requested, queued_at, estimated_items, error, started_at, finished_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(library_id) DO UPDATE SET
 			phase = excluded.phase,
 			enriching = excluded.enriching,
@@ -47,6 +49,8 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 			unmatched = excluded.unmatched,
 			skipped = excluded.skipped,
 			identify_requested = excluded.identify_requested,
+			queued_at = excluded.queued_at,
+			estimated_items = excluded.estimated_items,
 			error = excluded.error,
 			started_at = excluded.started_at,
 			finished_at = excluded.finished_at,
@@ -64,6 +68,8 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 		status.Unmatched,
 		status.Skipped,
 		boolToInt(status.IdentifyRequested),
+		nullStr(status.QueuedAt),
+		status.EstimatedItems,
 		nullStr(status.Error),
 		nullStr(status.StartedAt),
 		nullStr(status.FinishedAt),
@@ -90,6 +96,8 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			COALESCE(s.unmatched, 0),
 			COALESCE(s.skipped, 0),
 			COALESCE(s.identify_requested, 0),
+			COALESCE(s.queued_at, ''),
+			COALESCE(s.estimated_items, 0),
 			COALESCE(s.error, ''),
 			COALESCE(s.started_at, ''),
 			COALESCE(s.finished_at, '')
@@ -122,6 +130,8 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			&status.Unmatched,
 			&status.Skipped,
 			&identifyRequested,
+			&status.QueuedAt,
+			&status.EstimatedItems,
 			&status.Error,
 			&status.StartedAt,
 			&status.FinishedAt,

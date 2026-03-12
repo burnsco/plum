@@ -4,7 +4,7 @@
 
 Goal: create the core skeleton so everything later plugs in cleanly.
 
-**Project setup**
+### Project setup
 
 * [x] Initialize repo structure
 * [x] Backend service skeleton (Go)
@@ -14,81 +14,104 @@ Goal: create the core skeleton so everything later plugs in cleanly.
 * [x] Logging system
 * [x] Error handling framework
 * [x] Environment configuration
+* [ ] API client SDK (TS)
+* [ ] Metrics (Prometheus style)
+* [ ] Performance profiling
 
-**Database**
+### Database
 
 * [x] DB schema design
-* [ ] Migration system
+* [x] Migration system
 * [x] ORM or query layer
-* [x] seed/test data support
+* [ ] seed/test data support
+* [x] Database indexing strategy
 
-**Basic API framework**
+### Basic API framework
 
 * [x] API routing
 * [x] request validation
 * [x] response formatting
 * [x] auth middleware
 * [ ] API versioning strategy
+* [ ] API rate limiting
 
 ---
 
-# Phase 1 — File & Library System
+## Phase 1 — Infrastructure & Library System
 
-Goal: detect media on disk and represent it in the system.
+Goal: handle background work and detect media on disk.
 
-**Library management**
+### Job system
+
+* [x] job queue
+* [x] worker pool
+* [ ] job retry system
+* [x] job priority
+* [x] job monitoring
+
+### Library management
 
 * [x] create library
 * [x] library types (movies / shows)
 * [x] add library folders
 * [x] library settings
 
-**Filesystem scanning**
+### Filesystem scanning
 
 * [x] directory scanner
 * [x] recursive scanning
 * [ ] file change detection
-* [ ] background scan jobs
+* [x] background scan jobs
 * [x] manual scan trigger
+* [ ] filesystem watcher
+* [ ] debounce scan triggers
+* [ ] partial folder scans
+* [ ] scan scheduling
 
-**Media file model**
+### Media file model
 
 * [x] media files table
 * [x] file metadata storage
 * [ ] file hash calculation
 * [x] ffprobe integration
 * [x] stream detection (video/audio/subtitle)
+* [ ] missing file detection
+* [ ] duplicate detection
+* [ ] media identity model (items vs files)
 
 ---
 
-# Phase 2 — Metadata Matching System
+## Phase 2 — Metadata & Image Pipeline
 
-Goal: turn raw files into identifiable movies/shows.
+Goal: turn raw files into identifiable movies/shows and handle assets.
 
-**Filename parsing**
+### Filename parsing
 
 * [x] movie parser
 * [x] TV episode parser
 * [x] season detection
 * [x] episode range detection
-* [ ] anime absolute episode support
+* [x] anime absolute episode support
 
-**Metadata providers**
+### Metadata providers
 
 * [x] TMDB integration
-* [ ] TVDB integration
-* [ ] OMDb integration
+* [x] TVDB integration
+* [x] OMDb integration
 * [x] provider ID storage
+* [ ] provider response cache
+* [ ] metadata refresh policy
+* [ ] metadata versioning
 
-**Matching engine**
+### Matching engine
 
 * [x] candidate search
-* [ ] scoring algorithm
-* [ ] confidence thresholds
+* [x] scoring algorithm
+* [x] confidence thresholds
 * [x] auto match
-* [ ] unmatched queue
+* [x] unmatched queue
 
-**Metadata storage**
+### Metadata storage
 
 * [x] movies table
 * [ ] shows table
@@ -96,29 +119,33 @@ Goal: turn raw files into identifiable movies/shows.
 * [x] episodes table
 * [x] provider ID mappings
 
-**Artwork**
+### Image Pipeline
 
 * [x] poster fetching
 * [x] backdrop fetching
 * [ ] image caching
-* [ ] artwork prioritization
+* [ ] image resizing
+* [ ] thumbnail generation
+* [ ] artwork deduplication
+* [ ] CDN-style serving
+* [x] artwork prioritization
 
 ---
 
-# Phase 3 — Web App Media Browser
+## Phase 3 — Web App Media Browser
 
 Goal: basic UI for browsing media.
 
-**Navigation**
+### Navigation
 
 * [x] libraries page
 * [x] movie grid
 * [x] show grid
-* [ ] show detail page
-* [ ] season page
-* [ ] episode page
+* [x] show detail page
+* [x] season page
+* [x] episode page
 
-**Metadata display**
+### Metadata display
 
 * [x] posters
 * [x] descriptions
@@ -126,58 +153,69 @@ Goal: basic UI for browsing media.
 * [ ] genres
 * [x] runtime
 
-**Search**
+### Search System
 
+* [ ] search index
 * [ ] title search
 * [ ] actor search
 * [ ] genre filtering
+* [ ] fuzzy search
+* [ ] index refresh jobs
 
 ---
 
-# Phase 4 — Playback System
+## Phase 4 — Playback System
 
 Goal: watch media.
 
-**Playback session API**
+### Playback session API
 
-* [ ] playback session creation
+* [x] playback session creation
 * [x] playback permissions
-* [ ] session tracking
+* [x] session tracking
 
-**Video streaming**
+### Transcode Decision Engine
+
+* [ ] client capability detection
+* [ ] transcode decision engine
+* [ ] bitrate adaptation
+* [ ] container compatibility
+
+### Video streaming
 
 * [x] direct play
-* [ ] HLS streaming
+* [x] HLS streaming
 * [x] transcoding pipeline
-* [ ] bitrate profiles
+* [x] bitrate profiles
 
-**Custom video player**
+### Custom video player
 
 * [x] custom controls
 * [x] subtitle selection
-* [ ] audio track selection
+* [x] audio track selection
 * [x] fullscreen
-* [ ] keyboard shortcuts
+* [x] keyboard shortcuts
+* [ ] timeline preview thumbnails (scrubbing)
 
 ---
 
-# Phase 5 — User System
+## Phase 5 — User System
 
 Goal: multi-user support.
 
-**Accounts**
+### Accounts
 
 * [x] user accounts
 * [x] authentication
 * [x] session tokens
 
-**Profiles**
+### Profiles
 
 * [ ] user profiles
 * [ ] profile switching
 * [ ] avatar system
 
-**Permissions**
+### Permissions
 
 * [x] admin vs user roles
 * [ ] library restrictions
@@ -185,42 +223,48 @@ Goal: multi-user support.
 
 ---
 
-# Phase 6 — Watch State
+## Phase 6 — Watch State & Sync
 
-Goal: track viewing behavior.
+Goal: track viewing behavior across devices.
 
-**Progress tracking**
+### Playback State Model
 
-* [ ] resume position
-* [ ] watched status
+* [ ] playback heartbeat
+* [ ] session recovery
+* [ ] multi-device sync
+
+### Progress tracking
+
+* [x] resume position
+* [x] watched status
 * [ ] watch history
 
-**Discovery features**
+### Discovery features
 
-* [ ] continue watching
+* [x] continue watching
 * [ ] next up episodes
 * [ ] recently added
 
 ---
 
-# Phase 7 — Media Server Features
+## Phase 7 — Media Server Features
 
 Goal: parity with typical media servers.
 
-**Playback features**
+### Playback features
 
 * [ ] intro detection
 * [ ] skip intro
 * [ ] skip credits
 * [ ] next episode autoplay
 
-**Subtitles**
+### Subtitles
 
 * [ ] subtitle downloading
 * [ ] subtitle sync adjustment
 * [ ] subtitle burn-in
 
-**Transcoding**
+### Transcoding
 
 * [ ] GPU acceleration
 * [ ] codec compatibility
@@ -228,114 +272,128 @@ Goal: parity with typical media servers.
 
 ---
 
-# Phase 8 — Devices & Remote Streaming
+## Phase 8 — Devices & Remote Streaming
 
 Goal: use Plum outside the web browser.
 
-**Device support**
+### Device Management
 
 * [ ] device registration
 * [ ] device auth tokens
+* [ ] device profile system
+* [ ] codec capability mapping
+* [ ] resolution limits
 
-**Remote streaming**
+### Remote streaming
 
 * [ ] secure remote access
+* [ ] signed stream URLs
+* [ ] expiring playback tokens
 * [ ] bitrate limits
 * [ ] adaptive streaming
 
-**Casting**
+### Casting & Mobile
 
+* [ ] responsive playback UI
+* [ ] touch player controls
 * [ ] Chromecast
 * [ ] AirPlay
 
 ---
 
-# Phase 9 — Admin System
+## Phase 9 — Admin System
 
 Goal: make the server manageable.
 
-**Dashboard**
+### Dashboard
 
 * [ ] active sessions
 * [ ] server stats
 * [ ] scan progress
 
-**Media management**
+### Media management
 
-* [ ] fix match
+* [x] fix match
+* [ ] manual metadata editing
+* [ ] lock metadata fields
 * [ ] refresh metadata
-* [ ] manual identify
+* [x] manual identify
+* [ ] orphaned metadata cleanup
 
-**System tools**
+### System tools
 
 * [ ] log viewer
 * [ ] job queue viewer
 * [ ] database health tools
+* [ ] configuration export
+* [ ] DB backup & restore tools
 
 ---
 
-# Phase 10 — Advanced Media Features
+## Phase 10 — Advanced Media Features
 
 Goal: reach Plex/Emby territory.
 
-**Live TV**
+### Collections & Curation
+
+* [ ] collections
+* [ ] watchlists
+* [ ] trailer playback
+* [ ] theme songs (tv shows)
+
+### Live TV & DVR
 
 * [ ] tuner support
 * [ ] channel scanning
 * [ ] program guide
-
-**DVR**
-
 * [ ] recording schedules
 * [ ] series recording
 * [ ] recording management
 
-**Downloads**
+### Downloads
 
 * [ ] mobile downloads
 * [ ] offline sync
 
 ---
 
-# Phase 11 — Ecosystem
+## Phase 11 — Ecosystem
 
 Goal: expand beyond core media.
 
-**Plugin system**
+### Plugin system
 
 * [ ] plugin API
 * [ ] plugin lifecycle
 * [ ] metadata provider plugins
 
-**Additional libraries**
+### Additional libraries
 
-* [ ] music support
+* [x] music support
 * [ ] photo libraries
 
-**Social features**
+### Social features
 
 * [ ] watch together
 * [ ] activity feed
 
 ---
 
-# Phase 12 — Polishing
+## Phase 12 — Polishing & Reliability
 
 Goal: make the system feel professional.
 
-**Performance**
+### Performance
 
-* [ ] metadata caching
 * [ ] query optimization
 * [ ] thumbnail pre-generation
 
-**Reliability**
+### Reliability
 
-* [ ] job retry system
 * [ ] crash recovery
-* [ ] backup tools
+* [ ] tracing
 
-**UX improvements**
+### UX improvements
 
 * [ ] keyboard navigation
 * [ ] TV remote navigation
@@ -343,40 +401,35 @@ Goal: make the system feel professional.
 
 ---
 
-# A Realistic Development Order
+## A Realistic Development Order
 
 If you're one developer, focus on this path:
 
-1. foundations
-2. file scanning
-3. metadata matching
-4. media browser UI
-5. playback
-6. users
+1. foundations & job system
+2. file scanning & library watcher
+3. metadata matching & caching
+4. media browser UI & search index
+5. playback & transcode decision engine
+6. users & sync
 7. watch tracking
 8. admin tools
 9. transcoding improvements
-10. devices / apps
+10. devices / mobile web
 
 Everything else is bonus.
 
 ---
 
-# My Biggest Advice
+## My Biggest Advice
 
-Do **not** start with the cool stuff like:
+The **three hardest systems** in a Jellyfin-class server are:
 
-* skip intro
-* watch together
-* DVR
-* mobile downloads
+1. **metadata matching**
+2. **transcoding decisions**
+3. **library scanning**
 
 The thing that makes media servers good is:
 
-**files → metadata → playback → progress → reliability**
+files → metadata → playback → progress → reliability
 
 If those four pillars work perfectly, the rest becomes easy.
-
----
-
-If you want, I can also make you a **much more detailed "Plum v1 milestone roadmap"** (about 60 tasks) that would realistically get you to a **first usable media server in ~6–8 weeks of development**.

@@ -108,6 +108,35 @@ func columnExistsForTest(t *testing.T, db *sql.DB, table, column string) bool {
 	return false
 }
 
+func indexExistsForTest(t *testing.T, db *sql.DB, table, index string) bool {
+	t.Helper()
+	rows, err := db.Query(fmt.Sprintf("PRAGMA index_list(%s)", table))
+	if err != nil {
+		t.Fatalf("pragma index_list(%s): %v", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			seq     int
+			name    string
+			unique  int
+			origin  string
+			partial int
+		)
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			t.Fatalf("scan pragma index_list(%s): %v", table, err)
+		}
+		if name == index {
+			return true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate pragma index_list(%s): %v", table, err)
+	}
+	return false
+}
+
 func TestCreateSchema_MigratesLegacyTables(t *testing.T) {
 	dbConn, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -219,10 +248,27 @@ CREATE TABLE library_job_status (
 		{table: "music_tracks", column: "artist"},
 		{table: "music_tracks", column: "album"},
 		{table: "library_job_status", column: "identify_phase"},
+		{table: "library_job_status", column: "queued_at"},
+		{table: "library_job_status", column: "estimated_items"},
 		{table: "library_job_status", column: "updated_at"},
 	} {
 		if !columnExistsForTest(t, dbConn, tc.table, tc.column) {
 			t.Fatalf("expected %s.%s to exist after migration", tc.table, tc.column)
+		}
+	}
+
+	for _, tc := range []struct {
+		table string
+		index string
+	}{
+		{table: "subtitles", index: "idx_subtitles_path"},
+		{table: "library_job_status", index: "idx_library_job_status_phase_updated_at"},
+		{table: "movies", index: "idx_movies_library_match_status"},
+		{table: "tv_episodes", index: "idx_tv_episodes_library_match_status"},
+		{table: "anime_episodes", index: "idx_anime_episodes_library_match_status"},
+	} {
+		if !indexExistsForTest(t, dbConn, tc.table, tc.index) {
+			t.Fatalf("expected index %s on %s", tc.index, tc.table)
 		}
 	}
 }
@@ -414,6 +460,62 @@ func TestHandleScanLibrary_IsIdempotent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 tv_episode row after two scans, got %d", count)
+	}
+}
+
+func TestHandleScanLibraryWithOptions_ProgressSeesImportedRowsBeforeCompletion(t *testing.T) {
+	dbConn, err := InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"progress@test.com",
+		"hash",
+		time.Now().UTC(),
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	tvLibID := createLibraryForTest(t, dbConn, LibraryTypeTV, "/tv-progress")
+	root := t.TempDir()
+	showDir := filepath.Join(root, "Fast Show", "Season 1")
+	if err := os.MkdirAll(showDir, 0o755); err != nil {
+		t.Fatalf("mkdir show dir: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		file := filepath.Join(showDir, fmt.Sprintf("Fast Show - S01E0%d.mkv", i))
+		if err := os.WriteFile(file, []byte("not a real video"), 0o644); err != nil {
+			t.Fatalf("write media file: %v", err)
+		}
+	}
+
+	visibleDuringProgress := false
+	result, err := HandleScanLibraryWithOptions(context.Background(), dbConn, root, LibraryTypeTV, tvLibID, ScanOptions{
+		Progress: func(progress ScanProgress) {
+			if progress.Processed != 1 || visibleDuringProgress {
+				return
+			}
+			var count int
+			if err := dbConn.QueryRow(`SELECT COUNT(1) FROM tv_episodes WHERE library_id = ?`, tvLibID).Scan(&count); err != nil {
+				t.Fatalf("count imported rows during progress: %v", err)
+			}
+			if count > 0 {
+				visibleDuringProgress = true
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("scan library: %v", err)
+	}
+	if result.Added != 2 {
+		t.Fatalf("added = %d, want 2", result.Added)
+	}
+	if !visibleDuringProgress {
+		t.Fatal("expected imported rows to be visible before scan completion")
 	}
 }
 
@@ -657,6 +759,31 @@ func TestHandleScanLibrary_SkipsMovieExtrasAndSamples(t *testing.T) {
 	}
 	if result.Added != 1 || result.Skipped != 1 {
 		t.Fatalf("unexpected scan result: %+v", result)
+	}
+}
+
+func TestEstimateLibraryFiles_CountsSupportedMediaAndSkipsMovieExtras(t *testing.T) {
+	root := t.TempDir()
+	movieRoot := filepath.Join(root, "Movie (2010)")
+	if err := os.MkdirAll(filepath.Join(movieRoot, "Extras"), 0o755); err != nil {
+		t.Fatalf("mkdir movie tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(movieRoot, "movie.mkv"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write movie: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(movieRoot, "Extras", "featurette.mkv"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write extra: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(movieRoot, "readme.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write text: %v", err)
+	}
+
+	count, err := EstimateLibraryFiles(context.Background(), root, LibraryTypeMovie)
+	if err != nil {
+		t.Fatalf("estimate files: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d", count)
 	}
 }
 

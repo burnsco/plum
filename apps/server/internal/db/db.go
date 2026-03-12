@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS subtitles (
   path TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_subtitles_media_id ON subtitles(media_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subtitles_path ON subtitles(path);
 
 CREATE TABLE IF NOT EXISTS embedded_subtitles (
   media_id INTEGER NOT NULL,
@@ -361,6 +362,8 @@ CREATE TABLE IF NOT EXISTS library_job_status (
   unmatched INTEGER NOT NULL DEFAULT 0,
   skipped INTEGER NOT NULL DEFAULT 0,
   identify_requested INTEGER NOT NULL DEFAULT 0,
+  queued_at DATETIME,
+  estimated_items INTEGER NOT NULL DEFAULT 0,
   error TEXT,
   started_at DATETIME,
   finished_at DATETIME,
@@ -544,6 +547,35 @@ var schemaMigrations = []schemaMigration{
 		apply: func(ctx context.Context, tx *sql.Tx) error {
 			for _, table := range []string{"tv_episodes", "anime_episodes"} {
 				if err := addColumnIfMissingTx(ctx, tx, table, "metadata_review_needed", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 10,
+		name:    "scan_queue_indexes",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, column := range []struct {
+				name string
+				def  string
+			}{
+				{name: "queued_at", def: "DATETIME"},
+				{name: "estimated_items", def: "INTEGER NOT NULL DEFAULT 0"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, "library_job_status", column.name, column.def); err != nil {
+					return err
+				}
+			}
+			for _, stmt := range []string{
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_subtitles_path ON subtitles(path)`,
+				`CREATE INDEX IF NOT EXISTS idx_library_job_status_phase_updated_at ON library_job_status(phase, updated_at DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_movies_library_match_status ON movies(library_id, match_status)`,
+				`CREATE INDEX IF NOT EXISTS idx_tv_episodes_library_match_status ON tv_episodes(library_id, match_status)`,
+				`CREATE INDEX IF NOT EXISTS idx_anime_episodes_library_match_status ON anime_episodes(library_id, match_status)`,
+			} {
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
 					return err
 				}
 			}
@@ -1573,14 +1605,6 @@ func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPat
 			ext := strings.ToLower(filepath.Ext(name))
 			if ext == ".srt" || ext == ".vtt" || ext == ".ass" || ext == ".ssa" {
 				path := filepath.Join(dir, name)
-				var existing int
-				if err := dbConn.QueryRow(`SELECT COUNT(1) FROM subtitles WHERE path = ?`, path).Scan(&existing); err != nil {
-					return err
-				}
-				if existing > 0 {
-					continue
-				}
-
 				lang := "und"
 				parts := strings.Split(strings.TrimSuffix(name, ext), ".")
 				if len(parts) > 1 {
@@ -1591,7 +1615,7 @@ func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPat
 				}
 
 				_, err := dbConn.ExecContext(ctx,
-					`INSERT INTO subtitles (media_id, title, language, format, path) VALUES (?, ?, ?, ?, ?)`,
+					`INSERT OR IGNORE INTO subtitles (media_id, title, language, format, path) VALUES (?, ?, ?, ?, ?)`,
 					mediaID, name, lang, ext[1:], path,
 				)
 				if err != nil {
@@ -1616,45 +1640,42 @@ func HandleScanLibrary(ctx context.Context, dbConn *sql.DB, root, mediaType stri
 	})
 }
 
-func HandleScanLibraryWithOptions(
-	ctx context.Context,
-	dbConn *sql.DB,
-	root, mediaType string,
-	libraryID int,
-	options ScanOptions,
-) (ScanResult, error) {
-	result := ScanResult{}
+type scanCandidate struct {
+	Path    string
+	RelPath string
+	Name    string
+}
+
+func EstimateLibraryFiles(ctx context.Context, root, mediaType string) (int, error) {
+	count := 0
+	err := iterateLibraryFiles(ctx, root, mediaType, nil, func(scanCandidate) error {
+		count++
+		return nil
+	})
+	return count, err
+}
+
+func iterateLibraryFiles(ctx context.Context, root, mediaType string, onSkip func(), visit func(scanCandidate) error) error {
 	if root == "" {
-		return result, fmt.Errorf("path is required")
+		return fmt.Errorf("path is required")
 	}
 	if mediaType == "" {
 		mediaType = LibraryTypeMovie
 	}
-	if libraryID <= 0 {
-		return result, fmt.Errorf("library id is required")
-	}
-
-	kind := mediaType
-	table := mediaTableForKind(kind)
-	exts := allowedExtensions(kind)
-	identifier := options.Identifier
-	probeMedia := options.ProbeMedia
-	probeEmbeddedSubtitleStreams := options.ProbeEmbeddedSubtitles && probeMedia
-	scanSidecarSubtitles := options.ScanSidecarSubtitles
 
 	info, err := os.Stat(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return result, fmt.Errorf("path not found: %q — when running in Docker, use the container path (e.g. /tv, /movies, /music), not the host path", root)
+			return fmt.Errorf("path not found: %q — when running in Docker, use the container path (e.g. /tv, /movies, /music), not the host path", root)
 		}
-		return result, fmt.Errorf("stat path: %w", err)
+		return fmt.Errorf("stat path: %w", err)
 	}
 	if !info.IsDir() {
-		return result, fmt.Errorf("path is not a directory")
+		return fmt.Errorf("path is not a directory")
 	}
 
-	seenPaths := map[string]struct{}{}
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+	exts := allowedExtensions(mediaType)
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -1671,28 +1692,68 @@ func HandleScanLibraryWithOptions(
 		if _, ok := exts[ext]; !ok {
 			return nil
 		}
-		relPath, _ := filepath.Rel(root, path)
-		if shouldSkipScanPath(kind, relPath, d.Name()) {
-			result.Skipped++
-			if options.Progress != nil {
-				options.Progress(ScanProgress{
-					Processed: result.Added + result.Updated + result.Skipped,
-					Result:    result,
-				})
-			}
-			return nil
-		}
-		seenPaths[path] = struct{}{}
-
-		existing, err := lookupExistingMedia(dbConn, table, kind, libraryID, path)
+		relPath, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
+		if shouldSkipScanPath(mediaType, relPath, d.Name()) {
+			if onSkip != nil {
+				onSkip()
+			}
+			return nil
+		}
+		return visit(scanCandidate{
+			Path:    path,
+			RelPath: relPath,
+			Name:    d.Name(),
+		})
+	})
+}
+
+func HandleScanLibraryWithOptions(
+	ctx context.Context,
+	dbConn *sql.DB,
+	root, mediaType string,
+	libraryID int,
+	options ScanOptions,
+) (ScanResult, error) {
+	result := ScanResult{}
+	if mediaType == "" {
+		mediaType = LibraryTypeMovie
+	}
+	if libraryID <= 0 {
+		return result, fmt.Errorf("library id is required")
+	}
+
+	kind := mediaType
+	table := mediaTableForKind(kind)
+	identifier := options.Identifier
+	probeMedia := options.ProbeMedia
+	probeEmbeddedSubtitleStreams := options.ProbeEmbeddedSubtitles && probeMedia
+	scanSidecarSubtitles := options.ScanSidecarSubtitles
+	existingByPath, err := preloadExistingMediaByPath(dbConn, table, kind, libraryID)
+	if err != nil {
+		return result, err
+	}
+	seenPaths := map[string]struct{}{}
+	err = iterateLibraryFiles(ctx, root, kind, func() {
+		result.Skipped++
+		if options.Progress != nil {
+			options.Progress(ScanProgress{
+				Processed: result.Added + result.Updated + result.Skipped,
+				Result:    result,
+			})
+		}
+	}, func(candidate scanCandidate) error {
+		path := candidate.Path
+		seenPaths[path] = struct{}{}
+
+		existing := existingByPath[path]
 		isNew := existing.RefID == 0
 
-		title := strings.TrimSuffix(d.Name(), ext)
+		title := strings.TrimSuffix(candidate.Name, filepath.Ext(candidate.Name))
 		if title == "" {
-			title = d.Name()
+			title = candidate.Name
 		}
 
 		mItem := MediaItem{
@@ -1704,7 +1765,7 @@ func HandleScanLibraryWithOptions(
 		var fileInfo metadata.MediaInfo
 		switch kind {
 		case LibraryTypeMusic:
-			pathInfo := metadata.ParsePathForMusic(relPath, d.Name())
+			pathInfo := metadata.ParsePathForMusic(candidate.RelPath, candidate.Name)
 			audioMeta := metadata.MusicMetadata{}
 			if probeMedia && !SkipFFprobeInScan {
 				if probed, duration, err := readAudioMetadata(ctx, path); err == nil {
@@ -1721,12 +1782,12 @@ func HandleScanLibraryWithOptions(
 			mItem.TrackNumber = merged.TrackNumber
 			mItem.ReleaseYear = merged.ReleaseYear
 		case LibraryTypeMovie:
-			movieInfo := metadata.ParseMovie(relPath, d.Name())
+			movieInfo := metadata.ParseMovie(candidate.RelPath, candidate.Name)
 			mItem.Title = metadata.MovieDisplayTitle(movieInfo, title)
 			fileInfo = metadata.MovieMediaInfo(movieInfo)
 		case LibraryTypeTV, LibraryTypeAnime:
-			fileInfo = metadata.ParseFilename(d.Name())
-			pathInfo := metadata.ParsePathForTV(relPath, d.Name())
+			fileInfo = metadata.ParseFilename(candidate.Name)
+			pathInfo := metadata.ParsePathForTV(candidate.RelPath, candidate.Name)
 			merged := metadata.MergePathInfo(pathInfo, fileInfo)
 			showRoot := metadata.ShowRootPath(root, path)
 			metadata.ApplyShowNFO(&merged, showRoot)
@@ -1864,42 +1925,42 @@ func HandleScanLibraryWithOptions(
 			}
 		}
 
-		if kind != LibraryTypeMusic {
-			if scanSidecarSubtitles {
-				if err := scanForSubtitles(ctx, dbConn, globalID, path); err != nil {
-					log.Printf("scan subtitles for %s: %v", path, err)
-				}
+		if kind == LibraryTypeMusic {
+			return nil
+		}
+		if scanSidecarSubtitles {
+			if err := scanForSubtitles(ctx, dbConn, globalID, path); err != nil {
+				log.Printf("scan subtitles for %s: %v", path, err)
 			}
+		}
 
-			var embeddedSubs []EmbeddedSubtitle
-			if probeEmbeddedSubtitleStreams && !SkipFFprobeInScan {
-				embeddedSubs, _ = probeEmbeddedSubtitles(ctx, path)
-			}
-			if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, globalID); err != nil {
-				log.Printf("clear embedded_subtitles for media %d: %v", globalID, err)
-			} else {
-				for _, s := range embeddedSubs {
-					if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, s.StreamIndex, s.Language, s.Title); err != nil {
-						log.Printf("insert embedded_subtitles for media %d: %v", globalID, err)
-					}
-				}
-			}
-
-			var embeddedAudioTracks []EmbeddedAudioTrack
-			if probeMedia && !SkipFFprobeInScan {
-				embeddedAudioTracks, _ = probeEmbeddedAudioTracks(ctx, path)
-			}
-			if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, globalID); err != nil {
-				log.Printf("clear embedded_audio_tracks for media %d: %v", globalID, err)
-			} else {
-				for _, track := range embeddedAudioTracks {
-					if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, track.StreamIndex, track.Language, track.Title); err != nil {
-						log.Printf("insert embedded_audio_tracks for media %d: %v", globalID, err)
-					}
+		var embeddedSubs []EmbeddedSubtitle
+		if probeEmbeddedSubtitleStreams && !SkipFFprobeInScan {
+			embeddedSubs, _ = probeEmbeddedSubtitles(ctx, path)
+		}
+		if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, globalID); err != nil {
+			log.Printf("clear embedded_subtitles for media %d: %v", globalID, err)
+		} else {
+			for _, s := range embeddedSubs {
+				if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, s.StreamIndex, s.Language, s.Title); err != nil {
+					log.Printf("insert embedded_subtitles for media %d: %v", globalID, err)
 				}
 			}
 		}
 
+		var embeddedAudioTracks []EmbeddedAudioTrack
+		if probeMedia && !SkipFFprobeInScan {
+			embeddedAudioTracks, _ = probeEmbeddedAudioTracks(ctx, path)
+		}
+		if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, globalID); err != nil {
+			log.Printf("clear embedded_audio_tracks for media %d: %v", globalID, err)
+		} else {
+			for _, track := range embeddedAudioTracks {
+				if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, track.StreamIndex, track.Language, track.Title); err != nil {
+					log.Printf("insert embedded_audio_tracks for media %d: %v", globalID, err)
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -1990,6 +2051,63 @@ func prettifyDisplayTitle(s string) string {
 		return strings.Join(words, " ")
 	}
 	return s
+}
+
+func preloadExistingMediaByPath(dbConn *sql.DB, table, kind string, libraryID int) (map[string]existingMediaRow, error) {
+	query := `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.match_status, 'local') FROM ` + table + ` m
+LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+WHERE m.library_id = ?`
+	if table == "music_tracks" {
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.match_status, 'local') FROM music_tracks m
+LEFT JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
+WHERE m.library_id = ?`
+	}
+	if table == "tv_episodes" || table == "anime_episodes" {
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0)
+FROM ` + table + ` m
+LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+WHERE m.library_id = ?`
+	} else if table != "music_tracks" {
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local')
+FROM ` + table + ` m
+LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+WHERE m.library_id = ?`
+	}
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if table == "music_tracks" {
+		rows, err = dbConn.Query(query, libraryID)
+	} else {
+		rows, err = dbConn.Query(query, kind, libraryID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]existingMediaRow)
+	for rows.Next() {
+		var path string
+		var row existingMediaRow
+		if table == "music_tracks" {
+			if err := rows.Scan(&path, &row.RefID, &row.GlobalID, &row.MatchStatus); err != nil {
+				return nil, err
+			}
+		} else if table == "tv_episodes" || table == "anime_episodes" {
+			if err := rows.Scan(&path, &row.RefID, &row.GlobalID, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &row.MetadataReviewNeeded); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&path, &row.RefID, &row.GlobalID, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus); err != nil {
+				return nil, err
+			}
+		}
+		out[path] = row
+	}
+	return out, rows.Err()
 }
 
 func lookupExistingMedia(dbConn *sql.DB, table, kind string, libraryID int, path string) (existingMediaRow, error) {

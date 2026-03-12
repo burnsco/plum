@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,10 +24,14 @@ import (
 
 func main() {
 	addr := getEnv("PLUM_ADDR", ":8080")
-	conn := getEnv("PLUM_DATABASE_URL", "./data/plum.db")
+	conn := getEnv("PLUM_DATABASE_URL", getEnv("PLUM_DB_PATH", "./data/plum.db"))
 	tmdbKey := getEnv("TMDB_API_KEY", "")
 	tvdbKey := getEnv("TVDB_API_KEY", "")
 	omdbKey := getEnv("OMDB_API_KEY", "")
+
+	if err := ensureDatabaseDir(conn); err != nil {
+		log.Fatalf("prepare db dir: %v", err)
+	}
 
 	sqlDB, err := db.InitDB(conn)
 	if err != nil {
@@ -76,6 +81,18 @@ func main() {
 	}
 
 	hub.Close()
+}
+
+func ensureDatabaseDir(conn string) error {
+	if conn == "" || conn == ":memory:" || strings.HasPrefix(conn, "file:") {
+		return nil
+	}
+	path := strings.SplitN(conn, "?", 2)[0]
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 func getEnv(key, def string) string {

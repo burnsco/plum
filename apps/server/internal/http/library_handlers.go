@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -96,6 +97,23 @@ func coalesceNullableBool(value sql.NullBool, fallback bool) bool {
 	return fallback
 }
 
+func isMissingColumnError(err error, column string) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "no such column: "+strings.ToLower(column)) ||
+		strings.Contains(text, "has no column named "+strings.ToLower(column))
+}
+
+func isSQLiteBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "database is locked") || strings.Contains(text, "sqlite_busy")
+}
+
 func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -123,11 +141,9 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	var libID int
 	defaultAudio, defaultSubtitle, subtitlesEnabled := defaultLibraryPlaybackPreferences(payload.Type)
-	err := h.DB.QueryRow(
-		`INSERT INTO libraries (user_id, name, type, path, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-		u.ID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, now,
-	).Scan(&libID)
+	err := retryCreateLibraryInsert(h.DB, u.ID, payload, defaultAudio, defaultSubtitle, subtitlesEnabled, now, &libID)
 	if err != nil {
+		log.Printf("create library: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -145,6 +161,36 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func retryCreateLibraryInsert(
+	dbConn *sql.DB,
+	userID int,
+	payload createLibraryRequest,
+	defaultAudio string,
+	defaultSubtitle string,
+	subtitlesEnabled bool,
+	now time.Time,
+	libID *int,
+) error {
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		err = dbConn.QueryRow(
+			`INSERT INTO libraries (user_id, name, type, path, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, now,
+		).Scan(libID)
+		if isMissingColumnError(err, "preferred_audio_language") {
+			err = dbConn.QueryRow(
+				`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+				userID, payload.Name, payload.Type, payload.Path, now,
+			).Scan(libID)
+		}
+		if err == nil || !isSQLiteBusyError(err) {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+	}
+	return err
+}
+
 func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -156,7 +202,16 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default FROM libraries WHERE user_id = ? ORDER BY id`,
 		u.ID,
 	)
+	legacyColumns := false
+	if err != nil && isMissingColumnError(err, "preferred_audio_language") {
+		legacyColumns = true
+		rows, err = h.DB.Query(
+			`SELECT id, name, type, path, user_id FROM libraries WHERE user_id = ? ORDER BY id`,
+			u.ID,
+		)
+	}
 	if err != nil {
+		log.Printf("list libraries: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -174,16 +229,22 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 			preferredSubtitle sql.NullString
 			subtitlesEnabled  sql.NullBool
 		)
-		if err := rows.Scan(
-			&id,
-			&name,
-			&libraryType,
-			&path,
-			&userID,
-			&preferredAudio,
-			&preferredSubtitle,
-			&subtitlesEnabled,
-		); err != nil {
+		if legacyColumns {
+			err = rows.Scan(&id, &name, &libraryType, &path, &userID)
+		} else {
+			err = rows.Scan(
+				&id,
+				&name,
+				&libraryType,
+				&path,
+				&userID,
+				&preferredAudio,
+				&preferredSubtitle,
+				&subtitlesEnabled,
+			)
+		}
+		if err != nil {
+			log.Printf("scan libraries row: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -247,8 +308,11 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		payload.SubtitlesEnabledByDefault,
 		libraryID,
 	); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		if !isMissingColumnError(err, "preferred_audio_language") {
+			log.Printf("update library playback preferences: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
