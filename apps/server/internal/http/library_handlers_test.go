@@ -572,6 +572,27 @@ func TestLibraryScanManager_RecoverResumesQueuedScan(t *testing.T) {
 	}
 }
 
+func TestLibraryScanManager_StatusWarnsWhenCompletedScanFindsNoFiles(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	scanJobs.jobs[7] = libraryScanStatus{
+		LibraryID: 7,
+		Phase:     libraryScanPhaseCompleted,
+	}
+	scanJobs.paths[7] = "/movies"
+
+	status := scanJobs.status(7)
+
+	if !strings.Contains(status.Error, "No media files were found under /movies") {
+		t.Fatalf("unexpected warning: %q", status.Error)
+	}
+}
+
 func TestListLibraryMedia_EmbeddedSubtitlesUseCamelCaseStreamIndex(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
@@ -655,6 +676,9 @@ func TestListLibraryMedia_EmbeddedSubtitlesUseCamelCaseStreamIndex(t *testing.T)
 	entry, ok := embedded[0].(map[string]any)
 	if !ok {
 		t.Fatalf("unexpected embedded subtitle entry: %#v", embedded[0])
+	}
+	if _, exists := entry["media_id"]; exists {
+		t.Fatalf("embedded subtitle should not include media_id: %#v", entry)
 	}
 	if _, exists := entry["stream_index"]; exists {
 		t.Fatalf("embedded subtitle should not include stream_index: %#v", entry)
@@ -747,10 +771,150 @@ func TestListLibraryMedia_EmbeddedAudioTracksUseCamelCaseStreamIndex(t *testing.
 	if !ok {
 		t.Fatalf("unexpected embedded audio track entry: %#v", audioTracks[0])
 	}
+	if _, exists := entry["media_id"]; exists {
+		t.Fatalf("embedded audio track should not include media_id: %#v", entry)
+	}
 	if _, exists := entry["stream_index"]; exists {
 		t.Fatalf("embedded audio track should not include stream_index: %#v", entry)
 	}
 	if got, ok := entry["streamIndex"].(float64); !ok || got != 2 {
 		t.Fatalf("embedded audio track streamIndex = %#v", entry["streamIndex"])
+	}
+}
+
+func TestListLibraryMedia_SubtitlesOmitInternalFields(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) RETURNING id`,
+		"subtitle@test.local",
+		"hash",
+		true,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	var movieID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Subtitle Test",
+		"/movies/Subtitle Test (2025)/Subtitle Test.mkv",
+		0,
+		db.MatchStatusLocal,
+	).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, db.LibraryTypeMovie, movieID).
+		Scan(&mediaID); err != nil {
+		t.Fatalf("insert media global row: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO subtitles (media_id, title, language, format, path) VALUES (?, ?, ?, ?, ?)`,
+		mediaID,
+		"English",
+		"eng",
+		"srt",
+		"/movies/Subtitle Test (2025)/Subtitle Test.eng.srt",
+	); err != nil {
+		t.Fatalf("insert subtitle: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodGet, "/api/libraries/"+strconv.Itoa(libraryID)+"/media", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ListLibraryMedia(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload []map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(payload))
+	}
+	subtitles, ok := payload[0]["subtitles"].([]any)
+	if !ok || len(subtitles) != 1 {
+		t.Fatalf("unexpected subtitles payload: %#v", payload[0]["subtitles"])
+	}
+	entry, ok := subtitles[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected subtitle entry: %#v", subtitles[0])
+	}
+	if _, exists := entry["media_id"]; exists {
+		t.Fatalf("subtitle should not include media_id: %#v", entry)
+	}
+	if _, exists := entry["path"]; exists {
+		t.Fatalf("subtitle should not include path: %#v", entry)
+	}
+}
+
+func TestListLibraryMedia_EmptyLibraryReturnsJSONArray(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) RETURNING id`,
+		"empty@test.local",
+		"hash",
+		true,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodGet, "/api/libraries/"+strconv.Itoa(libraryID)+"/media", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ListLibraryMedia(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("body = %q, want []", rec.Body.String())
 	}
 }

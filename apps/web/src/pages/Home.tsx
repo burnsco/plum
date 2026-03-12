@@ -9,7 +9,7 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 import type { Library } from "../api";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
-import { LibraryPosterGrid } from "../components/LibraryPosterGrid";
+import { LibraryPosterGrid, type PosterGridItem } from "../components/LibraryPosterGrid";
 import { MusicLibraryView } from "../components/MusicLibraryView";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
 import { usePlayer } from "../contexts/PlayerContext";
@@ -99,6 +99,10 @@ export function Home() {
     error: selectedError,
     refetch: refetchLibraryMedia,
   } = useLibraryMedia(selectedLibraryId, { refetchInterval: selectedLibraryPollInterval });
+  const selectedLibraryScanWarning =
+    selectedLibraryScanStatus?.phase === "completed" && selectedItems.length === 0
+      ? selectedLibraryScanStatus.error
+      : undefined;
   const refreshShowMutation = useRefreshShow();
   const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
 
@@ -205,7 +209,7 @@ export function Home() {
             setContextMenu({ x: event.clientX, y: event.clientY, group });
           },
         },
-      ];
+      ] satisfies PosterGridItem[];
     });
     return { deferredCount: deferredGroups.length, visibleCards };
   }, [
@@ -269,7 +273,7 @@ export function Home() {
           onClick: () => playMovie(item),
           onPlay: () => playMovie(item),
         },
-      ];
+      ] satisfies PosterGridItem[];
     });
 
     return { deferredCount, visibleCards };
@@ -353,6 +357,8 @@ export function Home() {
                     </>
                   )}
                 </p>
+              ) : selectedLibraryScanWarning ? (
+                <p className="text-sm text-[var(--plum-muted)]">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
                 <p className="text-sm text-[var(--plum-muted)]">
                   {isSelectedLibraryScanning ? "Importing library…" : "No media in this library yet."}

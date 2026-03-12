@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LibraryType } from "../api";
-import { createAdmin, createLibrary, startLibraryScan } from "../api";
+import { createAdmin, createLibrary, getLibraryScanStatus, startLibraryScan } from "../api";
 import { useAuthActions } from "../contexts/AuthContext";
 
 type Step = "admin" | "library";
@@ -16,6 +16,7 @@ type AddedLibrary = {
   removedCount: number;
   unmatchedCount: number;
   skippedCount: number;
+  error?: string;
 };
 
 type OnboardingProps = {
@@ -36,6 +37,24 @@ const DEFAULT_LIBRARIES: { name: string; type: LibraryType; path: string }[] = [
   { name: "Music", type: "music", path: "/music" },
 ];
 
+const SCAN_STATUS_POLL_INTERVAL_MS = 2_000;
+
+function mergeLibraryScanStatus(
+  library: AddedLibrary,
+  status: Awaited<ReturnType<typeof getLibraryScanStatus>>,
+): AddedLibrary {
+  return {
+    ...library,
+    phase: status.phase === "idle" ? "queued" : status.phase,
+    addedCount: status.added,
+    updatedCount: status.updated,
+    removedCount: status.removed,
+    unmatchedCount: status.unmatched,
+    skippedCount: status.skipped,
+    error: status.error,
+  };
+}
+
 export function Onboarding({ onGoToHome }: OnboardingProps) {
   const { refreshMe } = useAuthActions();
   const [step, setStep] = useState<Step>("admin");
@@ -49,6 +68,45 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
   const [loading, setLoading] = useState(false);
   const [addingDefaults, setAddingDefaults] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const pendingLibraries = addedLibraries.filter(
+      (library) => library.phase === "queued" || library.phase === "scanning",
+    );
+    if (pendingLibraries.length === 0) return;
+
+    let cancelled = false;
+    const refreshStatuses = async () => {
+      const settled = await Promise.allSettled(
+        pendingLibraries.map(async (library) => [library.id, await getLibraryScanStatus(library.id)] as const),
+      );
+      if (cancelled) return;
+
+      const statuses = new Map<number, Awaited<ReturnType<typeof getLibraryScanStatus>>>();
+      for (const entry of settled) {
+        if (entry.status === "fulfilled") {
+          statuses.set(entry.value[0], entry.value[1]);
+        }
+      }
+
+      setAddedLibraries((current) =>
+        current.map((library) => {
+          const status = statuses.get(library.id);
+          return status ? mergeLibraryScanStatus(library, status) : library;
+        }),
+      );
+    };
+
+    void refreshStatuses();
+    const intervalId = window.setInterval(() => {
+      void refreshStatuses();
+    }, SCAN_STATUS_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [addedLibraries]);
 
   const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,18 +167,21 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
       const status = await startLibraryScan(lib.id);
       setAddedLibraries((prev) => [
         ...prev,
-        {
-          id: lib.id,
-          name: lib.name,
-          type: lib.type,
-          path: lib.path,
-          phase: status.phase === "idle" ? "queued" : status.phase,
-          addedCount: status.added,
-          updatedCount: status.updated,
-          removedCount: status.removed,
-          unmatchedCount: status.unmatched,
-          skippedCount: status.skipped,
-        },
+        mergeLibraryScanStatus(
+          {
+            id: lib.id,
+            name: lib.name,
+            type: lib.type,
+            path: lib.path,
+            phase: "queued",
+            addedCount: 0,
+            updatedCount: 0,
+            removedCount: 0,
+            unmatchedCount: 0,
+            skippedCount: 0,
+          },
+          status,
+        ),
       ]);
       setLibraryName("");
       setLibraryPath("");
@@ -139,27 +200,28 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
       for (const def of DEFAULT_LIBRARIES) {
         if (existingPaths.has(def.path)) continue;
         const lib = await createLibrary({ name: def.name, type: def.type, path: def.path });
-        let phase: AddedLibrary["phase"] = "queued";
+        let nextLibrary: AddedLibrary = {
+          id: lib.id,
+          name: lib.name,
+          type: lib.type,
+          path: lib.path,
+          phase: "queued",
+          addedCount: 0,
+          updatedCount: 0,
+          removedCount: 0,
+          unmatchedCount: 0,
+          skippedCount: 0,
+          error: undefined,
+        };
         try {
           const status = await startLibraryScan(lib.id);
-          phase = status.phase === "idle" ? "queued" : status.phase;
+          nextLibrary = mergeLibraryScanStatus(nextLibrary, status);
         } catch {
           // Path may not exist (e.g. /anime not mounted); library is still created
         }
         setAddedLibraries((prev) => [
           ...prev,
-          {
-            id: lib.id,
-            name: lib.name,
-            type: lib.type,
-            path: lib.path,
-            phase,
-            addedCount: 0,
-            updatedCount: 0,
-            removedCount: 0,
-            unmatchedCount: 0,
-            skippedCount: 0,
-          },
+          nextLibrary,
         ]);
         existingPaths.add(def.path);
       }
@@ -323,6 +385,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
                       {lib.unmatchedCount > 0 ? `, unmatched ${lib.unmatchedCount}` : ""}
                       {lib.skippedCount > 0 ? `, skipped ${lib.skippedCount}` : ""}
                       {lib.removedCount > 0 ? `, removed ${lib.removedCount}` : ""}
+                      {lib.error ? ` — ${lib.error}` : ""}
                     </li>
                   ))}
                 </ul>

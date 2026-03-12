@@ -54,12 +54,7 @@ func main() {
 		thumbDir = filepath.Join(filepath.Dir(conn), "thumbnails")
 	}
 
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      buildRouter(sqlDB, hub, playbackSessions, pipeline, thumbDir),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-	}
+	srv := newHTTPServer(addr, buildRouter(sqlDB, hub, playbackSessions, pipeline, thumbDir))
 
 	go func() {
 		log.Printf("plum backend listening on %s", addr)
@@ -92,7 +87,9 @@ func getEnv(key, def string) string {
 
 func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string) http.Handler {
 	r := chi.NewRouter()
-	r.Use(httpapi.CORSMiddleware(httpapi.AllowedOriginsFromEnv(os.Getenv("PLUM_ALLOWED_ORIGINS"))))
+	allowedOrigins := httpapi.AllowedOriginsFromEnv(os.Getenv("PLUM_ALLOWED_ORIGINS"))
+	r.Use(httpapi.CORSMiddleware(allowedOrigins))
+	r.Use(httpapi.RequestBodyLimitMiddleware(httpapi.RequestBodyLimitBytes()))
 
 	r.Use(httpapi.AuthMiddleware(sqlDB))
 
@@ -163,9 +160,16 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)
 	})
 
-	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		ws.ServeWS(hub, w, r)
-	})
+	r.Get("/ws", httpapi.ServeWebSocket(hub, allowedOrigins))
 
 	return r
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 0,
+	}
 }

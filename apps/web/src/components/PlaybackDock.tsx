@@ -31,11 +31,9 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import type { MediaItem } from "../api";
 import { BASE_URL, updateMediaProgress } from "../api";
 import { usePlayer } from "../contexts/PlayerContext";
 import {
-  languageMatchesPreference,
   readStoredSubtitleAppearance,
   resolveLibraryPlaybackPreferences,
   subtitleFontSizeValue,
@@ -44,6 +42,30 @@ import {
   writeStoredSubtitleAppearance,
   type SubtitleAppearance,
 } from "../lib/playbackPreferences";
+import {
+  applyCueLineSetting,
+  bufferedRangeStartsNearZero,
+  buildSubtitleCues,
+  clearTextTrackCues,
+  formatClock,
+  formatHlsErrorMessage,
+  formatTrackLabel,
+  getBrowserAudioTracks,
+  getMusicMetadata,
+  getPreferredAudioKey,
+  getPreferredSubtitleKey,
+  getSeasonEpisodeLabel,
+  getVideoMetadata,
+  hasTextTrack,
+  nudgeVideoIntoBufferedRange,
+  resolvedVideoDuration,
+} from "../lib/playback/playerMedia";
+import type {
+  AudioTrackOption,
+  HlsErrorData,
+  SubtitleTrackOption,
+  TrackMenuOption,
+} from "../lib/playback/playerMedia";
 import { queryKeys, useLibraries } from "../queries";
 
 type PlaybackState = {
@@ -52,356 +74,9 @@ type PlaybackState = {
   isPlaying: boolean;
 };
 
-type TrackMenuOption = {
-  key: string;
-  label: string;
-};
-
-type SubtitleTrackOption = TrackMenuOption & {
-  src: string;
-  srcLang: string;
-};
-
 type LoadedSubtitleTrack = SubtitleTrackOption & {
   body: string;
 };
-
-type AudioTrackOption = TrackMenuOption & {
-  streamIndex: number;
-  language: string;
-};
-
-type BrowserAudioTrack = {
-  enabled: boolean;
-};
-
-type BrowserAudioTrackList = {
-  length: number;
-  [index: number]: BrowserAudioTrack | undefined;
-};
-
-type HlsErrorData = {
-  fatal: boolean;
-  type?: string;
-  details?: string;
-  error?: Error;
-};
-
-function getBrowserAudioTracks(element: HTMLVideoElement | null): BrowserAudioTrackList | null {
-  if (!element) return null;
-  const audioTracks = (element as HTMLVideoElement & { audioTracks?: BrowserAudioTrackList })
-    .audioTracks;
-  return audioTracks && typeof audioTracks.length === "number" ? audioTracks : null;
-}
-
-function formatTrackLabel(
-  title: string | undefined,
-  language: string | undefined,
-  fallback: string,
-): string {
-  const normalizedTitle = title?.trim();
-  const normalizedLanguage = language?.trim();
-  if (
-    normalizedTitle &&
-    normalizedLanguage &&
-    normalizedTitle.localeCompare(normalizedLanguage, undefined, { sensitivity: "accent" }) !== 0
-  ) {
-    return `${normalizedTitle} • ${normalizedLanguage}`;
-  }
-  return normalizedTitle || normalizedLanguage || fallback;
-}
-
-function formatClock(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
-  const wholeSeconds = Math.floor(totalSeconds);
-  const hours = Math.floor(wholeSeconds / 3600);
-  const minutes = Math.floor((wholeSeconds % 3600) / 60);
-  const seconds = wholeSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatHlsErrorMessage(data: HlsErrorData): string {
-  return data.details || data.type || data.error?.message || "Playback stream failed";
-}
-
-function resolvedVideoDuration(itemDuration: number, elementDuration: number): number {
-  if (Number.isFinite(itemDuration) && itemDuration > 0) {
-    return itemDuration;
-  }
-  return Number.isFinite(elementDuration) && elementDuration > 0 ? elementDuration : 0;
-}
-
-function nudgeVideoIntoBufferedRange(video: HTMLVideoElement | null): boolean {
-  if (!video || video.buffered.length === 0) {
-    return false;
-  }
-
-  const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-  for (let index = 0; index < video.buffered.length; index += 1) {
-    const start = video.buffered.start(index);
-    const end = video.buffered.end(index);
-    if (currentTime + 0.05 < start) {
-      video.currentTime = start + 0.01;
-      return true;
-    }
-    if (currentTime >= start && currentTime <= end) {
-      return false;
-    }
-  }
-
-  const lastIndex = video.buffered.length - 1;
-  if (lastIndex >= 0) {
-    const start = video.buffered.start(lastIndex);
-    if (currentTime < start) {
-      video.currentTime = start + 0.01;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function bufferedRangeStartsNearZero(video: HTMLVideoElement | null): boolean {
-  if (!video || video.buffered.length === 0) {
-    return false;
-  }
-  return video.buffered.start(0) <= 0.05;
-}
-
-function parseVttTimestamp(value: string): number | null {
-  const match = value.trim().match(/^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{3})$/);
-  if (!match) {
-    return null;
-  }
-
-  const hours = Number(match[1] ?? 0);
-  const minutes = Number(match[2]);
-  const seconds = Number(match[3]);
-  const milliseconds = Number(match[4]);
-  return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
-}
-
-function parseVttCueBlocks(body: string): Array<{
-  startTime: number;
-  endTime: number;
-  text: string;
-  settings: string[];
-}> {
-  const normalized = body.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
-  const lines = normalized.split("\n");
-  const cues: Array<{
-    startTime: number;
-    endTime: number;
-    text: string;
-    settings: string[];
-  }> = [];
-
-  let index = 0;
-  if (lines[0]?.startsWith("WEBVTT")) {
-    index += 1;
-    while (index < lines.length && lines[index]?.trim() !== "") {
-      index += 1;
-    }
-  }
-
-  while (index < lines.length) {
-    while (index < lines.length && lines[index]?.trim() === "") {
-      index += 1;
-    }
-    if (index >= lines.length) {
-      break;
-    }
-
-    const blockStart = lines[index]?.trim() ?? "";
-    if (
-      blockStart.startsWith("NOTE") ||
-      blockStart.startsWith("STYLE") ||
-      blockStart.startsWith("REGION")
-    ) {
-      while (index < lines.length && lines[index]?.trim() !== "") {
-        index += 1;
-      }
-      continue;
-    }
-
-    let timingLine = blockStart;
-    if (!timingLine.includes("-->")) {
-      index += 1;
-      timingLine = lines[index]?.trim() ?? "";
-    }
-    if (!timingLine.includes("-->")) {
-      while (index < lines.length && lines[index]?.trim() !== "") {
-        index += 1;
-      }
-      continue;
-    }
-
-    const [startToken, endTokenWithSettings] = timingLine.split("-->");
-    const timingParts = endTokenWithSettings.trim().split(/\s+/);
-    const startTime = parseVttTimestamp(startToken);
-    const endTime = parseVttTimestamp(timingParts[0] ?? "");
-    if (startTime == null || endTime == null) {
-      while (index < lines.length && lines[index]?.trim() !== "") {
-        index += 1;
-      }
-      continue;
-    }
-
-    index += 1;
-    const textLines: string[] = [];
-    while (index < lines.length && lines[index]?.trim() !== "") {
-      textLines.push(lines[index] ?? "");
-      index += 1;
-    }
-
-    cues.push({
-      startTime,
-      endTime: Math.max(endTime, startTime + 0.001),
-      text: textLines.join("\n"),
-      settings: timingParts.slice(1),
-    });
-  }
-
-  return cues;
-}
-
-function getPreferredSubtitleKey(
-  subtitleTracks: SubtitleTrackOption[],
-  preferredLanguage: string,
-  subtitlesEnabled: boolean,
-): string {
-  if (!subtitlesEnabled || !preferredLanguage) return "off";
-  return (
-    subtitleTracks.find(
-      (track) =>
-        languageMatchesPreference(track.srcLang, preferredLanguage) ||
-        languageMatchesPreference(track.label, preferredLanguage),
-    )?.key ?? "off"
-  );
-}
-
-function getPreferredAudioKey(audioTracks: AudioTrackOption[], preferredLanguage: string): string {
-  if (!preferredLanguage) return "";
-  return (
-    audioTracks.find(
-      (track) =>
-        languageMatchesPreference(track.language, preferredLanguage) ||
-        languageMatchesPreference(track.label, preferredLanguage),
-    )?.key ?? ""
-  );
-}
-
-function applyCueLineSetting(cue: TextTrackCue, position: SubtitleAppearance["position"]) {
-  const cueWithLine = cue as TextTrackCue & { line?: number | string };
-  if (!("line" in cueWithLine)) return;
-  cueWithLine.line = position === "top" ? 8 : "auto";
-}
-
-function applyVttCueSettings(cue: TextTrackCue, settings: string[]) {
-  const vttCue = cue as TextTrackCue & {
-    align?: "start" | "center" | "end" | "left" | "right";
-    line?: number | string;
-    position?: number | string;
-    size?: number;
-    vertical?: string;
-  };
-
-  for (const setting of settings) {
-    const [key, value] = setting.split(":", 2);
-    if (!key || !value) continue;
-    switch (key) {
-      case "align":
-        if (["start", "center", "end", "left", "right"].includes(value)) {
-          vttCue.align = value as "start" | "center" | "end" | "left" | "right";
-        }
-        break;
-      case "line":
-        vttCue.line = value === "auto" ? "auto" : Number(value.replace("%", ""));
-        break;
-      case "position":
-        vttCue.position = Number(value.replace("%", ""));
-        break;
-      case "size":
-        vttCue.size = Number(value.replace("%", ""));
-        break;
-      case "vertical":
-        vttCue.vertical = value;
-        break;
-    }
-  }
-}
-
-function clearTextTrackCues(track: TextTrack | null) {
-  const cues = track?.cues;
-  if (!track || !cues) return;
-  while (cues.length > 0) {
-    const cue = cues[0];
-    if (!cue) break;
-    track.removeCue(cue);
-  }
-}
-
-function buildSubtitleCues(body: string): TextTrackCue[] {
-  const CueConstructor =
-    typeof window !== "undefined" ? (window.VTTCue ?? window.TextTrackCue) : undefined;
-  if (!CueConstructor) {
-    return [];
-  }
-
-  return parseVttCueBlocks(body)
-    .map((cueBlock) => {
-      const cue = new CueConstructor(
-        cueBlock.startTime,
-        cueBlock.endTime,
-        cueBlock.text,
-      ) as TextTrackCue;
-      applyVttCueSettings(cue, cueBlock.settings);
-      return cue;
-    })
-    .filter(Boolean);
-}
-
-function hasTextTrack(video: HTMLVideoElement, track: TextTrack | null): boolean {
-  if (!track) {
-    return false;
-  }
-  for (let index = 0; index < video.textTracks.length; index += 1) {
-    if (video.textTracks[index] === track) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function getSeasonEpisodeLabel(item: MediaItem): string | null {
-  const season = item.season ?? 0;
-  const episode = item.episode ?? 0;
-  if (season <= 0 && episode <= 0) return null;
-  return `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
-}
-
-function getVideoMetadata(item: MediaItem): string {
-  const bits = [item.type === "movie" ? "Movie" : item.type === "anime" ? "Anime" : "TV"];
-  const seasonEpisode = getSeasonEpisodeLabel(item);
-  const releaseYear =
-    item.release_date?.split("-")[0] ||
-    (item.type === "movie" ? item.title.match(/\((\d{4})\)$/)?.[1] : undefined);
-
-  if (seasonEpisode) bits.push(seasonEpisode);
-  if (releaseYear) bits.push(releaseYear);
-  if (item.duration > 0) bits.push(formatClock(item.duration));
-  return bits.join(" • ");
-}
-
-function getMusicMetadata(item: MediaItem, queueIndex: number, queueSize: number): string {
-  const bits = [item.artist || "Unknown Artist"];
-  if (item.album) bits.push(item.album);
-  if (queueSize > 0) bits.push(`${queueIndex + 1}/${queueSize}`);
-  return bits.join(" • ");
-}
 
 const CONTROLS_HIDE_DELAY = 3000;
 
@@ -1027,11 +702,7 @@ export function PlaybackDock() {
     }
 
     let track = manualSubtitleTrackRef.current;
-    if (
-      manualSubtitleVideoRef.current !== video ||
-      track == null ||
-      !hasTextTrack(video, track)
-    ) {
+    if (manualSubtitleVideoRef.current !== video || track == null || !hasTextTrack(video, track)) {
       try {
         track = video.addTextTrack("subtitles", "Plum subtitles", "und");
       } catch {
@@ -1196,10 +867,7 @@ export function PlaybackDock() {
         return;
       }
 
-      if (
-        data.type === Hls.ErrorTypes.NETWORK_ERROR &&
-        networkRecoveryAttemptsRef.current < 2
-      ) {
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveryAttemptsRef.current < 2) {
         networkRecoveryAttemptsRef.current += 1;
         setHlsStatusMessage("Reconnecting stream...");
         hls.startLoad();
@@ -1456,8 +1124,7 @@ export function PlaybackDock() {
           onEnded={() => {
             void persistPlaybackProgress({ force: true, completed: true });
           }}
-        >
-        </video>
+        ></video>
 
         {/* Top title bar */}
         <div className="fullscreen-player__top-bar">
@@ -1897,13 +1564,14 @@ export function PlaybackDock() {
                 }}
                 onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
                 onError={() => {
-                  setHlsStatusMessage("Stream error: browser media element failed to load playback");
+                  setHlsStatusMessage(
+                    "Stream error: browser media element failed to load playback",
+                  );
                 }}
                 onEnded={() => {
                   void persistPlaybackProgress({ force: true, completed: true });
                 }}
-              >
-              </video>
+              ></video>
               <button
                 type="button"
                 className={`playback-dock__true-fullscreen-btn${browserFullscreenActive ? " is-active" : ""}`}

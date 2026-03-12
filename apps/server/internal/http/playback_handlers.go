@@ -3,6 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -36,6 +37,12 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	sourcePath, err := db.ResolveMediaSourcePath(h.DB, *media)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	media.Path = sourcePath
 	settings, err := db.GetTranscodingSettings(h.DB)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -157,7 +164,7 @@ func parsePathInt(w http.ResponseWriter, raw string, message string) (int, bool)
 
 func writePlaybackError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
-	if err == db.ErrNotFound {
+	if errors.Is(err, db.ErrNotFound) {
 		status = http.StatusNotFound
 	}
 	http.Error(w, err.Error(), status)

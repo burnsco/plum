@@ -12,7 +12,7 @@
     "format": "bunx oxfmt"
   },
   "dependencies": {
-    "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@8881a9b"
+    "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@4f969d1"
   },
   "devDependencies": {
     "oxfmt": "^0.37.0",

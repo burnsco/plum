@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -45,35 +46,74 @@ func sessionIDFromRequest(r *http.Request) string {
 	return c.Value
 }
 
-func secureCookiesEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PLUM_SECURE_COOKIES"))) {
+func envBoolEnabled(key string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
 	case "1", "true", "yes", "on":
-		return true
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
 	default:
-		return false
+		return false, false
 	}
 }
 
-func setSessionCookie(w http.ResponseWriter, sessionID string, expires time.Time) {
+func requestHost(r *http.Request) string {
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return ""
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		return parsedHost
+	}
+	return host
+}
+
+func isLocalhostHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+func secureCookiesEnabled(r *http.Request) bool {
+	if secure, ok := envBoolEnabled("PLUM_SECURE_COOKIES"); ok {
+		return secure
+	}
+	if insecure, ok := envBoolEnabled("PLUM_INSECURE_COOKIES"); ok && insecure {
+		return false
+	}
+	if r != nil {
+		if r.TLS != nil {
+			return true
+		}
+		if proto := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); proto == "https" {
+			return true
+		}
+		if isLocalhostHost(requestHost(r)) {
+			return false
+		}
+	}
+	return true
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName(),
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   secureCookiesEnabled(),
+		Secure:   secureCookiesEnabled(r),
 		Expires:  expires,
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter) {
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName(),
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   secureCookiesEnabled(),
+		Secure:   secureCookiesEnabled(r),
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
@@ -102,7 +142,7 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 			}
 			if time.Now().After(expiresAt) {
 				_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessID)
-				clearSessionCookie(w)
+				clearSessionCookie(w, r)
 				next.ServeHTTP(w, r)
 				return
 			}

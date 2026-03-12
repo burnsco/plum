@@ -1,20 +1,28 @@
-# Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/dist-ssr/
-frontend/*.local
-frontend/bun.lock
-frontend/bun.lockb
+# Workspace
+node_modules/
 
-# Backend
-backend/plum
-backend/*.db
-backend/*.db-journal
-backend/tmp/
-backend/bin/
+# Web
+apps/web/node_modules/
+apps/web/dist/
+apps/web/dist-ssr/
+apps/web/*.local
+
+# Desktop
+apps/desktop/node_modules/
+apps/desktop/dist/
+
+# Server
+apps/server/plum
+apps/server/*.db
+apps/server/*.db-journal
+apps/server/tmp/
+apps/server/bin/
+apps/server/data/
 
 # General
 .env
+.env.local
+.env.*.local
 .DS_Store
 *.log
 tmp/
@@ -26,7 +34,3 @@ tmp/
 # Docker
 .dockerignore
 compose.override.yml
-node_modules
-apps/server/plum.db*
-apps/server/plum
-apps/desktop/dist/

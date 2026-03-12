@@ -16,10 +16,13 @@ import {
   createPlaybackSession,
   updatePlaybackSessionAudio,
 } from "../api";
+import { resolveLibraryPlaybackPreferences } from "../lib/playbackPreferences";
 import {
-  languageMatchesPreference,
-  resolveLibraryPlaybackPreferences,
-} from "../lib/playbackPreferences";
+  clampVolume,
+  indexOfQueueItem,
+  preferredInitialAudioIndex,
+  shuffleQueue,
+} from "../lib/playback/playerQueue";
 import { sortMusicTracks } from "../lib/musicGrouping";
 import { sortEpisodes } from "../lib/showGrouping";
 import { useLibraries } from "../queries";
@@ -87,35 +90,6 @@ type PlayerContextValue = {
 };
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
-
-function shuffleQueue(items: MediaItem[], currentId: number): MediaItem[] {
-  const current = items.find((item) => item.id === currentId) ?? items[0];
-  const rest = items.filter((item) => item.id !== current?.id);
-  for (let index = rest.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [rest[index], rest[swapIndex]] = [rest[swapIndex], rest[index]];
-  }
-  return current ? [current, ...rest] : rest;
-}
-
-function indexOfQueueItem(items: MediaItem[], itemId: number): number {
-  return items.findIndex((item) => item.id === itemId);
-}
-
-function clampVolume(volume: number): number {
-  return Math.max(0, Math.min(volume, 1));
-}
-
-function preferredInitialAudioIndex(item: MediaItem, preferredLanguage: string): number {
-  if (!preferredLanguage) return -1;
-  return (
-    item.embeddedAudioTracks?.find(
-      (track) =>
-        languageMatchesPreference(track.language, preferredLanguage) ||
-        languageMatchesPreference(track.title, preferredLanguage),
-    )?.streamIndex ?? -1
-  );
-}
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const { data: libraries = [] } = useLibraries();

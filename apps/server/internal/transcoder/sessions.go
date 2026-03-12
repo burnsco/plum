@@ -185,7 +185,17 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Content-Type", "video/mp2t")
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, target)
+	file, err := os.Open(target)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	http.ServeContent(w, r, filepath.Base(target), info.ModTime(), file)
 	return nil
 }
 

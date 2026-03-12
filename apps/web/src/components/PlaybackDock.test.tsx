@@ -436,7 +436,7 @@ describe("PlaybackDock audio track selection", () => {
     } finally {
       fetchSpy.mockRestore();
       if (originalCue == null) {
-        delete (window as Window & { VTTCue?: typeof window.VTTCue }).VTTCue;
+        Reflect.deleteProperty(window as Window & { VTTCue?: typeof window.VTTCue }, "VTTCue");
       } else {
         Object.defineProperty(window, "VTTCue", {
           configurable: true,
@@ -447,8 +447,10 @@ describe("PlaybackDock audio track selection", () => {
       if (originalTextTracksDescriptor) {
         Object.defineProperty(HTMLMediaElement.prototype, "textTracks", originalTextTracksDescriptor);
       } else {
-        delete (HTMLMediaElement.prototype as HTMLMediaElement & { textTracks?: TextTrackList })
-          .textTracks;
+        Reflect.deleteProperty(
+          HTMLMediaElement.prototype as HTMLMediaElement & { textTracks?: TextTrackList },
+          "textTracks",
+        );
       }
       if (originalAddTextTrack) {
         Object.defineProperty(HTMLMediaElement.prototype, "addTextTrack", {
@@ -456,11 +458,12 @@ describe("PlaybackDock audio track selection", () => {
           value: originalAddTextTrack,
         });
       } else {
-        delete (
+        Reflect.deleteProperty(
           HTMLMediaElement.prototype as HTMLMediaElement & {
             addTextTrack?: HTMLMediaElement["addTextTrack"];
-          }
-        ).addTextTrack;
+          },
+          "addTextTrack",
+        );
       }
     }
   });

@@ -28,6 +28,47 @@ import {
   updateTranscodingSettings,
 } from "./api";
 
+type LibrariesResult = Awaited<ReturnType<typeof listLibraries>>;
+type LibraryMediaResult = Awaited<ReturnType<typeof fetchLibraryMedia>>;
+type HomeDashboardResult = Awaited<ReturnType<typeof getHomeDashboard>>;
+type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
+
+function cloneLibrary(library: LibrariesResult[number]): Library {
+  return { ...library };
+}
+
+function cloneMediaItem(item: LibraryMediaResult[number]): MediaItem {
+  return {
+    ...item,
+    subtitles: item.subtitles?.map((subtitle) => ({ ...subtitle })),
+    embeddedSubtitles: item.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
+    embeddedAudioTracks: item.embeddedAudioTracks?.map((track) => ({ ...track })),
+  };
+}
+
+function cloneHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
+  return {
+    ...dashboard,
+    continueWatching: dashboard.continueWatching.map((entry) => ({
+      ...entry,
+      media: cloneMediaItem(entry.media),
+    })),
+  };
+}
+
+function cloneTranscodingSettingsResponse(
+  response: TranscodingSettingsResult,
+): TranscodingSettingsResponse {
+  return {
+    settings: {
+      ...response.settings,
+      decodeCodecs: { ...response.settings.decodeCodecs },
+      encodeFormats: { ...response.settings.encodeFormats },
+    },
+    warnings: response.warnings.map((warning) => ({ ...warning })),
+  };
+}
+
 export const queryKeys = {
   home: ["home"] as const,
   libraries: ["libraries"] as const,
@@ -42,7 +83,7 @@ const LIBRARY_MEDIA_STALE_MS = 60 * 1000;
 export function useLibraries(): UseQueryResult<Library[], Error> {
   return useQuery({
     queryKey: queryKeys.libraries,
-    queryFn: listLibraries,
+    queryFn: async () => (await listLibraries()).map(cloneLibrary),
     staleTime: LIBRARIES_STALE_MS,
   });
 }
@@ -50,7 +91,7 @@ export function useLibraries(): UseQueryResult<Library[], Error> {
 export function useHomeDashboard(options?: { enabled?: boolean }): UseQueryResult<HomeDashboard, Error> {
   return useQuery({
     queryKey: queryKeys.home,
-    queryFn: getHomeDashboard,
+    queryFn: async () => cloneHomeDashboard(await getHomeDashboard()),
     enabled: options?.enabled ?? true,
     staleTime: LIBRARY_MEDIA_STALE_MS,
   });
@@ -62,7 +103,7 @@ export function useLibraryMedia(
 ): UseQueryResult<MediaItem[], Error> {
   return useQuery({
     queryKey: queryKeys.library(libraryId ?? 0),
-    queryFn: () => fetchLibraryMedia(libraryId!),
+    queryFn: async () => (await fetchLibraryMedia(libraryId!)).map(cloneMediaItem),
     enabled: (options?.enabled ?? true) && libraryId != null,
     refetchInterval: options?.refetchInterval,
     staleTime: LIBRARY_MEDIA_STALE_MS,
@@ -109,7 +150,9 @@ export function useUpdateLibraryPlaybackPreferences(): UseMutationResult<
     mutationFn: ({ libraryId, payload }) => updateLibraryPlaybackPreferences(libraryId, payload),
     onSuccess: (library) => {
       queryClient.setQueryData<Library[]>(queryKeys.libraries, (current) =>
-        current?.map((item) => (item.id === library.id ? { ...item, ...library } : item)) ?? [library],
+        current?.map((item) => (item.id === library.id ? { ...item, ...library } : item)) ?? [
+          cloneLibrary(library),
+        ],
       );
     },
   });
@@ -148,7 +191,7 @@ export function useTranscodingSettings(options?: {
 }): UseQueryResult<TranscodingSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.transcodingSettings,
-    queryFn: getTranscodingSettings,
+    queryFn: async () => cloneTranscodingSettingsResponse(await getTranscodingSettings()),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
   });
@@ -161,7 +204,7 @@ export function useUpdateTranscodingSettings(): UseMutationResult<
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: updateTranscodingSettings,
+    mutationFn: async (settings) => cloneTranscodingSettingsResponse(await updateTranscodingSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.transcodingSettings, data);
     },

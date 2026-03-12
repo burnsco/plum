@@ -26,6 +26,36 @@ const defaultUser = {
   is_admin: true,
 } satisfies api.User;
 
+const defaultTranscodingSettings = {
+  vaapiEnabled: false,
+  vaapiDevicePath: "/dev/dri/renderD128",
+  decodeCodecs: {
+    h264: true,
+    hevc: true,
+    mpeg2: true,
+    vc1: true,
+    vp8: true,
+    vp9: true,
+    av1: true,
+    hevc10bit: true,
+    vp910bit: true,
+  },
+  hardwareEncodingEnabled: false,
+  encodeFormats: {
+    h264: true,
+    hevc: false,
+    av1: false,
+  },
+  preferredHardwareEncodeFormat: "h264",
+  allowSoftwareFallback: true,
+  crf: 23,
+  audioBitrate: "192k",
+  audioChannels: 2,
+  threads: 0,
+  keyframeInterval: 48,
+  maxBitrate: "0",
+} satisfies api.TranscodingSettings;
+
 function mockAuthSession({
   hasAdmin = true,
   user = defaultUser,
@@ -988,29 +1018,7 @@ describe("App library and player wiring", () => {
     window.history.pushState({}, "", "/settings");
     vi.spyOn(api, "listLibraries").mockResolvedValue([]);
     vi.spyOn(api, "getTranscodingSettings").mockResolvedValue({
-      settings: {
-        vaapiEnabled: false,
-        vaapiDevicePath: "/dev/dri/renderD128",
-        decodeCodecs: {
-          h264: true,
-          hevc: true,
-          mpeg2: true,
-          vc1: true,
-          vp8: true,
-          vp9: true,
-          av1: true,
-          hevc10bit: true,
-          vp910bit: true,
-        },
-        hardwareEncodingEnabled: false,
-        encodeFormats: {
-          h264: true,
-          hevc: false,
-          av1: false,
-        },
-        preferredHardwareEncodeFormat: "h264",
-        allowSoftwareFallback: true,
-      },
+      settings: defaultTranscodingSettings,
       warnings: [],
     });
 
@@ -1025,29 +1033,7 @@ describe("App library and player wiring", () => {
   it("saves transcoding settings updates", async () => {
     window.history.pushState({}, "", "/settings");
     vi.spyOn(api, "listLibraries").mockResolvedValue([]);
-    const baseSettings = {
-      vaapiEnabled: false,
-      vaapiDevicePath: "/dev/dri/renderD128",
-      decodeCodecs: {
-        h264: true,
-        hevc: true,
-        mpeg2: true,
-        vc1: true,
-        vp8: true,
-        vp9: true,
-        av1: true,
-        hevc10bit: true,
-        vp910bit: true,
-      },
-      hardwareEncodingEnabled: false,
-      encodeFormats: {
-        h264: true,
-        hevc: false,
-        av1: false,
-      },
-      preferredHardwareEncodeFormat: "h264" as const,
-      allowSoftwareFallback: true,
-    };
+    const baseSettings = defaultTranscodingSettings;
 
     vi.spyOn(api, "getTranscodingSettings").mockResolvedValue({
       settings: baseSettings,
@@ -1122,29 +1108,7 @@ describe("App library and player wiring", () => {
       },
     ]);
     vi.spyOn(api, "getTranscodingSettings").mockResolvedValue({
-      settings: {
-        vaapiEnabled: false,
-        vaapiDevicePath: "/dev/dri/renderD128",
-        decodeCodecs: {
-          h264: true,
-          hevc: true,
-          mpeg2: true,
-          vc1: true,
-          vp8: true,
-          vp9: true,
-          av1: true,
-          hevc10bit: true,
-          vp910bit: true,
-        },
-        hardwareEncodingEnabled: false,
-        encodeFormats: {
-          h264: true,
-          hevc: false,
-          av1: false,
-        },
-        preferredHardwareEncodeFormat: "h264",
-        allowSoftwareFallback: true,
-      },
+      settings: defaultTranscodingSettings,
       warnings: [],
     });
     const updateSpy = vi.spyOn(api, "updateLibraryPlaybackPreferences").mockResolvedValue({

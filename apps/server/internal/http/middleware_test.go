@@ -3,15 +3,17 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestSetSessionCookie_UsesSecureFlagFromEnv(t *testing.T) {
 	t.Setenv("PLUM_SECURE_COOKIES", "true")
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/auth/login", nil)
 	rec := httptest.NewRecorder()
 
-	setSessionCookie(rec, "session-id", mustTime(t, "2026-03-12T15:04:05Z"))
+	setSessionCookie(rec, req, "session-id", mustTime(t, "2026-03-12T15:04:05Z"))
 
 	cookies := rec.Result().Cookies()
 	if len(cookies) != 1 {
@@ -19,6 +21,53 @@ func TestSetSessionCookie_UsesSecureFlagFromEnv(t *testing.T) {
 	}
 	if !cookies[0].Secure {
 		t.Fatal("expected session cookie to be secure when PLUM_SECURE_COOKIES=true")
+	}
+}
+
+func TestSetSessionCookie_DefaultsToInsecureForLocalHTTP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/auth/login", nil)
+	rec := httptest.NewRecorder()
+
+	setSessionCookie(rec, req, "session-id", mustTime(t, "2026-03-12T15:04:05Z"))
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	if cookies[0].Secure {
+		t.Fatal("expected localhost cookie to default to insecure over plain HTTP")
+	}
+}
+
+func TestSetSessionCookie_UsesSecureFlagBehindHTTPSProxy(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://plum.example/api/auth/login", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+
+	setSessionCookie(rec, req, "session-id", mustTime(t, "2026-03-12T15:04:05Z"))
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	if !cookies[0].Secure {
+		t.Fatal("expected proxied HTTPS cookie to default to secure")
+	}
+}
+
+func TestSetSessionCookie_AllowsExplicitInsecureOverride(t *testing.T) {
+	t.Setenv("PLUM_INSECURE_COOKIES", "true")
+	req := httptest.NewRequest(http.MethodGet, "https://plum.example/api/auth/login", nil)
+	rec := httptest.NewRecorder()
+
+	setSessionCookie(rec, req, "session-id", mustTime(t, "2026-03-12T15:04:05Z"))
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	if cookies[0].Secure {
+		t.Fatal("expected explicit insecure override to disable secure cookies")
 	}
 }
 
@@ -50,6 +99,36 @@ func TestCORSMiddleware_ReflectsOnlyAllowedOrigins(t *testing.T) {
 	}
 	if got := disallowedRec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
 		t.Fatalf("expected no credentials header for blocked origin, got %q", got)
+	}
+}
+
+func TestRequestBodyLimitMiddleware_RejectsOversizedRequests(t *testing.T) {
+	middleware := RequestBodyLimitMiddleware(8)
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"too-long"}`))
+	rec := httptest.NewRecorder()
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", rec.Code)
+	}
+}
+
+func TestRequestBodyLimitMiddleware_SkipsReadOnlyRequests(t *testing.T) {
+	middleware := RequestBodyLimitMiddleware(8)
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stream/1", strings.NewReader(strings.Repeat("x", 64)))
+	rec := httptest.NewRecorder()
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected GET request to pass through, got %d", rec.Code)
 	}
 }
 

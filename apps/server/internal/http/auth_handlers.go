@@ -13,7 +13,8 @@ import (
 )
 
 type AuthHandler struct {
-	DB *sql.DB
+	DB      *sql.DB
+	Limiter *AuthRateLimiter
 }
 
 type setupStatusResponse struct {
@@ -48,6 +49,11 @@ func validatePassword(pw string) error {
 }
 
 func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
+	if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+		http.Error(w, "too many attempts", http.StatusTooManyRequests)
+		return
+	}
+
 	var existing int
 	if err := h.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE is_admin = 1`).Scan(&existing); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -117,7 +123,7 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, sessID, expires)
+	setSessionCookie(w, r, sessID, expires)
 
 	resp := db.User{
 		ID:        userID,
@@ -141,6 +147,11 @@ type userResponse struct {
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+		http.Error(w, "too many attempts", http.StatusTooManyRequests)
+		return
+	}
+
 	var payload loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -184,7 +195,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, sessID, expires)
+	setSessionCookie(w, r, sessID, expires)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(userResponse{
@@ -199,7 +210,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if sessID != "" {
 		_, _ = h.DB.Exec(`DELETE FROM sessions WHERE id = ?`, sessID)
 	}
-	clearSessionCookie(w)
+	clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -215,4 +226,11 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		Email:   user.Email,
 		IsAdmin: user.IsAdmin,
 	})
+}
+
+func (h *AuthHandler) rateLimiter() *AuthRateLimiter {
+	if h != nil && h.Limiter != nil {
+		return h.Limiter
+	}
+	return defaultAuthLimiter
 }

@@ -9,6 +9,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-[var(--plum-accent)] text-white shadow-sm hover:bg-[var(--plum-accent)]/90",
+        outline:
+          "border border-[var(--plum-border)] bg-[var(--plum-panel)] text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:border-[var(--plum-accent-soft)]",
         secondary:
           "border border-[var(--plum-border)] bg-[var(--plum-panel)] text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:border-[var(--plum-accent-soft)]",
         ghost:

@@ -15,18 +15,15 @@ type Client struct {
 	send chan []byte
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		// For local dev we can be permissive; tighten later.
-		return true
-	},
-}
+func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, checkOrigin func(*http.Request) bool) error {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: checkOrigin,
+	}
 
-func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("upgrade ws: %v", err)
-		return
+		return err
 	}
 	client := &Client{
 		hub:  hub,
@@ -44,6 +41,7 @@ func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	go client.writeLoop()
 	go client.readLoop()
+	return nil
 }
 
 func (c *Client) readLoop() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -186,6 +187,9 @@ func (m *LibraryScanManager) status(libraryID int) libraryScanStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if status, ok := m.jobs[libraryID]; ok {
+		if status.Error == "" {
+			status.Error = scanStatusWarning(status, m.paths[libraryID])
+		}
 		return status
 	}
 	return libraryScanStatus{
@@ -194,6 +198,16 @@ func (m *LibraryScanManager) status(libraryID int) libraryScanStatus {
 		Enriching:     false,
 		IdentifyPhase: libraryIdentifyPhaseIdle,
 	}
+}
+
+func scanStatusWarning(status libraryScanStatus, path string) string {
+	if status.Phase == libraryScanPhaseCompleted && status.Processed == 0 && path != "" {
+		return fmt.Sprintf(
+			"No media files were found under %s. Verify the mounted library path contains media and that PLUM_MEDIA_*_PATH in .env points to the correct host folder.",
+			path,
+		)
+	}
+	return ""
 }
 
 func (m *LibraryScanManager) run(libraryID int) {

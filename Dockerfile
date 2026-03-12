@@ -1,4 +1,4 @@
-ARG GO_VERSION=1.26.0-alpine3.23
+ARG GO_VERSION=1.26.1-alpine3.23
 ARG ALPINE_VERSION=3.23
 
 # Stage: base — shared Go toolchain and dependencies

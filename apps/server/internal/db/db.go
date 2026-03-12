@@ -1,14 +1,12 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,22 +59,22 @@ var (
 
 type Subtitle struct {
 	ID       int    `json:"id"`
-	MediaID  int    `json:"media_id"`
+	MediaID  int    `json:"-"`
 	Title    string `json:"title"`
 	Language string `json:"language"`
 	Format   string `json:"format"`
-	Path     string `json:"path"`
+	Path     string `json:"-"`
 }
 
 type EmbeddedSubtitle struct {
-	MediaID     int    `json:"media_id"`
+	MediaID     int    `json:"-"`
 	StreamIndex int    `json:"streamIndex"`
 	Language    string `json:"language"`
 	Title       string `json:"title"`
 }
 
 type EmbeddedAudioTrack struct {
-	MediaID     int    `json:"media_id"`
+	MediaID     int    `json:"-"`
 	StreamIndex int    `json:"streamIndex"`
 	Language    string `json:"language"`
 	Title       string `json:"title"`
@@ -1184,7 +1182,7 @@ func GetMediaByLibraryID(db *sql.DB, libraryID int) ([]MediaItem, error) {
 	err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return []MediaItem{}, nil
 		}
 		return nil, err
 	}
@@ -1227,7 +1225,7 @@ ORDER BY g.id`
 		return nil, err
 	}
 	defer rows.Close()
-	var items []MediaItem
+	items := make([]MediaItem, 0)
 	for rows.Next() {
 		var m MediaItem
 		m.Type = kind
@@ -1383,21 +1381,6 @@ func GetSubtitleByID(db *sql.DB, id int) (*Subtitle, error) {
 	}
 	return &s, nil
 }
-
-func HandleListMedia(w http.ResponseWriter, r *http.Request, dbConn *sql.DB) {
-	items, err := GetAllMedia(dbConn)
-	if err != nil {
-		log.Printf("list media: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(items); err != nil {
-		log.Printf("encode media: %v", err)
-	}
-}
-
-var ErrNotFound = errors.New("not found")
 
 func getMediaDuration(ctx context.Context, path string) (int, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -2123,150 +2106,4 @@ func nullFloat64(v float64) interface{} {
 		return nil
 	}
 	return v
-}
-
-// HandleStreamMedia looks up a media item and serves the original file contents.
-// Transcoded playback is served exclusively through playback sessions.
-func HandleStreamMedia(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, id int) error {
-	item, err := GetMediaByID(dbConn, id)
-	if err != nil {
-		return err
-	}
-	if item == nil {
-		return ErrNotFound
-	}
-
-	http.ServeFile(w, r, item.Path)
-	return nil
-}
-
-// HandleStreamSubtitle looks up a subtitle and serves it as VTT.
-func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, id int) error {
-	s, err := GetSubtitleByID(dbConn, id)
-	if err != nil {
-		return err
-	}
-	if s == nil {
-		return ErrNotFound
-	}
-
-	if s.Format == "vtt" {
-		w.Header().Set("Content-Type", "text/vtt")
-		http.ServeFile(w, r, s.Path)
-		return nil
-	}
-
-	if s.Format == "srt" || s.Format == "ass" || s.Format == "ssa" {
-		out, err := convertSubtitleToVTT(r.Context(), []string{"-i", s.Path, "-f", "webvtt", "-"}...)
-		if err != nil {
-			return err
-		}
-		w.Header().Set("Content-Type", "text/vtt")
-		if _, err := w.Write(out); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	return fmt.Errorf("unsupported subtitle format: %s", s.Format)
-}
-
-// HandleStreamEmbeddedSubtitle extracts an embedded subtitle stream and serves it as VTT.
-func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
-	item, err := GetMediaByID(dbConn, mediaID)
-	if err != nil {
-		return err
-	}
-	if item == nil {
-		return ErrNotFound
-	}
-	out, err := convertSubtitleToVTT(r.Context(), []string{"-i", item.Path, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...)
-	if err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "text/vtt")
-	if _, err := w.Write(out); err != nil {
-		return err
-	}
-	return nil
-}
-
-func convertSubtitleToVTT(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		if len(msg) > 512 {
-			msg = msg[len(msg)-512:]
-		}
-		return nil, fmt.Errorf("ffmpeg error: %s", msg)
-	}
-	return stdout.Bytes(), nil
-}
-
-// GenerateThumbnail extracts a single frame from the video at ~1 minute (or start if shorter) and writes it to outputPath as JPEG.
-func GenerateThumbnail(ctx context.Context, videoPath, outputPath string) error {
-	// -ss before -i for fast seek; 10s so short videos still get a frame; -vframes 1; -q:v 2 for good quality
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-ss", "10", "-i", videoPath, "-vframes", "1", "-q:v", "2", outputPath)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg thumbnail: %w", err)
-	}
-	return nil
-}
-
-// UpdateThumbnailPath sets thumbnail_path on the category row for the given global media ID.
-func UpdateThumbnailPath(dbConn *sql.DB, globalID int, relativePath string) error {
-	var kind string
-	var refID int
-	err := dbConn.QueryRow(`SELECT kind, ref_id FROM media_global WHERE id = ?`, globalID).Scan(&kind, &refID)
-	if err != nil {
-		return err
-	}
-	table := mediaTableForKind(kind)
-	if table != "tv_episodes" && table != "anime_episodes" {
-		return fmt.Errorf("thumbnail only supported for tv/anime, got %s", kind)
-	}
-	_, err = dbConn.Exec(`UPDATE `+table+` SET thumbnail_path = ? WHERE id = ?`, relativePath, refID)
-	return err
-}
-
-// HandleServeThumbnail serves the thumbnail image for a media item, generating it on demand if missing.
-func HandleServeThumbnail(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, globalID int, thumbDir string) error {
-	item, err := GetMediaByID(dbConn, globalID)
-	if err != nil || item == nil {
-		return ErrNotFound
-	}
-	if item.Type == "music" || item.Type == "movie" {
-		return ErrNotFound
-	}
-	relPath := fmt.Sprintf("%d.jpg", globalID)
-	absPath := filepath.Join(thumbDir, relPath)
-	if item.ThumbnailPath != "" {
-		existing := filepath.Join(thumbDir, item.ThumbnailPath)
-		if _, err := os.Stat(existing); err == nil {
-			w.Header().Set("Content-Type", "image/jpeg")
-			http.ServeFile(w, r, existing)
-			return nil
-		}
-	}
-	if err := os.MkdirAll(thumbDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir thumbnails: %w", err)
-	}
-	if err := GenerateThumbnail(r.Context(), item.Path, absPath); err != nil {
-		log.Printf("generate thumbnail for media %d: %v", globalID, err)
-		return fmt.Errorf("thumbnail generation failed: %w", err)
-	}
-	if err := UpdateThumbnailPath(dbConn, globalID, relPath); err != nil {
-		_ = os.Remove(absPath)
-		return err
-	}
-	w.Header().Set("Content-Type", "image/jpeg")
-	http.ServeFile(w, r, absPath)
-	return nil
 }
