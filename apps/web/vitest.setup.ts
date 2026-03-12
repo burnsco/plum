@@ -51,6 +51,7 @@ class MockWebSocket {
   };
 
   readyState: number = MockWebSocket.CONNECTING;
+  sentMessages: string[] = [];
   url: string;
 
   constructor(url: string) {
@@ -62,17 +63,18 @@ class MockWebSocket {
     }, 0);
   }
 
-  send(_data: string | ArrayBufferLike | Blob | ArrayBufferView) {}
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+    if (typeof data === "string") {
+      this.sentMessages.push(data);
+    }
+  }
   close(code?: number, reason?: string) {
     this.readyState = MockWebSocket.CLOSED;
-    this.emit(
-      "close",
-      {
-        code: code ?? 1000,
-        reason: reason ?? "",
-        wasClean: true,
-      } as CloseEvent,
-    );
+    this.emit("close", {
+      code: code ?? 1000,
+      reason: reason ?? "",
+      wasClean: true,
+    } as CloseEvent);
   }
 
   private emit(type: string, event: Event) {
@@ -110,12 +112,9 @@ class MockWebSocket {
   }
 
   mockMessage(data: string) {
-    this.emit(
-      "message",
-      {
-        data,
-      } as MessageEvent,
-    );
+    this.emit("message", {
+      data,
+    } as MessageEvent);
   }
 }
 

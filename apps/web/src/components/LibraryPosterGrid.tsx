@@ -105,7 +105,7 @@ function PosterCardBody({ item }: { item: PosterGridItem }) {
             aria-hidden="true"
           />
         ) : showPlaceholderPoster ? (
-          <img src="/placeholder-poster.png" alt="" />
+          <img src="/placeholder-poster.svg" alt="" />
         ) : (
           <img src={posterUrl} alt="" onError={() => setPosterErrored(true)} />
         )}

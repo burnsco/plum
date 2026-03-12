@@ -41,12 +41,11 @@ help:
 	@echo "  make clean       - 🧹 Remove containers, volumes, and temp files"
 
 dev:
-	# Stop containers but keep volumes so DB + sessions persist across restarts.
-	$(DOCKER_COMPOSE) down
+	# Start full stack. Rebuilds only what's changed.
 	$(DOCKER_COMPOSE) up --build
 
 dev-clean:
-	# Remove volumes for a fresh DB (onboarding from scratch).
+	# Remove volumes for a fresh DB (onboarding from scratch) and clean caches.
 	$(DOCKER_COMPOSE) down -v
 	$(DOCKER_COMPOSE) up --build
 
@@ -55,7 +54,7 @@ build:
 	$(DOCKER_COMPOSE) build
 
 up:
-	# Start in background, rebuilding images if needed.
+	# Start in background, rebuilding images only if needed.
 	$(DOCKER_COMPOSE) up -d --build
 
 down:

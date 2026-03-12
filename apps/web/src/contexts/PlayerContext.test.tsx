@@ -1,6 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
   return {
@@ -14,7 +20,9 @@ import { PlayerProvider, usePlayer } from "./PlayerContext";
 import { WsProvider } from "./WsContext";
 
 type MockWebSocketHandle = {
+  close: (code?: number, reason?: string) => void;
   mockMessage: (data: string) => void;
+  sentMessages: string[];
 };
 
 type MockWebSocketClass = {
@@ -31,12 +39,16 @@ const movie: MediaItem = {
 };
 
 function PlayerHarness() {
-  const { activeItem, lastEvent, playMovie, videoSourceUrl } = usePlayer();
+  const { activeItem, dismissDock, lastEvent, playMovie, videoSourceUrl } =
+    usePlayer();
 
   return (
     <div>
       <button type="button" onClick={() => playMovie(movie)}>
         Play
+      </button>
+      <button type="button" onClick={() => dismissDock()}>
+        Dismiss
       </button>
       <div data-testid="active-media-id">{activeItem?.id ?? ""}</div>
       <div data-testid="last-event">{lastEvent}</div>
@@ -47,6 +59,7 @@ function PlayerHarness() {
 
 describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.spyOn(api, "listLibraries").mockResolvedValue([]);
     vi.spyOn(api, "createPlaybackSession").mockResolvedValue({
@@ -69,9 +82,16 @@ describe("PlayerContext playback session updates", () => {
     (globalThis.WebSocket as unknown as MockWebSocketClass).reset();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("ignores unrelated playback events and applies the active session revision", async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
 
     render(
@@ -96,9 +116,19 @@ describe("PlayerContext playback session updates", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
 
     await waitFor(() => {
-      expect(api.createPlaybackSession).toHaveBeenCalledWith(99, { audioIndex: -1 });
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(99, {
+        audioIndex: -1,
+      });
       expect(screen.getByTestId("active-media-id")).toHaveTextContent("99");
-      expect(screen.getByTestId("last-event")).toHaveTextContent("Preparing stream...");
+      expect(screen.getByTestId("last-event")).toHaveTextContent(
+        "Preparing stream...",
+      );
+      expect(socket.sentMessages).toContain(
+        JSON.stringify({
+          action: "attach_playback_session",
+          sessionId: "session-99",
+        }),
+      );
     });
 
     act(() => {
@@ -110,7 +140,8 @@ describe("PlayerContext playback session updates", () => {
           revision: 1,
           audioIndex: -1,
           status: "ready",
-          playlistPath: "/api/playback/sessions/session-22/revisions/1/index.m3u8",
+          playlistPath:
+            "/api/playback/sessions/session-22/revisions/1/index.m3u8",
         }),
       );
     });
@@ -126,16 +157,131 @@ describe("PlayerContext playback session updates", () => {
           revision: 1,
           audioIndex: -1,
           status: "ready",
-          playlistPath: "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+          playlistPath:
+            "/api/playback/sessions/session-99/revisions/1/index.m3u8",
         }),
       );
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("last-event")).toHaveTextContent("Stream ready");
+      expect(screen.getByTestId("last-event")).toHaveTextContent(
+        "Stream ready",
+      );
       expect(screen.getByTestId("video-source-url")).toHaveTextContent(
         "/api/playback/sessions/session-99/revisions/1/index.m3u8",
       );
+    });
+  });
+
+  it("reattaches the active playback session after websocket reconnect", async () => {
+    vi.useFakeTimers();
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WsProvider>
+          <PlayerProvider>
+            <PlayerHarness />
+          </PlayerProvider>
+        </WsProvider>
+      </QueryClientProvider>,
+    );
+
+    const MockWebSocket = globalThis.WebSocket as unknown as MockWebSocketClass;
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
+
+    const firstSocket = MockWebSocket.instances[0];
+    if (!firstSocket) {
+      throw new Error("Expected a mock WebSocket instance");
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => {
+      expect(firstSocket.sentMessages).toContain(
+        JSON.stringify({
+          action: "attach_playback_session",
+          sessionId: "session-99",
+        }),
+      );
+    });
+
+    act(() => {
+      firstSocket.close();
+      vi.advanceTimersByTime(3000);
+    });
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+    });
+
+    const secondSocket = MockWebSocket.instances[1];
+    if (!secondSocket) {
+      throw new Error("Expected a reconnected mock WebSocket instance");
+    }
+
+    await waitFor(() => {
+      expect(secondSocket.sentMessages).toContain(
+        JSON.stringify({
+          action: "attach_playback_session",
+          sessionId: "session-99",
+        }),
+      );
+    });
+  });
+
+  it("detaches the playback session before closing it from the player", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WsProvider>
+          <PlayerProvider>
+            <PlayerHarness />
+          </PlayerProvider>
+        </WsProvider>
+      </QueryClientProvider>,
+    );
+
+    const MockWebSocket = globalThis.WebSocket as unknown as MockWebSocketClass;
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
+
+    const socket = MockWebSocket.instances[0];
+    if (!socket) {
+      throw new Error("Expected a mock WebSocket instance");
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    await waitFor(() => {
+      expect(socket.sentMessages).toContain(
+        JSON.stringify({
+          action: "detach_playback_session",
+          sessionId: "session-99",
+        }),
+      );
+      expect(api.closePlaybackSession).toHaveBeenCalledWith("session-99");
     });
   });
 });

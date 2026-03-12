@@ -6,18 +6,32 @@ import { Schema } from "effect";
  */
 export type LibraryType = "tv" | "movie" | "music" | "anime";
 
-export const LibraryTypeSchema = Schema.Literals(["tv", "movie", "music", "anime"]);
+export const LibraryTypeSchema = Schema.Literals([
+  "tv",
+  "movie",
+  "music",
+  "anime",
+]);
 
 /**
  * Media item type stored per item; matches library type for identification.
  */
 export type MediaType = "tv" | "movie" | "music" | "anime";
 
-export const MediaTypeSchema = Schema.Literals(["tv", "movie", "music", "anime"]);
+export const MediaTypeSchema = Schema.Literals([
+  "tv",
+  "movie",
+  "music",
+  "anime",
+]);
 
 export type MatchStatus = "identified" | "local" | "unmatched";
 
-export const MatchStatusSchema = Schema.Literals(["identified", "local", "unmatched"]);
+export const MatchStatusSchema = Schema.Literals([
+  "identified",
+  "local",
+  "unmatched",
+]);
 
 export interface Subtitle {
   id: number;
@@ -308,7 +322,12 @@ export const ScanLibraryResultSchema = Schema.Struct({
   skipped: Schema.Number,
 });
 
-export type LibraryScanPhase = "idle" | "queued" | "scanning" | "completed" | "failed";
+export type LibraryScanPhase =
+  | "idle"
+  | "queued"
+  | "scanning"
+  | "completed"
+  | "failed";
 
 export const LibraryScanPhaseSchema = Schema.Literals([
   "idle",
@@ -318,7 +337,12 @@ export const LibraryScanPhaseSchema = Schema.Literals([
   "failed",
 ]);
 
-export type LibraryIdentifyPhase = "idle" | "queued" | "identifying" | "completed" | "failed";
+export type LibraryIdentifyPhase =
+  | "idle"
+  | "queued"
+  | "identifying"
+  | "completed"
+  | "failed";
 
 export const LibraryIdentifyPhaseSchema = Schema.Literals([
   "idle",
@@ -477,7 +501,11 @@ export const VaapiDecodeCodecSchema = Schema.Literals([
 
 export type HardwareEncodeFormat = "h264" | "hevc" | "av1";
 
-export const HardwareEncodeFormatSchema = Schema.Literals(["h264", "hevc", "av1"]);
+export const HardwareEncodeFormatSchema = Schema.Literals([
+  "h264",
+  "hevc",
+  "av1",
+]);
 
 export interface TranscodingSettings {
   vaapiEnabled: boolean;
@@ -558,6 +586,16 @@ export interface PongEvent {
   type: "pong";
 }
 
+export interface AttachPlaybackSessionCommand {
+  action: "attach_playback_session";
+  sessionId: string;
+}
+
+export interface DetachPlaybackSessionCommand {
+  action: "detach_playback_session";
+  sessionId: string;
+}
+
 export interface PlaybackSessionUpdateEvent {
   type: "playback_session_update";
   sessionId: string;
@@ -580,6 +618,10 @@ export type PlumWebSocketEvent =
   | PlaybackSessionUpdateEvent
   | LibraryScanUpdateEvent;
 
+export type PlumWebSocketCommand =
+  | AttachPlaybackSessionCommand
+  | DetachPlaybackSessionCommand;
+
 export const WelcomeEventSchema = Schema.Struct({
   type: Schema.Literal("welcome"),
   message: Schema.String,
@@ -587,6 +629,16 @@ export const WelcomeEventSchema = Schema.Struct({
 
 export const PongEventSchema = Schema.Struct({
   type: Schema.Literal("pong"),
+});
+
+export const AttachPlaybackSessionCommandSchema = Schema.Struct({
+  action: Schema.Literal("attach_playback_session"),
+  sessionId: Schema.String,
+});
+
+export const DetachPlaybackSessionCommandSchema = Schema.Struct({
+  action: Schema.Literal("detach_playback_session"),
+  sessionId: Schema.String,
 });
 
 export const PlaybackSessionUpdateEventSchema = Schema.Struct({
@@ -610,4 +662,9 @@ export const PlumWebSocketEventSchema = Schema.Union([
   PongEventSchema,
   PlaybackSessionUpdateEventSchema,
   LibraryScanUpdateEventSchema,
+]);
+
+export const PlumWebSocketCommandSchema = Schema.Union([
+  AttachPlaybackSessionCommandSchema,
+  DetachPlaybackSessionCommandSchema,
 ]);

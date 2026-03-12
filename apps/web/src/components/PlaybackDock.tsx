@@ -1402,7 +1402,7 @@ export function PlaybackDock() {
               {posterUrl ? (
                 <img src={posterUrl} alt="" />
               ) : (
-                <img src="/placeholder-poster.png" alt="" />
+                <img src="/placeholder-poster.svg" alt="" />
               )}
             </div>
             <div className="playback-dock__copy">

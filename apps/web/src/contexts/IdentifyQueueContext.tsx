@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
-import { plumApiClient } from "../api";
+import { plumApiClient, type IdentifyResult } from "../api";
 import { queryKeys, useLibraries } from "../queries";
 import { useScanQueue } from "./ScanQueueContext";
 import { runIdentifyLibraryTask } from "@plum/shared";
@@ -87,7 +87,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
     (libraryId: number) => {
       const controller = new AbortController();
       identifyControllersRef.current.set(libraryId, controller);
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<IdentifyResult>((resolve, reject) => {
         let timedOut = false;
         const softRevealId = window.setTimeout(() => {
           if (identifyPhasesRef.current.get(libraryId) === "identifying") {
@@ -105,10 +105,10 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
           signal: controller.signal,
           timeoutMs: IDENTIFY_HARD_TIMEOUT_MS,
         })
-          .then(() => {
+          .then((result) => {
             void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
-            resolve();
+            resolve(result);
           })
           .catch((error) => {
             if (controller.signal.aborted) {
@@ -145,9 +145,9 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
         setLibraryIdentifyPhase(nextLibraryId, "identifying");
 
         void identifyLibraryWithTimers(nextLibraryId)
-          .then(() => {
+          .then((result) => {
             identifyRetryCountsRef.current.delete(nextLibraryId);
-            setLibraryIdentifyPhase(nextLibraryId, "complete");
+            setLibraryIdentifyPhase(nextLibraryId, result.failed > 0 ? "identify-failed" : "complete");
           })
           .catch((error) => {
             if (error instanceof Error && error.message === "identify-aborted") {

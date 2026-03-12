@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Poster placeholder</title>
+  <desc id="desc">Abstract placeholder poster artwork.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#241c38" />
+      <stop offset="55%" stop-color="#14111f" />
+      <stop offset="100%" stop-color="#0b0a12" />
+    </linearGradient>
+    <linearGradient id="beam" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd666" stop-opacity=".9" />
+      <stop offset="100%" stop-color="#f45aa0" stop-opacity=".9" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="900" fill="url(#bg)" />
+  <circle cx="470" cy="180" r="150" fill="#f45aa0" fill-opacity=".14" />
+  <circle cx="140" cy="760" r="180" fill="#ffd666" fill-opacity=".12" />
+  <path d="M90 700 L250 260 L345 480 L470 180 L540 700 Z" fill="url(#beam)" fill-opacity=".2" />
+  <rect x="94" y="96" width="412" height="568" rx="28" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="8" />
+  <rect x="138" y="728" width="324" height="24" rx="12" fill="#ffffff" fill-opacity=".12" />
+  <rect x="178" y="776" width="244" height="18" rx="9" fill="#ffffff" fill-opacity=".08" />
+</svg>

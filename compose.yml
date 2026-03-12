@@ -12,11 +12,15 @@ services:
       - TMDB_API_KEY=${TMDB_API_KEY}
       - TVDB_API_KEY=${TVDB_API_KEY}
       - OMDB_API_KEY=${OMDB_API_KEY}
+      - GOMODCACHE=/go/pkg/mod
+      - GOCACHE=/go-cache
     devices:
       - /dev/dri:/dev/dri
     volumes:
       - .:/app
       - plum_data:/data
+      - go_modules:/go/pkg/mod
+      - go_cache:/go-cache
       # Override these host paths via env to point at your media library roots.
       - ${PLUM_MEDIA_TV_PATH:-./media/tv}:/tv:ro
       - ${PLUM_MEDIA_MOVIES_PATH:-./media/movies}:/movies:ro
@@ -51,3 +55,5 @@ services:
 
 volumes:
   plum_data:
+  go_modules:
+  go_cache:

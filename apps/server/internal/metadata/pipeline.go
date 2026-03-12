@@ -103,6 +103,13 @@ func (p *Pipeline) IdentifyAnime(ctx context.Context, info MediaInfo) *MatchResu
 			return ep
 		}
 	}
+	if best.Provider == "tmdb" {
+		if tmdbID, err := strconv.Atoi(best.ExternalID); err == nil && tmdbID > 0 {
+			if detailed := p.lookupTMDBTV(ctx, MediaInfo{TMDBID: tmdbID}); detailed != nil {
+				return detailed
+			}
+		}
+	}
 	p.enrichIMDbRating(ctx, best)
 	return best
 }
@@ -169,9 +176,10 @@ func (p *Pipeline) lookupTVDBEpisode(ctx context.Context, info MediaInfo) *Match
 		return nil
 	}
 	ep, err := prov.GetEpisode(ctx, info.TVDBID, info.Season, info.Episode)
-	if err != nil {
+	if err != nil || ep == nil {
 		return nil
 	}
+	p.enrichIMDbRating(ctx, ep)
 	return ep
 }
 
@@ -214,6 +222,7 @@ func (p *Pipeline) lookupTMDBTV(ctx context.Context, info MediaInfo) *MatchResul
 	seriesID := strconv.Itoa(info.TMDBID)
 	if info.Season > 0 && info.Episode > 0 {
 		if ep, err := tmdbProv.GetEpisode(ctx, seriesID, info.Season, info.Episode); err == nil && ep != nil {
+			p.enrichIMDbRating(ctx, ep)
 			return ep
 		}
 	}
@@ -320,11 +329,16 @@ func (p *Pipeline) GetEpisode(ctx context.Context, provider, seriesID string, se
 		if prov == nil {
 			return nil, nil
 		}
-		return prov.GetEpisode(ctx, seriesID, season, episode)
+		ep, err := prov.GetEpisode(ctx, seriesID, season, episode)
+		if err == nil && ep != nil {
+			p.enrichIMDbRating(ctx, ep)
+		}
+		return ep, err
 	}
 	for _, prov := range p.tvProviders {
 		ep, err := prov.GetEpisode(ctx, seriesID, season, episode)
 		if err == nil && ep != nil {
+			p.enrichIMDbRating(ctx, ep)
 			return ep, nil
 		}
 	}

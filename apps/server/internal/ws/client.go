@@ -4,20 +4,45 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"plum/internal/db"
 )
 
+var clientSequence atomic.Uint64
+
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	id      string
+	user    *db.User
+	hub     *Hub
+	conn    *websocket.Conn
+	send    chan []byte
+	onClose func(*Client)
+	onText  func(*Client, []byte)
 }
 
-func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, checkOrigin func(*http.Request) bool) error {
+type ServeOptions struct {
+	CheckOrigin func(*http.Request) bool
+	User        *db.User
+	OnClose     func(*Client)
+	OnText      func(*Client, []byte)
+}
+
+func (c *Client) ID() string {
+	return c.id
+}
+
+func (c *Client) User() *db.User {
+	return c.user
+}
+
+func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, options ServeOptions) error {
 	upgrader := websocket.Upgrader{
-		CheckOrigin: checkOrigin,
+		CheckOrigin: options.CheckOrigin,
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -26,9 +51,13 @@ func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, checkOrigin func(
 		return err
 	}
 	client := &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 16),
+		id:      newClientID(),
+		user:    options.User,
+		hub:     hub,
+		conn:    conn,
+		send:    make(chan []byte, 16),
+		onClose: options.OnClose,
+		onText:  options.OnText,
 	}
 	hub.Register(client)
 
@@ -46,6 +75,9 @@ func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, checkOrigin func(
 
 func (c *Client) readLoop() {
 	defer func() {
+		if c.onClose != nil {
+			c.onClose(c)
+		}
 		c.hub.Unregister(c)
 		c.conn.Close()
 	}()
@@ -62,6 +94,9 @@ func (c *Client) readLoop() {
 		if err != nil {
 			break
 		}
+		if c.onText != nil {
+			c.onText(c, msg)
+		}
 		// Very simple protocol: only support {"action":"ping"} for now.
 		var payload map[string]string
 		if err := json.Unmarshal(msg, &payload); err == nil {
@@ -73,6 +108,10 @@ func (c *Client) readLoop() {
 			}
 		}
 	}
+}
+
+func newClientID() string {
+	return time.Now().UTC().Format("20060102150405.000000000") + "-" + strconv.FormatUint(clientSequence.Add(1), 10)
 }
 
 func (c *Client) writeLoop() {

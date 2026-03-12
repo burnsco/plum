@@ -75,7 +75,7 @@ func TestCreateSessionReturnsNotFoundWhenMediaFileIsMissing(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/playback/sessions/"+strconv.Itoa(globalID), nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", strconv.Itoa(globalID))
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	req = req.WithContext(withUser(context.WithValue(req.Context(), chi.RouteCtxKey, rctx), &db.User{ID: userID}))
 	rec := httptest.NewRecorder()
 
 	handler.CreateSession(rec, req)

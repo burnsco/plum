@@ -28,8 +28,16 @@ const hasProviderMatch = (tmdbId?: number, tvdbId?: string) =>
 const isExplicitlyUnmatched = (matchStatus?: string) =>
   matchStatus === "local" || matchStatus === "unmatched";
 
-function canShowFailureState(identifyPhase: IdentifyLibraryPhase | undefined, isFetching: boolean) {
-  return identifyPhase === "identify-failed" || (identifyPhase === "complete" && !isFetching);
+function canShowFailureState(
+  identifyPhase: IdentifyLibraryPhase | undefined,
+  isFetching: boolean,
+  identifyFailedCount: number,
+) {
+  return (
+    !isFetching &&
+    (identifyPhase === "identify-failed" ||
+      (identifyPhase === "complete" && identifyFailedCount > 0))
+  );
 }
 
 function shouldDeferIncompleteCard(
@@ -132,6 +140,7 @@ export function Home() {
   const selectedLibraryCanShowFailure = canShowFailureState(
     selectedLibraryIdentifyPhase,
     selectedFetching,
+    selectedLibraryScanStatus?.identifyFailed ?? 0,
   );
   const hasIdentifyProgress = selectedItems.some(
     (item) => item.match_status === "identified" || hasProviderMatch(item.tmdb_id, item.tvdb_id),

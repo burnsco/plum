@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -10,6 +11,8 @@ import {
 import {
   buildPlumWebSocketUrl,
   parsePlumWebSocketEvent,
+  serializePlumWebSocketCommand,
+  type PlumWebSocketCommand,
   type PlumWebSocketEvent,
 } from "@plum/shared";
 import { BASE_URL } from "../api";
@@ -18,18 +21,30 @@ type WsContextValue = {
   wsConnected: boolean;
   latestEvent: PlumWebSocketEvent | null;
   eventSequence: number;
+  sendCommand: (command: PlumWebSocketCommand) => boolean;
 };
 
 const WsContext = createContext<WsContextValue | null>(null);
 
 export function WsProvider({ children }: { children: ReactNode }) {
   const [wsConnected, setWsConnected] = useState(false);
-  const [latestEvent, setLatestEvent] = useState<PlumWebSocketEvent | null>(null);
+  const [latestEvent, setLatestEvent] = useState<PlumWebSocketEvent | null>(
+    null,
+  );
   const [eventSequence, setEventSequence] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(0);
   const mountedRef = useRef(true);
+
+  const sendCommand = useCallback((command: PlumWebSocketCommand) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    ws.send(serializePlumWebSocketCommand(command));
+    return true;
+  }, []);
 
   useEffect(() => {
     if (!BASE_URL) return;
@@ -37,7 +52,9 @@ export function WsProvider({ children }: { children: ReactNode }) {
 
     const connect = () => {
       if (!mountedRef.current) return;
-      const ws = new WebSocket(buildPlumWebSocketUrl(BASE_URL, window.location.origin));
+      const ws = new WebSocket(
+        buildPlumWebSocketUrl(BASE_URL, window.location.origin),
+      );
       wsRef.current = ws;
       ws.addEventListener("open", () => {
         if (mountedRef.current) {
@@ -54,7 +71,8 @@ export function WsProvider({ children }: { children: ReactNode }) {
       });
       ws.addEventListener("message", (event) => {
         if (!mountedRef.current) return;
-        const rawData = typeof event.data === "string" ? event.data : String(event.data);
+        const rawData =
+          typeof event.data === "string" ? event.data : String(event.data);
         const data = parsePlumWebSocketEvent(rawData);
         if (!data) return;
         setLatestEvent(data);
@@ -81,8 +99,9 @@ export function WsProvider({ children }: { children: ReactNode }) {
       wsConnected,
       latestEvent,
       eventSequence,
+      sendCommand,
     }),
-    [eventSequence, latestEvent, wsConnected],
+    [eventSequence, latestEvent, sendCommand, wsConnected],
   );
 
   return <WsContext.Provider value={value}>{children}</WsContext.Provider>;

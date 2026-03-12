@@ -128,7 +128,7 @@ export function IdentifyShowDialog({
               className="flex items-center gap-3 rounded-md border border-(--plum-border) p-2 bg-(--plum-panel)"
             >
               <img
-                src={r.PosterURL || "/placeholder-poster.png"}
+                src={r.PosterURL || "/placeholder-poster.svg"}
                 alt=""
                 className="w-12 h-18 object-cover rounded-sm"
               />

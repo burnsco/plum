@@ -23,6 +23,7 @@ import (
 
 var ffmpegCommandContext = exec.CommandContext
 var previousRevisionCancelDelay = 20 * time.Second
+var playbackDisconnectGracePeriod = 10 * time.Second
 
 type PlaybackSessionState struct {
 	SessionID    string `json:"sessionId"`
@@ -48,11 +49,14 @@ type playbackRevision struct {
 type playbackSession struct {
 	mu              sync.Mutex
 	id              string
+	userID          int
 	media           db.MediaItem
 	audioIndex      int
 	activeRevision  int
 	desiredRevision int
 	revisions       map[int]*playbackRevision
+	ownerClientID   string
+	disconnectTimer *time.Timer
 }
 
 type PlaybackSessionManager struct {
@@ -61,6 +65,7 @@ type PlaybackSessionManager struct {
 
 	mu       sync.RWMutex
 	sessions map[string]*playbackSession
+	clients  map[string]string
 }
 
 func NewPlaybackSessionManager(root string, hub *ws.Hub) *PlaybackSessionManager {
@@ -68,10 +73,11 @@ func NewPlaybackSessionManager(root string, hub *ws.Hub) *PlaybackSessionManager
 		root:     root,
 		hub:      hub,
 		sessions: make(map[string]*playbackSession),
+		clients:  make(map[string]string),
 	}
 }
 
-func (m *PlaybackSessionManager) Create(media db.MediaItem, settings db.TranscodingSettings, audioIndex int) (PlaybackSessionState, error) {
+func (m *PlaybackSessionManager) Create(media db.MediaItem, settings db.TranscodingSettings, audioIndex int, userID int) (PlaybackSessionState, error) {
 	if err := os.MkdirAll(m.root, 0o755); err != nil {
 		return PlaybackSessionState{}, err
 	}
@@ -83,6 +89,7 @@ func (m *PlaybackSessionManager) Create(media db.MediaItem, settings db.Transcod
 
 	session := &playbackSession{
 		id:              sessionID,
+		userID:          userID,
 		media:           media,
 		audioIndex:      audioIndex,
 		activeRevision:  0,
@@ -114,6 +121,73 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 	return m.startRevision(session, settings, audioIndex)
 }
 
+func (m *PlaybackSessionManager) Attach(sessionID string, userID int, clientID string) error {
+	m.mu.Lock()
+	session := m.sessions[sessionID]
+	if session == nil {
+		m.mu.Unlock()
+		return db.ErrNotFound
+	}
+
+	session.mu.Lock()
+	if session.userID != userID {
+		session.mu.Unlock()
+		m.mu.Unlock()
+		return db.ErrNotFound
+	}
+	previousOwner := session.ownerClientID
+	if session.disconnectTimer != nil {
+		session.disconnectTimer.Stop()
+		session.disconnectTimer = nil
+	}
+	session.ownerClientID = clientID
+	session.mu.Unlock()
+
+	if previousSessionID, ok := m.clients[clientID]; ok && previousSessionID != sessionID {
+		if previous := m.sessions[previousSessionID]; previous != nil {
+			m.scheduleDisconnectLocked(previous, userID, clientID)
+		}
+	}
+	m.clients[clientID] = sessionID
+	if previousOwner != "" && previousOwner != clientID {
+		if ownedSessionID, ok := m.clients[previousOwner]; ok && ownedSessionID == sessionID {
+			delete(m.clients, previousOwner)
+		}
+	}
+	m.mu.Unlock()
+
+	log.Printf("playback session attach session=%s user=%d client=%s", sessionID, userID, clientID)
+	return nil
+}
+
+func (m *PlaybackSessionManager) Detach(sessionID string, userID int, clientID string) {
+	m.mu.Lock()
+	session := m.sessions[sessionID]
+	if session == nil {
+		m.mu.Unlock()
+		return
+	}
+	m.scheduleDisconnectLocked(session, userID, clientID)
+	m.mu.Unlock()
+}
+
+func (m *PlaybackSessionManager) HandleDisconnect(userID int, clientID string) {
+	m.mu.Lock()
+	sessionID := m.clients[clientID]
+	if sessionID == "" {
+		m.mu.Unlock()
+		return
+	}
+	session := m.sessions[sessionID]
+	if session == nil {
+		delete(m.clients, clientID)
+		m.mu.Unlock()
+		return
+	}
+	m.scheduleDisconnectLocked(session, userID, clientID)
+	m.mu.Unlock()
+}
+
 func (m *PlaybackSessionManager) Close(sessionID string) {
 	m.mu.Lock()
 	session := m.sessions[sessionID]
@@ -128,10 +202,24 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 	for _, revision := range session.revisions {
 		revisions = append(revisions, revision)
 	}
+	if session.disconnectTimer != nil {
+		session.disconnectTimer.Stop()
+		session.disconnectTimer = nil
+	}
 	activeRevision := session.activeRevision
 	audioIndex := session.audioIndex
 	mediaID := session.media.ID
+	ownerClientID := session.ownerClientID
+	session.ownerClientID = ""
 	session.mu.Unlock()
+
+	if ownerClientID != "" {
+		m.mu.Lock()
+		if ownedSessionID, ok := m.clients[ownerClientID]; ok && ownedSessionID == sessionID {
+			delete(m.clients, ownerClientID)
+		}
+		m.mu.Unlock()
+	}
 
 	for _, revision := range revisions {
 		if revision.cancel != nil {
@@ -246,6 +334,31 @@ func (m *PlaybackSessionManager) startRevision(session *playbackSession, setting
 		Status:       revision.status,
 		PlaylistPath: revision.playlistPath,
 	}, nil
+}
+
+func (m *PlaybackSessionManager) scheduleDisconnectLocked(session *playbackSession, userID int, clientID string) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if session.userID != userID || session.ownerClientID != clientID {
+		return
+	}
+	if session.disconnectTimer != nil {
+		session.disconnectTimer.Stop()
+	}
+	session.ownerClientID = ""
+	delete(m.clients, clientID)
+	sessionID := session.id
+	session.disconnectTimer = time.AfterFunc(playbackDisconnectGracePeriod, func() {
+		m.Close(sessionID)
+	})
+	log.Printf(
+		"playback session disconnect pending session=%s user=%d client=%s grace=%s",
+		session.id,
+		userID,
+		clientID,
+		playbackDisconnectGracePeriod,
+	)
 }
 
 func (m *PlaybackSessionManager) runRevision(ctx context.Context, session *playbackSession, revision *playbackRevision, settings db.TranscodingSettings) {

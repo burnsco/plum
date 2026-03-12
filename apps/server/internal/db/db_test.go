@@ -797,6 +797,84 @@ func TestHandleScanLibrary_ImportsAnimeSeasonFolderWithSuffix(t *testing.T) {
 	}
 }
 
+func TestHandleScanLibrary_DoesNotTreatResolutionAsSeasonInStructuredAnimeFolder(t *testing.T) {
+	db := newTestDB(t)
+	animeLibID := createLibraryForTest(t, db, LibraryTypeAnime, "/anime")
+
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "Anime Show", "Season 01")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir anime tree: %v", err)
+	}
+	file := filepath.Join(root, "[Group] Anime Show - 01 [1440x1080 x264].mkv")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write anime file: %v", err)
+	}
+
+	prevSkip := SkipFFprobeInScan
+	SkipFFprobeInScan = true
+	defer func() { SkipFFprobeInScan = prevSkip }()
+
+	result, err := HandleScanLibrary(context.Background(), db, filepath.Join(tmp, "Anime Show"), LibraryTypeAnime, animeLibID, nil)
+	if err != nil {
+		t.Fatalf("scan anime: %v", err)
+	}
+	if result.Added != 1 {
+		t.Fatalf("unexpected scan result: %+v", result)
+	}
+
+	var title string
+	var season, episode int
+	if err := db.QueryRow(`SELECT title, season, episode FROM anime_episodes WHERE library_id = ? AND path = ?`, animeLibID, file).Scan(&title, &season, &episode); err != nil {
+		t.Fatalf("query anime row: %v", err)
+	}
+	if season != 1 || episode != 1 {
+		t.Fatalf("season=%d episode=%d", season, episode)
+	}
+	if title != "Anime Show - S01E01" {
+		t.Fatalf("title = %q", title)
+	}
+}
+
+func TestHandleScanLibrary_DefaultsSeasonOneForShowFolderEpisodeTitle(t *testing.T) {
+	db := newTestDB(t)
+	tvLibID := getLibraryID(t, db, LibraryTypeTV)
+
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "Show")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir tv tree: %v", err)
+	}
+	file := filepath.Join(root, "Pilot.mkv")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write tv file: %v", err)
+	}
+
+	prevSkip := SkipFFprobeInScan
+	SkipFFprobeInScan = true
+	defer func() { SkipFFprobeInScan = prevSkip }()
+
+	result, err := HandleScanLibrary(context.Background(), db, tmp, LibraryTypeTV, tvLibID, nil)
+	if err != nil {
+		t.Fatalf("scan tv: %v", err)
+	}
+	if result.Added != 1 {
+		t.Fatalf("unexpected scan result: %+v", result)
+	}
+
+	var title string
+	var season, episode int
+	if err := db.QueryRow(`SELECT title, season, episode FROM tv_episodes WHERE library_id = ? AND path = ?`, tvLibID, file).Scan(&title, &season, &episode); err != nil {
+		t.Fatalf("query tv row: %v", err)
+	}
+	if title != "Show" {
+		t.Fatalf("title = %q", title)
+	}
+	if season != 1 || episode != 0 {
+		t.Fatalf("season=%d episode=%d", season, episode)
+	}
+}
+
 func TestHandleScanLibrary_ImportsAbsoluteEpisodeAnimeAsUnmatched(t *testing.T) {
 	db := newTestDB(t)
 	animeLibID := createLibraryForTest(t, db, LibraryTypeAnime, "/anime")

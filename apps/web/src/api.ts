@@ -1,9 +1,11 @@
 import { createPlumApiClient, ensureBaseUrl } from "@plum/shared";
 
 export type {
+  AttachPlaybackSessionCommand,
   CreateLibraryPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
+  DetachPlaybackSessionCommand,
   EmbeddedAudioTrack,
   EmbeddedSubtitle,
   HardwareEncodeFormat,
@@ -14,6 +16,7 @@ export type {
   LibraryType,
   MatchStatus,
   MediaItem,
+  PlumWebSocketCommand,
   PlaybackSession,
   PlumWebSocketEvent,
   ScanLibraryResult,
@@ -32,7 +35,9 @@ export type {
   VaapiDecodeCodec,
 } from "@plum/shared";
 
-export const BASE_URL = ensureBaseUrl(import.meta.env.VITE_BACKEND_URL as string | undefined);
+export const BASE_URL = ensureBaseUrl(
+  import.meta.env.VITE_BACKEND_URL as string | undefined,
+);
 
 const client = createPlumApiClient({
   baseUrl: BASE_URL,

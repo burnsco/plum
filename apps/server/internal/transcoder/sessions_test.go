@@ -186,6 +186,122 @@ func TestMarkRevisionReadyDefersPreviousRevisionCancellation(t *testing.T) {
 	}
 }
 
+func TestHandleDisconnectClosesSessionAfterGracePeriod(t *testing.T) {
+	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	session := &playbackSession{
+		id:        "session-disconnect",
+		userID:    7,
+		media:     db.MediaItem{ID: 13},
+		revisions: make(map[int]*playbackRevision),
+	}
+
+	manager.mu.Lock()
+	manager.sessions[session.id] = session
+	manager.mu.Unlock()
+
+	previousGrace := playbackDisconnectGracePeriod
+	playbackDisconnectGracePeriod = 25 * time.Millisecond
+	t.Cleanup(func() {
+		playbackDisconnectGracePeriod = previousGrace
+	})
+
+	if err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	manager.HandleDisconnect(session.userID, "client-a")
+
+	waitForSessionClosed(t, manager, session.id)
+}
+
+func TestAttachCancelsPendingDisconnectClose(t *testing.T) {
+	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	session := &playbackSession{
+		id:        "session-reattach",
+		userID:    8,
+		media:     db.MediaItem{ID: 14},
+		revisions: make(map[int]*playbackRevision),
+	}
+
+	manager.mu.Lock()
+	manager.sessions[session.id] = session
+	manager.mu.Unlock()
+
+	previousGrace := playbackDisconnectGracePeriod
+	playbackDisconnectGracePeriod = 80 * time.Millisecond
+	t.Cleanup(func() {
+		playbackDisconnectGracePeriod = previousGrace
+	})
+
+	if err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
+		t.Fatalf("Attach initial: %v", err)
+	}
+
+	manager.HandleDisconnect(session.userID, "client-a")
+
+	time.Sleep(25 * time.Millisecond)
+
+	if err := manager.Attach(session.id, session.userID, "client-b"); err != nil {
+		t.Fatalf("Attach reconnect: %v", err)
+	}
+
+	time.Sleep(90 * time.Millisecond)
+
+	manager.mu.RLock()
+	remaining := manager.sessions[session.id]
+	ownedBy := manager.clients["client-b"]
+	manager.mu.RUnlock()
+
+	if remaining == nil {
+		t.Fatal("expected session to remain after reattach")
+	}
+	if ownedBy != session.id {
+		t.Fatalf("client-b owner = %q, want %q", ownedBy, session.id)
+	}
+}
+
+func TestAttachTransfersOwnershipFromPreviousClient(t *testing.T) {
+	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	session := &playbackSession{
+		id:        "session-transfer",
+		userID:    9,
+		media:     db.MediaItem{ID: 15},
+		revisions: make(map[int]*playbackRevision),
+	}
+
+	manager.mu.Lock()
+	manager.sessions[session.id] = session
+	manager.mu.Unlock()
+
+	previousGrace := playbackDisconnectGracePeriod
+	playbackDisconnectGracePeriod = 25 * time.Millisecond
+	t.Cleanup(func() {
+		playbackDisconnectGracePeriod = previousGrace
+	})
+
+	if err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
+		t.Fatalf("Attach initial: %v", err)
+	}
+	if err := manager.Attach(session.id, session.userID, "client-b"); err != nil {
+		t.Fatalf("Attach transfer: %v", err)
+	}
+
+	manager.HandleDisconnect(session.userID, "client-a")
+	time.Sleep(40 * time.Millisecond)
+
+	manager.mu.RLock()
+	remaining := manager.sessions[session.id]
+	ownedBy := manager.clients["client-b"]
+	manager.mu.RUnlock()
+
+	if remaining == nil {
+		t.Fatal("expected stale client disconnect not to close session")
+	}
+	if ownedBy != session.id {
+		t.Fatalf("client-b owner = %q, want %q", ownedBy, session.id)
+	}
+}
+
 func waitForRevisionStatus(t *testing.T, session *playbackSession, revisionNumber int, status string) *playbackRevision {
 	t.Helper()
 
@@ -209,6 +325,28 @@ func waitForRevisionStatus(t *testing.T, session *playbackSession, revisionNumbe
 	}
 	t.Fatalf("revision %d status = %q, want %q", revisionNumber, revision.status, status)
 	return nil
+}
+
+func waitForSessionClosed(t *testing.T, manager *PlaybackSessionManager, sessionID string) {
+	t.Helper()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		manager.mu.RLock()
+		session := manager.sessions[sessionID]
+		manager.mu.RUnlock()
+		if session == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	manager.mu.RLock()
+	_, ok := manager.sessions[sessionID]
+	manager.mu.RUnlock()
+	if ok {
+		t.Fatalf("session %q was not closed", sessionID)
+	}
 }
 
 func hlsArgsUseHardware(args []string) bool {

@@ -2,6 +2,13 @@ package metadata
 
 import "testing"
 
+func TestParseFilename_IgnoresResolutionLikeSeasonEpisodePattern(t *testing.T) {
+	info := ParseFilename("Anime Show 1440x1080.mkv")
+	if info.Season != 0 || info.Episode != 0 {
+		t.Fatalf("unexpected season/episode parse: %+v", info)
+	}
+}
+
 func TestParseFilename_AnimeFlatRelease(t *testing.T) {
 	info := ParseFilename("[SubsPlease] Frieren - 12 [1080p].mkv")
 	if info.Title != "frieren" {

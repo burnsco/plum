@@ -114,6 +114,9 @@ func ParseFilename(filename string) MediaInfo {
 	if m := tvRegex2.FindStringSubmatch(filename); len(m) >= 4 {
 		s, _ := strconv.Atoi(m[2])
 		e, _ := strconv.Atoi(m[3])
+		if !isPlausibleSeasonEpisodePair(s, e) {
+			goto parseAnimeLike
+		}
 		info.Title = normalizeStructuredSeriesTitle(m[1])
 		info.Season = s
 		info.Episode = e
@@ -124,6 +127,7 @@ func ParseFilename(filename string) MediaInfo {
 		return info
 	}
 
+parseAnimeLike:
 	if anime := parseAnimeLikeFilename(base); anime.Title != "" || anime.Episode > 0 {
 		anime.TMDBID = info.TMDBID
 		anime.TVDBID = info.TVDBID
@@ -211,4 +215,8 @@ func filepathExt(name string) string {
 		}
 	}
 	return ""
+}
+
+func isPlausibleSeasonEpisodePair(season, episode int) bool {
+	return season > 0 && season <= 99 && episode > 0 && episode <= 999
 }

@@ -748,6 +748,51 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("heading", { name: /Identify show/i })).toBeTruthy();
   });
 
+  it("does not show TV failure UI after a successful identify while stale rows are still visible", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+    ]);
+    const fetchLibraryMedia = vi.spyOn(api, "fetchLibraryMedia");
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Easy Show - S01E01 - Pilot",
+        path: "/tv/Easy Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "local",
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Easy Show - S01E01 - Pilot",
+        path: "/tv/Easy Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "local",
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Identify manually/i })).not.toBeInTheDocument();
+  });
+
   it("shows retry identify for failed movie auto-matches", async () => {
     const retryIdentify = deferred<{ identified: number; failed: number }>();
 
@@ -953,7 +998,7 @@ describe("App library and player wiring", () => {
 
     await waitFor(() => {
       const fallbackPoster = movieCard.closest(".show-card")?.querySelector("img");
-      expect(fallbackPoster).toHaveAttribute("src", "/placeholder-poster.png");
+      expect(fallbackPoster).toHaveAttribute("src", "/placeholder-poster.svg");
     });
   });
 

@@ -48,6 +48,11 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var payload struct {
 		AudioIndex int `json:"audioIndex"`
@@ -60,7 +65,7 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	state, err := h.Sessions.Create(*media, settings, payload.AudioIndex)
+	state, err := h.Sessions.Create(*media, settings, payload.AudioIndex, user.ID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

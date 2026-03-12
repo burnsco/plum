@@ -161,7 +161,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)
 	})
 
-	r.Get("/ws", httpapi.ServeWebSocket(hub, allowedOrigins))
+	r.Get("/ws", httpapi.ServeWebSocket(hub, playbackSessions, allowedOrigins))
 
 	return r
 }

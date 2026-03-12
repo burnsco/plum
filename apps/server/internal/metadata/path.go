@@ -140,6 +140,10 @@ func ParsePathForTV(relPath, filename string) PathInfo {
 			out.Structured = true
 		}
 	}
+	if out.ShowName != "" && out.Season == 0 && !out.IsSpecial {
+		out.Season = 1
+		out.Structured = true
+	}
 	return out
 }
 
@@ -183,6 +187,9 @@ func MergePathInfo(pathInfo PathInfo, fileInfo MediaInfo) MediaInfo {
 	if fileInfo.Episode == 0 && pathInfo.Episode > 0 {
 		out.Episode = pathInfo.Episode
 	}
+	if out.Episode == 0 && fileInfo.AbsoluteEpisode > 0 && pathInfo.Season > 0 {
+		out.Episode = fileInfo.AbsoluteEpisode
+	}
 	if fileInfo.EpisodeEnd == 0 && pathInfo.EpisodeEnd > 0 {
 		out.EpisodeEnd = pathInfo.EpisodeEnd
 	}
@@ -199,12 +206,23 @@ func MergePathInfo(pathInfo PathInfo, fileInfo MediaInfo) MediaInfo {
 		out.StructuredTV = true
 		out.IsTV = true
 	}
-	// Use path show name for search when we have a folder-derived show and filename looks like a single episode
-	if pathInfo.ShowName != "" && (fileInfo.Title == "" || IsGenericEpisodeTitle(fileInfo.Title, fileInfo.Season, fileInfo.Episode)) {
+	// Use path show name when folder structure clearly identifies the series, especially for
+	// generic filenames like "Episode 1" or plain episode-title files like "Pilot.mkv".
+	if pathInfo.ShowName != "" && shouldUsePathShowName(pathInfo, fileInfo) {
 		out.Title = NormalizeSeriesTitle(pathInfo.ShowName)
 		out.IsTV = true
 	}
 	return out
+}
+
+func shouldUsePathShowName(pathInfo PathInfo, fileInfo MediaInfo) bool {
+	if fileInfo.Title == "" || IsGenericEpisodeTitle(fileInfo.Title, fileInfo.Season, fileInfo.Episode) {
+		return true
+	}
+	return pathInfo.Structured &&
+		fileInfo.Season == 0 &&
+		fileInfo.Episode == 0 &&
+		fileInfo.AbsoluteEpisode == 0
 }
 
 // IsGenericEpisodeTitle reports whether the title looks like a generic episode label (e.g. "episode 1") rather than a show name.
