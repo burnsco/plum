@@ -60,6 +60,14 @@ func (s *stubSeriesDetailsProvider) GetSeriesDetails(_ context.Context, _ int) (
 	return s.details, nil
 }
 
+type stubIMDbRatingProvider struct {
+	rating float64
+}
+
+func (s *stubIMDbRatingProvider) GetIMDbRatingByID(_ context.Context, _ string) (float64, error) {
+	return s.rating, nil
+}
+
 func TestIdentifyTV_ExplicitTMDBIDUsesEpisodeMetadata(t *testing.T) {
 	tmdb := &stubTVProvider{
 		name: "tmdb",
@@ -336,6 +344,81 @@ func TestIdentifyAnime_ExplicitTMDBIDUsesEpisodeMetadata(t *testing.T) {
 	}
 	if len(tmdb.episodeCalls) != 1 || tmdb.episodeCalls[0] != "123" {
 		t.Fatalf("episode lookup calls = %#v", tmdb.episodeCalls)
+	}
+}
+
+func TestIdentifyTV_ExplicitTMDBIDWithoutEpisodeCarriesIMDbMetadata(t *testing.T) {
+	p := &Pipeline{
+		tvProviders: []TVProvider{&stubTVProvider{name: "tmdb"}},
+		seriesDetailsProvider: &stubSeriesDetailsProvider{details: &SeriesDetails{
+			Name:       "Show",
+			IMDbID:     "tt1234567",
+			IMDbRating: 8.4,
+		}},
+	}
+
+	res := p.IdentifyTV(context.Background(), MediaInfo{TMDBID: 123})
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.IMDbID != "tt1234567" {
+		t.Fatalf("imdb id = %q", res.IMDbID)
+	}
+	if res.IMDbRating != 8.4 {
+		t.Fatalf("imdb rating = %v", res.IMDbRating)
+	}
+}
+
+func TestIdentifyTV_FallsBackToTMDBSeriesDetailsForIMDbMetadataWhenEpisodeLookupMisses(t *testing.T) {
+	tmdb := &stubTVProvider{
+		name: "tmdb",
+		searchResults: []MatchResult{
+			{Title: "Show", Provider: "tmdb", ExternalID: "123"},
+		},
+	}
+	p := &Pipeline{
+		tvProviders: []TVProvider{tmdb},
+		seriesDetailsProvider: &stubSeriesDetailsProvider{details: &SeriesDetails{
+			Name:   "Show",
+			IMDbID: "tt7654321",
+		}},
+		imdbRatings: &stubIMDbRatingProvider{rating: 7.7},
+	}
+
+	res := p.IdentifyTV(context.Background(), MediaInfo{
+		Title:   "Show",
+		Season:  1,
+		Episode: 1,
+	})
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.IMDbID != "tt7654321" {
+		t.Fatalf("imdb id = %q", res.IMDbID)
+	}
+	if res.IMDbRating != 7.7 {
+		t.Fatalf("imdb rating = %v", res.IMDbRating)
+	}
+}
+
+func TestGetSeriesDetails_EnrichesIMDbRating(t *testing.T) {
+	p := &Pipeline{
+		seriesDetailsProvider: &stubSeriesDetailsProvider{details: &SeriesDetails{
+			Name:   "Show",
+			IMDbID: "tt7654321",
+		}},
+		imdbRatings: &stubIMDbRatingProvider{rating: 9.1},
+	}
+
+	res, err := p.GetSeriesDetails(context.Background(), 123)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected details")
+	}
+	if res.IMDbRating != 9.1 {
+		t.Fatalf("imdb rating = %v", res.IMDbRating)
 	}
 }
 

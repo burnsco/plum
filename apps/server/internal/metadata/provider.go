@@ -31,6 +31,12 @@ type TVProvider interface {
 	GetEpisode(ctx context.Context, seriesID string, season, episode int) (*MatchResult, error)
 }
 
+// SeriesSearchProvider supports show search and episode lookup for manual and fallback identification flows.
+type SeriesSearchProvider interface {
+	SearchTV(ctx context.Context, query string) ([]MatchResult, error)
+	GetEpisode(ctx context.Context, provider, seriesID string, season, episode int) (*MatchResult, error)
+}
+
 // MovieProvider searches for movies.
 type MovieProvider interface {
 	SearchMovie(ctx context.Context, query string) ([]MatchResult, error)
@@ -43,11 +49,13 @@ type MovieLookupProvider interface {
 
 // SeriesDetails is minimal TV series info for the show-detail UI.
 type SeriesDetails struct {
-	Name         string `json:"name"`
-	Overview     string `json:"overview"`
-	PosterPath   string `json:"poster_path"`   // full URL or path
-	BackdropPath string `json:"backdrop_path"` // full URL or path
-	FirstAirDate string `json:"first_air_date"`
+	Name         string  `json:"name"`
+	Overview     string  `json:"overview"`
+	PosterPath   string  `json:"poster_path"`   // full URL or path
+	BackdropPath string  `json:"backdrop_path"` // full URL or path
+	FirstAirDate string  `json:"first_air_date"`
+	IMDbID       string  `json:"imdb_id,omitempty"`
+	IMDbRating   float64 `json:"imdb_rating,omitempty"`
 }
 
 // SeriesDetailsProvider fetches TV series metadata by TMDB ID.

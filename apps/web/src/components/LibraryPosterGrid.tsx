@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 
-export type PosterCardState = "default" | "identifying" | "identify-failed";
+export type PosterCardState = "default" | "identifying" | "identify-failed" | "review-needed";
 
 export type PosterGridItem = {
   key: string;
@@ -16,6 +16,7 @@ export type PosterGridItem = {
   cardState?: PosterCardState;
   statusLabel?: string;
   statusActionLabel?: string;
+  statusActionDisabled?: boolean;
   href?: string;
   onClick?: () => void;
   onPlay?: () => void;
@@ -111,10 +112,11 @@ function PosterCardBody({ item }: { item: PosterGridItem }) {
         {cardState !== "default" && (
           <div className={`show-card-status show-card-status--${cardState}`}>
             {item.statusLabel && <span className="show-card-status-label">{item.statusLabel}</span>}
-            {cardState === "identify-failed" && item.statusActionLabel && item.onStatusAction && (
+            {item.statusActionLabel && item.onStatusAction && (
               <button
                 type="button"
                 className="show-card-status-action"
+                disabled={item.statusActionDisabled}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();

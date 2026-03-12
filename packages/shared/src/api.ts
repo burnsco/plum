@@ -19,6 +19,7 @@ import type {
   SeriesSearchResult,
   SetupStatus,
   ShowActionResult,
+  ShowConfirmPayload,
   Subtitle,
   TranscodingSettings,
   TranscodingSettingsResponse,
@@ -45,6 +46,7 @@ import {
   SeriesSearchResultSchema,
   SetupStatusSchema,
   ShowActionResultSchema,
+  ShowConfirmPayloadSchema,
   TranscodingSettingsResponseSchema,
   TranscodingSettingsSchema,
   UpdatePlaybackSessionAudioPayloadSchema,
@@ -76,6 +78,7 @@ export type {
   SeriesSearchResult,
   SetupStatus,
   ShowActionResult,
+  ShowConfirmPayload,
   Subtitle,
   TranscodingSettings,
   TranscodingSettingsResponse,
@@ -705,6 +708,24 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         body: { showKey },
         errorMessage: ({ status }) => `Refresh: ${status}`,
       }),
+    confirmShow: (libraryId: number, payload: ShowConfirmPayload) =>
+      decodeSchemaEffect(
+        ShowConfirmPayloadSchema,
+        payload,
+        "POST",
+        `/api/libraries/${libraryId}/shows/confirm`,
+        "Invalid show confirm payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "POST",
+            path: `/api/libraries/${libraryId}/shows/confirm`,
+            schema: ShowActionResultSchema,
+            body: validatedPayload,
+            errorMessage: ({ status }) => `Confirm show: ${status}`,
+          }),
+        ),
+      ),
     identifyShow: (libraryId: number, showKey: string, tmdbId: number) =>
       jsonRequestEffect({
         method: "POST",
@@ -753,6 +774,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     searchSeries: (query: string) => run(effects.searchSeries(query)),
     refreshShow: (libraryId: number, showKey: string) =>
       run(effects.refreshShow(libraryId, showKey)),
+    confirmShow: (libraryId: number, payload: ShowConfirmPayload) =>
+      run(effects.confirmShow(libraryId, payload)),
     identifyShow: (libraryId: number, showKey: string, tmdbId: number) =>
       run(effects.identifyShow(libraryId, showKey, tmdbId)),
   };

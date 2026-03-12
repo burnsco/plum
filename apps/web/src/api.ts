@@ -63,6 +63,7 @@ export const {
   updateTranscodingSettings,
   searchSeries,
   refreshShow,
+  confirmShow,
   identifyShow,
   updateMediaProgress,
 } = client;

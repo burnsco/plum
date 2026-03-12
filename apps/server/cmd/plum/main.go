@@ -101,11 +101,11 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		ThumbDir: thumbDir,
 	}
 	libHandler := &httpapi.LibraryHandler{
-		DB:       sqlDB,
-		Meta:     pipeline,
-		Series:   pipeline,
-		Pipeline: pipeline,
-		ScanJobs: scanJobs,
+		DB:          sqlDB,
+		Meta:        pipeline,
+		Series:      pipeline,
+		SeriesQuery: pipeline,
+		ScanJobs:    scanJobs,
 	}
 	scanJobs.AttachHandler(libHandler)
 	if err := scanJobs.Recover(); err != nil {
@@ -144,6 +144,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/libraries/{id}/media", libHandler.ListLibraryMedia)
 		protected.Post("/api/libraries/{id}/shows/refresh", libHandler.RefreshShow)
 		protected.Post("/api/libraries/{id}/shows/identify", libHandler.IdentifyShow)
+		protected.Post("/api/libraries/{id}/shows/confirm", libHandler.ConfirmShow)
 
 		protected.Get("/api/series/search", libHandler.GetSeriesSearch)
 		protected.Get("/api/series/{tmdbId}", libHandler.GetSeriesDetails)

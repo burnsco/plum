@@ -16,6 +16,13 @@ export function getShowName(title: string): string {
   return match ? match[1].trim() : title;
 }
 
+function normalizeShowKeyTitle(title: string): string {
+  return getShowName(title)
+    .replace(/\(\d{4}\)\s*$/u, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 /**
  * Stable key for grouping episodes into a show.
  * Uses tmdb_id when present so the same series is one show; otherwise falls back to show name from title.
@@ -24,7 +31,7 @@ export function getShowKey(item: MediaItem): string {
   if (item.tmdb_id && (item.type === "tv" || item.type === "anime")) {
     return `tmdb-${item.tmdb_id}`;
   }
-  return getShowName(item.title);
+  return `title-${normalizeShowKeyTitle(item.title)}`;
 }
 
 export type ShowGroup = {
@@ -40,8 +47,19 @@ export type ShowGroup = {
 /** Group TV/anime items by show key; each group has a stable key, title, first episode's poster, and sorted episodes. */
 export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
   const map = new Map<string, MediaItem[]>();
+  const matchedKeyByNormalizedTitle = new Map<string, string>();
+
+  for (const item of items) {
+    if (!item.tmdb_id || (item.type !== "tv" && item.type !== "anime")) continue;
+    matchedKeyByNormalizedTitle.set(normalizeShowKeyTitle(item.title), `tmdb-${item.tmdb_id}`);
+  }
+
   for (const m of items) {
-    const key = getShowKey(m);
+    const normalizedTitle = normalizeShowKeyTitle(m.title);
+    const key =
+      !m.tmdb_id && matchedKeyByNormalizedTitle.has(normalizedTitle)
+        ? matchedKeyByNormalizedTitle.get(normalizedTitle)!
+        : getShowKey(m);
     const list = map.get(key) ?? [];
     list.push(m);
     map.set(key, list);

@@ -17,7 +17,7 @@ import { useScanQueue } from "../contexts/ScanQueueContext";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
-import { useLibraryMedia, useLibraries, useRefreshShow } from "../queries";
+import { useConfirmShow, useLibraryMedia, useLibraries, useRefreshShow } from "../queries";
 
 const isTVOrAnime = (lib: Library) => lib.type === "tv" || lib.type === "anime";
 const IDENTIFY_POLL_INTERVAL_MS = 5_000;
@@ -104,6 +104,7 @@ export function Home() {
       ? selectedLibraryScanStatus.error
       : undefined;
   const refreshShowMutation = useRefreshShow();
+  const confirmShowMutation = useConfirmShow();
   const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: ShowGroup } | null>(
@@ -155,16 +156,25 @@ export function Home() {
         .filter((episode) => shouldShowProgress(episode))
         .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
       const imdbRating = group.episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating;
+      const needsMetadataReview =
+        selectedLib?.type === "anime" &&
+        group.episodes.some((episode) => episode.metadata_review_needed === true);
+      const isConfirmingReview =
+        confirmShowMutation.isPending &&
+        confirmShowMutation.variables?.libraryId === selectedLibraryId &&
+        confirmShowMutation.variables?.showKey === group.showKey;
       const hasMatchedEpisode = group.episodes.some(
         (episode) =>
           episode.match_status === "identified" ||
           hasProviderMatch(episode.tmdb_id, episode.tvdb_id),
       );
+      const shouldHideAnimePendingCard =
+        selectedLib?.type === "anime" && !needsMetadataReview && !hasMatchedEpisode;
       const isIncomplete =
         group.unmatchedCount > 0 ||
         group.localCount > 0 ||
         (!group.posterPath && hasMatchedEpisode);
-      if (isIncomplete && deferIncompleteCards) {
+      if (shouldHideAnimePendingCard || (isIncomplete && deferIncompleteCards)) {
         deferredGroups.push(group);
         return [];
       }
@@ -183,23 +193,44 @@ export function Home() {
           imdbRating,
           progressPercent: progressEpisode?.progress_percent,
           cardState:
-            isIncomplete && shouldRevealSearchingCards
-              ? "identifying"
-              : isIncomplete && selectedLibraryCanShowFailure
+            needsMetadataReview
+              ? "review-needed"
+              : isIncomplete && shouldRevealSearchingCards
+                ? "identifying"
+                : isIncomplete &&
+                    selectedLibraryCanShowFailure &&
+                    selectedLib?.type !== "anime"
                 ? "identify-failed"
                 : "default",
           statusLabel:
-            isIncomplete && shouldRevealSearchingCards
-              ? "Searching…"
-              : isIncomplete && selectedLibraryCanShowFailure
+            needsMetadataReview
+              ? "Is this correct?"
+              : isIncomplete && shouldRevealSearchingCards
+                ? "Searching…"
+                : isIncomplete &&
+                    selectedLibraryCanShowFailure &&
+                    selectedLib?.type !== "anime"
                 ? "Couldn't match automatically"
                 : undefined,
           statusActionLabel:
-            isIncomplete && selectedLibraryCanShowFailure && selectedLibraryId != null
+            needsMetadataReview && selectedLibraryId != null
+              ? "Confirm"
+              : isIncomplete &&
+                  selectedLibraryCanShowFailure &&
+                  selectedLibraryId != null &&
+                  selectedLib?.type !== "anime"
               ? "Identify manually"
               : undefined,
+          statusActionDisabled: isConfirmingReview,
           onStatusAction:
-            isIncomplete && selectedLibraryCanShowFailure && selectedLibraryId != null
+            needsMetadataReview && selectedLibraryId != null
+              ? () =>
+                  confirmShowMutation.mutate({
+                    libraryId: selectedLibraryId,
+                    showKey: group.showKey,
+                  })
+              : isIncomplete && selectedLibraryCanShowFailure && selectedLibraryId != null
+                  && selectedLib?.type !== "anime"
               ? () => setIdentifyGroup(group)
               : undefined,
           href: `/library/${selectedLibraryId}/show/${encodeURIComponent(group.showKey)}`,
@@ -214,10 +245,12 @@ export function Home() {
     return { deferredCount: deferredGroups.length, visibleCards };
   }, [
     deferIncompleteCards,
+    confirmShowMutation,
     playShowGroup,
     shouldRevealSearchingCards,
     selectedLibraryCanShowFailure,
     selectedLibraryId,
+    selectedLib?.type,
     showGroups,
   ]);
 

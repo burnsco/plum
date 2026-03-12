@@ -72,7 +72,8 @@ export function ShowDetail() {
       ? episodes[0].title.replace(/\s*-\s*S\d+.*$/i, "").trim()
       : (showKey ?? "Show"));
   const showImdbRating =
-    series == null ? episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating : undefined;
+    series?.imdb_rating ??
+    episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating;
 
   useEffect(() => {
     if (episodesBySeason.seasons.length === 0) {

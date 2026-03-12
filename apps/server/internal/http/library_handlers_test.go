@@ -110,6 +110,31 @@ type identifyStub struct {
 	anime func(context.Context, metadata.MediaInfo) *metadata.MatchResult
 }
 
+type seriesQueryStub struct {
+	searchTV   func(context.Context, string) ([]metadata.MatchResult, error)
+	getEpisode func(context.Context, string, string, int, int) (*metadata.MatchResult, error)
+}
+
+func (s *seriesQueryStub) SearchTV(ctx context.Context, query string) ([]metadata.MatchResult, error) {
+	if s.searchTV == nil {
+		return nil, nil
+	}
+	return s.searchTV(ctx, query)
+}
+
+func (s *seriesQueryStub) GetEpisode(
+	ctx context.Context,
+	provider string,
+	seriesID string,
+	season int,
+	episode int,
+) (*metadata.MatchResult, error) {
+	if s.getEpisode == nil {
+		return nil, nil
+	}
+	return s.getEpisode(ctx, provider, seriesID, season, episode)
+}
+
 func (s *identifyStub) IdentifyTV(ctx context.Context, info metadata.MediaInfo) *metadata.MatchResult {
 	if s.tv == nil {
 		return nil
@@ -271,6 +296,312 @@ func TestIdentifyLibrary_UsesAnimeIdentifier(t *testing.T) {
 	}
 	if matchStatus != db.MatchStatusIdentified {
 		t.Fatalf("match_status = %q", matchStatus)
+	}
+}
+
+func TestIdentifyLibrary_UsesAnimeSearchFallbackAndMarksReviewNeeded(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Anime", db.LibraryTypeAnime, "/anime", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var episodeID int
+	path := "/anime/Frieren/Season 1/Frieren - S01E12.mkv"
+	if err := dbConn.QueryRow(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, libraryID, "Frieren - S01E12", path, 0, db.MatchStatusUnmatched, 1, 12).Scan(&episodeID); err != nil {
+		t.Fatalf("insert anime episode: %v", err)
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			anime: func(_ context.Context, _ metadata.MediaInfo) *metadata.MatchResult {
+				return nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				if query != "Frieren" {
+					t.Fatalf("query = %q", query)
+				}
+				return []metadata.MatchResult{
+					{
+						Title:      "Frieren",
+						Provider:   "tmdb",
+						ExternalID: "123",
+					},
+				}, nil
+			},
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tmdb" || seriesID != "123" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				if season != 1 || episode != 12 {
+					t.Fatalf("unexpected episode = S%02dE%02d", season, episode)
+				}
+				return &metadata.MatchResult{
+					Title:      "Frieren - S01E12 - Episode",
+					Provider:   "tmdb",
+					ExternalID: "123",
+				}, nil
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/identify", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyLibrary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Identified int `json:"identified"`
+		Failed     int `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Identified != 1 || payload.Failed != 0 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+
+	var title, matchStatus string
+	var tmdbID int
+	var reviewNeeded bool
+	if err := dbConn.QueryRow(`SELECT title, match_status, COALESCE(tmdb_id, 0), COALESCE(metadata_review_needed, 0) FROM anime_episodes WHERE id = ?`, episodeID).Scan(&title, &matchStatus, &tmdbID, &reviewNeeded); err != nil {
+		t.Fatalf("query anime episode: %v", err)
+	}
+	if title != "Frieren - S01E12 - Episode" {
+		t.Fatalf("title = %q", title)
+	}
+	if matchStatus != db.MatchStatusIdentified {
+		t.Fatalf("match_status = %q", matchStatus)
+	}
+	if tmdbID != 123 {
+		t.Fatalf("tmdb_id = %d", tmdbID)
+	}
+	if !reviewNeeded {
+		t.Fatal("expected metadata_review_needed to be true")
+	}
+}
+
+func TestIdentifyLibrary_AnimeSearchFallbackPrefersShowTitleFromEpisodeTitle(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Anime", db.LibraryTypeAnime, "/anime", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var episodeID int
+	path := "/anime/Fallback Folder/Season 1/Episode 12.mkv"
+	if err := dbConn.QueryRow(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, libraryID, "Correct Show - S01E12", path, 0, db.MatchStatusUnmatched, 1, 12).Scan(&episodeID); err != nil {
+		t.Fatalf("insert anime episode: %v", err)
+	}
+	_ = episodeID
+
+	searchCalls := make([]string, 0, 2)
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			anime: func(_ context.Context, _ metadata.MediaInfo) *metadata.MatchResult {
+				return nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				searchCalls = append(searchCalls, query)
+				if query != "Correct Show" {
+					return nil, nil
+				}
+				return []metadata.MatchResult{{Title: "Correct Show", Provider: "tmdb", ExternalID: "123"}}, nil
+			},
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				return &metadata.MatchResult{
+					Title:      "Correct Show - S01E12 - Episode",
+					Provider:   "tmdb",
+					ExternalID: "123",
+				}, nil
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/identify", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyLibrary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(searchCalls) == 0 || searchCalls[0] != "Correct Show" {
+		t.Fatalf("unexpected search calls: %#v", searchCalls)
+	}
+}
+
+func TestIdentifyShow_ClearsMetadataReviewNeeded(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Anime", db.LibraryTypeAnime, "/anime", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, tmdb_id, metadata_review_needed, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Frieren - S01E12 - Episode",
+		"/anime/Frieren/Season 1/Frieren - S01E12.mkv",
+		0,
+		db.MatchStatusIdentified,
+		123,
+		true,
+		1,
+		12,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert anime episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeAnime, episodeID); err != nil {
+		t.Fatalf("insert media global row: %v", err)
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		SeriesQuery: &seriesQueryStub{
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tmdb" || seriesID != "456" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				return &metadata.MatchResult{
+					Title:      "Frieren - S01E12 - Episode",
+					Provider:   "tmdb",
+					ExternalID: "456",
+				}, nil
+			},
+		},
+	}
+
+	body := strings.NewReader(`{"showKey":"tmdb-123","tmdbId":456}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var reviewNeeded bool
+	var tmdbID int
+	if err := dbConn.QueryRow(`SELECT COALESCE(metadata_review_needed, 0), COALESCE(tmdb_id, 0) FROM anime_episodes WHERE id = ?`, episodeID).Scan(&reviewNeeded, &tmdbID); err != nil {
+		t.Fatalf("query anime episode: %v", err)
+	}
+	if reviewNeeded {
+		t.Fatal("expected metadata_review_needed to be cleared")
+	}
+	if tmdbID != 456 {
+		t.Fatalf("tmdb_id = %d", tmdbID)
+	}
+}
+
+func TestConfirmShow_ClearsMetadataReviewNeeded(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Anime", db.LibraryTypeAnime, "/anime", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, tmdb_id, metadata_review_needed, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Frieren - S01E12 - Episode",
+		"/anime/Frieren/Season 1/Frieren - S01E12.mkv",
+		0,
+		db.MatchStatusIdentified,
+		123,
+		true,
+		1,
+		12,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert anime episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeAnime, episodeID); err != nil {
+		t.Fatalf("insert media global row: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/confirm", strings.NewReader(`{"showKey":"tmdb-123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler := &LibraryHandler{DB: dbConn}
+	handler.ConfirmShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Updated != 1 {
+		t.Fatalf("updated = %d", payload.Updated)
+	}
+	var reviewNeeded bool
+	if err := dbConn.QueryRow(`SELECT COALESCE(metadata_review_needed, 0) FROM anime_episodes WHERE id = ?`, episodeID).Scan(&reviewNeeded); err != nil {
+		t.Fatalf("query anime episode: %v", err)
+	}
+	if reviewNeeded {
+		t.Fatal("expected metadata_review_needed to be cleared")
 	}
 }
 

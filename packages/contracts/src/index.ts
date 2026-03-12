@@ -91,6 +91,7 @@ export interface MediaItem {
   /** Set for TV/anime episodes; 0 when not applicable. */
   season?: number;
   episode?: number;
+  metadata_review_needed?: boolean;
   /** Path to generated frame thumbnail (video episodes); served at /api/media/:id/thumbnail. */
   thumbnail_path?: string;
 }
@@ -128,6 +129,7 @@ export const MediaItemSchema = Schema.Struct({
   last_watched_at: Schema.optional(Schema.String),
   season: Schema.optional(Schema.Number),
   episode: Schema.optional(Schema.Number),
+  metadata_review_needed: Schema.optional(Schema.Boolean),
   thumbnail_path: Schema.optional(Schema.String),
 });
 
@@ -380,6 +382,8 @@ export interface SeriesDetails {
   poster_path: string;
   backdrop_path: string;
   first_air_date: string;
+  imdb_id?: string;
+  imdb_rating?: number;
 }
 
 export const SeriesDetailsSchema = Schema.Struct({
@@ -388,6 +392,8 @@ export const SeriesDetailsSchema = Schema.Struct({
   poster_path: Schema.String,
   backdrop_path: Schema.String,
   first_air_date: Schema.String,
+  imdb_id: Schema.optional(Schema.String),
+  imdb_rating: Schema.optional(Schema.Number),
 });
 
 export interface SeriesSearchResult {
@@ -425,6 +431,14 @@ export interface ShowRefreshPayload {
 }
 
 export const ShowRefreshPayloadSchema = Schema.Struct({
+  showKey: Schema.String,
+});
+
+export interface ShowConfirmPayload {
+  showKey: string;
+}
+
+export const ShowConfirmPayloadSchema = Schema.Struct({
   showKey: Schema.String,
 });
 

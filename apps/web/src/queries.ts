@@ -6,6 +6,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import {
+  confirmShow,
   fetchLibraryMedia,
   fetchSeriesByTmdbId,
   getHomeDashboard,
@@ -180,6 +181,20 @@ export function useRefreshShow(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ libraryId, showKey }) => refreshShow(libraryId, showKey),
+    onSuccess: (_, { libraryId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+    },
+  });
+}
+
+export function useConfirmShow(): UseMutationResult<
+  ShowActionResult,
+  Error,
+  { libraryId: number; showKey: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ libraryId, showKey }) => confirmShow(libraryId, { showKey }),
     onSuccess: (_, { libraryId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
     },

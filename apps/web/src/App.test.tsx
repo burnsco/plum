@@ -132,6 +132,7 @@ describe("App library and player wiring", () => {
       startedAt: new Date().toISOString(),
     }));
     vi.spyOn(api, "identifyLibrary").mockResolvedValue({ identified: 0, failed: 0 });
+    vi.spyOn(api, "confirmShow").mockResolvedValue({ updated: 1 });
     vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId, payload) => ({
       sessionId: `session-${mediaId}`,
       mediaId,
@@ -844,6 +845,84 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("link", { name: /Frieren/i })).toBeTruthy();
     expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Identify manually/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps incomplete anime cards hidden until they have a review prompt or real match", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 3, name: "Anime", type: "anime", path: "/anime", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 41,
+        title: "Dragonball - S01E02 - The Emperor's Quest",
+        path: "/anime/Dragonball/S01E02.mkv",
+        duration: 1800,
+        type: "anime",
+        match_status: "unmatched",
+        season: 1,
+        episode: 2,
+      },
+    ]);
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: /Dragonball/i })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Identify manually/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a review prompt for anime fallback matches and confirms it", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 3, name: "Anime", type: "anime", path: "/anime", user_id: 1 },
+    ]);
+    const fetchLibraryMedia = vi.spyOn(api, "fetchLibraryMedia");
+    fetchLibraryMedia.mockResolvedValue([
+      {
+        id: 41,
+        title: "Frieren - S01E01 - Journey",
+        path: "/anime/Frieren/S01E01.mkv",
+        duration: 1800,
+        type: "anime",
+        match_status: "identified",
+        tmdb_id: 123,
+        poster_path: "/frieren.jpg",
+        metadata_review_needed: false,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 41,
+        title: "Frieren - S01E01 - Journey",
+        path: "/anime/Frieren/S01E01.mkv",
+        duration: 1800,
+        type: "anime",
+        match_status: "identified",
+        tmdb_id: 123,
+        poster_path: "/frieren.jpg",
+        metadata_review_needed: true,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
+
+    renderApp();
+
+    expect(await screen.findByText("Is this correct?")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() => {
+      expect(api.confirmShow).toHaveBeenCalledWith(3, { showKey: "tmdb-123" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Is this correct?")).not.toBeInTheDocument();
+    });
   });
 
   it("falls back to a placeholder poster when poster loading fails", async () => {

@@ -223,12 +223,14 @@ func (c *TMDBClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesD
 	if err != nil || detail == nil {
 		return nil, err
 	}
+	imdbID, _ := c.getTVIMDbID(ctx, tmdbID)
 	return &SeriesDetails{
 		Name:         detail.Name,
 		Overview:     detail.Overview,
 		PosterPath:   tmdbImageURL(detail.PosterPath, "w500"),
 		BackdropPath: tmdbImageURL(detail.BackdropPath, "w500"),
 		FirstAirDate: detail.FirstAirDate,
+		IMDbID:       imdbID,
 	}, nil
 }
 

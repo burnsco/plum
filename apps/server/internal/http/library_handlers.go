@@ -18,11 +18,11 @@ import (
 )
 
 type LibraryHandler struct {
-	DB       *sql.DB
-	Meta     metadata.Identifier
-	Series   metadata.SeriesDetailsProvider
-	Pipeline *metadata.Pipeline
-	ScanJobs *LibraryScanManager
+	DB          *sql.DB
+	Meta        metadata.Identifier
+	Series      metadata.SeriesDetailsProvider
+	SeriesQuery metadata.SeriesSearchProvider
+	ScanJobs    *LibraryScanManager
 }
 
 type createLibraryRequest struct {
@@ -294,8 +294,9 @@ const (
 )
 
 type identifyJobResult struct {
-	status identifyJobStatus
-	job    identifyJob
+	status           identifyJobStatus
+	job              identifyJob
+	fallbackEligible bool
 }
 
 func (h *LibraryHandler) IdentifyLibrary(w http.ResponseWriter, r *http.Request) {
@@ -346,7 +347,10 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 	initialIdentified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryPath, initialJobs)
 	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryPath, retryJobs)
 	identified += initialIdentified + retryIdentified
-	failed += initialFailed + retryFailed
+
+	fallbackIdentified, fallbackFailed := h.identifyAnimeFallbacks(ctx, libraryPath, append(initialFailed, retryFailed...))
+	identified += fallbackIdentified
+	failed += fallbackFailed
 
 	return identifyResult{Identified: identified, Failed: failed}, nil
 }
@@ -355,9 +359,9 @@ func (h *LibraryHandler) runIdentifyJobs(
 	ctx context.Context,
 	libraryPath string,
 	jobsToRun []identifyJob,
-) (identified int, retryJobs []identifyJob, failed int) {
+) (identified int, retryJobs []identifyJob, failed []identifyJobResult) {
 	if len(jobsToRun) == 0 {
-		return 0, nil, 0
+		return 0, nil, nil
 	}
 
 	results := make(chan identifyJobResult, len(jobsToRun))
@@ -415,11 +419,58 @@ enqueueLoop:
 				attempt: result.job.attempt + 1,
 			})
 		case identifyJobFailed:
-			failed++
+			failed = append(failed, result)
 		}
 	}
 
 	return identified, retryJobs, failed
+}
+
+type animeFallbackGroup struct {
+	queries []string
+	rows    []db.IdentificationRow
+}
+
+func (h *LibraryHandler) identifyAnimeFallbacks(
+	ctx context.Context,
+	libraryPath string,
+	failedResults []identifyJobResult,
+) (identified int, failed int) {
+	if len(failedResults) == 0 {
+		return 0, 0
+	}
+
+	groups := make(map[string]*animeFallbackGroup)
+	for _, result := range failedResults {
+		if !result.fallbackEligible {
+			failed++
+			continue
+		}
+		queries := animeFallbackQueries(result.job.row, libraryPath)
+		if len(queries) == 0 {
+			failed++
+			continue
+		}
+		groupKey := strings.ToLower(queries[0])
+		group, ok := groups[groupKey]
+		if !ok {
+			group = &animeFallbackGroup{queries: queries}
+			groups[groupKey] = group
+		}
+		group.rows = append(group.rows, result.job.row)
+	}
+
+	for _, group := range groups {
+		updated, err := h.identifyAnimeFallbackGroup(ctx, group.queries, group.rows)
+		if err != nil || updated != len(group.rows) {
+			identified += updated
+			failed += len(group.rows) - updated
+			continue
+		}
+		identified += updated
+	}
+
+	return identified, failed
 }
 
 func newIdentifyRateLimiter(ctx context.Context) <-chan struct{} {
@@ -492,7 +543,11 @@ func (h *LibraryHandler) identifyLibraryJob(
 		if job.attempt == 0 {
 			return identifyJobResult{status: identifyJobRetry, job: job}
 		}
-		return identifyJobResult{status: identifyJobFailed, job: job}
+		return identifyJobResult{
+			status:           identifyJobFailed,
+			job:              job,
+			fallbackEligible: row.Kind == db.LibraryTypeAnime && itemCtx.Err() == nil,
+		}
 	}
 
 	tmdbID, tvdbID := 0, ""
@@ -508,6 +563,110 @@ func (h *LibraryHandler) identifyLibraryJob(
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
 	return identifyJobResult{status: identifyJobSucceeded, job: job}
+}
+
+func (h *LibraryHandler) identifyAnimeFallbackGroup(
+	ctx context.Context,
+	queries []string,
+	rows []db.IdentificationRow,
+) (int, error) {
+	if h.SeriesQuery == nil || len(rows) == 0 {
+		return 0, nil
+	}
+	var (
+		results []metadata.MatchResult
+		err     error
+	)
+	for _, query := range queries {
+		results, err = h.SeriesQuery.SearchTV(ctx, query)
+		if err != nil {
+			return 0, err
+		}
+		if len(results) > 0 {
+			break
+		}
+	}
+	if len(results) == 0 {
+		return 0, nil
+	}
+	tmdbID, err := strconv.Atoi(results[0].ExternalID)
+	if err != nil || tmdbID <= 0 {
+		return 0, err
+	}
+	refs := make([]db.ShowEpisodeRef, 0, len(rows))
+	for _, row := range rows {
+		refs = append(refs, db.ShowEpisodeRef{
+			RefID:   row.RefID,
+			Kind:    row.Kind,
+			Season:  row.Season,
+			Episode: row.Episode,
+		})
+	}
+	return h.applyTMDBSeriesToRefs(ctx, tmdbID, refs, true)
+}
+
+func animeFallbackQueries(row db.IdentificationRow, libraryPath string) []string {
+	info := identifyMediaInfo(row, libraryPath)
+	candidates := []string{
+		showTitleFromEpisodeTitle(row.Title),
+		strings.TrimSpace(info.Title),
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	queries := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		key := strings.ToLower(candidate)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		queries = append(queries, candidate)
+	}
+	return queries
+}
+
+func showTitleFromEpisodeTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if i := strings.Index(strings.ToLower(title), " - s"); i > 0 {
+		return strings.TrimSpace(title[:i])
+	}
+	if i := strings.Index(title, " - "); i > 0 {
+		return strings.TrimSpace(title[:i])
+	}
+	return title
+}
+
+func (h *LibraryHandler) applyTMDBSeriesToRefs(
+	ctx context.Context,
+	seriesTMDBID int,
+	refs []db.ShowEpisodeRef,
+	metadataReviewNeeded bool,
+) (int, error) {
+	if h.SeriesQuery == nil || seriesTMDBID <= 0 || len(refs) == 0 {
+		return 0, nil
+	}
+	table := db.MediaTableForKind(refs[0].Kind)
+	seriesID := strconv.Itoa(seriesTMDBID)
+	updated := 0
+	for _, ref := range refs {
+		ep, err := h.SeriesQuery.GetEpisode(ctx, "tmdb", seriesID, ref.Season, ref.Episode)
+		if err != nil || ep == nil {
+			continue
+		}
+		tvdbID := ""
+		if ep.Provider == "tvdb" {
+			tvdbID = ep.ExternalID
+		}
+		if err := db.UpdateMediaMetadataWithReview(h.DB, table, ref.RefID, ep.Title, ep.Overview, ep.PosterURL, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, metadataReviewNeeded); err != nil {
+			continue
+		}
+		updated++
+		time.Sleep(identifyRateLimitMs * time.Millisecond)
+	}
+	return updated, nil
 }
 
 func identifyMediaInfo(row db.IdentificationRow, libraryPath string) metadata.MediaInfo {
@@ -749,12 +908,12 @@ func (h *LibraryHandler) GetSeriesSearch(w http.ResponseWriter, r *http.Request)
 		_, _ = w.Write([]byte("[]"))
 		return
 	}
-	if h.Pipeline == nil {
+	if h.SeriesQuery == nil {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("[]"))
 		return
 	}
-	results, err := h.Pipeline.SearchTV(r.Context(), q)
+	results, err := h.SeriesQuery.SearchTV(r.Context(), q)
 	if err != nil {
 		http.Error(w, "search failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -767,6 +926,10 @@ func (h *LibraryHandler) GetSeriesSearch(w http.ResponseWriter, r *http.Request)
 }
 
 type refreshShowRequest struct {
+	ShowKey string `json:"showKey"`
+}
+
+type confirmShowRequest struct {
 	ShowKey string `json:"showKey"`
 }
 
@@ -821,31 +984,14 @@ func (h *LibraryHandler) RefreshShow(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
 		return
 	}
-	// Use first episode's TMDB ID (series id) for the show
+	// Use first episode's TMDB ID (series id) for the show.
 	seriesTMDBID := refs[0].TMDBID
-	if h.Pipeline == nil || seriesTMDBID <= 0 {
+	if h.SeriesQuery == nil || seriesTMDBID <= 0 {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
 		return
 	}
-	table := db.MediaTableForKind(refs[0].Kind)
-	updated := 0
-	seriesID := strconv.Itoa(seriesTMDBID)
-	for _, ref := range refs {
-		ep, err := h.Pipeline.GetEpisode(r.Context(), "tmdb", seriesID, ref.Season, ref.Episode)
-		if err != nil || ep == nil {
-			continue
-		}
-		tvdbID := ""
-		if ep.Provider == "tvdb" {
-			tvdbID = ep.ExternalID
-		}
-		if err := db.UpdateMediaMetadata(h.DB, table, ref.RefID, ep.Title, ep.Overview, ep.PosterURL, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode); err != nil {
-			continue
-		}
-		updated++
-		time.Sleep(identifyRateLimitMs * time.Millisecond)
-	}
+	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), seriesTMDBID, refs, false)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})
 }
@@ -886,27 +1032,59 @@ func (h *LibraryHandler) IdentifyShow(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
 		return
 	}
-	if h.Pipeline == nil {
+	if h.SeriesQuery == nil {
 		http.Error(w, "metadata not configured", http.StatusServiceUnavailable)
 		return
 	}
-	table := db.MediaTableForKind(refs[0].Kind)
-	seriesID := strconv.Itoa(payload.TmdbID)
-	updated := 0
+	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), payload.TmdbID, refs, false)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})
+}
+
+func (h *LibraryHandler) ConfirmShow(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	var libraryID, ownerID int
+	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var payload confirmShowRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if payload.ShowKey == "" {
+		http.Error(w, "showKey is required", http.StatusBadRequest)
+		return
+	}
+	refs, err := db.ListShowEpisodeRefs(h.DB, libraryID, payload.ShowKey)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if len(refs) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
+		return
+	}
+	refIDs := make([]int, 0, len(refs))
 	for _, ref := range refs {
-		ep, err := h.Pipeline.GetEpisode(r.Context(), "tmdb", seriesID, ref.Season, ref.Episode)
-		if err != nil || ep == nil {
-			continue
-		}
-		tvdbID := ""
-		if ep.Provider == "tvdb" {
-			tvdbID = ep.ExternalID
-		}
-		if err := db.UpdateMediaMetadata(h.DB, table, ref.RefID, ep.Title, ep.Overview, ep.PosterURL, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, payload.TmdbID, tvdbID, ref.Season, ref.Episode); err != nil {
-			continue
-		}
-		updated++
-		time.Sleep(identifyRateLimitMs * time.Millisecond)
+		refIDs = append(refIDs, ref.RefID)
+	}
+	updated, err := db.UpdateShowMetadataReviewStatus(h.DB, db.MediaTableForKind(refs[0].Kind), refIDs, false)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})

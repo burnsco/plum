@@ -149,6 +149,13 @@ func (p *Pipeline) bestSeriesMatch(ctx context.Context, info MediaInfo, candidat
 			return ep
 		}
 	}
+	if best.Provider == "tmdb" {
+		if tmdbID, err := strconv.Atoi(best.ExternalID); err == nil && tmdbID > 0 {
+			if detailed := p.lookupTMDBTV(ctx, MediaInfo{TMDBID: tmdbID}); detailed != nil {
+				return detailed
+			}
+		}
+	}
 	p.enrichIMDbRating(ctx, best)
 	return best
 }
@@ -217,15 +224,19 @@ func (p *Pipeline) lookupTMDBTV(ctx context.Context, info MediaInfo) *MatchResul
 	if err != nil || details == nil {
 		return nil
 	}
-	return &MatchResult{
+	result := &MatchResult{
 		Title:       details.Name,
 		Overview:    details.Overview,
 		PosterURL:   details.PosterPath,
 		BackdropURL: details.BackdropPath,
 		ReleaseDate: details.FirstAirDate,
+		IMDbID:      details.IMDbID,
+		IMDbRating:  details.IMDbRating,
 		Provider:    "tmdb",
 		ExternalID:  seriesID,
 	}
+	p.enrichIMDbRating(ctx, result)
+	return result
 }
 
 func (p *Pipeline) enrichIMDbRating(ctx context.Context, result *MatchResult) {
@@ -282,7 +293,16 @@ func (p *Pipeline) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesDet
 	if p.seriesDetailsProvider == nil {
 		return nil, nil
 	}
-	return p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID)
+	details, err := p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID)
+	if err != nil || details == nil {
+		return details, err
+	}
+	if details.IMDbID != "" && details.IMDbRating <= 0 {
+		result := &MatchResult{IMDbID: details.IMDbID}
+		p.enrichIMDbRating(ctx, result)
+		details.IMDbRating = result.IMDbRating
+	}
+	return details, nil
 }
 
 // SearchTV returns raw TV search results from the first provider (e.g. TMDB) for the Identify UI.
