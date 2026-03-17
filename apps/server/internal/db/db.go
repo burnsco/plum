@@ -26,17 +26,6 @@ const (
 	MatchStatusUnmatched  = "unmatched"
 )
 
-var (
-	LibraryScanBatchSize     = 25
-	LibraryScanBatchInterval = 500 * time.Millisecond
-)
-
-type Execer interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 type ScanResult struct {
 	Added     int `json:"added"`
 	Updated   int `json:"updated"`
@@ -56,7 +45,6 @@ type ScanOptions struct {
 	ProbeEmbeddedSubtitles bool
 	ScanSidecarSubtitles   bool
 	Progress               func(ScanProgress)
-	OnBatchCommitted       func(batch []int)
 }
 
 var (
@@ -367,9 +355,6 @@ CREATE TABLE IF NOT EXISTS library_job_status (
   identify_phase TEXT NOT NULL DEFAULT 'idle',
   identified INTEGER NOT NULL DEFAULT 0,
   identify_failed INTEGER NOT NULL DEFAULT 0,
-  identify_pending INTEGER NOT NULL DEFAULT 0,
-  identify_in_flight INTEGER NOT NULL DEFAULT 0,
-  identify_completed_batches INTEGER NOT NULL DEFAULT 0,
   processed INTEGER NOT NULL DEFAULT 0,
   added INTEGER NOT NULL DEFAULT 0,
   updated INTEGER NOT NULL DEFAULT 0,
@@ -591,25 +576,6 @@ var schemaMigrations = []schemaMigration{
 				`CREATE INDEX IF NOT EXISTS idx_anime_episodes_library_match_status ON anime_episodes(library_id, match_status)`,
 			} {
 				if _, err := tx.ExecContext(ctx, stmt); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	},
-	{
-		version: 11,
-		name:    "library_job_status_identify_counters",
-		apply: func(ctx context.Context, tx *sql.Tx) error {
-			for _, column := range []struct {
-				name string
-				def  string
-			}{
-				{name: "identify_pending", def: "INTEGER NOT NULL DEFAULT 0"},
-				{name: "identify_in_flight", def: "INTEGER NOT NULL DEFAULT 0"},
-				{name: "identify_completed_batches", def: "INTEGER NOT NULL DEFAULT 0"},
-			} {
-				if err := addColumnIfMissingTx(ctx, tx, "library_job_status", column.name, column.def); err != nil {
 					return err
 				}
 			}
@@ -921,58 +887,6 @@ WHERE m.library_id = ?
 		return nil, err
 	}
 	defer rows.Close()
-	var out []IdentificationRow
-	for rows.Next() {
-		var row IdentificationRow
-		row.Kind = typ
-		if table == "tv_episodes" || table == "anime_episodes" {
-			err = rows.Scan(&row.RefID, &row.Title, &row.Path, &row.Season, &row.Episode)
-		} else {
-			err = rows.Scan(&row.RefID, &row.Title, &row.Path)
-		}
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
-func ListIdentifiableByGlobalIDs(dbConn *sql.DB, libraryID int, globalIDs []int) ([]IdentificationRow, error) {
-	if len(globalIDs) == 0 {
-		return nil, nil
-	}
-	var typ string
-	if err := dbConn.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ); err != nil {
-		return nil, err
-	}
-	table := mediaTableForKind(typ)
-	if table == "music_tracks" {
-		return nil, nil
-	}
-
-	placeholders := make([]string, len(globalIDs))
-	args := make([]interface{}, 0, len(globalIDs)+1)
-	for i, id := range globalIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	args = append(args, libraryID)
-
-	q := `SELECT m.id, m.title, m.path`
-	if table == "tv_episodes" || table == "anime_episodes" {
-		q += `, COALESCE(m.season, 0), COALESCE(m.episode, 0)`
-	}
-	q += ` FROM ` + table + ` m
-JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
-WHERE g.id IN (` + strings.Join(placeholders, ",") + `) AND m.library_id = ?`
-
-	rows, err := dbConn.Query(q, append([]interface{}{typ}, args...)...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var out []IdentificationRow
 	for rows.Next() {
 		var row IdentificationRow
@@ -1556,35 +1470,46 @@ func GetSubtitleByID(db *sql.DB, id int) (*Subtitle, error) {
 	return &s, nil
 }
 
-type MediaProbeResult struct {
-	Duration          int
-	EmbeddedSubtitles []EmbeddedSubtitle
-	EmbeddedAudio     []EmbeddedAudioTrack
-}
-
-func probeMediaFile(ctx context.Context, path string) (MediaProbeResult, error) {
+func getMediaDuration(ctx context.Context, path string) (int, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-
 	cmd := exec.CommandContext(probeCtx, "ffprobe",
 		"-v", "error",
-		"-show_entries", "format=duration:stream=index,codec_type:stream_tags=language,title",
-		"-of", "json",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
 		path)
-
 	out, err := cmd.Output()
 	if err != nil {
-		return MediaProbeResult{}, err
+		return 0, err
+	}
+	var d float64
+	if _, err := fmt.Sscanf(string(out), "%f", &d); err != nil {
+		return 0, err
+	}
+	return int(d), nil
+}
+
+// probeEmbeddedSubtitles uses ffprobe to discover subtitle streams embedded in the video file.
+// It uses a short timeout so that invalid or test files do not hang the scan.
+func probeEmbeddedSubtitles(ctx context.Context, path string) ([]EmbeddedSubtitle, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(probeCtx, "ffprobe",
+		"-v", "error",
+		"-select_streams", "s",
+		"-show_entries", "stream=index:stream_tags=language,title",
+		"-of", "json",
+		path,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
 	}
 
 	var parsed struct {
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
 		Streams []struct {
-			Index     int    `json:"index"`
-			CodecType string `json:"codec_type"`
-			Tags      struct {
+			Index int `json:"index"`
+			Tags  struct {
 				Language string `json:"language"`
 				Title    string `json:"title"`
 			} `json:"tags"`
@@ -1592,14 +1517,10 @@ func probeMediaFile(ctx context.Context, path string) (MediaProbeResult, error) 
 	}
 
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		return MediaProbeResult{}, err
+		return nil, err
 	}
 
-	var result MediaProbeResult
-	if d, err := strconv.ParseFloat(parsed.Format.Duration, 64); err == nil {
-		result.Duration = int(d)
-	}
-
+	var subs []EmbeddedSubtitle
 	for _, s := range parsed.Streams {
 		lang := s.Tags.Language
 		if lang == "" {
@@ -1609,84 +1530,61 @@ func probeMediaFile(ctx context.Context, path string) (MediaProbeResult, error) 
 		if title == "" {
 			title = lang
 		}
-
-		if s.CodecType == "subtitle" {
-			result.EmbeddedSubtitles = append(result.EmbeddedSubtitles, EmbeddedSubtitle{
-				StreamIndex: s.Index,
-				Language:    lang,
-				Title:       title,
-			})
-		} else if s.CodecType == "audio" {
-			result.EmbeddedAudio = append(result.EmbeddedAudio, EmbeddedAudioTrack{
-				StreamIndex: s.Index,
-				Language:    lang,
-				Title:       title,
-			})
-		}
+		subs = append(subs, EmbeddedSubtitle{
+			StreamIndex: s.Index,
+			Language:    lang,
+			Title:       title,
+		})
 	}
-
-	return result, nil
-}
-
-func getMediaDuration(ctx context.Context, path string) (int, error) {
-	res, err := probeMediaFile(ctx, path)
-	if err != nil {
-		return 0, err
-	}
-	return res.Duration, nil
-}
-
-// probeEmbeddedSubtitles uses ffprobe to discover subtitle streams embedded in the video file.
-// It uses a short timeout so that invalid or test files do not hang the scan.
-func probeEmbeddedSubtitles(ctx context.Context, path string) ([]EmbeddedSubtitle, error) {
-	res, err := probeMediaFile(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	return res.EmbeddedSubtitles, nil
+	return subs, nil
 }
 
 func probeEmbeddedAudioTracks(ctx context.Context, path string) ([]EmbeddedAudioTrack, error) {
-	res, err := probeMediaFile(ctx, path)
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(probeCtx, "ffprobe",
+		"-v", "error",
+		"-select_streams", "a",
+		"-show_entries", "stream=index:stream_tags=language,title",
+		"-of", "json",
+		path,
+	)
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
-	return res.EmbeddedAudio, nil
-}
 
-func scanForSubtitlesCachedTx(ctx context.Context, tx *sql.Tx, mediaID int, videoPath string, entries []os.DirEntry) error {
-	dir := filepath.Dir(videoPath)
-	base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, base) {
-			ext := strings.ToLower(filepath.Ext(name))
-			if ext == ".srt" || ext == ".vtt" || ext == ".ass" || ext == ".ssa" {
-				path := filepath.Join(dir, name)
-				lang := "und"
-				parts := strings.Split(strings.TrimSuffix(name, ext), ".")
-				if len(parts) > 1 {
-					lastPart := parts[len(parts)-1]
-					if len(lastPart) == 2 || len(lastPart) == 3 {
-						lang = lastPart
-					}
-				}
-
-				_, err := tx.ExecContext(ctx,
-					`INSERT OR IGNORE INTO subtitles (media_id, title, language, format, path) VALUES (?, ?, ?, ?, ?)`,
-					mediaID, name, lang, ext[1:], path,
-				)
-				if err != nil {
-					return err
-				}
-			}
-		}
+	var parsed struct {
+		Streams []struct {
+			Index int `json:"index"`
+			Tags  struct {
+				Language string `json:"language"`
+				Title    string `json:"title"`
+			} `json:"tags"`
+		} `json:"streams"`
 	}
-	return nil
+
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, err
+	}
+
+	var tracks []EmbeddedAudioTrack
+	for _, stream := range parsed.Streams {
+		lang := stream.Tags.Language
+		if lang == "" {
+			lang = "und"
+		}
+		title := stream.Tags.Title
+		if title == "" {
+			title = lang
+		}
+		tracks = append(tracks, EmbeddedAudioTrack{
+			StreamIndex: stream.Index,
+			Language:    lang,
+			Title:       title,
+		})
+	}
+	return tracks, nil
 }
 
 func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPath string) error {
@@ -1838,47 +1736,6 @@ func HandleScanLibraryWithOptions(
 		return result, err
 	}
 	seenPaths := map[string]struct{}{}
-
-	// Performance caches for this scan run
-	dirEntriesCache := make(map[string][]os.DirEntry)
-	showNFOCache := make(map[string]metadata.ShowNFOCacheEntry)
-
-	var (
-		currentTx      *sql.Tx
-		batchGlobalIDs []int
-		batchCount     int
-		lastFlush      = time.Now()
-	)
-
-	flushBatch := func() error {
-		if currentTx == nil {
-			return nil
-		}
-		if err := currentTx.Commit(); err != nil {
-			return err
-		}
-		currentTx = nil
-		if options.OnBatchCommitted != nil && len(batchGlobalIDs) > 0 {
-			options.OnBatchCommitted(batchGlobalIDs)
-		}
-		batchGlobalIDs = nil
-		batchCount = 0
-		lastFlush = time.Now()
-		return nil
-	}
-
-	ensureTx := func() error {
-		if currentTx != nil {
-			return nil
-		}
-		tx, err := dbConn.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		currentTx = tx
-		return nil
-	}
-
 	err = iterateLibraryFiles(ctx, root, kind, func() {
 		result.Skipped++
 		if options.Progress != nil {
@@ -1933,8 +1790,7 @@ func HandleScanLibraryWithOptions(
 			pathInfo := metadata.ParsePathForTV(candidate.RelPath, candidate.Name)
 			merged := metadata.MergePathInfo(pathInfo, fileInfo)
 			showRoot := metadata.ShowRootPath(root, path)
-			metadata.ApplyShowNFOCached(&merged, showRoot, showNFOCache)
-
+			metadata.ApplyShowNFO(&merged, showRoot)
 			if kind == LibraryTypeAnime && merged.IsSpecial && merged.Episode > 0 {
 				merged.Season = 0
 			}
@@ -2027,136 +1883,23 @@ func HandleScanLibraryWithOptions(
 			result.Unmatched++
 		}
 
-		if err := ensureTx(); err != nil {
-			return err
-		}
-
 		refID := existing.RefID
 		globalID := existing.GlobalID
 		shouldWriteFullItem := isNew || shouldIdentify || kind == LibraryTypeMusic
 		if isNew {
-			refID, globalID, err = insertScannedItemTx(ctx, currentTx, table, kind, libraryID, mItem)
+			refID, globalID, err = insertScannedItem(ctx, dbConn, table, kind, libraryID, mItem)
 			if err != nil {
 				return err
 			}
 			result.Added++
 		} else {
 			if shouldWriteFullItem {
-				if err := updateScannedItemTx(ctx, currentTx, table, existing.RefID, mItem); err != nil {
+				if err := updateScannedItem(ctx, dbConn, table, existing.RefID, mItem); err != nil {
 					return err
 				}
 			}
 			result.Updated++
 		}
-		if !shouldIdentify && mItem.MatchStatus == MatchStatusLocal && kind != LibraryTypeMusic {
-			batchGlobalIDs = append(batchGlobalIDs, globalID)
-		}
-
-		enriched := mItem
-		shouldUpdateItem := false
-
-		// Consolidated probe for duration, embedded subtitles, and embedded audio.
-		var probeResult MediaProbeResult
-		probed := false
-		if !SkipFFprobeInScan && probeMedia && kind != LibraryTypeMusic {
-			// Probe if duration missing OR if we want embedded subtitles/audio.
-			if enriched.Duration == 0 || probeEmbeddedSubtitleStreams {
-				res, err := probeMediaFile(ctx, path)
-				if err == nil {
-					probeResult = res
-					probed = true
-				}
-			}
-		}
-
-		if enriched.Duration == 0 && kind != LibraryTypeMusic && probeMedia && !SkipFFprobeInScan {
-			if probed {
-				enriched.Duration = probeResult.Duration
-			} else {
-				enriched.Duration, _ = getMediaDuration(ctx, path)
-			}
-			shouldUpdateItem = enriched.Duration != mItem.Duration
-		}
-		if shouldUpdateItem {
-			if shouldWriteFullItem || kind == LibraryTypeMusic {
-				if err := updateScannedItemTx(ctx, currentTx, table, refID, enriched); err != nil {
-					return err
-				}
-			} else if err := updateMediaDurationTx(ctx, currentTx, table, refID, enriched.Duration); err != nil {
-				return err
-			}
-		}
-
-		if kind == LibraryTypeMusic {
-			batchCount++
-			if batchCount >= LibraryScanBatchSize || time.Since(lastFlush) >= LibraryScanBatchInterval {
-				if err := flushBatch(); err != nil {
-					return err
-				}
-			}
-			if options.Progress != nil {
-				options.Progress(ScanProgress{
-					Processed: result.Added + result.Updated + result.Skipped,
-					Result:    result,
-				})
-			}
-			return nil
-		}
-		if scanSidecarSubtitles {
-			dir := filepath.Dir(path)
-			entries, ok := dirEntriesCache[dir]
-			if !ok {
-				entries, _ = os.ReadDir(dir)
-				dirEntriesCache[dir] = entries
-			}
-			if err := scanForSubtitlesCachedTx(ctx, currentTx, globalID, path, entries); err != nil {
-				log.Printf("scan subtitles for %s: %v", path, err)
-			}
-		}
-
-		var embeddedSubs []EmbeddedSubtitle
-		if probeEmbeddedSubtitleStreams && !SkipFFprobeInScan {
-			if probed {
-				embeddedSubs = probeResult.EmbeddedSubtitles
-			} else {
-				embeddedSubs, _ = probeEmbeddedSubtitles(ctx, path)
-			}
-		}
-		if _, err := currentTx.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, globalID); err != nil {
-			log.Printf("clear embedded_subtitles for media %d: %v", globalID, err)
-		} else {
-			for _, s := range embeddedSubs {
-				if _, err := currentTx.ExecContext(ctx, `INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, s.StreamIndex, s.Language, s.Title); err != nil {
-					log.Printf("insert embedded_subtitles for media %d: %v", globalID, err)
-				}
-			}
-		}
-
-		var embeddedAudioTracks []EmbeddedAudioTrack
-		if probeMedia && !SkipFFprobeInScan {
-			if probed {
-				embeddedAudioTracks = probeResult.EmbeddedAudio
-			} else {
-				embeddedAudioTracks, _ = probeEmbeddedAudioTracks(ctx, path)
-			}
-		}
-		if _, err := currentTx.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, globalID); err != nil {
-			log.Printf("clear embedded_audio_tracks for media %d: %v", globalID, err)
-		} else {
-			for _, track := range embeddedAudioTracks {
-				if _, err := currentTx.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, track.StreamIndex, track.Language, track.Title); err != nil {
-					log.Printf("insert embedded_audio_tracks for media %d: %v", globalID, err)
-				}
-			}
-		}
-
-		batchCount++
-		if batchCount >= LibraryScanBatchSize || time.Since(lastFlush) >= LibraryScanBatchInterval {
-			if err := flushBatch(); err != nil {
-				return err
-			}
-		}
-
 		if options.Progress != nil {
 			options.Progress(ScanProgress{
 				Processed: result.Added + result.Updated + result.Skipped,
@@ -2164,15 +1907,63 @@ func HandleScanLibraryWithOptions(
 			})
 		}
 
+		enriched := mItem
+		shouldUpdateItem := false
+		if enriched.Duration == 0 && kind != LibraryTypeMusic && probeMedia && !SkipFFprobeInScan {
+			if duration, err := getMediaDuration(ctx, path); err == nil {
+				enriched.Duration = duration
+				shouldUpdateItem = enriched.Duration != mItem.Duration
+			}
+		}
+		if shouldUpdateItem {
+			if shouldWriteFullItem || kind == LibraryTypeMusic {
+				if err := updateScannedItem(ctx, dbConn, table, refID, enriched); err != nil {
+					return err
+				}
+			} else if err := updateMediaDuration(ctx, dbConn, table, refID, enriched.Duration); err != nil {
+				return err
+			}
+		}
+
+		if kind == LibraryTypeMusic {
+			return nil
+		}
+		if scanSidecarSubtitles {
+			if err := scanForSubtitles(ctx, dbConn, globalID, path); err != nil {
+				log.Printf("scan subtitles for %s: %v", path, err)
+			}
+		}
+
+		var embeddedSubs []EmbeddedSubtitle
+		if probeEmbeddedSubtitleStreams && !SkipFFprobeInScan {
+			embeddedSubs, _ = probeEmbeddedSubtitles(ctx, path)
+		}
+		if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, globalID); err != nil {
+			log.Printf("clear embedded_subtitles for media %d: %v", globalID, err)
+		} else {
+			for _, s := range embeddedSubs {
+				if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, s.StreamIndex, s.Language, s.Title); err != nil {
+					log.Printf("insert embedded_subtitles for media %d: %v", globalID, err)
+				}
+			}
+		}
+
+		var embeddedAudioTracks []EmbeddedAudioTrack
+		if probeMedia && !SkipFFprobeInScan {
+			embeddedAudioTracks, _ = probeEmbeddedAudioTracks(ctx, path)
+		}
+		if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, globalID); err != nil {
+			log.Printf("clear embedded_audio_tracks for media %d: %v", globalID, err)
+		} else {
+			for _, track := range embeddedAudioTracks {
+				if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, globalID, track.StreamIndex, track.Language, track.Title); err != nil {
+					log.Printf("insert embedded_audio_tracks for media %d: %v", globalID, err)
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
-		if currentTx != nil {
-			_ = currentTx.Rollback()
-		}
-		return result, err
-	}
-	if err := flushBatch(); err != nil {
 		return result, err
 	}
 	removed, err := pruneMissingMedia(ctx, dbConn, table, kind, libraryID, seenPaths)
@@ -2360,53 +2151,65 @@ func lookupExistingMedia(dbConn *sql.DB, table, kind string, libraryID int, path
 	return row, nil
 }
 
-func insertScannedItemTx(ctx context.Context, tx *sql.Tx, table, kind string, libraryID int, mItem MediaItem) (int, int, error) {
+func insertScannedItem(ctx context.Context, dbConn *sql.DB, table, kind string, libraryID int, mItem MediaItem) (int, int, error) {
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	var refID int
 	if table == "music_tracks" {
-		err := tx.QueryRowContext(ctx, `INSERT INTO music_tracks (library_id, title, path, duration, match_status, artist, album, album_artist, disc_number, track_number, release_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		err = tx.QueryRowContext(ctx, `INSERT INTO music_tracks (library_id, title, path, duration, match_status, artist, album, album_artist, disc_number, track_number, release_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, nullStr(mItem.Artist), nullStr(mItem.Album), nullStr(mItem.AlbumArtist), mItem.DiscNumber, mItem.TrackNumber, mItem.ReleaseYear).Scan(&refID)
 		if err != nil {
+			_ = tx.Rollback()
 			return 0, 0, err
 		}
 	} else if table == "tv_episodes" || table == "anime_episodes" {
-		err := tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating, season, episode, metadata_review_needed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		err = tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating, season, episode, metadata_review_needed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating), mItem.Season, mItem.Episode, mItem.MetadataReviewNeeded).Scan(&refID)
 		if err != nil {
+			_ = tx.Rollback()
 			return 0, 0, err
 		}
 	} else {
-		err := tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		err = tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating)).Scan(&refID)
 		if err != nil {
+			_ = tx.Rollback()
 			return 0, 0, err
 		}
 	}
 	var globalID int
-	err := tx.QueryRowContext(ctx, `INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, kind, refID).Scan(&globalID)
+	err = tx.QueryRowContext(ctx, `INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, kind, refID).Scan(&globalID)
 	if err != nil {
+		_ = tx.Rollback()
+		return 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, 0, err
 	}
 	return refID, globalID, nil
 }
 
-func updateScannedItemTx(ctx context.Context, tx *sql.Tx, table string, refID int, mItem MediaItem) error {
+func updateScannedItem(ctx context.Context, dbConn *sql.DB, table string, refID int, mItem MediaItem) error {
 	if table == "music_tracks" {
-		_, err := tx.ExecContext(ctx, `UPDATE music_tracks SET title = ?, path = ?, duration = ?, match_status = ?, artist = ?, album = ?, album_artist = ?, disc_number = ?, track_number = ?, release_year = ? WHERE id = ?`,
+		_, err := dbConn.ExecContext(ctx, `UPDATE music_tracks SET title = ?, path = ?, duration = ?, match_status = ?, artist = ?, album = ?, album_artist = ?, disc_number = ?, track_number = ?, release_year = ? WHERE id = ?`,
 			mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, nullStr(mItem.Artist), nullStr(mItem.Album), nullStr(mItem.AlbumArtist), mItem.DiscNumber, mItem.TrackNumber, mItem.ReleaseYear, refID)
 		return err
 	}
 	if table == "tv_episodes" || table == "anime_episodes" {
-		_, err := tx.ExecContext(ctx, `UPDATE `+table+` SET title = ?, path = ?, duration = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ?, season = ?, episode = ?, metadata_review_needed = ? WHERE id = ?`,
+		_, err := dbConn.ExecContext(ctx, `UPDATE `+table+` SET title = ?, path = ?, duration = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ?, season = ?, episode = ?, metadata_review_needed = ? WHERE id = ?`,
 			mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating), mItem.Season, mItem.Episode, mItem.MetadataReviewNeeded, refID)
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE `+table+` SET title = ?, path = ?, duration = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ? WHERE id = ?`,
+	_, err := dbConn.ExecContext(ctx, `UPDATE `+table+` SET title = ?, path = ?, duration = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ? WHERE id = ?`,
 		mItem.Title, mItem.Path, mItem.Duration, mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating), refID)
 	return err
 }
 
-func updateMediaDurationTx(ctx context.Context, tx *sql.Tx, table string, refID int, duration int) error {
-	_, err := tx.ExecContext(ctx, `UPDATE `+table+` SET duration = ? WHERE id = ?`, duration, refID)
+func updateMediaDuration(ctx context.Context, dbConn *sql.DB, table string, refID int, duration int) error {
+	_, err := dbConn.ExecContext(ctx, `UPDATE `+table+` SET duration = ? WHERE id = ?`, duration, refID)
 	return err
 }
 

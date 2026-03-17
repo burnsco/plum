@@ -108,7 +108,7 @@ func (c *TMDBClient) GetMovie(ctx context.Context, movieID string) (*MatchResult
 	if err != nil {
 		return nil, err
 	}
-	detail, err := c.getMovieDetails(ctx, id)
+	detail, err := c.getMovieDetails(id)
 	if err != nil || detail == nil {
 		return nil, err
 	}
@@ -122,11 +122,11 @@ func (c *TMDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 	if err != nil {
 		return nil, err
 	}
-	ep, err := c.getEpisodeDetails(ctx, tvID, season, episode)
+	ep, err := c.getEpisodeDetails(tvID, season, episode)
 	if err != nil {
 		return nil, err
 	}
-	series, _ := c.getTVDetails(ctx, tvID)
+	series, _ := c.getTVDetails(tvID)
 	posterPath := ep.PosterPath
 	if posterPath == "" && series != nil {
 		posterPath = series.PosterPath
@@ -171,7 +171,7 @@ func (c *TMDBClient) tmdbResultToMatch(r TMDBResult, title, releaseDate string) 
 	}
 }
 
-func (c *TMDBClient) getTVDetails(ctx context.Context, id int) (*TMDBResult, error) {
+func (c *TMDBClient) getTVDetails(id int) (*TMDBResult, error) {
 	c.mu.RLock()
 	if cached, ok := c.tvDetails[id]; ok {
 		c.mu.RUnlock()
@@ -179,11 +179,7 @@ func (c *TMDBClient) getTVDetails(ctx context.Context, id int) (*TMDBResult, err
 	}
 	c.mu.RUnlock()
 	u := fmt.Sprintf("%s/tv/%d?api_key=%s", tmdbBaseURL, id, c.APIKey)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get(u)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +194,7 @@ func (c *TMDBClient) getTVDetails(ctx context.Context, id int) (*TMDBResult, err
 	return &res, nil
 }
 
-func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*TMDBResult, error) {
+func (c *TMDBClient) getMovieDetails(id int) (*TMDBResult, error) {
 	c.mu.RLock()
 	if cached, ok := c.movieDetails[id]; ok {
 		c.mu.RUnlock()
@@ -206,11 +202,7 @@ func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*TMDBResult, 
 	}
 	c.mu.RUnlock()
 	u := fmt.Sprintf("%s/movie/%d?api_key=%s", tmdbBaseURL, id, c.APIKey)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get(u)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +219,7 @@ func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*TMDBResult, 
 
 // GetSeriesDetails returns TV series metadata by TMDB ID for the show-detail UI.
 func (c *TMDBClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesDetails, error) {
-	detail, err := c.getTVDetails(ctx, tmdbID)
+	detail, err := c.getTVDetails(tmdbID)
 	if err != nil || detail == nil {
 		return nil, err
 	}
@@ -293,13 +285,9 @@ func (c *TMDBClient) getIMDbID(ctx context.Context, endpoint string) (string, er
 	return payload.IMDbID, nil
 }
 
-func (c *TMDBClient) getEpisodeDetails(ctx context.Context, tvID, season, episode int) (*TMDBResult, error) {
+func (c *TMDBClient) getEpisodeDetails(tvID, season, episode int) (*TMDBResult, error) {
 	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s", tmdbBaseURL, tvID, season, episode, c.APIKey)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get(u)
 	if err != nil {
 		return nil, err
 	}

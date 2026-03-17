@@ -7,7 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { Library, LibraryScanStatus } from "../api";
+import type { Library } from "../api";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
 import { LibraryPosterGrid, type PosterGridItem } from "../components/LibraryPosterGrid";
 import { MusicLibraryView } from "../components/MusicLibraryView";
@@ -29,32 +29,24 @@ const isExplicitlyUnmatched = (matchStatus?: string) =>
   matchStatus === "local" || matchStatus === "unmatched";
 
 function canShowFailureState(
-  scanStatus: LibraryScanStatus | undefined,
   identifyPhase: IdentifyLibraryPhase | undefined,
   isFetching: boolean,
+  identifyFailedCount: number,
 ) {
-  if (isFetching) return false;
-  const isScanning = scanStatus?.phase === "queued" || scanStatus?.phase === "scanning";
-  const hasPendingIdentify = (scanStatus?.identifyPending ?? 0) > 0 || (scanStatus?.identifyInFlight ?? 0) > 0;
-  if (isScanning || hasPendingIdentify) return false;
-
   return (
-    identifyPhase === "identify-failed" ||
-    (identifyPhase === "complete" && (scanStatus?.identifyFailed ?? 0) > 0)
+    !isFetching &&
+    (identifyPhase === "identify-failed" ||
+      (identifyPhase === "complete" && identifyFailedCount > 0))
   );
 }
 
 function shouldDeferIncompleteCard(
-  scanStatus: LibraryScanStatus | undefined,
   identifyPhase: IdentifyLibraryPhase | undefined,
   shouldRevealSearchingCards: boolean,
 ) {
-  const isIdentifying =
-    identifyPhase === "queued" ||
-    identifyPhase === "identifying" ||
-    (scanStatus?.identifyPending ?? 0) > 0 ||
-    (scanStatus?.identifyInFlight ?? 0) > 0;
-  return isIdentifying && !shouldRevealSearchingCards;
+  return (
+    identifyPhase === "queued" || (identifyPhase === "identifying" && !shouldRevealSearchingCards)
+  );
 }
 
 function mapBackendIdentifyPhase(phase?: string): IdentifyLibraryPhase | undefined {
@@ -146,9 +138,9 @@ export function Home() {
   }, [libraryIdParam, libraries, navigate]);
 
   const selectedLibraryCanShowFailure = canShowFailureState(
-    selectedLibraryScanStatus,
     selectedLibraryIdentifyPhase,
     selectedFetching,
+    selectedLibraryScanStatus?.identifyFailed ?? 0,
   );
   const hasIdentifyProgress = selectedItems.some(
     (item) => item.match_status === "identified" || hasProviderMatch(item.tmdb_id, item.tvdb_id),
@@ -157,7 +149,6 @@ export function Home() {
     selectedLibraryIdentifyPhase === "soft-reveal" ||
     (selectedLibraryIdentifyPhase === "identifying" && hasIdentifyProgress);
   const deferIncompleteCards = shouldDeferIncompleteCard(
-    selectedLibraryScanStatus,
     selectedLibraryIdentifyPhase,
     shouldRevealSearchingCards,
   );

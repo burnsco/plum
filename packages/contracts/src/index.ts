@@ -359,9 +359,6 @@ export interface LibraryScanStatus {
   identifyPhase: LibraryIdentifyPhase;
   identified: number;
   identifyFailed: number;
-  identifyPending: number;
-  identifyInFlight: number;
-  identifyCompletedBatches: number;
   processed: number;
   added: number;
   updated: number;
@@ -384,9 +381,6 @@ export const LibraryScanStatusSchema = Schema.Struct({
   identifyPhase: LibraryIdentifyPhaseSchema,
   identified: Schema.Number,
   identifyFailed: Schema.Number,
-  identifyPending: Schema.Number,
-  identifyInFlight: Schema.Number,
-  identifyCompletedBatches: Schema.Number,
   processed: Schema.Number,
   added: Schema.Number,
   updated: Schema.Number,

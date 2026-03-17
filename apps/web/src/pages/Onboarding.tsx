@@ -165,7 +165,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
         type: libraryType,
         path: libraryPath.trim(),
       });
-      const status = await startLibraryScan(lib.id, { identify: true });
+      const status = await startLibraryScan(lib.id, { identify: false });
       setAddedLibraries((prev) => [
         ...prev,
         mergeLibraryScanStatus(
@@ -221,7 +221,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
       const scannedLibraries = await Promise.all(
         createdLibraries.map(async (library) => {
           try {
-            const status = await startLibraryScan(library.id, { identify: true });
+            const status = await startLibraryScan(library.id, { identify: false });
             return mergeLibraryScanStatus(library, status);
           } catch {
             // Path may not exist (e.g. /anime not mounted); library is still created.

@@ -117,42 +117,13 @@ func ShowRootPath(libraryRoot, episodePath string) string {
 	return filepath.Join(libraryRoot, firstSegment)
 }
 
-type ShowNFOCacheEntry struct {
-	TMDBID int
-	TVDBID string
-	OK     bool
-}
-
 // ApplyShowNFO sets info.TMDBID and info.TVDBID from tvshow.nfo when present.
 // showRootPath is the show folder path (e.g. from ShowRootPath).
 func ApplyShowNFO(info *MediaInfo, showRootPath string) {
-	ApplyShowNFOCached(info, showRootPath, nil)
-}
-
-// ApplyShowNFOCached sets info.TMDBID and info.TVDBID from tvshow.nfo when present,
-// using a provided cache map to avoid repeated filesystem work.
-func ApplyShowNFOCached(info *MediaInfo, showRootPath string, cache map[string]ShowNFOCacheEntry) {
 	if info == nil || showRootPath == "" {
 		return
 	}
-
-	var tmdb int
-	var tvdb string
-	var ok bool
-
-	if cache != nil {
-		if entry, hit := cache[showRootPath]; hit {
-			tmdb = entry.TMDBID
-			tvdb = entry.TVDBID
-			ok = entry.OK
-		} else {
-			tmdb, tvdb, ok = ReadShowNFO(showRootPath)
-			cache[showRootPath] = ShowNFOCacheEntry{TMDBID: tmdb, TVDBID: tvdb, OK: ok}
-		}
-	} else {
-		tmdb, tvdb, ok = ReadShowNFO(showRootPath)
-	}
-
+	tmdb, tvdb, ok := ReadShowNFO(showRootPath)
 	if !ok {
 		return
 	}

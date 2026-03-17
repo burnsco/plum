@@ -1030,8 +1030,10 @@ func TestLibraryScanManager_RequeueDoesNotDuplicateQueuedJob(t *testing.T) {
 	}
 
 	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
-	scanJobs.MaxConcurrentScans = 1
-	scanJobs.start(1, bigRoot, db.LibraryTypeTV, false)
+	bigStatus := scanJobs.start(1, bigRoot, db.LibraryTypeTV, false)
+	if bigStatus.Phase == "" {
+		t.Fatal("expected big status")
+	}
 
 	firstQueued := scanJobs.start(2, smallRoot, db.LibraryTypeTV, false)
 	secondQueued := scanJobs.start(2, smallRoot, db.LibraryTypeTV, false)

@@ -108,5 +108,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
 }
 
 export function useWs() {
-  return useContext(WsContext);
+  const ctx = useContext(WsContext);
+  if (!ctx) throw new Error("useWs must be used within WsProvider");
+  return ctx;
 }

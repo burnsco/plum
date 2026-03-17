@@ -1,16 +1,22 @@
 import { Effect } from "effect";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadAuthSessionEffect, runIdentifyLibraryTask } from "@plum/shared";
+import { loadAuthSessionEffect } from "@plum/shared";
 import * as api from "./api";
 import App from "./App";
 
-vi.mock("@plum/shared", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@plum/shared")>();
+vi.mock("@plum/shared", async () => {
+  const actual = await vi.importActual<typeof import("@plum/shared")>("@plum/shared");
+  const webApi = await vi.importActual<typeof import("./api")>("./api");
   return {
     ...actual,
     loadAuthSessionEffect: vi.fn(),
-    runIdentifyLibraryTask: vi.fn(),
+    runIdentifyLibraryTask: vi.fn(
+      (
+        _client: unknown,
+        options: { libraryId: number; signal?: AbortSignal; timeoutMs: number },
+      ) => webApi.identifyLibrary(options.libraryId, { signal: options.signal }),
+    ),
   };
 });
 
@@ -101,9 +107,6 @@ describe("App library and player wiring", () => {
       identifyPhase: "idle",
       identified: 0,
       identifyFailed: 0,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 0,
       processed: 0,
       added: 0,
       updated: 0,
@@ -121,9 +124,6 @@ describe("App library and player wiring", () => {
       identifyPhase: "idle",
       identified: 0,
       identifyFailed: 0,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 0,
       processed: 0,
       added: 0,
       updated: 0,
@@ -136,10 +136,6 @@ describe("App library and player wiring", () => {
       startedAt: new Date().toISOString(),
     }));
     vi.spyOn(api, "identifyLibrary").mockResolvedValue({ identified: 0, failed: 0 });
-    vi.mocked(runIdentifyLibraryTask).mockImplementation(
-      (_client: unknown, options: { libraryId: number; signal?: AbortSignal; timeoutMs: number }) =>
-        api.identifyLibrary(options.libraryId, { signal: options.signal }),
-    );
     vi.spyOn(api, "confirmShow").mockResolvedValue({ updated: 1 });
     vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId, payload) => ({
       sessionId: `session-${mediaId}`,
@@ -247,6 +243,8 @@ describe("App library and player wiring", () => {
   });
 
   it("reveals hard TV cards as searching once easier matches appear", async () => {
+    const identifyRequest = deferred<{ identified: number; failed: number }>();
+
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
     ]);
@@ -274,28 +272,14 @@ describe("App library and player wiring", () => {
         episode: 1,
       },
     ]);
-    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
-      libraryId: 1,
-      phase: "scanning",
-      enriching: false,
-      identifyPhase: "identifying",
-      identified: 1,
-      identifyFailed: 0,
-      identifyPending: 1,
-      identifyInFlight: 1,
-      identifyCompletedBatches: 1,
-      processed: 2,
-      added: 2,
-      updated: 0,
-      removed: 0,
-      unmatched: 0,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 2,
-      queuePosition: 0,
-    });
+    vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
     renderApp();
+
+    await waitFor(() => {
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(api.identifyLibrary).mock.calls[0]?.[0]).toBe(1);
 
     expect(await screen.findByRole("link", { name: /Matched Show/i })).toBeTruthy();
     const searchingCard = await screen.findByRole("link", { name: /Searching Show/i });
@@ -303,6 +287,8 @@ describe("App library and player wiring", () => {
   });
 
   it("shows an identifying placeholder when every movie card is still deferred", async () => {
+    const identifyRequest = deferred<{ identified: number; failed: number }>();
+
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
     ]);
@@ -316,28 +302,14 @@ describe("App library and player wiring", () => {
         match_status: "unmatched",
       },
     ]);
-    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
-      libraryId: 2,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "identifying",
-      identified: 0,
-      identifyFailed: 0,
-      identifyPending: 1,
-      identifyInFlight: 1,
-      identifyCompletedBatches: 0,
-      processed: 1,
-      added: 1,
-      updated: 0,
-      removed: 0,
-      unmatched: 1,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 1,
-      queuePosition: 0,
-    });
+    vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
     renderApp();
+
+    await waitFor(() => {
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(api.identifyLibrary).mock.calls[0]?.[0]).toBe(2);
 
     expect(await screen.findByText("Identifying library…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Die My Love$/i })).not.toBeInTheDocument();
@@ -410,36 +382,75 @@ describe("App library and player wiring", () => {
       { id: 3, name: "Music", type: "music", path: "/music", user_id: 1 },
     ]);
     vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([]);
-    vi.spyOn(api, "getLibraryScanStatus").mockImplementation(async (libraryId) => ({
-      libraryId,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: libraryId === 3 ? "idle" : "identifying",
-      identified: 0,
-      identifyFailed: 0,
-      identifyPending: libraryId === 3 ? 0 : 1,
-      identifyInFlight: libraryId === 3 ? 0 : 1,
-      identifyCompletedBatches: 0,
-      processed: 0,
-      added: 0,
-      updated: 0,
-      removed: 0,
-      unmatched: 0,
-      skipped: 0,
-      identifyRequested: libraryId !== 3,
-      estimatedItems: 0,
-      queuePosition: 0,
-    }));
+    const firstIdentify = deferred<{ identified: number; failed: number }>();
+    const secondIdentify = deferred<{ identified: number; failed: number }>();
+    const thirdIdentify = deferred<{ identified: number; failed: number }>();
+    vi.mocked(api.identifyLibrary)
+      .mockImplementationOnce(() => firstIdentify.promise)
+      .mockImplementationOnce(() => secondIdentify.promise)
+      .mockImplementationOnce(() => thirdIdentify.promise);
 
     renderApp();
 
     await waitFor(() => {
-      expect(screen.getByTestId("library-identifying-1")).toBeTruthy();
-      expect(screen.getByTestId("library-identifying-2")).toBeTruthy();
-      expect(screen.getByTestId("library-identifying-4")).toBeTruthy();
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(3);
     });
-    expect(screen.queryByTestId("library-identifying-3")).not.toBeInTheDocument();
+    expect(identifyLibraryIds()).toEqual(expect.arrayContaining([1, 2, 4]));
+    expect(identifyLibraryIds()).not.toContain(3);
+
+    await act(async () => {
+      firstIdentify.resolve({ identified: 1, failed: 0 });
+      secondIdentify.resolve({ identified: 1, failed: 0 });
+      thirdIdentify.resolve({ identified: 1, failed: 0 });
+      await Promise.resolve();
+    });
   });
+
+  it("times out a hung identify request without blocking the next library", async () => {
+    vi.useFakeTimers();
+
+    try {
+      vi.spyOn(api, "listLibraries").mockResolvedValue([
+        { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+        { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+      ]);
+      vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([]);
+      vi.mocked(api.identifyLibrary)
+        .mockImplementationOnce(
+          (_libraryId, options) =>
+            new Promise((_resolve, reject) => {
+              options?.signal?.addEventListener("abort", () => {
+                reject(new DOMException("Aborted", "AbortError"));
+              });
+            }),
+        )
+        .mockResolvedValueOnce({ identified: 0, failed: 0 });
+
+      await act(async () => {
+        renderApp();
+        await vi.advanceTimersByTimeAsync(1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+        await Promise.resolve();
+      });
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
+      expect(identifyLibraryIds()).toEqual([1, 2]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
+      expect(identifyLibraryIds()).toEqual([1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 10_000);
 
   it("navigates to show detail and shows episode list with Play", async () => {
     vi.spyOn(api, "listLibraries").mockResolvedValue([
@@ -596,8 +607,9 @@ describe("App library and player wiring", () => {
     expect(api.createPlaybackSession).not.toHaveBeenCalled();
   });
 
-  it("retries identify after a failed first attempt", async () => {
-    const identifyRequest = deferred<{ identified: number; failed: number }>();
+  it("retries auto-identify after a failed first attempt", async () => {
+    const firstIdentify = deferred<{ identified: number; failed: number }>();
+    const secondIdentify = deferred<{ identified: number; failed: number }>();
 
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
@@ -629,197 +641,88 @@ describe("App library and player wiring", () => {
           episode: 1,
         },
       ]);
-    vi.spyOn(api, "getLibraryScanStatus")
-      .mockResolvedValueOnce({
-        libraryId: 1,
-        phase: "idle",
-        enriching: false,
-        identifyPhase: "failed",
-        identified: 0,
-        identifyFailed: 1,
-        identifyPending: 0,
-        identifyInFlight: 0,
-        identifyCompletedBatches: 0,
-        processed: 1,
-        added: 1,
-        updated: 0,
-        removed: 0,
-        unmatched: 1,
-        skipped: 0,
-        identifyRequested: true,
-        estimatedItems: 1,
-        queuePosition: 0,
-      })
-      .mockResolvedValue({
-        libraryId: 1,
-        phase: "idle",
-        enriching: false,
-        identifyPhase: "identifying",
-        identified: 0,
-        identifyFailed: 0,
-        identifyPending: 1,
-        identifyInFlight: 1,
-        identifyCompletedBatches: 0,
-        processed: 1,
-        added: 1,
-        updated: 0,
-        removed: 0,
-        unmatched: 1,
-        skipped: 0,
-        identifyRequested: true,
-        estimatedItems: 1,
-        queuePosition: 0,
+    vi.mocked(api.identifyLibrary)
+      .mockImplementationOnce(() => firstIdentify.promise)
+      .mockImplementationOnce(() => secondIdentify.promise);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1);
+    });
+    expect(await screen.findByText("Identifying library…")).toBeTruthy();
+
+    firstIdentify.reject(new Error("temporary failure"));
+
+    await waitFor(() => {
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
+    });
+
+    secondIdentify.resolve({ identified: 1, failed: 0 });
+
+    await waitFor(() => {
+      expect(api.fetchLibraryMedia).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByRole("link", { name: /Retry Show/i })).toBeTruthy();
+  });
+
+  it("shows sidebar activity, soft reveal, and hard-timeout failure for deferred cards", async () => {
+    vi.useFakeTimers();
+
+    try {
+      vi.spyOn(api, "listLibraries").mockResolvedValue([
+        { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+      ]);
+      vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+        {
+          id: 42,
+          title: "Missing Show - S01E01 - Pilot",
+          path: "/tv/Missing Show/S01E01.mkv",
+          duration: 1800,
+          type: "tv",
+          match_status: "local",
+          season: 1,
+          episode: 1,
+        },
+      ]);
+      vi.spyOn(api, "searchSeries").mockResolvedValue([]);
+      vi.mocked(api.identifyLibrary).mockImplementation(
+        (_libraryId, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          }),
+      );
+
+      await act(async () => {
+        renderApp();
+        await Promise.resolve();
+        await Promise.resolve();
       });
 
-    vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
 
-    renderApp();
+      expect(screen.getByTestId("library-identifying-1")).toBeTruthy();
+      const softRevealCard = screen.getByRole("link", { name: /Missing Show/i });
+      expect(within(softRevealCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
 
-    const retryButton = await screen.findByRole("button", { name: /Identify manually/i });
-    fireEvent.click(retryButton);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
 
-    expect(await screen.findByRole("heading", { name: /Identify show/i })).toBeTruthy();
-  });
-
-  it("shows sidebar activity, reveal, and failure for deferred cards based on scan status", async () => {
-    vi.spyOn(api, "listLibraries").mockResolvedValue([
-      { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
-    ]);
-    const fetchLibraryMedia = vi.spyOn(api, "fetchLibraryMedia");
-    fetchLibraryMedia.mockResolvedValue([
-      {
-        id: 42,
-        title: "Missing Show - S01E01 - Pilot",
-        path: "/tv/Missing Show/S01E01.mkv",
-        duration: 1800,
-        type: "tv",
-        match_status: "local",
-        season: 1,
-        episode: 1,
-      },
-    ]);
-    const getLibraryScanStatus = vi.spyOn(api, "getLibraryScanStatus");
-
-    // 1. Initial identifying state - deferred
-    getLibraryScanStatus.mockResolvedValue({
-      libraryId: 1,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "identifying",
-      identified: 0,
-      identifyFailed: 0,
-      identifyPending: 1,
-      identifyInFlight: 1,
-      identifyCompletedBatches: 0,
-      processed: 1,
-      added: 1,
-      updated: 0,
-      removed: 0,
-      unmatched: 1,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 1,
-      queuePosition: 0,
-    });
-
-    renderApp();
-
-    expect(await screen.findByTestId("library-identifying-1")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: /Missing Show/i })).not.toBeInTheDocument();
-
-    // 2. Some progress made - reveal as searching
-    // We update the mock and trigger a re-render by invalidating queries (simulated here by waiting for poll)
-    fetchLibraryMedia.mockResolvedValue([
-      {
-        id: 42,
-        title: "Missing Show - S01E01 - Pilot",
-        path: "/tv/Missing Show/S01E01.mkv",
-        duration: 1800,
-        type: "tv",
-        match_status: "local",
-        season: 1,
-        episode: 1,
-      },
-      {
-        id: 43,
-        title: "Matched Show - S01E01 - Pilot",
-        path: "/tv/Matched Show/S01E01.mkv",
-        duration: 1800,
-        type: "tv",
-        match_status: "identified",
-        tmdb_id: 200,
-        poster_path: "/poster.jpg",
-        season: 1,
-        episode: 1,
-      },
-    ]);
-
-    // Force a re-render of Home component by waiting for the Matched Show to appear.
-    // In Home.tsx, hasIdentifyProgress will become true once Matched Show is in selectedItems.
-    await waitFor(
-      () => {
-        expect(screen.queryByRole("link", { name: /Missing Show/i })).toBeTruthy();
-      },
-      { timeout: 5000 },
-    );
-
-    const searchingCard = screen.getByRole("link", { name: /Missing Show/i });
-    expect(within(searchingCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
-
-    // 3. Final failure state
-    fetchLibraryMedia.mockResolvedValue([
-      {
-        id: 42,
-        title: "Missing Show - S01E01 - Pilot",
-        path: "/tv/Missing Show/S01E01.mkv",
-        duration: 1800,
-        type: "tv",
-        match_status: "unmatched",
-        season: 1,
-        episode: 1,
-      },
-      {
-        id: 43,
-        title: "Matched Show - S01E01 - Pilot",
-        path: "/tv/Matched Show/S01E01.mkv",
-        duration: 1800,
-        type: "tv",
-        match_status: "identified",
-        tmdb_id: 200,
-        poster_path: "/poster.jpg",
-        season: 1,
-        episode: 1,
-      },
-    ]);
-    getLibraryScanStatus.mockResolvedValue({
-      libraryId: 1,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "failed",
-      identified: 1,
-      identifyFailed: 1,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 1,
-      processed: 2,
-      added: 2,
-      updated: 0,
-      removed: 0,
-      unmatched: 1,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 2,
-      queuePosition: 0,
-    });
-
-    await waitFor(
-      () => {
-        expect(screen.queryByText("Couldn't match automatically")).toBeTruthy();
-      },
-      { timeout: 5000 },
-    );
-    expect(screen.getByRole("button", { name: /Identify manually/i })).toBeTruthy();
-  });
+      expect(screen.getByText("Couldn't match automatically")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Identify manually/i })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 10_000);
 
   it("shows a terminal TV failure state with manual identify action", async () => {
     vi.spyOn(api, "listLibraries").mockResolvedValue([
@@ -838,26 +741,7 @@ describe("App library and player wiring", () => {
       },
     ]);
     vi.spyOn(api, "searchSeries").mockResolvedValue([]);
-    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
-      libraryId: 1,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "failed",
-      identified: 0,
-      identifyFailed: 1,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 0,
-      processed: 1,
-      added: 1,
-      updated: 0,
-      removed: 0,
-      unmatched: 1,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 1,
-      queuePosition: 0,
-    });
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 });
 
     renderApp();
 
@@ -898,29 +782,12 @@ describe("App library and player wiring", () => {
       },
     ]);
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
-    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
-      libraryId: 1,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "completed",
-      identified: 1,
-      identifyFailed: 0,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 1,
-      processed: 1,
-      added: 1,
-      updated: 0,
-      removed: 0,
-      unmatched: 0,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 1,
-      queuePosition: 0,
-    });
 
     renderApp();
 
+    await waitFor(() => {
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
+    });
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -946,27 +813,8 @@ describe("App library and player wiring", () => {
         match_status: "unmatched",
       },
     ]);
-    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
-      libraryId: 2,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "failed",
-      identified: 0,
-      identifyFailed: 1,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 0,
-      processed: 1,
-      added: 1,
-      updated: 0,
-      removed: 0,
-      unmatched: 1,
-      skipped: 0,
-      identifyRequested: true,
-      estimatedItems: 1,
-      queuePosition: 0,
-    });
     vi.mocked(api.identifyLibrary)
+      .mockResolvedValueOnce({ identified: 0, failed: 1 })
       .mockImplementationOnce(() => retryIdentify.promise);
 
     renderApp();
@@ -976,9 +824,9 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Retry identify/i }));
 
     await waitFor(() => {
-      expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
     });
-    expect(identifyLibraryIds()).toEqual([2]);
+    expect(identifyLibraryIds()).toEqual([2, 2]);
 
     await act(async () => {
       retryIdentify.resolve({ identified: 0, failed: 1 });
@@ -1180,9 +1028,6 @@ describe("App library and player wiring", () => {
       identifyPhase: "idle",
       identified: 0,
       identifyFailed: 0,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 0,
       processed: 0,
       added: 0,
       updated: 0,
@@ -1227,7 +1072,7 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Add library$/i }));
 
     await waitFor(() => {
-      expect(api.startLibraryScan).toHaveBeenCalledWith(10, { identify: true });
+      expect(api.startLibraryScan).toHaveBeenCalledWith(10, { identify: false });
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Finish setup/i }));
@@ -1255,9 +1100,6 @@ describe("App library and player wiring", () => {
       identifyPhase: "idle",
       identified: 0,
       identifyFailed: 0,
-      identifyPending: 0,
-      identifyInFlight: 0,
-      identifyCompletedBatches: 0,
       processed: 0,
       added: 0,
       updated: 0,
@@ -1296,10 +1138,10 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add default libraries and continue/i }));
 
     await waitFor(() => {
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11, { identify: true });
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(2, 12, { identify: true });
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(3, 13, { identify: true });
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14, { identify: true });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(2, 12, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(3, 13, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14, { identify: false });
     });
 
     expect(await screen.findByText(/No media in this library yet/i)).toBeTruthy();

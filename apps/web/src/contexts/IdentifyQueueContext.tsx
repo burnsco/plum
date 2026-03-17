@@ -238,6 +238,18 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
       if (!activeIds.has(libraryId)) identifyControllersRef.current.delete(libraryId);
     }
 
+    for (const libraryId of identifyOrderRef.current) {
+      const scanStatus = getLibraryScanStatus(libraryId);
+      const scanPhase = scanStatus?.phase;
+      if (scanPhase === "queued" || scanPhase === "scanning") continue;
+      if (scanStatus?.identifyRequested) continue;
+      const identifyPhase = identifyPhasesRef.current.get(libraryId);
+      if (identifyPhase != null) continue;
+      if (queuedLibsRef.current.has(libraryId)) continue;
+      queuedLibsRef.current.add(libraryId);
+      setLibraryIdentifyPhase(libraryId, "queued");
+    }
+
     void pumpIdentifyQueue();
   }, [getLibraryScanStatus, libraries, pumpIdentifyQueue, routeLibraryId, setLibraryIdentifyPhase]);
 

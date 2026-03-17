@@ -44,9 +44,9 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <WsProvider>
-          <ScanQueueProvider>
-            <IdentifyQueueProvider>
+        <ScanQueueProvider>
+          <IdentifyQueueProvider>
+            <WsProvider>
               <PlayerProvider>
                 <Routes>
                   <Route path="/" element={<MainLayout />}>
@@ -57,9 +57,9 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
                   </Route>
                 </Routes>
               </PlayerProvider>
-            </IdentifyQueueProvider>
-          </ScanQueueProvider>
-        </WsProvider>
+            </WsProvider>
+          </IdentifyQueueProvider>
+        </ScanQueueProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

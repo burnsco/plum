@@ -29,8 +29,8 @@ RUN bun install --frozen-lockfile
 COPY apps ./apps
 COPY packages ./packages
 EXPOSE 5173
-# Remove redundant bun install at runtime
-CMD ["bun", "run", "--cwd", "apps/web", "dev"]
+# bun install --offline is fast and ensures node_modules are linked correctly for the environment
+CMD ["sh", "-c", "bun install --offline && bun run dev:web"]
 
 # Stage: test — test runner
 FROM base AS test

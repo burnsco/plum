@@ -401,13 +401,6 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 	if len(rows) == 0 {
 		return identifyResult{Identified: 0, Failed: 0}, nil
 	}
-	return h.identifyBatch(ctx, libraryID, rows)
-}
-
-func (h *LibraryHandler) identifyBatch(ctx context.Context, libraryID int, rows []db.IdentificationRow) (identifyResult, error) {
-	if len(rows) == 0 {
-		return identifyResult{Identified: 0, Failed: 0}, nil
-	}
 	var libraryPath string
 	_ = h.DB.QueryRow(`SELECT path FROM libraries WHERE id = ?`, libraryID).Scan(&libraryPath)
 	identified, failed := 0, 0
@@ -415,14 +408,11 @@ func (h *LibraryHandler) identifyBatch(ctx context.Context, libraryID int, rows 
 	for _, row := range rows {
 		initialJobs = append(initialJobs, identifyJob{row: row})
 	}
-
-	nfoCache := make(map[string]metadata.ShowNFOCacheEntry)
-
-	initialIdentified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryPath, initialJobs, nfoCache)
-	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryPath, retryJobs, nfoCache)
+	initialIdentified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryPath, initialJobs)
+	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryPath, retryJobs)
 	identified += initialIdentified + retryIdentified
 
-	fallbackIdentified, fallbackFailed := h.identifyAnimeFallbacks(ctx, libraryPath, append(initialFailed, retryFailed...), nfoCache)
+	fallbackIdentified, fallbackFailed := h.identifyAnimeFallbacks(ctx, libraryPath, append(initialFailed, retryFailed...))
 	identified += fallbackIdentified
 	failed += fallbackFailed
 
@@ -433,7 +423,6 @@ func (h *LibraryHandler) runIdentifyJobs(
 	ctx context.Context,
 	libraryPath string,
 	jobsToRun []identifyJob,
-	nfoCache map[string]metadata.ShowNFOCacheEntry,
 ) (identified int, retryJobs []identifyJob, failed []identifyJobResult) {
 	if len(jobsToRun) == 0 {
 		return 0, nil, nil
@@ -463,7 +452,7 @@ func (h *LibraryHandler) runIdentifyJobs(
 					if !ok {
 						return
 					}
-					results <- h.identifyLibraryJob(ctx, job, libraryPath, rateLimiter, nfoCache)
+					results <- h.identifyLibraryJob(ctx, job, libraryPath, rateLimiter)
 				}
 			}
 		}()
@@ -510,21 +499,18 @@ func (h *LibraryHandler) identifyAnimeFallbacks(
 	ctx context.Context,
 	libraryPath string,
 	failedResults []identifyJobResult,
-	nfoCache map[string]metadata.ShowNFOCacheEntry,
-) (int, int) {
+) (identified int, failed int) {
 	if len(failedResults) == 0 {
 		return 0, 0
 	}
 
-	identified, failed := 0, 0
 	groups := make(map[string]*animeFallbackGroup)
 	for _, result := range failedResults {
 		if !result.fallbackEligible {
 			failed++
 			continue
 		}
-		queries := animeFallbackQueries(result.job.row, libraryPath, nfoCache)
-
+		queries := animeFallbackQueries(result.job.row, libraryPath)
 		if len(queries) == 0 {
 			failed++
 			continue
@@ -584,7 +570,6 @@ func (h *LibraryHandler) identifyLibraryJob(
 	job identifyJob,
 	libraryPath string,
 	rateLimiter <-chan struct{},
-	nfoCache map[string]metadata.ShowNFOCacheEntry,
 ) identifyJobResult {
 	select {
 	case <-ctx.Done():
@@ -593,7 +578,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 	}
 
 	row := job.row
-	info := identifyMediaInfo(row, libraryPath, nfoCache)
+	info := identifyMediaInfo(row, libraryPath)
 	if info.Season == 0 {
 		info.Season = row.Season
 	}
@@ -684,8 +669,8 @@ func (h *LibraryHandler) identifyAnimeFallbackGroup(
 	return h.applyTMDBSeriesToRefs(ctx, tmdbID, refs, true)
 }
 
-func animeFallbackQueries(row db.IdentificationRow, libraryPath string, nfoCache map[string]metadata.ShowNFOCacheEntry) []string {
-	info := identifyMediaInfo(row, libraryPath, nfoCache)
+func animeFallbackQueries(row db.IdentificationRow, libraryPath string) []string {
+	info := identifyMediaInfo(row, libraryPath)
 	candidates := []string{
 		showTitleFromEpisodeTitle(row.Title),
 		strings.TrimSpace(info.Title),
@@ -748,7 +733,7 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 	return updated, nil
 }
 
-func identifyMediaInfo(row db.IdentificationRow, libraryPath string, nfoCache map[string]metadata.ShowNFOCacheEntry) metadata.MediaInfo {
+func identifyMediaInfo(row db.IdentificationRow, libraryPath string) metadata.MediaInfo {
 	base := filepath.Base(row.Path)
 	relPath, _ := filepath.Rel(libraryPath, row.Path)
 	switch row.Kind {
@@ -759,7 +744,7 @@ func identifyMediaInfo(row db.IdentificationRow, libraryPath string, nfoCache ma
 		pathInfo := metadata.ParsePathForTV(relPath, base)
 		info = metadata.MergePathInfo(pathInfo, info)
 		showRoot := metadata.ShowRootPath(libraryPath, row.Path)
-		metadata.ApplyShowNFOCached(&info, showRoot, nfoCache)
+		metadata.ApplyShowNFO(&info, showRoot)
 		if row.Kind == db.LibraryTypeAnime && info.IsSpecial && info.Episode > 0 {
 			info.Season = 0
 		}
