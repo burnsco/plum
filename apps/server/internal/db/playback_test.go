@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -182,6 +183,68 @@ func TestGetHomeDashboardForUser_IncludesNonMusicLibrariesInContinueWatching(t *
 		if entry.Media.ID == musicID || entry.Media.Type == LibraryTypeMusic {
 			t.Fatalf("expected music to be excluded from continue watching, got %+v", dashboard.ContinueWatching)
 		}
+	}
+}
+
+func TestGetHomeDashboardForUser_EmitsEmptyMediaSlicesInJSON(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	userID := getSingleUserID(t, dbConn)
+	tvLibraryID := getLibraryID(t, dbConn, LibraryTypeTV)
+
+	episodeID := insertEpisodeForDashboardTest(
+		t,
+		dbConn,
+		tvLibraryID,
+		"Space Show - S01E01 - Pilot",
+		"/tv/Space Show/S01E01.mkv",
+		1,
+		1,
+	)
+	if err := UpsertPlaybackProgress(dbConn, userID, episodeID, 900, 1800, false); err != nil {
+		t.Fatalf("partial episode: %v", err)
+	}
+	setPlaybackTimestamp(t, dbConn, userID, episodeID, "2026-03-20T10:00:00Z")
+
+	dashboard, err := GetHomeDashboardForUser(dbConn, userID)
+	if err != nil {
+		t.Fatalf("get home dashboard: %v", err)
+	}
+	if len(dashboard.ContinueWatching) != 1 {
+		t.Fatalf("entries = %+v", dashboard.ContinueWatching)
+	}
+
+	payload, err := json.Marshal(dashboard)
+	if err != nil {
+		t.Fatalf("marshal dashboard: %v", err)
+	}
+
+	var decoded struct {
+		ContinueWatching []struct {
+			Media struct {
+				Subtitles           []json.RawMessage `json:"subtitles"`
+				EmbeddedSubtitles   []json.RawMessage `json:"embeddedSubtitles"`
+				EmbeddedAudioTracks []json.RawMessage `json:"embeddedAudioTracks"`
+			} `json:"media"`
+		} `json:"continueWatching"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal dashboard: %v", err)
+	}
+	if len(decoded.ContinueWatching) != 1 {
+		t.Fatalf("decoded entries = %+v", decoded.ContinueWatching)
+	}
+
+	media := decoded.ContinueWatching[0].Media
+	if media.Subtitles == nil {
+		t.Fatal("expected subtitles to encode as an empty array, got null")
+	}
+	if media.EmbeddedSubtitles == nil {
+		t.Fatal("expected embeddedSubtitles to encode as an empty array, got null")
+	}
+	if media.EmbeddedAudioTracks == nil {
+		t.Fatal("expected embeddedAudioTracks to encode as an empty array, got null")
 	}
 }
 

@@ -58,6 +58,10 @@ func GetHomeDashboardForUser(db *sql.DB, userID int) (HomeDashboard, error) {
 	if err != nil {
 		return HomeDashboard{}, err
 	}
+	items, err = attachSubtitlesBatch(db, items)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
 	items, err = attachPlaybackProgressBatch(db, userID, items)
 	if err != nil {
 		return HomeDashboard{}, err

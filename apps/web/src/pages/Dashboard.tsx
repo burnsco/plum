@@ -1,9 +1,8 @@
-import { Link } from "react-router-dom";
 import type { HomeDashboard } from "@/api";
 import { LibraryPosterGrid, type PosterGridItem } from "@/components/LibraryPosterGrid";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
-import { useHomeDashboard, useLibraries } from "@/queries";
+import { useHomeDashboard } from "@/queries";
 
 type DashboardEntry =
   | HomeDashboard["continueWatching"][number]
@@ -56,9 +55,7 @@ function toPosterGridItem(
 
 export function Dashboard() {
   const { data, error, isLoading, refetch } = useHomeDashboard();
-  const { data: libraries = [] } = useLibraries();
   const { playEpisode, playMovie } = usePlayer();
-  const firstLibraryId = libraries[0]?.id ?? null;
 
   const continueWatchingCards: PosterGridItem[] =
     data?.continueWatching.map((entry) =>
@@ -71,33 +68,6 @@ export function Dashboard() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
-      <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/70 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.24)]">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--plum-muted)]">
-              Home
-            </p>
-            <h1
-              className="mt-2 text-3xl font-semibold tracking-tight text-[var(--plum-text)]"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Continue watching
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-[var(--plum-muted)]">
-              Pick up where you left off across movies, TV, and anime.
-            </p>
-          </div>
-          {firstLibraryId != null ? (
-            <Link
-              to={`/library/${firstLibraryId}`}
-              className="text-sm font-medium text-[var(--plum-accent)] hover:underline"
-            >
-              Browse libraries
-            </Link>
-          ) : null}
-        </div>
-      </section>
-
       <section className="flex min-h-0 flex-1 flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-[var(--plum-text)]">Recent progress</h2>
