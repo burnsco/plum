@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -50,12 +51,16 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	if item == nil {
 		return ErrNotFound
 	}
+	if !hasEmbeddedSubtitleStream(*item, streamIndex) {
+		return fmt.Errorf("embedded subtitle stream %d not found for media %d: %w", streamIndex, mediaID, ErrNotFound)
+	}
 	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
 	if err != nil {
 		return err
 	}
 	out, err := convertSubtitleToVTT(r.Context(), []string{"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...)
 	if err != nil {
+		log.Printf("stream embedded subtitle failed media=%d stream=%d source=%q error=%v", mediaID, streamIndex, sourcePath, err)
 		return err
 	}
 	w.Header().Set("Content-Type", "text/vtt")
@@ -63,6 +68,15 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 		return err
 	}
 	return nil
+}
+
+func hasEmbeddedSubtitleStream(item MediaItem, streamIndex int) bool {
+	for _, subtitle := range item.EmbeddedSubtitles {
+		if subtitle.StreamIndex == streamIndex {
+			return true
+		}
+	}
+	return false
 }
 
 func convertSubtitleToVTT(ctx context.Context, args ...string) ([]byte, error) {

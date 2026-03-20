@@ -51,7 +51,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const { data: libraries = [] } = useLibraries();
-  const { getLibraryScanStatus } = useScanQueue();
+  const { getLibraryScanStatus, hasLibraryScanStatus } = useScanQueue();
   const queuedLibsRef = useRef<Set<number>>(new Set());
   const activeLibsRef = useRef<Set<number>>(new Set());
   const identifyControllersRef = useRef<Map<number, AbortController>>(new Map());
@@ -158,7 +158,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
             }
             if (error instanceof Error && error.message === "identify-timeout") {
               identifyRetryCountsRef.current.delete(nextLibraryId);
-              setLibraryIdentifyPhase(nextLibraryId, "identify-failed");
+              setLibraryIdentifyPhase(nextLibraryId, "soft-reveal");
               return;
             }
             const retries = identifyRetryCountsRef.current.get(nextLibraryId) ?? 0;
@@ -169,7 +169,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
               return;
             }
             identifyRetryCountsRef.current.delete(nextLibraryId);
-            setLibraryIdentifyPhase(nextLibraryId, "identify-failed");
+            setLibraryIdentifyPhase(nextLibraryId, "soft-reveal");
           })
           .finally(() => {
             activeLibsRef.current.delete(nextLibraryId);
@@ -239,6 +239,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
     }
 
     for (const libraryId of identifyOrderRef.current) {
+      if (!hasLibraryScanStatus(libraryId)) continue;
       const scanStatus = getLibraryScanStatus(libraryId);
       const scanPhase = scanStatus?.phase;
       if (scanPhase === "queued" || scanPhase === "scanning") continue;
@@ -246,12 +247,20 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
       const identifyPhase = identifyPhasesRef.current.get(libraryId);
       if (identifyPhase != null) continue;
       if (queuedLibsRef.current.has(libraryId)) continue;
+      if (activeLibsRef.current.has(libraryId)) continue;
       queuedLibsRef.current.add(libraryId);
       setLibraryIdentifyPhase(libraryId, "queued");
     }
 
     void pumpIdentifyQueue();
-  }, [getLibraryScanStatus, libraries, pumpIdentifyQueue, routeLibraryId, setLibraryIdentifyPhase]);
+  }, [
+    getLibraryScanStatus,
+    hasLibraryScanStatus,
+    libraries,
+    pumpIdentifyQueue,
+    routeLibraryId,
+    setLibraryIdentifyPhase,
+  ]);
 
   const value = useMemo<IdentifyQueueContextValue>(
     () => ({

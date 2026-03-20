@@ -534,7 +534,7 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, retryJobs)
 	identified += initialIdentified + retryIdentified
 
-	fallbackIdentified, fallbackFailed := h.identifyAnimeFallbacks(ctx, libraryID, libraryPath, append(initialFailed, retryFailed...))
+	fallbackIdentified, fallbackFailed := h.identifyShowFallbacks(ctx, libraryID, libraryPath, append(initialFailed, retryFailed...))
 	identified += fallbackIdentified
 	failed += fallbackFailed
 
@@ -613,12 +613,12 @@ enqueueLoop:
 	return identified, retryJobs, failed
 }
 
-type animeFallbackGroup struct {
+type showFallbackGroup struct {
 	queries []string
 	rows    []db.IdentificationRow
 }
 
-func (h *LibraryHandler) identifyAnimeFallbacks(
+func (h *LibraryHandler) identifyShowFallbacks(
 	ctx context.Context,
 	libraryID int,
 	libraryPath string,
@@ -628,14 +628,14 @@ func (h *LibraryHandler) identifyAnimeFallbacks(
 		return 0, 0
 	}
 
-	groups := make(map[string]*animeFallbackGroup)
+	groups := make(map[string]*showFallbackGroup)
 	for _, result := range failedResults {
 		if !result.fallbackEligible {
 			h.identifyRun.setState(libraryID, result.job.row.Kind, result.job.row.Path, "failed")
 			failed++
 			continue
 		}
-		queries := animeFallbackQueries(result.job.row, libraryPath)
+		queries := showFallbackQueries(result.job.row, libraryPath)
 		if len(queries) == 0 {
 			h.identifyRun.setState(libraryID, result.job.row.Kind, result.job.row.Path, "failed")
 			failed++
@@ -644,14 +644,14 @@ func (h *LibraryHandler) identifyAnimeFallbacks(
 		groupKey := strings.ToLower(queries[0])
 		group, ok := groups[groupKey]
 		if !ok {
-			group = &animeFallbackGroup{queries: queries}
+			group = &showFallbackGroup{queries: queries}
 			groups[groupKey] = group
 		}
 		group.rows = append(group.rows, result.job.row)
 	}
 
 	for _, group := range groups {
-		updated, err := h.identifyAnimeFallbackGroup(ctx, group.queries, group.rows)
+		updated, err := h.identifyShowFallbackGroup(ctx, group.queries, group.rows)
 		if err != nil || updated != len(group.rows) {
 			h.identifyRun.failRows(libraryID, group.rows[updated:])
 			identified += updated
@@ -743,7 +743,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 		return identifyJobResult{
 			status:           identifyJobFailed,
 			job:              job,
-			fallbackEligible: row.Kind == db.LibraryTypeAnime && itemCtx.Err() == nil,
+			fallbackEligible: (row.Kind == db.LibraryTypeAnime || row.Kind == db.LibraryTypeTV) && itemCtx.Err() == nil,
 		}
 	}
 
@@ -763,7 +763,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 	return identifyJobResult{status: identifyJobSucceeded, job: job}
 }
 
-func (h *LibraryHandler) identifyAnimeFallbackGroup(
+func (h *LibraryHandler) identifyShowFallbackGroup(
 	ctx context.Context,
 	queries []string,
 	rows []db.IdentificationRow,
@@ -800,10 +800,10 @@ func (h *LibraryHandler) identifyAnimeFallbackGroup(
 			Episode: row.Episode,
 		})
 	}
-	return h.applyTMDBSeriesToRefs(ctx, tmdbID, refs, true)
+	return h.applyTMDBSeriesToRefs(ctx, tmdbID, refs, true, false)
 }
 
-func animeFallbackQueries(row db.IdentificationRow, libraryPath string) []string {
+func showFallbackQueries(row db.IdentificationRow, libraryPath string) []string {
 	info := identifyMediaInfo(row, libraryPath)
 	candidates := []string{
 		showTitleFromEpisodeTitle(row.Title),
@@ -842,6 +842,7 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 	seriesTMDBID int,
 	refs []db.ShowEpisodeRef,
 	metadataReviewNeeded bool,
+	metadataConfirmed bool,
 ) (int, error) {
 	if h.SeriesQuery == nil || seriesTMDBID <= 0 || len(refs) == 0 {
 		return 0, nil
@@ -858,7 +859,7 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 		if ep.Provider == "tvdb" {
 			tvdbID = ep.ExternalID
 		}
-		if err := db.UpdateMediaMetadataWithReview(h.DB, table, ref.RefID, ep.Title, ep.Overview, ep.PosterURL, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, metadataReviewNeeded); err != nil {
+		if err := db.UpdateMediaMetadataWithState(h.DB, table, ref.RefID, ep.Title, ep.Overview, ep.PosterURL, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, metadataReviewNeeded, metadataConfirmed); err != nil {
 			continue
 		}
 		updated++
@@ -1248,7 +1249,7 @@ func (h *LibraryHandler) RefreshShow(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
 		return
 	}
-	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), seriesTMDBID, refs, false)
+	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), seriesTMDBID, refs, false, true)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})
 }
@@ -1293,7 +1294,7 @@ func (h *LibraryHandler) IdentifyShow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "metadata not configured", http.StatusServiceUnavailable)
 		return
 	}
-	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), payload.TmdbID, refs, false)
+	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), payload.TmdbID, refs, false, true)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})
 }
@@ -1338,7 +1339,7 @@ func (h *LibraryHandler) ConfirmShow(w http.ResponseWriter, r *http.Request) {
 	for _, ref := range refs {
 		refIDs = append(refIDs, ref.RefID)
 	}
-	updated, err := db.UpdateShowMetadataReviewStatus(h.DB, db.MediaTableForKind(refs[0].Kind), refIDs, false)
+	updated, err := db.UpdateShowMetadataState(h.DB, db.MediaTableForKind(refs[0].Kind), refIDs, false, true)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

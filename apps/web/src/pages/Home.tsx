@@ -9,30 +9,15 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 import type { Library } from "../api";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
-import {
-  LibraryPosterGrid,
-  type PosterGridItem,
-} from "../components/LibraryPosterGrid";
+import { LibraryPosterGrid, type PosterGridItem } from "../components/LibraryPosterGrid";
 import { MusicLibraryView } from "../components/MusicLibraryView";
-import {
-  useIdentifyQueue,
-  type IdentifyLibraryPhase,
-} from "../contexts/IdentifyQueueContext";
+import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
 import { usePlayer } from "../contexts/PlayerContext";
 import { useScanQueue } from "../contexts/ScanQueueContext";
-import {
-  formatEpisodeLabel,
-  formatRemainingTime,
-  shouldShowProgress,
-} from "../lib/progress";
+import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
-import {
-  useConfirmShow,
-  useLibraryMedia,
-  useLibraries,
-  useRefreshShow,
-} from "../queries";
+import { useConfirmShow, useLibraryMedia, useLibraries, useRefreshShow } from "../queries";
 
 const isTVOrAnime = (lib: Library) => lib.type === "tv" || lib.type === "anime";
 const IDENTIFY_POLL_INTERVAL_MS = 5_000;
@@ -48,11 +33,15 @@ const isActiveIdentifyState = (identifyState?: ItemIdentifyState) =>
 
 function canShowFailureState(
   identifyPhase: IdentifyLibraryPhase | undefined,
+  isProcessing: boolean,
   isFetching: boolean,
+  hasActiveIdentifyItems: boolean,
   identifyFailedCount: number,
 ) {
   return (
+    !isProcessing &&
     !isFetching &&
+    !hasActiveIdentifyItems &&
     (identifyPhase === "identify-failed" ||
       (identifyPhase === "complete" && identifyFailedCount > 0))
   );
@@ -65,9 +54,7 @@ function shouldDeferIncompleteCard(
   return identifyState == null && identifyPhase === "queued";
 }
 
-function mapBackendIdentifyPhase(
-  phase?: string,
-): IdentifyLibraryPhase | undefined {
+function mapBackendIdentifyPhase(phase?: string): IdentifyLibraryPhase | undefined {
   switch (phase) {
     case "queued":
       return "queued";
@@ -91,8 +78,7 @@ function isMovieIncomplete(item: {
   return (
     isExplicitlyUnmatched(item.match_status) ||
     (!item.poster_path &&
-      (item.match_status === "identified" ||
-        hasProviderMatch(item.tmdb_id, item.tvdb_id)))
+      (item.match_status === "identified" || hasProviderMatch(item.tmdb_id, item.tvdb_id)))
   );
 }
 
@@ -114,14 +100,10 @@ function isMovieTerminalFailure(
 }
 
 function getGroupIdentifyState(group: ShowGroup): ItemIdentifyState {
-  if (
-    group.episodes.some((episode) => episode.identify_state === "identifying")
-  )
+  if (group.episodes.some((episode) => episode.identify_state === "identifying"))
     return "identifying";
-  if (group.episodes.some((episode) => episode.identify_state === "queued"))
-    return "queued";
-  if (group.episodes.some((episode) => episode.identify_state === "failed"))
-    return "failed";
+  if (group.episodes.some((episode) => episode.identify_state === "queued")) return "queued";
+  if (group.episodes.some((episode) => episode.identify_state === "failed")) return "failed";
   return undefined;
 }
 
@@ -143,9 +125,11 @@ export function Home() {
     return libraries[0]?.id ?? null;
   }, [libraryIdParam, libraries]);
   const selectedLibraryScanStatus = getLibraryScanStatus(selectedLibraryId);
+  const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
+    selectedLibraryScanStatus?.identifyPhase,
+  );
   const selectedLibraryIdentifyPhase =
-    getLibraryPhase(selectedLibraryId) ??
-    mapBackendIdentifyPhase(selectedLibraryScanStatus?.identifyPhase);
+    getLibraryPhase(selectedLibraryId) ?? selectedLibraryBackendIdentifyPhase;
   const isSelectedLibraryScanning =
     selectedLibraryScanStatus?.phase === "queued" ||
     selectedLibraryScanStatus?.phase === "scanning" ||
@@ -171,15 +155,12 @@ export function Home() {
     refetchInterval: selectedLibraryPollInterval,
   });
   const selectedLibraryScanWarning =
-    selectedLibraryScanStatus?.phase === "completed" &&
-    selectedItems.length === 0
+    selectedLibraryScanStatus?.phase === "completed" && selectedItems.length === 0
       ? selectedLibraryScanStatus.error
       : undefined;
   const refreshShowMutation = useRefreshShow();
   const confirmShowMutation = useConfirmShow();
-  const selectedLib = libraries.find(
-    (library) => library.id === selectedLibraryId,
-  );
+  const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -205,17 +186,19 @@ export function Home() {
     navigate(`/library/${libraries[0].id}`, { replace: true });
   }, [libraryIdParam, libraries, navigate]);
 
+  const hasActiveIdentifyItems = selectedItems.some((item) =>
+    isActiveIdentifyState(item.identify_state),
+  );
   const selectedLibraryCanShowFailure = canShowFailureState(
     selectedLibraryIdentifyPhase,
+    isSelectedLibraryScanning,
     selectedFetching,
+    hasActiveIdentifyItems,
     selectedLibraryScanStatus?.identifyFailed ?? 0,
   );
   const hasIdentifyProgress = selectedItems.some((item) => {
     if (isActiveIdentifyState(item.identify_state)) return true;
-    return (
-      item.match_status === "identified" ||
-      hasProviderMatch(item.tmdb_id, item.tvdb_id)
-    );
+    return item.match_status === "identified" || hasProviderMatch(item.tmdb_id, item.tvdb_id);
   });
   const shouldRevealSearchingCards =
     selectedLibraryIdentifyPhase === "soft-reveal" ||
@@ -223,10 +206,7 @@ export function Home() {
     hasIdentifyProgress;
 
   const showGroups = useMemo(
-    () =>
-      selectedLib && isTVOrAnime(selectedLib)
-        ? groupMediaByShow(selectedItems)
-        : [],
+    () => (selectedLib && isTVOrAnime(selectedLib) ? groupMediaByShow(selectedItems) : []),
     [selectedItems, selectedLib],
   );
 
@@ -235,17 +215,13 @@ export function Home() {
     const visibleCards = showGroups.flatMap((group) => {
       const progressEpisode = [...group.episodes]
         .filter((episode) => shouldShowProgress(episode))
-        .toSorted((a, b) =>
-          (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""),
-        )[0];
+        .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
       const imdbRating = group.episodes.find(
         (episode) => (episode.imdb_rating ?? 0) > 0,
       )?.imdb_rating;
-      const needsMetadataReview =
-        selectedLib?.type === "anime" &&
-        group.episodes.some(
-          (episode) => episode.metadata_review_needed === true,
-        );
+      const needsMetadataReview = group.episodes.some(
+        (episode) => episode.metadata_review_needed === true,
+      );
       const isConfirmingReview =
         confirmShowMutation.isPending &&
         confirmShowMutation.variables?.libraryId === selectedLibraryId &&
@@ -260,19 +236,14 @@ export function Home() {
         group.unmatchedCount > 0 ||
         group.localCount > 0 ||
         (!group.posterPath && hasMatchedEpisode);
-      if (
-        isIncomplete &&
-        shouldDeferIncompleteCard(identifyState, selectedLibraryIdentifyPhase)
-      ) {
+      if (isIncomplete && shouldDeferIncompleteCard(identifyState, selectedLibraryIdentifyPhase)) {
         deferredGroups.push(group);
         return [];
       }
       const showSearching =
         isIncomplete &&
         (isActiveIdentifyState(identifyState) ||
-          (identifyState == null &&
-            shouldRevealSearchingCards &&
-            !selectedLibraryCanShowFailure));
+          (identifyState == null && shouldRevealSearchingCards && !selectedLibraryCanShowFailure));
       const showFailure =
         isIncomplete &&
         !showSearching &&
@@ -344,7 +315,6 @@ export function Home() {
     selectedLibraryIdentifyPhase,
     selectedLibraryCanShowFailure,
     selectedLibraryId,
-    selectedLib?.type,
     showGroups,
   ]);
 
@@ -352,20 +322,13 @@ export function Home() {
     let deferredCount = 0;
     const visibleCards = selectedItems.flatMap((item) => {
       const year =
-        item.release_date?.split("-")[0] ||
-        item.title.match(/\((\d{4})\)$/)?.[1] ||
-        "Unknown year";
+        item.release_date?.split("-")[0] || item.title.match(/\((\d{4})\)$/)?.[1] || "Unknown year";
       const status =
-        item.match_status && item.match_status !== "identified"
-          ? ` • ${item.match_status}`
-          : "";
+        item.match_status && item.match_status !== "identified" ? ` • ${item.match_status}` : "";
       const isIncomplete = isMovieIncomplete(item);
       if (
         isIncomplete &&
-        shouldDeferIncompleteCard(
-          item.identify_state,
-          selectedLibraryIdentifyPhase,
-        )
+        shouldDeferIncompleteCard(item.identify_state, selectedLibraryIdentifyPhase)
       ) {
         deferredCount += 1;
         return [];
@@ -376,10 +339,7 @@ export function Home() {
           (item.identify_state == null &&
             shouldRevealSearchingCards &&
             !selectedLibraryCanShowFailure));
-      const showFailure = isMovieTerminalFailure(
-        item,
-        selectedLibraryCanShowFailure,
-      );
+      const showFailure = isMovieTerminalFailure(item, selectedLibraryCanShowFailure);
 
       return [
         {
@@ -389,23 +349,15 @@ export function Home() {
           metaLine: formatRemainingTime(item.remaining_seconds),
           posterPath: item.poster_path,
           imdbRating: item.imdb_rating,
-          progressPercent: shouldShowProgress(item)
-            ? item.progress_percent
-            : undefined,
-          cardState: showSearching
-            ? "identifying"
-            : showFailure
-              ? "identify-failed"
-              : "default",
+          progressPercent: shouldShowProgress(item) ? item.progress_percent : undefined,
+          cardState: showSearching ? "identifying" : showFailure ? "identify-failed" : "default",
           statusLabel: showSearching
             ? "Searching…"
             : showFailure
               ? "Couldn't match automatically"
               : undefined,
           statusActionLabel:
-            showFailure && selectedLibraryId != null
-              ? "Retry identify"
-              : undefined,
+            showFailure && selectedLibraryId != null ? "Retry identify" : undefined,
           onStatusAction:
             showFailure && selectedLibraryId != null
               ? () =>
@@ -452,8 +404,7 @@ export function Home() {
     selectedLib.type !== "music" &&
     deferredCardCount > 0 &&
     visibleCardCount === 0 &&
-    (selectedLibraryIdentifyPhase === "queued" ||
-      selectedLibraryIdentifyPhase === "identifying");
+    (selectedLibraryIdentifyPhase === "queued" || selectedLibraryIdentifyPhase === "identifying");
 
   return (
     <>
@@ -503,9 +454,7 @@ export function Home() {
                   )}
                 </p>
               ) : selectedLibraryScanWarning ? (
-                <p className="text-sm text-[var(--plum-muted)]">
-                  {selectedLibraryScanWarning}
-                </p>
+                <p className="text-sm text-[var(--plum-muted)]">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
                 <p className="text-sm text-[var(--plum-muted)]">
                   {isSelectedLibraryScanning
@@ -513,18 +462,13 @@ export function Home() {
                     : "No media in this library yet."}
                 </p>
               ) : showIdentifyPlaceholder ? (
-                <p className="text-sm text-[var(--plum-muted)]">
-                  Identifying library…
-                </p>
+                <p className="text-sm text-[var(--plum-muted)]">Identifying library…</p>
               ) : isTVOrAnime(selectedLib) ? (
                 <LibraryPosterGrid items={showCardState.visibleCards} />
               ) : selectedLib.type === "movie" ? (
                 <LibraryPosterGrid items={movieCardState.visibleCards} />
               ) : (
-                <MusicLibraryView
-                  items={selectedItems}
-                  onPlayCollection={playMusicCollection}
-                />
+                <MusicLibraryView items={selectedItems} onPlayCollection={playMusicCollection} />
               )}
               {contextMenu && selectedLibraryId != null && (
                 <div

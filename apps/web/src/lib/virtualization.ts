@@ -1,0 +1,48 @@
+import { useEffect, useState, type RefObject } from "react";
+
+function resolveScrollParent(element: HTMLElement | null) {
+  return element?.closest(".main-content") as HTMLElement | null;
+}
+
+export function useVirtualContainerMetrics<T extends HTMLElement>(ref: RefObject<T | null>) {
+  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+  const [width, setWidth] = useState(0);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const parent = resolveScrollParent(element);
+    setScrollElement(parent);
+
+    const updateMetrics = () => {
+      setWidth(element.getBoundingClientRect().width);
+      if (!parent) {
+        setScrollMargin(0);
+        return;
+      }
+      const elementRect = element.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      setScrollMargin(elementRect.top - parentRect.top + parent.scrollTop);
+    };
+
+    updateMetrics();
+    window.addEventListener("resize", updateMetrics);
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.removeEventListener("resize", updateMetrics);
+    }
+
+    const observer = new ResizeObserver(() => updateMetrics());
+    observer.observe(element);
+    if (parent) observer.observe(parent);
+
+    return () => {
+      window.removeEventListener("resize", updateMetrics);
+      observer.disconnect();
+    };
+  }, [ref]);
+
+  return { scrollElement, width, scrollMargin };
+}
