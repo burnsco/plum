@@ -1673,7 +1673,7 @@
 }
 
 .playback-dock__icon-button--labeled,
-.playback-dock__play-button--labeled {
+.playback-dock__play-button.playback-dock__play-button--labeled {
   width: auto;
   min-width: 2.9rem;
   padding: 0 0.95rem;

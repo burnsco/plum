@@ -37,6 +37,7 @@ import {
   readStoredSubtitleAppearance,
   readStoredPlayerControlsAppearance,
   resolveLibraryPlaybackPreferences,
+  subscribeToPlayerControlsAppearance,
   subtitleFontSizeValue,
   subtitlePositionOptions,
   subtitleSizeOptions,
@@ -700,6 +701,16 @@ export function PlaybackDock() {
   useEffect(() => {
     writeStoredPlayerControlsAppearance(playerControlsAppearance);
   }, [playerControlsAppearance]);
+
+  useEffect(
+    () =>
+      subscribeToPlayerControlsAppearance((preference) => {
+        setPlayerControlsAppearance((current) =>
+          current === preference ? current : preference,
+        );
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!isVideo || !activeItem) return;

@@ -19,6 +19,7 @@ export type ResolvedLibraryPlaybackPreferences = {
 
 export const subtitleAppearanceStorageKey = "plum:subtitle-appearance";
 export const playerControlsAppearanceStorageKey = "plum:player-controls-appearance";
+export const playerControlsAppearanceChangedEvent = "plum:player-controls-appearance-changed";
 
 export const defaultSubtitleAppearance: SubtitleAppearance = {
   size: "medium",
@@ -194,7 +195,34 @@ export function readStoredPlayerControlsAppearance(): PlayerControlsAppearance {
 
 export function writeStoredPlayerControlsAppearance(preference: PlayerControlsAppearance) {
   if (typeof window === "undefined") return;
+  if (window.localStorage.getItem(playerControlsAppearanceStorageKey) === preference) return;
   window.localStorage.setItem(playerControlsAppearanceStorageKey, preference);
+  window.dispatchEvent(new CustomEvent<PlayerControlsAppearance>(playerControlsAppearanceChangedEvent, {
+    detail: preference,
+  }));
+}
+
+export function subscribeToPlayerControlsAppearance(
+  onChange: (preference: PlayerControlsAppearance) => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== playerControlsAppearanceStorageKey) return;
+    onChange(event.newValue === "minimal" ? "minimal" : defaultPlayerControlsAppearance);
+  };
+  const handleLocalChange = (event: Event) => {
+    if (!(event instanceof CustomEvent)) return;
+    onChange(event.detail === "minimal" ? "minimal" : defaultPlayerControlsAppearance);
+  };
+
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener(playerControlsAppearanceChangedEvent, handleLocalChange);
+
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(playerControlsAppearanceChangedEvent, handleLocalChange);
+  };
 }
 
 export function subtitleFontSizeValue(size: SubtitleSize): string {

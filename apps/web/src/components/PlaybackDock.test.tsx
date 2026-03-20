@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
-import { playerControlsAppearanceStorageKey } from "../lib/playbackPreferences";
+import {
+  playerControlsAppearanceChangedEvent,
+  playerControlsAppearanceStorageKey,
+} from "../lib/playbackPreferences";
 import { PlaybackDock } from "./PlaybackDock";
 
 type MockHlsInstance = {
@@ -256,6 +259,28 @@ describe("PlaybackDock audio track selection", () => {
 
     await waitFor(() => {
       expect(window.localStorage.getItem(playerControlsAppearanceStorageKey)).toBe("default");
+      expect(screen.getByLabelText("Playback dock").className).toContain(
+        "playback-dock--controls-default",
+      );
+    });
+  });
+
+  it("syncs the player controls appearance when settings change it externally", async () => {
+    window.localStorage.setItem(playerControlsAppearanceStorageKey, "minimal");
+    renderDock();
+
+    expect(screen.getByLabelText("Playback dock").className).toContain(
+      "playback-dock--controls-minimal",
+    );
+
+    act(() => {
+      window.localStorage.setItem(playerControlsAppearanceStorageKey, "default");
+      window.dispatchEvent(
+        new CustomEvent(playerControlsAppearanceChangedEvent, { detail: "default" }),
+      );
+    });
+
+    await waitFor(() => {
       expect(screen.getByLabelText("Playback dock").className).toContain(
         "playback-dock--controls-default",
       );

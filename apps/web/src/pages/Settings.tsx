@@ -15,6 +15,7 @@ import {
   normalizeLanguagePreference,
   readStoredPlayerControlsAppearance,
   resolveLibraryPlaybackPreferences,
+  subscribeToPlayerControlsAppearance,
   writeStoredPlayerControlsAppearance,
   type PlayerControlsAppearance,
 } from "@/lib/playbackPreferences";
@@ -139,6 +140,16 @@ export function Settings() {
   useEffect(() => {
     writeStoredPlayerControlsAppearance(playerControlsAppearance);
   }, [playerControlsAppearance]);
+
+  useEffect(
+    () =>
+      subscribeToPlayerControlsAppearance((preference) => {
+        setPlayerControlsAppearance((current) =>
+          current === preference ? current : preference,
+        );
+      }),
+    [],
+  );
 
   const videoLibraries = (librariesQuery.data ?? []).filter((library) => library.type !== "music");
   const getLibraryFormFallback = (libraryId: number) => {
