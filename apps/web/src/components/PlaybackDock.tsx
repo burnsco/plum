@@ -35,11 +35,16 @@ import { BASE_URL, updateMediaProgress } from "../api";
 import { usePlayer } from "../contexts/PlayerContext";
 import {
   readStoredSubtitleAppearance,
+  readStoredPlayerControlsAppearance,
   resolveLibraryPlaybackPreferences,
+  subscribeToPlayerControlsAppearance,
   subtitleFontSizeValue,
   subtitlePositionOptions,
   subtitleSizeOptions,
+  playerControlsAppearanceOptions,
   writeStoredSubtitleAppearance,
+  writeStoredPlayerControlsAppearance,
+  type PlayerControlsAppearance,
   type SubtitleAppearance,
 } from "../lib/playbackPreferences";
 import {
@@ -137,11 +142,15 @@ function TrackMenu({
 function PlayerSettingsMenu({
   menuRef,
   preferences,
+  controlsAppearance,
   onChange,
+  onControlsAppearanceChange,
 }: {
   menuRef: RefObject<HTMLDivElement | null>;
   preferences: SubtitleAppearance;
+  controlsAppearance: PlayerControlsAppearance;
   onChange: (value: SubtitleAppearance) => void;
+  onControlsAppearanceChange: (value: PlayerControlsAppearance) => void;
 }) {
   return (
     <div
@@ -201,6 +210,24 @@ function PlayerSettingsMenu({
           }
         />
       </label>
+
+      <div className="player-settings-menu__field">
+        <span>Controls look</span>
+        <div className="player-settings-menu__choice-row" role="group" aria-label="Player controls look">
+          {playerControlsAppearanceOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`player-settings-menu__choice${controlsAppearance === option.value ? " is-active" : ""}`}
+              onClick={() => onControlsAppearanceChange(option.value)}
+              aria-pressed={controlsAppearance === option.value}
+              title={option.description}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -226,11 +253,15 @@ export function PlaybackDock() {
   const [subtitleAppearance, setSubtitleAppearance] = useState<SubtitleAppearance>(() =>
     readStoredSubtitleAppearance(),
   );
+  const [playerControlsAppearance, setPlayerControlsAppearance] = useState<PlayerControlsAppearance>(
+    () => readStoredPlayerControlsAppearance(),
+  );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
   const [failedSubtitleKeys, setFailedSubtitleKeys] = useState<string[]>([]);
   const [selectedAudioKey, setSelectedAudioKey] = useState("");
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
+  const [videoAttachmentVersion, setVideoAttachmentVersion] = useState(0);
   const [subtitleAttachmentVersion, setSubtitleAttachmentVersion] = useState(0);
   const [subtitleReadyVersion, setSubtitleReadyVersion] = useState(0);
   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
@@ -288,6 +319,7 @@ export function PlaybackDock() {
     cycleRepeatMode,
     changeAudioTrack,
   } = usePlayer();
+  const registerMediaElementRef = useRef(registerMediaElement);
 
   const isVideo = activeMode === "video" && activeItem != null;
   const isMusic = activeMode === "music" && activeItem != null;
@@ -458,6 +490,15 @@ export function PlaybackDock() {
     },
     [activeItem?.duration, isVideo],
   );
+  const syncPlaybackStateRef = useRef(syncPlaybackState);
+
+  useEffect(() => {
+    registerMediaElementRef.current = registerMediaElement;
+  }, [registerMediaElement]);
+
+  useEffect(() => {
+    syncPlaybackStateRef.current = syncPlaybackState;
+  }, [syncPlaybackState]);
 
   const markSubtitleReady = useCallback(() => {
     setSubtitleReadyVersion((value) => value + 1);
@@ -551,29 +592,26 @@ export function PlaybackDock() {
 
   const setVideoRef = useCallback(
     (element: HTMLVideoElement | null) => {
-      if (element == null && hlsRef.current != null) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
       if (videoRef.current !== element) {
         manualSubtitleTrackRef.current = null;
         manualSubtitleVideoRef.current = null;
+        setVideoAttachmentVersion((value) => value + 1);
         setSubtitleAttachmentVersion((value) => value + 1);
       }
       videoRef.current = element;
-      registerMediaElement("video", element);
-      syncPlaybackState(element);
+      registerMediaElementRef.current("video", element);
+      syncPlaybackStateRef.current(element);
     },
-    [registerMediaElement, syncPlaybackState],
+    [],
   );
 
   const setAudioRef = useCallback(
     (element: HTMLAudioElement | null) => {
       audioRef.current = element;
-      registerMediaElement("audio", element);
-      syncPlaybackState(element);
+      registerMediaElementRef.current("audio", element);
+      syncPlaybackStateRef.current(element);
     },
-    [registerMediaElement, syncPlaybackState],
+    [],
   );
 
   const handleVideoLoadedMetadata = useCallback(
@@ -614,6 +652,7 @@ export function PlaybackDock() {
     setFailedSubtitleKeys([]);
     setSelectedAudioKey("");
     setAudioTrackVersion(0);
+    setVideoAttachmentVersion(0);
     setSubtitleAttachmentVersion(0);
     setSubtitleReadyVersion(0);
     resumeAppliedRef.current = null;
@@ -658,6 +697,20 @@ export function PlaybackDock() {
   useEffect(() => {
     writeStoredSubtitleAppearance(subtitleAppearance);
   }, [subtitleAppearance]);
+
+  useEffect(() => {
+    writeStoredPlayerControlsAppearance(playerControlsAppearance);
+  }, [playerControlsAppearance]);
+
+  useEffect(
+    () =>
+      subscribeToPlayerControlsAppearance((preference) => {
+        setPlayerControlsAppearance((current) =>
+          current === preference ? current : preference,
+        );
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!isVideo || !activeItem) return;
@@ -824,13 +877,13 @@ export function PlaybackDock() {
   ]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!isVideo || !video) return;
-
     if (hlsRef.current != null) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+
+    const video = videoRef.current;
+    if (!isVideo || !video) return;
 
     if (!videoSourceUrl) {
       video.removeAttribute("src");
@@ -909,7 +962,14 @@ export function PlaybackDock() {
         hlsRef.current = null;
       }
     };
-  }, [activeItemId, isVideo, markSubtitleReady, maybeRecoverInitialBufferGap, videoSourceUrl]);
+  }, [
+    activeItemId,
+    isVideo,
+    markSubtitleReady,
+    maybeRecoverInitialBufferGap,
+    videoAttachmentVersion,
+    videoSourceUrl,
+  ]);
 
   /* ── Close track menus on outside click ── */
   useEffect(() => {
@@ -1067,6 +1127,9 @@ export function PlaybackDock() {
     playbackState.duration > 0 ? playbackState.duration : Math.max(activeItem.duration, 0);
   const repeatLabel =
     repeatMode === "one" ? "Repeat track" : repeatMode === "all" ? "Repeat queue" : "Repeat off";
+  const showDefaultControls = isVideo && playerControlsAppearance === "default";
+  const playButtonLabel = playbackState.isPlaying ? "Pause" : "Play";
+  const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
 
   /* ── Fullscreen video player ── */
   if (isFullscreen) {
@@ -1080,7 +1143,7 @@ export function PlaybackDock() {
         ref={(node) => {
           playerRootRef.current = node;
         }}
-        className={`fullscreen-player${controlsVisible ? "" : " fullscreen-player--hidden"}`}
+        className={`fullscreen-player fullscreen-player--controls-${playerControlsAppearance}${controlsVisible ? "" : " fullscreen-player--hidden"}`}
         aria-label="Fullscreen video player"
         role="button"
         tabIndex={0}
@@ -1195,7 +1258,7 @@ export function PlaybackDock() {
             <div className="fullscreen-player__controls-left">
               <button
                 type="button"
-                className="fullscreen-player__ctrl-btn"
+                className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                 onClick={togglePlayPause}
                 aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
               >
@@ -1204,6 +1267,7 @@ export function PlaybackDock() {
                 ) : (
                   <Play className="size-5" />
                 )}
+                {showDefaultControls && <span>{playButtonLabel}</span>}
               </button>
               <span className="fullscreen-player__time">
                 {formatClock(playbackState.currentTime)} / {formatClock(progressMax)}
@@ -1217,7 +1281,7 @@ export function PlaybackDock() {
                   <button
                     ref={subtitleBtnRef}
                     type="button"
-                    className={`fullscreen-player__ctrl-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}`}
+                    className={`fullscreen-player__ctrl-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                     aria-label="Subtitles"
                     title="Subtitles"
                     onClick={() => {
@@ -1227,6 +1291,7 @@ export function PlaybackDock() {
                     }}
                   >
                     <Subtitles className="size-5" />
+                    {showDefaultControls && <span>Subtitles</span>}
                   </button>
                   {subtitleMenuOpen && (
                     <TrackMenu
@@ -1249,7 +1314,7 @@ export function PlaybackDock() {
                   <button
                     ref={audioBtnRef}
                     type="button"
-                    className="fullscreen-player__ctrl-btn fullscreen-player__ctrl-btn--text"
+                    className={`fullscreen-player__ctrl-btn fullscreen-player__ctrl-btn--text${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                     aria-label={`Audio track: ${selectedAudioLabel}`}
                     title={`Audio track: ${selectedAudioLabel}`}
                     onClick={() => {
@@ -1258,7 +1323,8 @@ export function PlaybackDock() {
                       setPlayerSettingsOpen(false);
                     }}
                   >
-                    <span>Audio</span>
+                    <Volume2 className="size-5" />
+                    {showDefaultControls && <span>Audio</span>}
                   </button>
                   {audioMenuOpen && (
                     <TrackMenu
@@ -1282,7 +1348,7 @@ export function PlaybackDock() {
                   <button
                     ref={playerSettingsBtnRef}
                     type="button"
-                    className="fullscreen-player__ctrl-btn"
+                    className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                     aria-label="Subtitle settings"
                     title="Subtitle settings"
                     onClick={() => {
@@ -1292,12 +1358,15 @@ export function PlaybackDock() {
                     }}
                   >
                     <Settings className="size-5" />
+                    {showDefaultControls && <span>Player</span>}
                   </button>
                   {playerSettingsOpen && (
                     <PlayerSettingsMenu
                       menuRef={playerSettingsMenuRef}
                       preferences={subtitleAppearance}
+                      controlsAppearance={playerControlsAppearance}
                       onChange={setSubtitleAppearance}
+                      onControlsAppearanceChange={setPlayerControlsAppearance}
                     />
                   )}
                 </div>
@@ -1306,15 +1375,16 @@ export function PlaybackDock() {
               <div className="fullscreen-player__volume-group">
                 <button
                   type="button"
-                  className="fullscreen-player__ctrl-btn"
+                  className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                   onClick={() => setMuted(!muted)}
-                  aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                  aria-label={muteButtonLabel}
                 >
                   {muted || volume === 0 ? (
                     <VolumeX className="size-5" />
                   ) : (
                     <Volume2 className="size-5" />
                   )}
+                  {showDefaultControls && <span>{muteButtonLabel}</span>}
                 </button>
                 <input
                   type="range"
@@ -1330,7 +1400,7 @@ export function PlaybackDock() {
 
               <button
                 type="button"
-                className={`fullscreen-player__ctrl-btn${browserFullscreenActive ? " is-active" : ""}`}
+                className={`fullscreen-player__ctrl-btn${browserFullscreenActive ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                 onClick={() => {
                   void toggleBrowserFullscreen();
                 }}
@@ -1340,11 +1410,14 @@ export function PlaybackDock() {
                 title={browserFullscreenActive ? "Exit true fullscreen" : "Enter true fullscreen"}
               >
                 <span className="player-fullscreen-icon" aria-hidden="true" />
+                {showDefaultControls && (
+                  <span>{browserFullscreenActive ? "Window" : "Fullscreen"}</span>
+                )}
               </button>
 
               <button
                 type="button"
-                className="fullscreen-player__ctrl-btn"
+                className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                 onClick={() => {
                   void persistPlaybackProgress({ force: true });
                   exitFullscreen();
@@ -1353,6 +1426,7 @@ export function PlaybackDock() {
                 title="Return to docked player"
               >
                 <Minimize2 className="size-4" />
+                {showDefaultControls && <span>Docked</span>}
               </button>
             </div>
           </div>
@@ -1367,7 +1441,7 @@ export function PlaybackDock() {
       ref={(node) => {
         playerRootRef.current = node;
       }}
-      className={`playback-dock playback-dock--${activeMode} playback-dock--${viewMode}`}
+      className={`playback-dock playback-dock--${activeMode} playback-dock--${viewMode} playback-dock--controls-${playerControlsAppearance}`}
       aria-label={isMusic ? "Music player" : "Playback dock"}
     >
       {isVideo && backdropUrl && (
@@ -1455,7 +1529,7 @@ export function PlaybackDock() {
                     aria-label="Subtitles"
                   >
                     <Subtitles className="size-4" />
-                    <span>Subtitles</span>
+                    {showDefaultControls && <span>Subtitles</span>}
                   </button>
                   {subtitleMenuOpen && (
                     <TrackMenu
@@ -1486,8 +1560,8 @@ export function PlaybackDock() {
                     }}
                     aria-label={`Audio track: ${selectedAudioLabel}`}
                   >
-                    <span>Audio</span>
-                    <span>{selectedAudioLabel}</span>
+                    <Volume2 className="size-4" />
+                    {showDefaultControls ? <span>{selectedAudioLabel}</span> : null}
                   </button>
                   {audioMenuOpen && (
                     <TrackMenu
@@ -1520,13 +1594,15 @@ export function PlaybackDock() {
                     aria-label="Subtitle settings"
                   >
                     <Settings className="size-4" />
-                    <span>Subtitle style</span>
+                    {showDefaultControls && <span>Player</span>}
                   </button>
                   {playerSettingsOpen && (
                     <PlayerSettingsMenu
                       menuRef={playerSettingsMenuRef}
                       preferences={subtitleAppearance}
+                      controlsAppearance={playerControlsAppearance}
                       onChange={setSubtitleAppearance}
+                      onControlsAppearanceChange={setPlayerControlsAppearance}
                     />
                   )}
                 </div>
@@ -1655,11 +1731,12 @@ export function PlaybackDock() {
 
             <button
               type="button"
-              className="playback-dock__play-button"
+              className={`playback-dock__play-button${showDefaultControls ? " playback-dock__play-button--labeled" : ""}`}
               onClick={togglePlayPause}
               aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
             >
               {playbackState.isPlaying ? <Pause className="size-5" /> : <Play className="size-5" />}
+              {showDefaultControls && <span>{playButtonLabel}</span>}
             </button>
 
             {isMusic && (
@@ -1706,15 +1783,16 @@ export function PlaybackDock() {
           <div className="playback-dock__volume">
             <button
               type="button"
-              className="playback-dock__icon-button"
+              className={`playback-dock__icon-button${showDefaultControls ? " playback-dock__icon-button--labeled" : ""}`}
               onClick={() => setMuted(!muted)}
-              aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+              aria-label={muteButtonLabel}
             >
               {muted || volume === 0 ? (
                 <VolumeX className="size-4" />
               ) : (
                 <Volume2 className="size-4" />
               )}
+              {showDefaultControls && <span>{muteButtonLabel}</span>}
             </button>
             <input
               type="range"
