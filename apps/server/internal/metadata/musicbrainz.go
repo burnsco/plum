@@ -13,8 +13,12 @@ import (
 )
 
 const (
-	musicBrainzBaseURL  = "https://musicbrainz.org/ws/2"
-	coverArtArchiveBase = "https://coverartarchive.org"
+	musicBrainzBaseURL      = "https://musicbrainz.org/ws/2"
+	coverArtArchiveBase     = "https://coverartarchive.org"
+	musicBrainzHTTPTimeout  = 10 * time.Second
+	musicBrainzMinSignal    = 90
+	musicBrainzTitleExact   = 2
+	musicBrainzTitlePartial = 1
 )
 
 type MusicBrainzClient struct {
@@ -69,7 +73,7 @@ func NewMusicBrainzClient(contactURL string) *MusicBrainzClient {
 	}
 	return &MusicBrainzClient{
 		BaseURL:    musicBrainzBaseURL,
-		HTTPClient: http.DefaultClient,
+		HTTPClient: &http.Client{Timeout: musicBrainzHTTPTimeout},
 		UserAgent:  userAgent,
 	}
 }
@@ -232,7 +236,65 @@ func bestMusicBrainzRecording(info MusicInfo, recordings []musicBrainzRecording)
 	if bestIdx < 0 || bestScore < 0 {
 		return nil
 	}
+	best := recordings[bestIdx]
+	if !musicBrainzAcceptableMatch(info, best, bestScore) {
+		return nil
+	}
 	return &recordings[bestIdx]
+}
+
+func musicBrainzAcceptableMatch(info MusicInfo, recording musicBrainzRecording, score int) bool {
+	signal := score - (recording.Score * 10)
+	if signal < musicBrainzMinSignal {
+		return false
+	}
+	titleStrength := musicBrainzMatchStrength(normalizeMusicBrainzValue(info.Title), normalizeMusicBrainzValue(recording.Title))
+	artistStrength := musicBrainzMatchStrength(
+		normalizeMusicBrainzValue(firstNonEmptyMusic(info.Artist, info.AlbumArtist)),
+		normalizeMusicBrainzValue(musicBrainzPrimaryArtistName(recording.ArtistCredit)),
+	)
+	release := chooseMusicBrainzRelease(info, recording.Releases)
+	releaseTitle := ""
+	if release != nil {
+		releaseTitle = firstNonEmptyMusic(release.Title, release.ReleaseGroup.Title)
+	}
+	albumStrength := musicBrainzMatchStrength(normalizeMusicBrainzValue(info.Album), normalizeMusicBrainzValue(releaseTitle))
+
+	if titleStrength == 0 && !(artistStrength >= musicBrainzTitleExact && albumStrength >= musicBrainzTitlePartial) {
+		return false
+	}
+	if musicBrainzTitleIsGeneric(info.Title) && (artistStrength == 0 || albumStrength == 0) {
+		return false
+	}
+	return true
+}
+
+func musicBrainzMatchStrength(expected, actual string) int {
+	if expected == "" || actual == "" {
+		return 0
+	}
+	if expected == actual {
+		return musicBrainzTitleExact
+	}
+	if strings.Contains(actual, expected) || strings.Contains(expected, actual) {
+		return musicBrainzTitlePartial
+	}
+	return 0
+}
+
+func musicBrainzTitleIsGeneric(title string) bool {
+	normalized := normalizeMusicBrainzValue(title)
+	if normalized == "" {
+		return true
+	}
+	switch normalized {
+	case "intro", "outro", "interlude", "untitled", "track":
+		return true
+	}
+	if strings.HasPrefix(normalized, "track ") {
+		return true
+	}
+	return false
 }
 
 func scoreMusicBrainzRecording(info MusicInfo, recording musicBrainzRecording) int {

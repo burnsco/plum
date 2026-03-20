@@ -1917,8 +1917,7 @@ func HandleScanLibraryWithOptions(
 			(kind == LibraryTypeTV || kind == LibraryTypeAnime || kind == LibraryTypeMovie) &&
 			(!hasMetadata || forceRefresh)
 		shouldIdentifyMusic := kind == LibraryTypeMusic &&
-			musicIdentifier != nil &&
-			!existingHasMusicProviderMetadata(existing)
+			musicIdentifier != nil
 		if shouldIdentify {
 			mItem.MetadataReviewNeeded = false
 			mItem.MetadataConfirmed = false
@@ -2456,10 +2455,6 @@ func existingHasMetadata(kind string, row existingMediaRow) bool {
 		hasProviderID = hasProviderID || row.TVDBID != ""
 	}
 	return hasProviderID && row.IMDbID != ""
-}
-
-func existingHasMusicProviderMetadata(row existingMediaRow) bool {
-	return row.MusicBrainzRecordingID != ""
 }
 
 func nullFloat64(v float64) interface{} {

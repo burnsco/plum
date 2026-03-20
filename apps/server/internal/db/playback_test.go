@@ -208,6 +208,78 @@ func TestHandleScanLibrary_IdentifiesMusicWithProviderMetadata(t *testing.T) {
 	}
 }
 
+func TestHandleScanLibrary_ReidentifiesMusicOnRescan(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	musicLibraryID := createLibraryForTest(t, dbConn, LibraryTypeMusic, "/music")
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "Artist", "Album")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir music tree: %v", err)
+	}
+	trackPath := filepath.Join(root, "Track 01.mp3")
+	if err := os.WriteFile(trackPath, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write fake track: %v", err)
+	}
+
+	prevReadAudio := readAudioMetadata
+	prevSkip := SkipFFprobeInScan
+	SkipFFprobeInScan = false
+	readAudioMetadata = func(context.Context, string) (metadata.MusicMetadata, int, error) {
+		return metadata.MusicMetadata{
+			Title:       "Local Track",
+			Artist:      "Local Artist",
+			Album:       "Local Album",
+			AlbumArtist: "Local Artist",
+			TrackNumber: 1,
+		}, 200, nil
+	}
+	defer func() {
+		readAudioMetadata = prevReadAudio
+		SkipFFprobeInScan = prevSkip
+	}()
+
+	identifier := &musicOnlyIdentifier{
+		result: &metadata.MusicMatchResult{
+			Title:       "First Match",
+			Artist:      "First Artist",
+			Album:       "First Album",
+			RecordingID: "rec-1",
+			Provider:    "musicbrainz",
+		},
+	}
+
+	if _, err := HandleScanLibrary(context.Background(), dbConn, filepath.Join(tmp, "Artist"), LibraryTypeMusic, musicLibraryID, identifier); err != nil {
+		t.Fatalf("first scan music: %v", err)
+	}
+
+	identifier.result = &metadata.MusicMatchResult{
+		Title:       "Second Match",
+		Artist:      "Second Artist",
+		Album:       "Second Album",
+		RecordingID: "rec-2",
+		Provider:    "musicbrainz",
+	}
+
+	result, err := HandleScanLibrary(context.Background(), dbConn, filepath.Join(tmp, "Artist"), LibraryTypeMusic, musicLibraryID, identifier)
+	if err != nil {
+		t.Fatalf("second scan music: %v", err)
+	}
+	if result.Updated != 1 {
+		t.Fatalf("unexpected second scan result: %+v", result)
+	}
+
+	var title, artist, album, recordingID string
+	if err := dbConn.QueryRow(`SELECT title, artist, album, COALESCE(musicbrainz_recording_id, '') FROM music_tracks WHERE library_id = ?`, musicLibraryID).
+		Scan(&title, &artist, &album, &recordingID); err != nil {
+		t.Fatalf("query music row: %v", err)
+	}
+	if title != "Second Match" || artist != "Second Artist" || album != "Second Album" || recordingID != "rec-2" {
+		t.Fatalf("expected re-identified metadata, got title=%q artist=%q album=%q recording=%q", title, artist, album, recordingID)
+	}
+}
+
 func getSingleUserID(t *testing.T, dbConn *sql.DB) int {
 	t.Helper()
 	var userID int
