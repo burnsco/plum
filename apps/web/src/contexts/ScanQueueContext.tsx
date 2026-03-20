@@ -22,6 +22,7 @@ type QueueScanOptions = {
 type ScanQueueContextValue = {
   scanStatuses: Record<number, LibraryScanStatus>;
   getLibraryScanStatus: (libraryId: number | null) => LibraryScanStatus | undefined;
+  hasLibraryScanStatus: (libraryId: number | null) => boolean;
   queueLibraryScan: (libraryId: number, options?: QueueScanOptions) => Promise<LibraryScanStatus>;
 };
 
@@ -104,6 +105,11 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
     [scanStatuses],
   );
 
+  const hasLibraryScanStatus = useCallback(
+    (libraryId: number | null) => libraryId != null && libraryId in scanStatuses,
+    [scanStatuses],
+  );
+
   useEffect(() => {
     const activeLibraryIds = new Set(libraries.map((library) => library.id));
     setScanStatuses((current) => {
@@ -135,9 +141,10 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
     () => ({
       scanStatuses,
       getLibraryScanStatus,
+      hasLibraryScanStatus,
       queueLibraryScan,
     }),
-    [getLibraryScanStatus, queueLibraryScan, scanStatuses],
+    [getLibraryScanStatus, hasLibraryScanStatus, queueLibraryScan, scanStatuses],
   );
 
   return <ScanQueueContext.Provider value={value}>{children}</ScanQueueContext.Provider>;

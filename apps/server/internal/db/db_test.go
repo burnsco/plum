@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -243,8 +244,10 @@ CREATE TABLE library_job_status (
 		{table: "tv_episodes", column: "season"},
 		{table: "tv_episodes", column: "episode"},
 		{table: "tv_episodes", column: "metadata_review_needed"},
+		{table: "tv_episodes", column: "metadata_confirmed"},
 		{table: "tv_episodes", column: "thumbnail_path"},
 		{table: "anime_episodes", column: "metadata_review_needed"},
+		{table: "anime_episodes", column: "metadata_confirmed"},
 		{table: "music_tracks", column: "artist"},
 		{table: "music_tracks", column: "album"},
 		{table: "library_job_status", column: "identify_phase"},
@@ -331,6 +334,84 @@ func TestHandleStreamSubtitle_DoesNotWritePartialResponseOnConversionError(t *te
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("expected empty response body on subtitle error, got %q", rec.Body.String())
+	}
+}
+
+func TestHandleStreamEmbeddedSubtitle_ReturnsNotFoundForMissingStream(t *testing.T) {
+	dbConn := newTestDB(t)
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV 2", "tv", "/tv2", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Missing Stream - S01E01", "/tv2/Missing Stream/Season 1/Episode 1.mkv", 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`,
+		mediaID, 1, "en", "English"); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d", mediaID, 99), nil)
+	err := HandleStreamEmbeddedSubtitle(rec, req, dbConn, mediaID, 99)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty response body on embedded subtitle error, got %q", rec.Body.String())
+	}
+}
+
+func TestListIdentifiableByLibrary_SkipsConfirmedEpisodes(t *testing.T) {
+	dbConn := newTestDB(t)
+	tvLibID := getLibraryID(t, dbConn, "tv")
+
+	if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tmdb_id, metadata_confirmed, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tvLibID,
+		"Confirmed Show - S01E01",
+		"/tv/Confirmed Show/Season 1/Confirmed Show - S01E01.mkv",
+		120,
+		MatchStatusIdentified,
+		123,
+		true,
+		1,
+		1,
+	); err != nil {
+		t.Fatalf("insert confirmed episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		tvLibID,
+		"Unmatched Show - S01E02",
+		"/tv/Unmatched Show/Season 1/Unmatched Show - S01E02.mkv",
+		120,
+		MatchStatusUnmatched,
+		1,
+		2,
+	); err != nil {
+		t.Fatalf("insert unmatched episode: %v", err)
+	}
+
+	rows, err := ListIdentifiableByLibrary(dbConn, tvLibID)
+	if err != nil {
+		t.Fatalf("ListIdentifiableByLibrary: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 identifiable row, got %d", len(rows))
+	}
+	if rows[0].Title != "Unmatched Show - S01E02" {
+		t.Fatalf("unexpected identifiable row: %#v", rows[0])
 	}
 }
 

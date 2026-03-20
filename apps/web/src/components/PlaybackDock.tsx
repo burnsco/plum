@@ -227,9 +227,8 @@ export function PlaybackDock() {
     readStoredSubtitleAppearance(),
   );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
-  const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[] | null>(
-    null,
-  );
+  const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
+  const [failedSubtitleKeys, setFailedSubtitleKeys] = useState<string[]>([]);
   const [selectedAudioKey, setSelectedAudioKey] = useState("");
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
   const [subtitleAttachmentVersion, setSubtitleAttachmentVersion] = useState(0);
@@ -260,6 +259,7 @@ export function PlaybackDock() {
   const initialBufferGapHandledRef = useRef(false);
   const manualSubtitleTrackRef = useRef<TextTrack | null>(null);
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const {
     activeItem,
     activeMode,
@@ -352,52 +352,64 @@ export function PlaybackDock() {
     return [...external, ...embedded];
   }, [activeItem, isVideo]);
 
-  useEffect(() => {
-    if (subtitleTrackRequests.length === 0) {
-      setLoadedSubtitleTracks([]);
-      return;
-    }
+  const failedSubtitleKeySet = useMemo(() => new Set(failedSubtitleKeys), [failedSubtitleKeys]);
+  const subtitleTrackOptions = useMemo(
+    () => subtitleTrackRequests.filter((track) => !failedSubtitleKeySet.has(track.key)),
+    [failedSubtitleKeySet, subtitleTrackRequests],
+  );
+  const ensureSubtitleTrackLoaded = useCallback(
+    async (trackKey: string) => {
+      if (trackKey === "off") return;
+      if (loadedSubtitleTracks.some((track) => track.key === trackKey)) return;
+      if (failedSubtitleKeySet.has(trackKey)) return;
+      if (subtitleLoadControllersRef.current.has(trackKey)) return;
+      const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
+      if (!track) return;
 
-    const controller = new AbortController();
-    let active = true;
-    setLoadedSubtitleTracks(null);
+      const controller = new AbortController();
+      subtitleLoadControllersRef.current.set(trackKey, controller);
 
-    void Promise.all(
-      subtitleTrackRequests.map(async (track) => {
-        try {
-          const response = await fetch(track.src, {
-            credentials: "include",
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            throw new Error(`Subtitle request failed: ${response.status}`);
-          }
-          return { ...track, body: await response.text() };
-        } catch (error) {
-          console.error("[PlaybackDock] Subtitle load failed", {
-            mediaId: activeItem?.id ?? null,
-            source: track.src,
-            error,
-          });
-          return null;
+      try {
+        const response = await fetch(track.src, {
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Subtitle request failed: ${response.status}`);
         }
-      }),
-    ).then((tracks) => {
-      if (!active) {
-        return;
+        const body = await response.text();
+        setLoadedSubtitleTracks((current) =>
+          current.some((candidate) => candidate.key === track.key)
+            ? current
+            : [...current, { ...track, body }],
+        );
+      } catch (error) {
+        if ((error instanceof DOMException && error.name === "AbortError") || controller.signal.aborted) {
+          return;
+        }
+        console.error("[PlaybackDock] Subtitle load failed", {
+          mediaId: activeItem?.id ?? null,
+          source: track.src,
+          error,
+        });
+        setFailedSubtitleKeys((current) =>
+          current.includes(track.key) ? current : [...current, track.key],
+        );
+        setLoadedSubtitleTracks((current) =>
+          current.filter((candidate) => candidate.key !== track.key),
+        );
+        setSelectedSubtitleKey((current) => (current === track.key ? "off" : current));
+      } finally {
+        subtitleLoadControllersRef.current.delete(trackKey);
       }
-      setLoadedSubtitleTracks(
-        tracks.filter((track): track is LoadedSubtitleTrack => track != null),
-      );
-    });
+    },
+    [activeItem?.id, failedSubtitleKeySet, loadedSubtitleTracks, subtitleTrackRequests],
+  );
 
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [activeItem?.id, subtitleTrackRequests]);
-
-  const subtitleTrackOptions = subtitleTrackRequests;
+  useEffect(() => {
+    if (selectedSubtitleKey === "off") return;
+    void ensureSubtitleTrackLoaded(selectedSubtitleKey);
+  }, [ensureSubtitleTrackLoaded, selectedSubtitleKey]);
 
   const audioTracks = useMemo<AudioTrackOption[]>(() => {
     if (!isVideo || !activeItem) return [];
@@ -594,7 +606,12 @@ export function PlaybackDock() {
       isPlaying: false,
     });
     setSelectedSubtitleKey("off");
-    setLoadedSubtitleTracks(null);
+    for (const controller of subtitleLoadControllersRef.current.values()) {
+      controller.abort();
+    }
+    subtitleLoadControllersRef.current.clear();
+    setLoadedSubtitleTracks([]);
+    setFailedSubtitleKeys([]);
     setSelectedAudioKey("");
     setAudioTrackVersion(0);
     setSubtitleAttachmentVersion(0);
@@ -694,7 +711,7 @@ export function PlaybackDock() {
   const applyManagedSubtitleTrack = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    const hasLoadedSubtitles = (loadedSubtitleTracks?.length ?? 0) > 0;
+    const hasLoadedSubtitles = loadedSubtitleTracks.length > 0;
     const hasSelectedSubtitle = selectedSubtitleKey !== "off";
 
     if (!hasSelectedSubtitle && !hasLoadedSubtitles) {
@@ -723,7 +740,7 @@ export function PlaybackDock() {
     }
 
     const selectedTrack =
-      loadedSubtitleTracks?.find((candidate) => candidate.key === selectedSubtitleKey) ?? null;
+      loadedSubtitleTracks.find((candidate) => candidate.key === selectedSubtitleKey) ?? null;
     if (!selectedTrack) {
       track.mode = "disabled";
       return;

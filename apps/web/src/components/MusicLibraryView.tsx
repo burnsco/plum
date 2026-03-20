@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from "react";
+import { useRef, useMemo, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MediaItem } from "../api";
 import {
   formatRuntime,
@@ -6,12 +7,16 @@ import {
   groupMusicByArtist,
   sortMusicTracks,
 } from "../lib/musicGrouping";
+import { useVirtualContainerMetrics } from "../lib/virtualization";
 import { LibraryPosterGrid } from "./LibraryPosterGrid";
 
 interface Props {
   items: MediaItem[];
   onPlayCollection: (items: MediaItem[], startItem?: MediaItem) => void;
 }
+
+const TRACK_ROW_ESTIMATE = 74;
+const TRACK_VIRTUALIZATION_THRESHOLD = 150;
 
 export function MusicLibraryView({ items, onPlayCollection }: Props) {
   const tracks = useMemo(() => sortMusicTracks(items), [items]);
@@ -20,34 +25,6 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
 
   return (
     <div className="music-library">
-      <MusicSection
-        title="Tracks"
-        count={`${tracks.length} track${tracks.length === 1 ? "" : "s"}`}
-      >
-        <div className="music-track-list" role="list">
-          {tracks.map((track) => (
-            <button
-              key={track.id}
-              type="button"
-              className="music-track-row"
-              onClick={() => onPlayCollection(tracks, track)}
-            >
-              <span className="music-track-index">
-                {(track.track_number ?? 0) > 0 ? String(track.track_number).padStart(2, "0") : "•"}
-              </span>
-              <span className="music-track-main">
-                <span className="music-track-title">{track.title}</span>
-                <span className="music-track-meta">
-                  {track.artist || "Unknown Artist"}
-                  {track.album ? ` • ${track.album}` : ""}
-                </span>
-              </span>
-              <span className="music-track-duration">{formatRuntime(track.duration)}</span>
-            </button>
-          ))}
-        </div>
-      </MusicSection>
-
       <MusicSection
         title="Albums"
         count={`${albums.length} album${albums.length === 1 ? "" : "s"}`}
@@ -82,6 +59,13 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
         />
       </MusicSection>
 
+      <MusicSection
+        title="Tracks"
+        count={`${tracks.length} track${tracks.length === 1 ? "" : "s"}`}
+      >
+        <VirtualTrackList items={tracks} onPlayCollection={onPlayCollection} />
+      </MusicSection>
+
       <div className="music-section-grid">
         <MusicPlaceholderSection
           title="Genres"
@@ -93,6 +77,94 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
         />
       </div>
     </div>
+  );
+}
+
+function VirtualTrackList({
+  items,
+  onPlayCollection,
+}: {
+  items: MediaItem[];
+  onPlayCollection: (items: MediaItem[], startItem?: MediaItem) => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { scrollElement, scrollMargin } = useVirtualContainerMetrics(rootRef);
+  const shouldVirtualize =
+    items.length >= TRACK_VIRTUALIZATION_THRESHOLD &&
+    scrollElement != null &&
+    typeof ResizeObserver !== "undefined";
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualize ? items.length : 0,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => TRACK_ROW_ESTIMATE,
+    overscan: 6,
+    scrollMargin,
+  });
+
+  if (!shouldVirtualize) {
+    return (
+      <div ref={rootRef} className="music-track-list" role="list">
+        {items.map((track) => (
+          <TrackRow
+            key={track.id}
+            track={track}
+            items={items}
+            onPlayCollection={onPlayCollection}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={rootRef} className="music-track-list music-track-list--virtual" role="list">
+      <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const track = items[virtualRow.index];
+          return (
+            <div
+              key={track.id}
+              className="music-track-list__row"
+              style={{
+                transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+              }}
+            >
+              <TrackRow track={track} items={items} onPlayCollection={onPlayCollection} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TrackRow({
+  track,
+  items,
+  onPlayCollection,
+}: {
+  track: MediaItem;
+  items: MediaItem[];
+  onPlayCollection: (items: MediaItem[], startItem?: MediaItem) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="music-track-row"
+      onClick={() => onPlayCollection(items, track)}
+    >
+      <span className="music-track-index">
+        {(track.track_number ?? 0) > 0 ? String(track.track_number).padStart(2, "0") : "•"}
+      </span>
+      <span className="music-track-main">
+        <span className="music-track-title">{track.title}</span>
+        <span className="music-track-meta">
+          {track.artist || "Unknown Artist"}
+          {track.album ? ` • ${track.album}` : ""}
+        </span>
+      </span>
+      <span className="music-track-duration">{formatRuntime(track.duration)}</span>
+    </button>
   );
 }
 

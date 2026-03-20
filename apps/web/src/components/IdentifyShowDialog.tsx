@@ -73,7 +73,11 @@ export function IdentifyShowDialog({
     setIdentifying(id);
     setError(null);
     try {
-      await identifyShow(libraryId, showKey, parseInt(id, 10));
+      const response = await identifyShow(libraryId, showKey, parseInt(id, 10));
+      if (response.updated <= 0) {
+        setError("Identify failed");
+        return;
+      }
       queueLibraryIdentify(libraryId, {
         abortActive: true,
         prioritize: true,
