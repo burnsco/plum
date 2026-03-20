@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -8,8 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { identifyShow, searchSeries, type SeriesSearchResult } from "../api";
+import { queryKeys } from "../queries";
 
 export interface IdentifyShowDialogProps {
   open: boolean;
@@ -28,7 +29,7 @@ export function IdentifyShowDialog({
   showTitle,
   onSuccess,
 }: IdentifyShowDialogProps) {
-  const { queueLibraryIdentify } = useIdentifyQueue();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState(showTitle);
   const [results, setResults] = useState<readonly SeriesSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,12 +74,13 @@ export function IdentifyShowDialog({
     setIdentifying(id);
     setError(null);
     try {
-      await identifyShow(libraryId, showKey, parseInt(id, 10));
-      queueLibraryIdentify(libraryId, {
-        abortActive: true,
-        prioritize: true,
-        resetState: true,
-      });
+      const response = await identifyShow(libraryId, showKey, parseInt(id, 10));
+      if (response.updated <= 0) {
+        setError("Identify failed");
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
       onSuccess();
       onOpenChange(false);
     } catch (e) {

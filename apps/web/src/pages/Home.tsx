@@ -48,11 +48,15 @@ const isActiveIdentifyState = (identifyState?: ItemIdentifyState) =>
 
 function canShowFailureState(
   identifyPhase: IdentifyLibraryPhase | undefined,
+  isProcessing: boolean,
   isFetching: boolean,
+  hasActiveIdentifyItems: boolean,
   identifyFailedCount: number,
 ) {
   return (
+    !isProcessing &&
     !isFetching &&
+    !hasActiveIdentifyItems &&
     (identifyPhase === "identify-failed" ||
       (identifyPhase === "complete" && identifyFailedCount > 0))
   );
@@ -143,9 +147,11 @@ export function Home() {
     return libraries[0]?.id ?? null;
   }, [libraryIdParam, libraries]);
   const selectedLibraryScanStatus = getLibraryScanStatus(selectedLibraryId);
+  const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
+    selectedLibraryScanStatus?.identifyPhase,
+  );
   const selectedLibraryIdentifyPhase =
-    getLibraryPhase(selectedLibraryId) ??
-    mapBackendIdentifyPhase(selectedLibraryScanStatus?.identifyPhase);
+    selectedLibraryBackendIdentifyPhase ?? getLibraryPhase(selectedLibraryId);
   const isSelectedLibraryScanning =
     selectedLibraryScanStatus?.phase === "queued" ||
     selectedLibraryScanStatus?.phase === "scanning" ||
@@ -205,9 +211,14 @@ export function Home() {
     navigate(`/library/${libraries[0].id}`, { replace: true });
   }, [libraryIdParam, libraries, navigate]);
 
+  const hasActiveIdentifyItems = selectedItems.some((item) =>
+    isActiveIdentifyState(item.identify_state),
+  );
   const selectedLibraryCanShowFailure = canShowFailureState(
     selectedLibraryIdentifyPhase,
+    isSelectedLibraryScanning,
     selectedFetching,
+    hasActiveIdentifyItems,
     selectedLibraryScanStatus?.identifyFailed ?? 0,
   );
   const hasIdentifyProgress = selectedItems.some((item) => {
@@ -241,11 +252,9 @@ export function Home() {
       const imdbRating = group.episodes.find(
         (episode) => (episode.imdb_rating ?? 0) > 0,
       )?.imdb_rating;
-      const needsMetadataReview =
-        selectedLib?.type === "anime" &&
-        group.episodes.some(
-          (episode) => episode.metadata_review_needed === true,
-        );
+      const needsMetadataReview = group.episodes.some(
+        (episode) => episode.metadata_review_needed === true,
+      );
       const isConfirmingReview =
         confirmShowMutation.isPending &&
         confirmShowMutation.variables?.libraryId === selectedLibraryId &&
@@ -344,7 +353,6 @@ export function Home() {
     selectedLibraryIdentifyPhase,
     selectedLibraryCanShowFailure,
     selectedLibraryId,
-    selectedLib?.type,
     showGroups,
   ]);
 

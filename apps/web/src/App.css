@@ -786,6 +786,23 @@
   margin-top: 0.75rem;
 }
 
+.show-cards-grid--virtual {
+  display: block;
+}
+
+.show-cards-grid__spacer {
+  position: relative;
+}
+
+.show-cards-grid__row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(var(--poster-columns, 1), minmax(0, 1fr));
+}
+
 .show-card {
   position: relative;
   display: flex;
@@ -1427,6 +1444,17 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.music-track-list--virtual {
+  display: block;
+}
+
+.music-track-list__row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 
 .music-track-row {

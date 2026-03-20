@@ -115,6 +115,7 @@ export interface MediaItem {
   season?: number;
   episode?: number;
   metadata_review_needed?: boolean;
+  metadata_confirmed?: boolean;
   /** Path to generated frame thumbnail (video episodes); served at /api/media/:id/thumbnail. */
   thumbnail_path?: string;
 }
@@ -154,6 +155,7 @@ export const MediaItemSchema = Schema.Struct({
   season: Schema.optional(Schema.Number),
   episode: Schema.optional(Schema.Number),
   metadata_review_needed: Schema.optional(Schema.Boolean),
+  metadata_confirmed: Schema.optional(Schema.Boolean),
   thumbnail_path: Schema.optional(Schema.String),
 });
 

@@ -1,7 +1,15 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { Link } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Play } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
+import { useVirtualContainerMetrics } from "@/lib/virtualization";
 
 export type PosterCardState = "default" | "identifying" | "identify-failed" | "review-needed";
 
@@ -29,29 +37,97 @@ interface Props {
   compact?: boolean;
 }
 
+const DEFAULT_CARD_WIDTH = 140;
+const DEFAULT_CARD_GAP = 16;
+const DEFAULT_ROW_HEIGHT = 320;
+const COMPACT_CARD_WIDTH = 120;
+const COMPACT_CARD_GAP = 14;
+const COMPACT_ROW_HEIGHT = 276;
+const GRID_VIRTUALIZATION_THRESHOLD = 120;
+
 export function LibraryPosterGrid({ items, compact = false }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { scrollElement, width, scrollMargin } = useVirtualContainerMetrics(rootRef);
+  const cardWidth = compact ? COMPACT_CARD_WIDTH : DEFAULT_CARD_WIDTH;
+  const gap = compact ? COMPACT_CARD_GAP : DEFAULT_CARD_GAP;
+  const columns = Math.max(1, Math.floor((Math.max(width, cardWidth) + gap) / (cardWidth + gap)));
+  const shouldVirtualize =
+    items.length >= GRID_VIRTUALIZATION_THRESHOLD &&
+    scrollElement != null &&
+    width > 0 &&
+    typeof ResizeObserver !== "undefined";
+
+  const rowCount = Math.ceil(items.length / columns);
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualize ? rowCount : 0,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => (compact ? COMPACT_ROW_HEIGHT : DEFAULT_ROW_HEIGHT),
+    overscan: compact ? 3 : 2,
+    scrollMargin,
+  });
+
+  if (!shouldVirtualize) {
+    return (
+      <div ref={rootRef} className={`show-cards-grid${compact ? " show-cards-grid--compact" : ""}`}>
+        {items.map((item) => (
+          <PosterCard key={item.key} item={item} />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className={`show-cards-grid${compact ? " show-cards-grid--compact" : ""}`}>
-      {items.map((item) => (
-        <div key={item.key} className="show-card" onContextMenu={item.onContextMenu}>
-          <CardHitArea item={item} />
-          {item.onPlay && (item.cardState ?? "default") === "default" && (
-            <button
-              type="button"
-              className="show-card-play-button"
-              aria-label={`Play ${item.title}`}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                item.onPlay?.();
+    <div
+      ref={rootRef}
+      className={`show-cards-grid show-cards-grid--virtual${compact ? " show-cards-grid--compact" : ""}`}
+      style={{ "--poster-columns": String(columns) } as CSSProperties}
+    >
+      <div
+        className="show-cards-grid__spacer"
+        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const start = virtualRow.index * columns;
+          const rowItems = items.slice(start, start + columns);
+          return (
+            <div
+              key={virtualRow.key}
+              className="show-cards-grid__row"
+              style={{
+                transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+                gap: `${gap}px`,
               }}
             >
-              <Play className="size-5 fill-current" />
-            </button>
-          )}
-          <PosterCardBody item={item} />
-        </div>
-      ))}
+              {rowItems.map((item) => (
+                <PosterCard key={item.key} item={item} />
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PosterCard({ item }: { item: PosterGridItem }) {
+  return (
+    <div className="show-card" onContextMenu={item.onContextMenu}>
+      <CardHitArea item={item} />
+      {item.onPlay && (item.cardState ?? "default") === "default" && (
+        <button
+          type="button"
+          className="show-card-play-button"
+          aria-label={`Play ${item.title}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            item.onPlay?.();
+          }}
+        >
+          <Play className="size-5 fill-current" />
+        </button>
+      )}
+      <PosterCardBody item={item} />
     </div>
   );
 }

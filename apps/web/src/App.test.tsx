@@ -286,7 +286,7 @@ describe("App library and player wiring", () => {
     expect(within(searchingCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
   });
 
-  it("shows an identifying placeholder when every movie card is still deferred", async () => {
+  it("shows movie cards as searching while identify is still in progress", async () => {
     const identifyRequest = deferred<{ identified: number; failed: number }>();
 
     vi.spyOn(api, "listLibraries").mockResolvedValue([
@@ -311,8 +311,8 @@ describe("App library and player wiring", () => {
     });
     expect(vi.mocked(api.identifyLibrary).mock.calls[0]?.[0]).toBe(2);
 
-    expect(await screen.findByText("Identifying library…")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Die My Love$/i })).not.toBeInTheDocument();
+    const movieCard = await screen.findByRole("button", { name: /^Die My Love$/i });
+    expect(within(movieCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
   });
 
   it("polls active library media and reveals movie cards once metadata lands", async () => {
@@ -650,7 +650,8 @@ describe("App library and player wiring", () => {
     await waitFor(() => {
       expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1);
     });
-    expect(await screen.findByText("Identifying library…")).toBeTruthy();
+    const retryCard = await screen.findByRole("link", { name: /Retry Show/i });
+    expect(within(retryCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
 
     firstIdentify.reject(new Error("temporary failure"));
 
@@ -717,8 +718,9 @@ describe("App library and player wiring", () => {
         await Promise.resolve();
       });
 
-      expect(screen.getByText("Couldn't match automatically")).toBeTruthy();
-      expect(screen.getByRole("button", { name: /Identify manually/i })).toBeTruthy();
+      expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Identify manually/i })).not.toBeInTheDocument();
+      expect(within(softRevealCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
     } finally {
       vi.useRealTimers();
     }
@@ -750,6 +752,184 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Identify manually/i }));
 
     expect(await screen.findByRole("heading", { name: /Identify show/i })).toBeTruthy();
+  });
+
+  it("does not show manual identify while backend identify is still active", async () => {
+    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
+      libraryId: 1,
+      phase: "completed",
+      enriching: false,
+      identifyPhase: "identifying",
+      identified: 0,
+      identifyFailed: 0,
+      processed: 1,
+      added: 1,
+      updated: 0,
+      removed: 0,
+      unmatched: 1,
+      skipped: 0,
+      identifyRequested: true,
+      estimatedItems: 1,
+      queuePosition: 0,
+    });
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 42,
+        title: "Missing Show - S01E01 - Pilot",
+        path: "/tv/Missing Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "local",
+        season: 1,
+        episode: 1,
+      },
+    ]);
+
+    renderApp();
+
+    const searchingCard = await screen.findByRole("link", { name: /Missing Show/i });
+    expect(within(searchingCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
+    expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Identify manually/i })).not.toBeInTheDocument();
+    expect(api.identifyLibrary).not.toHaveBeenCalled();
+  });
+
+  it("shows a review prompt for TV fallback matches and confirms it", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+    ]);
+    const fetchLibraryMedia = vi.spyOn(api, "fetchLibraryMedia");
+    fetchLibraryMedia.mockResolvedValue([
+      {
+        id: 42,
+        title: "Slow Horses - S01E01 - Failure's Contagious",
+        path: "/tv/Slow Horses/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "identified",
+        tmdb_id: 321,
+        poster_path: "/slow-horses.jpg",
+        metadata_review_needed: false,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Slow Horses - S01E01 - Failure's Contagious",
+        path: "/tv/Slow Horses/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "identified",
+        tmdb_id: 321,
+        poster_path: "/slow-horses.jpg",
+        metadata_review_needed: true,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    const identifyRequest = deferred<{ identified: number; failed: number }>();
+    vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
+
+    renderApp();
+
+    expect(await screen.findByText("Is this correct?")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() => {
+      expect(api.confirmShow).toHaveBeenCalledWith(1, { showKey: "tmdb-321" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Is this correct?")).not.toBeInTheDocument();
+    });
+    await act(async () => {
+      identifyRequest.resolve({ identified: 1, failed: 0 });
+      await Promise.resolve();
+    });
+  });
+
+  it("applies manual identify for unmatched TV shows without restarting library identify", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+    ]);
+    const fetchLibraryMedia = vi.spyOn(api, "fetchLibraryMedia");
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Missing Show - S01E01 - Pilot",
+        path: "/tv/Missing Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "local",
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Missing Show - S01E01 - Pilot",
+        path: "/tv/Missing Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "local",
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    fetchLibraryMedia.mockResolvedValue([
+      {
+        id: 42,
+        title: "Correct Show - S01E01 - Pilot",
+        path: "/tv/Missing Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "identified",
+        tmdb_id: 456,
+        poster_path: "/correct-show.jpg",
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    vi.spyOn(api, "searchSeries").mockResolvedValue([
+      {
+        Title: "Correct Show",
+        Overview: "",
+        ExternalID: "456",
+        Provider: "tmdb",
+        PosterURL: "/correct-show.jpg",
+        BackdropURL: "",
+        ReleaseDate: "2024-01-01",
+        VoteAverage: 0,
+      },
+    ]);
+    vi.spyOn(api, "identifyShow").mockResolvedValue({ updated: 1 });
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 });
+
+    renderApp();
+
+    expect(await screen.findByText("Couldn't match automatically")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Identify manually/i }));
+
+    expect(await screen.findByRole("heading", { name: /Identify show/i })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Choose/i }));
+
+    await waitFor(() => {
+      expect(api.identifyShow).toHaveBeenCalledWith(1, "title-missingshow", 456);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /Identify show/i })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+    });
+    expect(identifyLibraryIds()).toEqual([1]);
   });
 
   it("does not show TV failure UI after a successful identify while stale rows are still visible", async () => {
@@ -958,7 +1138,8 @@ describe("App library and player wiring", () => {
         episode: 1,
       },
     ]);
-    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
+    const identifyRequest = deferred<{ identified: number; failed: number }>();
+    vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
     renderApp();
 
@@ -971,6 +1152,10 @@ describe("App library and player wiring", () => {
     });
     await waitFor(() => {
       expect(screen.queryByText("Is this correct?")).not.toBeInTheDocument();
+    });
+    await act(async () => {
+      identifyRequest.resolve({ identified: 1, failed: 0 });
+      await Promise.resolve();
     });
   });
 
