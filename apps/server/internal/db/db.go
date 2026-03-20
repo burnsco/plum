@@ -22,8 +22,7 @@ import (
 var SkipFFprobeInScan bool
 
 var (
-	showKeyYearSuffixRegexp = regexp.MustCompile(`\(\d{4}\)\s*$`)
-	showKeyNonAlnumRegexp   = regexp.MustCompile(`[^a-z0-9]+`)
+	showKeyNonAlnumRegexp = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
 const (
@@ -989,7 +988,6 @@ type ShowEpisodeRef struct {
 
 func normalizeShowKeyTitle(title string) string {
 	title = showNameFromTitle(title)
-	title = showKeyYearSuffixRegexp.ReplaceAllString(title, "")
 	title = strings.ToLower(title)
 	title = showKeyNonAlnumRegexp.ReplaceAllString(title, "")
 	return title

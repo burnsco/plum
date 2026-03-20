@@ -645,7 +645,7 @@ func TestIdentifyShow_ClearsMetadataReviewNeeded(t *testing.T) {
 	}
 }
 
-func TestIdentifyShow_UsesNormalizedTitleShowKeyForUnmatchedRows(t *testing.T) {
+func TestIdentifyShow_UsesTitleShowKeyForUnmatchedRows(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -696,7 +696,7 @@ func TestIdentifyShow_UsesNormalizedTitleShowKeyForUnmatchedRows(t *testing.T) {
 		},
 	}
 
-	body := strings.NewReader(`{"showKey":"title-missingshow","tmdbId":456}`)
+	body := strings.NewReader(`{"showKey":"title-missingshow2024","tmdbId":456}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()
@@ -728,6 +728,101 @@ func TestIdentifyShow_UsesNormalizedTitleShowKeyForUnmatchedRows(t *testing.T) {
 	}
 	if !metadataConfirmed {
 		t.Fatal("expected metadata_confirmed to be set")
+	}
+}
+
+func TestIdentifyShow_OnlyUpdatesEpisodesForMatchingYearQualifiedShowKey(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	insertEpisode := func(title, path string) int {
+		var episodeID int
+		if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			libraryID,
+			title,
+			path,
+			0,
+			db.MatchStatusUnmatched,
+			1,
+			1,
+		).Scan(&episodeID); err != nil {
+			t.Fatalf("insert tv episode %q: %v", title, err)
+		}
+		if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeTV, episodeID); err != nil {
+			t.Fatalf("insert media global row for %q: %v", title, err)
+		}
+		return episodeID
+	}
+
+	episode1978ID := insertEpisode(
+		"Battlestar Galactica (1978) - S01E01 - Saga of a Star World",
+		"/tv/Battlestar Galactica (1978)/Season 1/Battlestar Galactica (1978) - S01E01.mkv",
+	)
+	episode2004ID := insertEpisode(
+		"Battlestar Galactica (2004) - S01E01 - 33",
+		"/tv/Battlestar Galactica (2004)/Season 1/Battlestar Galactica (2004) - S01E01.mkv",
+	)
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		SeriesQuery: &seriesQueryStub{
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tmdb" || seriesID != "456" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				if season != 1 || episode != 1 {
+					t.Fatalf("unexpected episode = S%02dE%02d", season, episode)
+				}
+				return &metadata.MatchResult{
+					Title:      "Battlestar Galactica - S01E01 - Saga of a Star World",
+					Provider:   "tmdb",
+					ExternalID: "456",
+				}, nil
+			},
+		},
+	}
+
+	body := strings.NewReader(`{"showKey":"title-battlestargalactica1978","tmdbId":456}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var tmdbID1978 int
+	if err := dbConn.QueryRow(`SELECT COALESCE(tmdb_id, 0) FROM tv_episodes WHERE id = ?`, episode1978ID).Scan(&tmdbID1978); err != nil {
+		t.Fatalf("query 1978 episode: %v", err)
+	}
+	if tmdbID1978 != 456 {
+		t.Fatalf("1978 tmdb_id = %d", tmdbID1978)
+	}
+
+	var tmdbID2004 int
+	if err := dbConn.QueryRow(`SELECT COALESCE(tmdb_id, 0) FROM tv_episodes WHERE id = ?`, episode2004ID).Scan(&tmdbID2004); err != nil {
+		t.Fatalf("query 2004 episode: %v", err)
+	}
+	if tmdbID2004 != 0 {
+		t.Fatalf("expected 2004 tmdb_id to remain unset, got %d", tmdbID2004)
 	}
 }
 

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +8,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { identifyShow, searchSeries, type SeriesSearchResult } from "../api";
-import { queryKeys } from "../queries";
 
 export interface IdentifyShowDialogProps {
   open: boolean;
@@ -29,7 +28,7 @@ export function IdentifyShowDialog({
   showTitle,
   onSuccess,
 }: IdentifyShowDialogProps) {
-  const queryClient = useQueryClient();
+  const { queueLibraryIdentify } = useIdentifyQueue();
   const [query, setQuery] = useState(showTitle);
   const [results, setResults] = useState<readonly SeriesSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,8 +78,11 @@ export function IdentifyShowDialog({
         setError("Identify failed");
         return;
       }
-      await queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+      queueLibraryIdentify(libraryId, {
+        abortActive: true,
+        prioritize: true,
+        resetState: true,
+      });
       onSuccess();
       onOpenChange(false);
     } catch (e) {

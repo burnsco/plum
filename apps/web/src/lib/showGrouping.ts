@@ -18,7 +18,6 @@ export function getShowName(title: string): string {
 
 function normalizeShowKeyTitle(title: string): string {
   return getShowName(title)
-    .replace(/\(\d{4}\)\s*$/u, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
