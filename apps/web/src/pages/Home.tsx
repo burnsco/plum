@@ -368,7 +368,7 @@ export function Home() {
                     resetState: true,
                   })
               : undefined,
-          onClick: () => playMovie(item),
+          href: selectedLibraryId != null ? `/library/${selectedLibraryId}/movie/${item.id}` : undefined,
           onPlay: () => playMovie(item),
         },
       ] satisfies PosterGridItem[];

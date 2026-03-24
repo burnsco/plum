@@ -23,10 +23,12 @@ import (
 type LibraryHandler struct {
 	DB          *sql.DB
 	Meta        metadata.Identifier
+	Movies      metadata.MovieDetailsProvider
 	Series      metadata.SeriesDetailsProvider
 	SeriesQuery metadata.SeriesSearchProvider
 	Discover    metadata.DiscoverProvider
 	ScanJobs    *LibraryScanManager
+	SearchIndex *SearchIndexManager
 	identifyRun *identifyRunTracker
 }
 
@@ -946,10 +948,35 @@ func (h *LibraryHandler) identifyLibraryJob(
 		tvdbID = res.ExternalID
 	}
 	tbl := db.MediaTableForKind(row.Kind)
-	if err := db.UpdateMediaMetadata(h.DB, tbl, row.RefID, res.Title, res.Overview, res.PosterURL, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, row.Season, row.Episode); err != nil {
+	cast := make([]db.CastCredit, 0, len(res.Cast))
+	for _, member := range res.Cast {
+		cast = append(cast, db.CastCredit{
+			Name:        member.Name,
+			Character:   member.Character,
+			Order:       member.Order,
+			ProfilePath: member.ProfilePath,
+			Provider:    member.Provider,
+			ProviderID:  member.ProviderID,
+		})
+	}
+	if err := db.UpdateMediaMetadataWithCanonicalState(h.DB, tbl, row.RefID, res.Title, res.Overview, res.PosterURL, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, row.Season, row.Episode, db.CanonicalMetadata{
+		Title:        res.Title,
+		Overview:     res.Overview,
+		PosterPath:   res.PosterURL,
+		BackdropPath: res.BackdropURL,
+		ReleaseDate:  res.ReleaseDate,
+		IMDbID:       res.IMDbID,
+		IMDbRating:   res.IMDbRating,
+		Genres:       res.Genres,
+		Cast:         cast,
+		Runtime:      res.Runtime,
+	}, false, false); err != nil {
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
 	h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
+	if h.SearchIndex != nil {
+		h.SearchIndex.Queue(libraryID, false)
+	}
 	return identifyJobResult{status: identifyJobSucceeded, job: job}
 }
 
@@ -1042,6 +1069,17 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 	var canonical db.CanonicalMetadata
 	if h.Series != nil {
 		if details, err := h.Series.GetSeriesDetails(ctx, seriesTMDBID); err == nil && details != nil {
+			cast := make([]db.CastCredit, 0, len(details.Cast))
+			for _, member := range details.Cast {
+				cast = append(cast, db.CastCredit{
+					Name:        member.Name,
+					Character:   member.Character,
+					Order:       member.Order,
+					ProfilePath: member.ProfilePath,
+					Provider:    member.Provider,
+					ProviderID:  member.ProviderID,
+				})
+			}
 			canonical = db.CanonicalMetadata{
 				Title:        details.Name,
 				Overview:     details.Overview,
@@ -1050,6 +1088,9 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 				ReleaseDate:  details.FirstAirDate,
 				IMDbID:       details.IMDbID,
 				IMDbRating:   details.IMDbRating,
+				Genres:       details.Genres,
+				Cast:         cast,
+				Runtime:      details.Runtime,
 			}
 		}
 	}
@@ -1068,6 +1109,12 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 		}
 		updated++
 		time.Sleep(identifyRateLimitMs * time.Millisecond)
+	}
+	if updated > 0 && len(refs) > 0 && h.SearchIndex != nil {
+		var libraryID int
+		if err := h.DB.QueryRow(`SELECT library_id FROM `+table+` WHERE id = ?`, refs[0].RefID).Scan(&libraryID); err == nil {
+			h.SearchIndex.Queue(libraryID, false)
+		}
 	}
 	return updated, nil
 }
@@ -1528,6 +1575,107 @@ func (h *LibraryHandler) GetSeriesSearch(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(results)
+}
+
+func (h *LibraryHandler) SearchLibraryMedia(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID := 0
+	if rawLibraryID := strings.TrimSpace(r.URL.Query().Get("library_id")); rawLibraryID != "" {
+		parsed, err := strconv.Atoi(rawLibraryID)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "invalid library_id", http.StatusBadRequest)
+			return
+		}
+		libraryID = parsed
+	}
+	limit := 30
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+	searchType := strings.TrimSpace(r.URL.Query().Get("type"))
+	if searchType != "" && searchType != "movie" && searchType != "show" {
+		http.Error(w, "invalid type", http.StatusBadRequest)
+		return
+	}
+	results, err := db.SearchLibraryMedia(h.DB, db.SearchQuery{
+		UserID:    u.ID,
+		Query:     strings.TrimSpace(r.URL.Query().Get("q")),
+		LibraryID: libraryID,
+		Type:      searchType,
+		Genre:     strings.TrimSpace(r.URL.Query().Get("genre")),
+		Limit:     limit,
+	})
+	if err != nil {
+		http.Error(w, "search failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
+}
+
+func (h *LibraryHandler) GetLibraryMovieDetails(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	if !ok {
+		return
+	}
+	mediaID, err := strconv.Atoi(chi.URLParam(r, "mediaId"))
+	if err != nil || mediaID <= 0 {
+		http.Error(w, "invalid media id", http.StatusBadRequest)
+		return
+	}
+	details, err := db.GetLibraryMovieDetails(h.DB, libraryID, mediaID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if details == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(details)
+}
+
+func (h *LibraryHandler) GetLibraryShowDetails(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	if !ok {
+		return
+	}
+	showKey := strings.TrimSpace(chi.URLParam(r, "showKey"))
+	if showKey == "" {
+		http.Error(w, "invalid show key", http.StatusBadRequest)
+		return
+	}
+	details, err := db.GetLibraryShowDetails(h.DB, libraryID, showKey)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if details == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(details)
 }
 
 type refreshShowRequest struct {
