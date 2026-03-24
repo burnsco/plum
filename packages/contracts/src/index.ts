@@ -451,6 +451,20 @@ export const IdentifyResultSchema = Schema.Struct({
   failed: Schema.Number,
 });
 
+export interface CastMember {
+  name: string;
+  character?: string;
+  order?: number;
+  profile_path?: string;
+}
+
+export const CastMemberSchema = Schema.Struct({
+  name: Schema.String,
+  character: Schema.optional(Schema.String),
+  order: Schema.optional(Schema.Number),
+  profile_path: Schema.optional(Schema.String),
+});
+
 export interface SeriesDetails {
   name: string;
   overview: string;
@@ -461,6 +475,11 @@ export interface SeriesDetails {
   first_air_date: string;
   imdb_id?: string;
   imdb_rating?: number;
+  genres: string[];
+  cast: CastMember[];
+  runtime?: number;
+  number_of_seasons?: number;
+  number_of_episodes?: number;
 }
 
 export const SeriesDetailsSchema = Schema.Struct({
@@ -473,6 +492,161 @@ export const SeriesDetailsSchema = Schema.Struct({
   first_air_date: Schema.String,
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
+  genres: Schema.Array(Schema.String),
+  cast: Schema.Array(CastMemberSchema),
+  runtime: Schema.optional(Schema.Number),
+  number_of_seasons: Schema.optional(Schema.Number),
+  number_of_episodes: Schema.optional(Schema.Number),
+});
+
+export interface MovieDetails {
+  media_id: number;
+  library_id: number;
+  title: string;
+  overview: string;
+  poster_path?: string;
+  poster_url?: string;
+  backdrop_path?: string;
+  backdrop_url?: string;
+  release_date?: string;
+  imdb_id?: string;
+  imdb_rating?: number;
+  runtime?: number;
+  genres: string[];
+  cast: CastMember[];
+}
+
+export const MovieDetailsSchema = Schema.Struct({
+  media_id: Schema.Number,
+  library_id: Schema.Number,
+  title: Schema.String,
+  overview: Schema.String,
+  poster_path: Schema.optional(Schema.String),
+  poster_url: Schema.optional(Schema.String),
+  backdrop_path: Schema.optional(Schema.String),
+  backdrop_url: Schema.optional(Schema.String),
+  release_date: Schema.optional(Schema.String),
+  imdb_id: Schema.optional(Schema.String),
+  imdb_rating: Schema.optional(Schema.Number),
+  runtime: Schema.optional(Schema.Number),
+  genres: Schema.Array(Schema.String),
+  cast: Schema.Array(CastMemberSchema),
+});
+
+export interface ShowDetails {
+  library_id: number;
+  show_key: string;
+  name: string;
+  overview: string;
+  poster_path?: string;
+  poster_url?: string;
+  backdrop_path?: string;
+  backdrop_url?: string;
+  first_air_date?: string;
+  imdb_id?: string;
+  imdb_rating?: number;
+  runtime?: number;
+  number_of_seasons: number;
+  number_of_episodes: number;
+  genres: string[];
+  cast: CastMember[];
+}
+
+export const ShowDetailsSchema = Schema.Struct({
+  library_id: Schema.Number,
+  show_key: Schema.String,
+  name: Schema.String,
+  overview: Schema.String,
+  poster_path: Schema.optional(Schema.String),
+  poster_url: Schema.optional(Schema.String),
+  backdrop_path: Schema.optional(Schema.String),
+  backdrop_url: Schema.optional(Schema.String),
+  first_air_date: Schema.optional(Schema.String),
+  imdb_id: Schema.optional(Schema.String),
+  imdb_rating: Schema.optional(Schema.Number),
+  runtime: Schema.optional(Schema.Number),
+  number_of_seasons: Schema.Number,
+  number_of_episodes: Schema.Number,
+  genres: Schema.Array(Schema.String),
+  cast: Schema.Array(CastMemberSchema),
+});
+
+export type SearchResultKind = "movie" | "show";
+
+export const SearchResultKindSchema = Schema.Literals(["movie", "show"]);
+
+export type SearchMatchReason = "title" | "actor";
+
+export const SearchMatchReasonSchema = Schema.Literals(["title", "actor"]);
+
+export interface SearchResult {
+  kind: SearchResultKind;
+  library_id: number;
+  library_name: string;
+  library_type: LibraryType;
+  title: string;
+  subtitle?: string;
+  poster_path?: string;
+  poster_url?: string;
+  imdb_rating?: number;
+  match_reason: SearchMatchReason;
+  matched_actor?: string;
+  href: string;
+  genres?: string[];
+}
+
+export const SearchResultSchema = Schema.Struct({
+  kind: SearchResultKindSchema,
+  library_id: Schema.Number,
+  library_name: Schema.String,
+  library_type: LibraryTypeSchema,
+  title: Schema.String,
+  subtitle: Schema.optional(Schema.String),
+  poster_path: Schema.optional(Schema.String),
+  poster_url: Schema.optional(Schema.String),
+  imdb_rating: Schema.optional(Schema.Number),
+  match_reason: SearchMatchReasonSchema,
+  matched_actor: Schema.optional(Schema.String),
+  href: Schema.String,
+  genres: Schema.optional(Schema.Array(Schema.String)),
+});
+
+export interface SearchFacetValue {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export const SearchFacetValueSchema = Schema.Struct({
+  value: Schema.String,
+  label: Schema.String,
+  count: Schema.Number,
+});
+
+export interface SearchFacets {
+  libraries: SearchFacetValue[];
+  types: SearchFacetValue[];
+  genres: SearchFacetValue[];
+}
+
+export const SearchFacetsSchema = Schema.Struct({
+  libraries: Schema.Array(SearchFacetValueSchema),
+  types: Schema.Array(SearchFacetValueSchema),
+  genres: Schema.Array(SearchFacetValueSchema),
+});
+
+export interface SearchResponse {
+  query: string;
+  results: SearchResult[];
+  total: number;
+  facets: SearchFacets;
+}
+
+export const SearchResponseSchema = Schema.Struct({
+  query: Schema.String,
+  results: Schema.Array(SearchResultSchema),
+  total: Schema.Number,
+  facets: SearchFacetsSchema,
 });
 
 export interface SeriesSearchResult {

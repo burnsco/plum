@@ -72,8 +72,21 @@ function mockAuthSession({
   );
 }
 
-function renderApp() {
-  return render(<App />);
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function renderApp(route = "/library/1") {
+  window.history.pushState({}, "", route);
+
+  let app!: ReturnType<typeof render>;
+  await act(async () => {
+    app = render(<App />);
+    await flushMicrotasks();
+  });
+
+  return app;
 }
 
 function deferred<T>() {
@@ -93,81 +106,84 @@ function identifyLibraryIds() {
   return identifyLibraryMock.mock.calls.map((call) => call[0]);
 }
 
+function mockDefaultAppApis() {
+  vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
+  vi.spyOn(api, "getMe").mockResolvedValue(defaultUser);
+  vi.spyOn(api, "getLibraryScanStatus").mockImplementation(async (libraryId) => ({
+    libraryId,
+    phase: "idle",
+    enriching: false,
+    identifyPhase: "idle",
+    identified: 0,
+    identifyFailed: 0,
+    processed: 0,
+    added: 0,
+    updated: 0,
+    removed: 0,
+    unmatched: 0,
+    skipped: 0,
+    identifyRequested: false,
+    estimatedItems: 0,
+    queuePosition: 0,
+  }));
+  vi.spyOn(api, "startLibraryScan").mockImplementation(async (libraryId) => ({
+    libraryId,
+    phase: "queued",
+    enriching: false,
+    identifyPhase: "idle",
+    identified: 0,
+    identifyFailed: 0,
+    processed: 0,
+    added: 0,
+    updated: 0,
+    removed: 0,
+    unmatched: 0,
+    skipped: 0,
+    identifyRequested: false,
+    estimatedItems: 0,
+    queuePosition: 1,
+    startedAt: new Date().toISOString(),
+  }));
+  vi.spyOn(api, "identifyLibrary").mockResolvedValue({ identified: 0, failed: 0 });
+  vi.spyOn(api, "confirmShow").mockResolvedValue({ updated: 1 });
+  vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
+    continueWatching: [],
+    recentlyAdded: [],
+  });
+  vi.spyOn(api, "getDiscover").mockResolvedValue({
+    shelves: [],
+  });
+  vi.spyOn(api, "searchDiscover").mockResolvedValue({
+    movies: [],
+    tv: [],
+  });
+  vi.spyOn(api, "getDiscoverTitleDetails").mockResolvedValue(null);
+  vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId, payload) => ({
+    sessionId: `session-${mediaId}`,
+    mediaId,
+    revision: 1,
+    audioIndex: payload?.audioIndex ?? -1,
+    status: "starting",
+    playlistPath: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+  }));
+  vi.spyOn(api, "updatePlaybackSessionAudio").mockImplementation(async (sessionId, payload) => ({
+    sessionId,
+    mediaId: Number(sessionId.replace("session-", "")) || 0,
+    revision: 2,
+    audioIndex: payload.audioIndex,
+    status: "starting",
+    playlistPath: `/api/playback/sessions/${sessionId}/revisions/2/index.m3u8`,
+  }));
+  vi.spyOn(api, "closePlaybackSession").mockResolvedValue();
+}
+
 describe("App library and player wiring", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.mocked(loadAuthSessionEffect).mockReset();
     window.localStorage.clear();
-    window.history.pushState({}, "", "/library/1");
     mockAuthSession();
-    vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
-    vi.spyOn(api, "getMe").mockResolvedValue(defaultUser);
-    vi.spyOn(api, "getLibraryScanStatus").mockImplementation(async (libraryId) => ({
-      libraryId,
-      phase: "idle",
-      enriching: false,
-      identifyPhase: "idle",
-      identified: 0,
-      identifyFailed: 0,
-      processed: 0,
-      added: 0,
-      updated: 0,
-      removed: 0,
-      unmatched: 0,
-      skipped: 0,
-      identifyRequested: false,
-      estimatedItems: 0,
-      queuePosition: 0,
-    }));
-    vi.spyOn(api, "startLibraryScan").mockImplementation(async (libraryId) => ({
-      libraryId,
-      phase: "queued",
-      enriching: false,
-      identifyPhase: "idle",
-      identified: 0,
-      identifyFailed: 0,
-      processed: 0,
-      added: 0,
-      updated: 0,
-      removed: 0,
-      unmatched: 0,
-      skipped: 0,
-      identifyRequested: false,
-      estimatedItems: 0,
-      queuePosition: 1,
-      startedAt: new Date().toISOString(),
-    }));
-    vi.spyOn(api, "identifyLibrary").mockResolvedValue({ identified: 0, failed: 0 });
-    vi.spyOn(api, "confirmShow").mockResolvedValue({ updated: 1 });
-    vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
-      continueWatching: [],
-      recentlyAdded: [],
-    });
-    vi.spyOn(api, "getDiscover").mockResolvedValue({
-      shelves: [],
-    });
-    vi.spyOn(api, "searchDiscover").mockResolvedValue({
-      movies: [],
-      tv: [],
-    });
-    vi.spyOn(api, "getDiscoverTitleDetails").mockResolvedValue(null);
-    vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId, payload) => ({
-      sessionId: `session-${mediaId}`,
-      mediaId,
-      revision: 1,
-      audioIndex: payload?.audioIndex ?? -1,
-      status: "starting",
-      playlistPath: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
-    }));
-    vi.spyOn(api, "updatePlaybackSessionAudio").mockImplementation(async (sessionId, payload) => ({
-      sessionId,
-      mediaId: Number(sessionId.replace("session-", "")) || 0,
-      revision: 2,
-      audioIndex: payload.audioIndex,
-      status: "starting",
-      playlistPath: `/api/playback/sessions/${sessionId}/revisions/2/index.m3u8`,
-    }));
-    vi.spyOn(api, "closePlaybackSession").mockResolvedValue();
+    mockDefaultAppApis();
   });
 
   it("renders library tab and show cards when TV library has media", async () => {
@@ -188,7 +204,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp();
 
     await waitFor(() => {
       expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1);
@@ -214,11 +230,44 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp("/library/2");
 
-    const movieCard = await screen.findByRole("button", { name: /^Die My Love$/i });
+    const movieCard = await screen.findByRole("link", { name: /^Die My Love$/i });
     expect(movieCard).toBeTruthy();
     expect(screen.getByText(/2025/)).toBeTruthy();
+  });
+
+  it("loads movie detail without fetching the entire library", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    const fetchLibraryMediaSpy = vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([]);
+    vi.spyOn(api, "getMovieDetails").mockResolvedValue({
+      media_id: 99,
+      library_id: 2,
+      title: "Die My Love",
+      overview: "A movie detail page",
+      poster_path: "/poster.jpg",
+      backdrop_path: "/backdrop.jpg",
+      release_date: "2025-01-01",
+      runtime: 120,
+      genres: ["Drama"],
+      cast: [],
+    });
+
+    await renderApp("/library/2/movie/99");
+
+    await waitFor(() => {
+      expect(api.getMovieDetails).toHaveBeenCalledWith(2, 99);
+    });
+    expect(fetchLibraryMediaSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Play$/i }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(99, { audioIndex: -1 });
+    });
+    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
   });
 
   it("plays a movie from the poster overlay and opens the fullscreen overlay from the dock surface", async () => {
@@ -238,7 +287,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp("/library/2");
 
     fireEvent.click(await screen.findByRole("button", { name: /Play Die My Love/i }));
 
@@ -257,7 +306,6 @@ describe("App library and player wiring", () => {
   });
 
   it("plays the surfaced continue-watching show directly from the dashboard", async () => {
-    window.history.pushState({}, "", "/");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
     ]);
@@ -285,7 +333,7 @@ describe("App library and player wiring", () => {
       recentlyAdded: [],
     });
 
-    renderApp();
+    await renderApp("/");
 
     const card = await screen.findByRole("button", { name: /^Space Show$/i });
     fireEvent.click(card);
@@ -296,7 +344,6 @@ describe("App library and player wiring", () => {
   });
 
   it("renders recently added items on the dashboard and plays them directly", async () => {
-    window.history.pushState({}, "", "/");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
       { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
@@ -336,7 +383,7 @@ describe("App library and player wiring", () => {
       ],
     });
 
-    renderApp();
+    await renderApp("/");
 
     expect(await screen.findByText("Recently added")).toBeTruthy();
     expect(await screen.findByRole("button", { name: /^Space Show$/i })).toBeTruthy();
@@ -381,7 +428,7 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
-    renderApp();
+    await renderApp();
 
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
@@ -411,14 +458,14 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
-    renderApp();
+    await renderApp("/library/2");
 
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
     });
     expect(vi.mocked(api.identifyLibrary).mock.calls[0]?.[0]).toBe(2);
 
-    const movieCard = await screen.findByRole("button", { name: /^Die My Love$/i });
+    const movieCard = await screen.findByRole("link", { name: /^Die My Love$/i });
     expect(within(movieCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
   });
 
@@ -456,20 +503,19 @@ describe("App library and player wiring", () => {
         ]);
       vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
+      await renderApp("/library/2");
+
       await act(async () => {
-        renderApp();
         await vi.advanceTimersByTimeAsync(1);
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushMicrotasks();
       });
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000);
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushMicrotasks();
       });
 
-      expect(screen.getByRole("button", { name: /^Die My Love$/i })).toBeTruthy();
+      expect(screen.getByRole("link", { name: /^Die My Love$/i })).toBeTruthy();
       expect(screen.queryByText("Identifying library…")).not.toBeInTheDocument();
 
       await act(async () => {
@@ -497,7 +543,7 @@ describe("App library and player wiring", () => {
       .mockImplementationOnce(() => secondIdentify.promise)
       .mockImplementationOnce(() => thirdIdentify.promise);
 
-    renderApp();
+    await renderApp();
 
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(3);
@@ -533,24 +579,18 @@ describe("App library and player wiring", () => {
         )
         .mockResolvedValueOnce({ identified: 0, failed: 0 });
 
-      await act(async () => {
-        renderApp();
-        await vi.advanceTimersByTimeAsync(1);
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+      await renderApp();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1);
-        await Promise.resolve();
+        await flushMicrotasks();
       });
       expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
       expect(identifyLibraryIds()).toEqual([1, 2]);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(180_000);
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushMicrotasks();
       });
       expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
       expect(identifyLibraryIds()).toEqual([1, 2]);
@@ -577,7 +617,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp();
 
     await screen.findByText("Test Show");
     fireEvent.click(screen.getByRole("link", { name: /Test Show/i }));
@@ -618,7 +658,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp();
 
     fireEvent.click(await screen.findByRole("button", { name: /Play Grouped Show/i }));
 
@@ -655,7 +695,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByText("Tracks")).toBeTruthy();
     expect(screen.getByText("Albums")).toBeTruthy();
@@ -703,7 +743,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp();
 
     fireEvent.click(await screen.findByRole("button", { name: /Play Album/i }));
 
@@ -752,7 +792,7 @@ describe("App library and player wiring", () => {
       .mockImplementationOnce(() => firstIdentify.promise)
       .mockImplementationOnce(() => secondIdentify.promise);
 
-    renderApp();
+    await renderApp();
 
     await waitFor(() => {
       expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1);
@@ -803,16 +843,11 @@ describe("App library and player wiring", () => {
           }),
       );
 
-      await act(async () => {
-        renderApp();
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+      await renderApp();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(90_000);
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushMicrotasks();
       });
 
       expect(screen.getByTestId("library-identifying-1")).toBeTruthy();
@@ -821,8 +856,7 @@ describe("App library and player wiring", () => {
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(90_000);
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushMicrotasks();
       });
 
       expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
@@ -852,7 +886,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "searchSeries").mockResolvedValue([]);
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 });
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByText("Couldn't match automatically")).toBeTruthy();
 
@@ -895,7 +929,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp();
 
     const searchingCard = await screen.findByRole("link", { name: /Missing Show/i });
     expect(within(searchingCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
@@ -942,7 +976,7 @@ describe("App library and player wiring", () => {
     const identifyRequest = deferred<{ identified: number; failed: number }>();
     vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByText("Is this correct?")).toBeTruthy();
 
@@ -1018,7 +1052,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "identifyShow").mockResolvedValue({ updated: 1 });
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 });
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByText("Couldn't match automatically")).toBeTruthy();
 
@@ -1123,7 +1157,7 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
 
-    renderApp();
+    await renderApp();
 
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
@@ -1157,7 +1191,7 @@ describe("App library and player wiring", () => {
       .mockResolvedValueOnce({ identified: 0, failed: 1 })
       .mockImplementationOnce(() => retryIdentify.promise);
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByRole("button", { name: /Retry identify/i })).toBeTruthy();
 
@@ -1209,7 +1243,7 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockImplementationOnce(() => activeIdentify.promise);
 
-    renderApp();
+    await renderApp("/library/2");
 
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
@@ -1242,9 +1276,9 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
 
-    renderApp();
+    await renderApp("/library/2");
 
-    expect(await screen.findByRole("button", { name: /^Has Poster$/i })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /^Has Poster$/i })).toBeTruthy();
     expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Retry identify/i })).not.toBeInTheDocument();
   });
@@ -1280,7 +1314,7 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 2, failed: 0 });
 
-    renderApp();
+    await renderApp("/library/3");
 
     expect(await screen.findByRole("link", { name: /Frieren/i })).toBeTruthy();
     expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
@@ -1305,7 +1339,7 @@ describe("App library and player wiring", () => {
     ]);
     vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 0, failed: 1 });
 
-    renderApp();
+    await renderApp("/library/3");
 
     await waitFor(() => {
       expect(screen.queryByRole("link", { name: /Dragonball/i })).not.toBeInTheDocument();
@@ -1352,7 +1386,7 @@ describe("App library and player wiring", () => {
     const identifyRequest = deferred<{ identified: number; failed: number }>();
     vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
 
-    renderApp();
+    await renderApp("/library/3");
 
     expect(await screen.findByText("Is this correct?")).toBeTruthy();
 
@@ -1387,9 +1421,9 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp("/library/2");
 
-    const movieCard = await screen.findByRole("button", { name: /^Broken Poster$/i });
+    const movieCard = await screen.findByRole("link", { name: /^Broken Poster$/i });
     const poster = movieCard.closest(".show-card")?.querySelector("img") as HTMLImageElement | null;
     expect(poster).toBeTruthy();
     expect(poster?.getAttribute("src")).toContain("/broken.jpg");
@@ -1441,7 +1475,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([]);
     vi.mocked(api.identifyLibrary).mockImplementation(() => new Promise(() => {}));
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByRole("heading", { name: /Create admin account/i })).toBeTruthy();
 
@@ -1515,7 +1549,7 @@ describe("App library and player wiring", () => {
     ]);
     vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([]);
 
-    renderApp();
+    await renderApp();
 
     expect(await screen.findByRole("heading", { name: /Create admin account/i })).toBeTruthy();
 
@@ -1544,14 +1578,13 @@ describe("App library and player wiring", () => {
   });
 
   it("renders transcoding settings for admins", async () => {
-    window.history.pushState({}, "", "/settings");
     vi.spyOn(api, "listLibraries").mockResolvedValue([]);
     vi.spyOn(api, "getTranscodingSettings").mockResolvedValue({
       settings: defaultTranscodingSettings,
       warnings: [],
     });
 
-    renderApp();
+    await renderApp("/settings");
 
     expect(await screen.findByRole("heading", { name: /Transcoding/i })).toBeTruthy();
     expect(await screen.findByLabelText(/VAAPI device/i)).toHaveValue("/dev/dri/renderD128");
@@ -1560,7 +1593,6 @@ describe("App library and player wiring", () => {
   });
 
   it("saves transcoding settings updates", async () => {
-    window.history.pushState({}, "", "/settings");
     vi.spyOn(api, "listLibraries").mockResolvedValue([]);
     const baseSettings = defaultTranscodingSettings;
 
@@ -1583,7 +1615,7 @@ describe("App library and player wiring", () => {
       warnings: [],
     });
 
-    renderApp();
+    await renderApp("/settings");
 
     fireEvent.click(await screen.findByLabelText(/Enable VAAPI/i));
     fireEvent.click(screen.getByLabelText(/Enable hardware encoding/i));
@@ -1623,7 +1655,6 @@ describe("App library and player wiring", () => {
   });
 
   it("saves library playback defaults from settings", async () => {
-    window.history.pushState({}, "", "/settings");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       {
         id: 14,
@@ -1651,7 +1682,7 @@ describe("App library and player wiring", () => {
       subtitles_enabled_by_default: false,
     });
 
-    renderApp();
+    await renderApp("/settings");
 
     fireEvent.click(await screen.findByLabelText(/Enable subtitles by default/i));
     fireEvent.click(screen.getByRole("button", { name: /Save defaults/i }));
@@ -1661,6 +1692,9 @@ describe("App library and player wiring", () => {
         preferred_audio_language: "ja",
         preferred_subtitle_language: "en",
         subtitles_enabled_by_default: false,
+        watcher_enabled: false,
+        watcher_mode: "auto",
+        scan_interval_minutes: 0,
       });
     });
 
@@ -1668,7 +1702,6 @@ describe("App library and player wiring", () => {
   });
 
   it("updates the player controls appearance from settings", async () => {
-    window.history.pushState({}, "", "/settings");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       {
         id: 14,
@@ -1686,7 +1719,7 @@ describe("App library and player wiring", () => {
       warnings: [],
     });
 
-    renderApp();
+    await renderApp("/settings");
 
     await screen.findByText(/Player controls look/i);
     fireEvent.click(screen.getByRole("button", { name: /Minimal/i }));
@@ -1716,7 +1749,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp("/library/2");
 
     fireEvent.click(await screen.findByRole("button", { name: /Play Die My Love/i }));
     expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
@@ -1750,7 +1783,7 @@ describe("App library and player wiring", () => {
       },
     ]);
 
-    renderApp();
+    await renderApp("/library/3");
 
     fireEvent.click(await screen.findByRole("button", { name: /Track One/i }));
     expect(await screen.findByLabelText("Music player")).toBeTruthy();
@@ -1763,7 +1796,6 @@ describe("App library and player wiring", () => {
   });
 
   it("renders the discover page and shows TMDB shelves", async () => {
-    window.history.pushState({}, "", "/discover");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
     ]);
@@ -1787,18 +1819,17 @@ describe("App library and player wiring", () => {
       ],
     });
 
-    renderApp();
+    await renderApp("/discover");
 
     expect(await screen.findByText("Trending Now")).toBeTruthy();
     expect(screen.getByRole("link", { name: /The Discoverable/i })).toHaveAttribute(
       "href",
       "/discover/movie/101",
     );
-    expect(screen.getByRole("link", { name: /Discover/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Find something worth adding/i })).toBeTruthy();
   });
 
   it("replaces shelves with grouped discover search results and surfaces in-library badges", async () => {
-    window.history.pushState({}, "", "/discover");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
     ]);
@@ -1843,7 +1874,7 @@ describe("App library and player wiring", () => {
       ],
     });
 
-    renderApp();
+    await renderApp("/discover");
 
     fireEvent.change(screen.getByPlaceholderText(/Search movies and TV shows/i), {
       target: { value: "space" },
@@ -1864,7 +1895,6 @@ describe("App library and player wiring", () => {
   });
 
   it("renders discover title details with an open-in-library link", async () => {
-    window.history.pushState({}, "", "/discover/tv/404");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
     ]);
@@ -1904,7 +1934,7 @@ describe("App library and player wiring", () => {
       ],
     });
 
-    renderApp();
+    await renderApp("/discover/tv/404");
 
     expect(await screen.findByRole("link", { name: /Open in Library/i })).toHaveAttribute(
       "href",
@@ -1918,7 +1948,6 @@ describe("App library and player wiring", () => {
   });
 
   it("shows a friendly discover configuration message when TMDB is missing", async () => {
-    window.history.pushState({}, "", "/discover/movie/505");
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
     ]);
@@ -1926,7 +1955,7 @@ describe("App library and player wiring", () => {
       new Error("tmdb discover requires TMDB_API_KEY"),
     );
 
-    renderApp();
+    await renderApp("/discover/movie/505");
 
     expect(await screen.findByText(/Discover needs TMDB configured/i)).toBeTruthy();
     expect(screen.getByText(/TMDB_API_KEY/i)).toBeTruthy();

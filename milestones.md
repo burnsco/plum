@@ -119,11 +119,11 @@ Goal: turn raw files into identifiable movies/shows and handle assets.
 
 - [x] poster fetching
 - [x] backdrop fetching
-- [ ] image caching
-- [ ] image resizing
+- [x] image caching
+- [x] image resizing
 - [x] thumbnail generation
-- [ ] artwork deduplication
-- [ ] CDN-style serving
+- [x] artwork deduplication
+- [x] CDN-style serving
 - [x] artwork prioritization
 
 ---

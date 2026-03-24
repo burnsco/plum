@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { MediaItem } from "../api";
-import { BASE_URL } from "../api";
+import { BASE_URL, type MediaItem } from "../api";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
-import { resolveBackdropUrl, resolvePosterUrl, tmdbBackdropUrl, tmdbPosterUrl } from "@plum/shared";
-import { useLibraryMedia, useSeries } from "../queries";
+import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
+import { useLibraryMedia, useShowDetails } from "../queries";
 
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "";
@@ -22,21 +21,13 @@ function seasonEpisodeLabel(item: MediaItem): string {
   return "";
 }
 
-/** Parse TMDB ID from showKey when it is "tmdb-123". */
-function tmdbIdFromShowKey(showKey: string | null): number | null {
-  if (!showKey || !showKey.startsWith("tmdb-")) return null;
-  const id = parseInt(showKey.slice(5), 10);
-  return Number.isNaN(id) ? null : id;
-}
-
 export function ShowDetail() {
   const { libraryId: libraryIdParam, showKey: showKeyEncoded } = useParams();
   const libraryId = libraryIdParam ? parseInt(libraryIdParam, 10) : null;
   const showKey = showKeyEncoded ? decodeURIComponent(showKeyEncoded) : null;
-  const tmdbId = useMemo(() => tmdbIdFromShowKey(showKey), [showKey]);
 
   const { data: items = [], isLoading: loading, error } = useLibraryMedia(libraryId);
-  const { data: series, isLoading: seriesLoading } = useSeries(tmdbId);
+  const { data: details } = useShowDetails(libraryId, showKey);
   const { playEpisode } = usePlayer();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
@@ -67,12 +58,12 @@ export function ShowDetail() {
     activeSeason == null ? "" : activeSeason === 0 ? "Specials" : `Season ${activeSeason}`;
 
   const showTitle =
-    series?.name ??
+    details?.name ??
     (episodes.length > 0
       ? episodes[0].title.replace(/\s*-\s*S\d+.*$/i, "").trim()
       : (showKey ?? "Show"));
   const showImdbRating =
-    series?.imdb_rating ??
+    details?.imdb_rating ??
     episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating;
 
   useEffect(() => {
@@ -112,17 +103,13 @@ export function ShowDetail() {
     );
   }
 
-  const posterUrl = series?.poster_path
-    ? series.poster_path.startsWith("http")
-      ? series.poster_path
-      : tmdbPosterUrl(series.poster_path, "w500")
+  const posterUrl = details?.poster_path
+    ? resolvePosterUrl(details.poster_url, details.poster_path)
     : episodes[0]
       ? resolvePosterUrl(episodes[0].poster_url, episodes[0].poster_path)
       : "";
-  const backdropUrl = series?.backdrop_path
-    ? series.backdrop_path.startsWith("http")
-      ? series.backdrop_path
-      : tmdbBackdropUrl(series.backdrop_path, "w780")
+  const backdropUrl = details?.backdrop_path
+    ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path)
     : episodes[0]
       ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path)
       : "";
@@ -150,12 +137,42 @@ export function ShowDetail() {
           {showImdbRating ? (
             <p className="show-detail-date">IMDb {showImdbRating.toFixed(1)}</p>
           ) : null}
-          {series?.first_air_date && <p className="show-detail-date">{series.first_air_date}</p>}
-          {!seriesLoading && series?.overview && (
-            <p className="show-detail-overview">{series.overview}</p>
+          {details?.first_air_date && <p className="show-detail-date">{details.first_air_date}</p>}
+          {details?.overview && (
+            <p className="show-detail-overview">{details.overview}</p>
           )}
+          {details?.genres.length ? (
+            <div className="flex flex-wrap gap-2">
+              {details.genres.map((genre) => (
+                <span
+                  key={genre}
+                  className="rounded-full border border-[var(--plum-border)] px-3 py-1 text-xs uppercase tracking-[0.12em] text-[var(--plum-muted)]"
+                >
+                  {genre}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
+      {details?.cast.length ? (
+        <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-5">
+          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Cast</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {details.cast.map((member) => (
+              <div
+                key={`${member.name}-${member.character ?? ""}`}
+                className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] p-3"
+              >
+                <div className="text-sm font-semibold text-[var(--plum-text)]">{member.name}</div>
+                {member.character ? (
+                  <div className="text-xs text-[var(--plum-muted)]">{member.character}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {episodes.length === 0 ? (
         <p className="auth-muted">No episodes found for this show.</p>
       ) : (

@@ -124,18 +124,22 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		ThumbDir: thumbDir,
 		ArtDir:   artDir,
 	}
+	searchIndex := httpapi.NewSearchIndexManager(sqlDB, pipeline, pipeline)
 	libHandler := &httpapi.LibraryHandler{
 		DB:          sqlDB,
 		Meta:        pipeline,
+		Movies:      pipeline,
 		Series:      pipeline,
 		SeriesQuery: pipeline,
 		Discover:    pipeline,
 		ScanJobs:    scanJobs,
+		SearchIndex: searchIndex,
 	}
 	scanJobs.AttachHandler(libHandler)
 	if err := scanJobs.Recover(); err != nil {
 		log.Printf("recover scan jobs: %v", err)
 	}
+	searchIndex.QueueAllLibraries(true)
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -165,11 +169,14 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/discover", libHandler.GetDiscover)
 		protected.Get("/api/discover/search", libHandler.SearchDiscover)
 		protected.Get("/api/discover/{mediaType}/{tmdbId}", libHandler.GetDiscoverTitleDetails)
+		protected.Get("/api/search", libHandler.SearchLibraryMedia)
 		protected.Get("/api/libraries/{id}/scan", libHandler.GetLibraryScanStatus)
 		protected.Post("/api/libraries/{id}/scan", libHandler.ScanLibrary)
 		protected.Post("/api/libraries/{id}/scan/start", libHandler.StartLibraryScan)
 		protected.Post("/api/libraries/{id}/identify", libHandler.IdentifyLibrary)
 		protected.Get("/api/libraries/{id}/media", libHandler.ListLibraryMedia)
+		protected.Get("/api/libraries/{id}/movies/{mediaId}", libHandler.GetLibraryMovieDetails)
+		protected.Get("/api/libraries/{id}/shows/{showKey}/details", libHandler.GetLibraryShowDetails)
 		protected.Post("/api/libraries/{id}/shows/refresh", libHandler.RefreshShow)
 		protected.Post("/api/libraries/{id}/shows/identify", libHandler.IdentifyShow)
 		protected.Post("/api/libraries/{id}/shows/confirm", libHandler.ConfirmShow)
