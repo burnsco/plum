@@ -8,6 +8,7 @@ export type MusicAlbumGroup = {
   trackCount: number;
   duration: number;
   posterPath: string | undefined;
+  posterUrl: string | undefined;
   tracks: MediaItem[];
 };
 
@@ -17,6 +18,7 @@ export type MusicArtistGroup = {
   albumCount: number;
   trackCount: number;
   posterPath: string | undefined;
+  posterUrl: string | undefined;
   tracks: MediaItem[];
 };
 
@@ -55,6 +57,7 @@ export function groupMusicByAlbum(items: MediaItem[]): MusicAlbumGroup[] {
         trackCount: sortedTracks.length,
         duration: sortedTracks.reduce((sum, track) => sum + (track.duration || 0), 0),
         posterPath: first.poster_path,
+        posterUrl: first.poster_url,
         tracks: sortedTracks,
       };
     })
@@ -80,6 +83,7 @@ export function groupMusicByArtist(items: MediaItem[]): MusicArtistGroup[] {
         albumCount: albums.size,
         trackCount: sortedTracks.length,
         posterPath: sortedTracks[0]?.poster_path,
+        posterUrl: sortedTracks[0]?.poster_url,
         tracks: sortedTracks,
       };
     })

@@ -76,6 +76,9 @@ type LibraryPlaybackPreferencesForm = {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
   subtitles_enabled_by_default: boolean;
+  watcher_enabled: boolean;
+  watcher_mode: "auto" | "poll";
+  scan_interval_minutes: number;
 };
 
 function cloneLibraryPlaybackPreferences(library: Library): LibraryPlaybackPreferencesForm {
@@ -84,6 +87,9 @@ function cloneLibraryPlaybackPreferences(library: Library): LibraryPlaybackPrefe
     preferred_audio_language: normalizeLanguagePreference(resolved.preferredAudioLanguage),
     preferred_subtitle_language: normalizeLanguagePreference(resolved.preferredSubtitleLanguage),
     subtitles_enabled_by_default: resolved.subtitlesEnabledByDefault,
+    watcher_enabled: library.watcher_enabled ?? false,
+    watcher_mode: library.watcher_mode === "poll" ? "poll" : "auto",
+    scan_interval_minutes: library.scan_interval_minutes ?? 0,
   };
 }
 
@@ -94,7 +100,10 @@ function libraryPreferencesEqual(
   return (
     left.preferred_audio_language === right.preferred_audio_language &&
     left.preferred_subtitle_language === right.preferred_subtitle_language &&
-    left.subtitles_enabled_by_default === right.subtitles_enabled_by_default
+    left.subtitles_enabled_by_default === right.subtitles_enabled_by_default &&
+    left.watcher_enabled === right.watcher_enabled &&
+    left.watcher_mode === right.watcher_mode &&
+    left.scan_interval_minutes === right.scan_interval_minutes
   );
 }
 
@@ -151,7 +160,7 @@ export function Settings() {
     [],
   );
 
-  const videoLibraries = (librariesQuery.data ?? []).filter((library) => library.type !== "music");
+  const libraries = librariesQuery.data ?? [];
   const getLibraryFormFallback = (libraryId: number) => {
     const library = librariesQuery.data?.find((item) => item.id === libraryId);
     return library
@@ -160,6 +169,9 @@ export function Settings() {
           preferred_audio_language: "en",
           preferred_subtitle_language: "en",
           subtitles_enabled_by_default: true,
+          watcher_enabled: false,
+          watcher_mode: "auto",
+          scan_interval_minutes: 0,
         };
   };
 
@@ -208,9 +220,9 @@ export function Settings() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Playback defaults</h1>
         <p className="max-w-2xl text-sm text-[var(--plum-muted)]">
-          Choose the default audio and subtitle language for each library. Anime libraries default
-          to Japanese audio with English subtitles; TV and movie libraries default to English for
-          both when available.
+          Choose the default playback behavior and scan automation for each library. Anime
+          libraries default to Japanese audio with English subtitles; TV and movie libraries default
+          to English for both when available.
         </p>
       </div>
 
@@ -257,17 +269,18 @@ export function Settings() {
         <p className="mt-5 text-sm text-red-300">
           {librariesQuery.error.message || "Failed to load libraries."}
         </p>
-      ) : videoLibraries.length === 0 ? (
+      ) : libraries.length === 0 ? (
         <p className="mt-5 text-sm text-[var(--plum-muted)]">
-          Add a TV, movie, or anime library to configure playback defaults.
+          Add a library to configure playback defaults and automation.
         </p>
       ) : (
         <div className="mt-6 grid gap-4">
-          {videoLibraries.map((library) => {
+          {libraries.map((library) => {
             const current = libraryForms[library.id] ?? cloneLibraryPlaybackPreferences(library);
             const saved = cloneLibraryPlaybackPreferences(library);
             const isDirty = !libraryPreferencesEqual(current, saved);
             const message = librarySaveMessages[library.id];
+            const supportsPlaybackPreferences = library.type !== "music";
 
             return (
               <article
@@ -289,70 +302,143 @@ export function Settings() {
                   </Button>
                 </div>
 
+                {supportsPlaybackPreferences ? (
+                  <div className="mt-5 grid gap-4 md:grid-cols-3">
+                    <div>
+                      <label
+                        className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                        htmlFor={`library-audio-${library.id}`}
+                      >
+                        Preferred audio
+                      </label>
+                      <select
+                        id={`library-audio-${library.id}`}
+                        value={current.preferred_audio_language}
+                        onChange={(event) =>
+                          setLibraryField(
+                            library.id,
+                            "preferred_audio_language",
+                            normalizeLanguagePreference(event.target.value),
+                          )
+                        }
+                        className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                      >
+                        {languagePreferenceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                        htmlFor={`library-subtitles-${library.id}`}
+                      >
+                        Preferred subtitles
+                      </label>
+                      <select
+                        id={`library-subtitles-${library.id}`}
+                        value={current.preferred_subtitle_language}
+                        onChange={(event) =>
+                          setLibraryField(
+                            library.id,
+                            "preferred_subtitle_language",
+                            normalizeLanguagePreference(event.target.value),
+                          )
+                        }
+                        className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                      >
+                        {languagePreferenceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-end">
+                      <Toggle
+                        label="Enable subtitles by default"
+                        checked={current.subtitles_enabled_by_default}
+                        onChange={(checked) =>
+                          setLibraryField(library.id, "subtitles_enabled_by_default", checked)
+                        }
+                        description="If the preferred subtitle language exists, Plum will enable it automatically."
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-5 text-sm text-[var(--plum-muted)]">
+                    Music libraries skip playback language defaults, but still support automated
+                    scan behavior below.
+                  </p>
+                )}
+
                 <div className="mt-5 grid gap-4 md:grid-cols-3">
-                  <div>
-                    <label
-                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                      htmlFor={`library-audio-${library.id}`}
-                    >
-                      Preferred audio
-                    </label>
-                    <select
-                      id={`library-audio-${library.id}`}
-                      value={current.preferred_audio_language}
-                      onChange={(event) =>
-                        setLibraryField(
-                          library.id,
-                          "preferred_audio_language",
-                          normalizeLanguagePreference(event.target.value),
-                        )
-                      }
-                      className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
-                    >
-                      {languagePreferenceOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label
-                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                      htmlFor={`library-subtitles-${library.id}`}
-                    >
-                      Preferred subtitles
-                    </label>
-                    <select
-                      id={`library-subtitles-${library.id}`}
-                      value={current.preferred_subtitle_language}
-                      onChange={(event) =>
-                        setLibraryField(
-                          library.id,
-                          "preferred_subtitle_language",
-                          normalizeLanguagePreference(event.target.value),
-                        )
-                      }
-                      className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
-                    >
-                      {languagePreferenceOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
                   <div className="flex items-end">
                     <Toggle
-                      label="Enable subtitles by default"
-                      checked={current.subtitles_enabled_by_default}
-                      onChange={(checked) =>
-                        setLibraryField(library.id, "subtitles_enabled_by_default", checked)
-                      }
-                      description="If the preferred subtitle language exists, Plum will enable it automatically."
+                      label="Enable filesystem watcher"
+                      checked={current.watcher_enabled}
+                      onChange={(checked) => setLibraryField(library.id, "watcher_enabled", checked)}
+                      description="Automatically queue a scan when Plum sees filesystem changes for this library."
                     />
+                  </div>
+
+                  <div>
+                    <label
+                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                      htmlFor={`library-watcher-mode-${library.id}`}
+                    >
+                      Watcher mode
+                    </label>
+                    <select
+                      id={`library-watcher-mode-${library.id}`}
+                      value={current.watcher_mode}
+                      disabled={!current.watcher_enabled}
+                      onChange={(event) =>
+                        setLibraryField(
+                          library.id,
+                          "watcher_mode",
+                          event.target.value === "poll" ? "poll" : "auto",
+                        )
+                      }
+                      className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="poll">Poll</option>
+                    </select>
+                    <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                      Auto prefers native filesystem events and falls back to polling when needed.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                      htmlFor={`library-scan-interval-${library.id}`}
+                    >
+                      Scheduled scan interval
+                    </label>
+                    <Input
+                      id={`library-scan-interval-${library.id}`}
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={current.scan_interval_minutes}
+                      onChange={(event) =>
+                        setLibraryField(
+                          library.id,
+                          "scan_interval_minutes",
+                          Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0),
+                        )
+                      }
+                    />
+                    <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                      Enter minutes between automatic scans. Use <code>0</code> to disable scheduled
+                      scans.
+                    </p>
                   </div>
                 </div>
 
@@ -367,7 +453,10 @@ export function Settings() {
                           : "text-[var(--plum-muted)]"
                   }`}
                 >
-                  {message ?? (isDirty ? "Unsaved changes." : "Defaults are active for new playback sessions.")}
+                  {message ??
+                    (isDirty
+                      ? "Unsaved changes."
+                      : "Defaults are active for new playback sessions and future automation runs.")}
                 </p>
               </article>
             );

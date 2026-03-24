@@ -17,6 +17,7 @@ type PlaybackHandler struct {
 	DB       *sql.DB
 	Sessions *transcoder.PlaybackSessionManager
 	ThumbDir string
+	ArtDir   string
 }
 
 func (h *PlaybackHandler) ListMedia(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +160,17 @@ func (h *PlaybackHandler) ServeThumbnail(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := db.HandleServeThumbnail(w, r, h.DB, id, h.ThumbDir); err != nil {
+		writePlaybackError(w, err)
+	}
+}
+
+func (h *PlaybackHandler) ServeArtwork(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	kind := chi.URLParam(r, "kind")
+	if err := db.HandleServeArtwork(w, r, h.DB, id, h.ArtDir, kind); err != nil {
 		writePlaybackError(w, err)
 	}
 }
