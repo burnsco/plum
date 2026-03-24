@@ -12,6 +12,11 @@ import (
 // ResolveMediaSourcePath returns the on-disk path for a media item.
 // Absolute paths are used as-is. Relative paths are resolved against the library root.
 func ResolveMediaSourcePath(dbConn *sql.DB, item MediaItem) (string, error) {
+	if item.ID > 0 {
+		if file, err := lookupPrimaryMediaFile(dbConn, item.ID); err == nil && strings.TrimSpace(file.Path) != "" {
+			item.Path = file.Path
+		}
+	}
 	rawPath := strings.TrimSpace(item.Path)
 	if rawPath == "" {
 		return "", fmt.Errorf("media path is empty: %w", ErrNotFound)

@@ -265,6 +265,7 @@ export function Home() {
                 .join(" • ")
             : undefined,
           posterPath: group.posterPath,
+          posterUrl: group.posterUrl,
           imdbRating,
           progressPercent: progressEpisode?.progress_percent,
           cardState: needsMetadataReview
@@ -348,6 +349,7 @@ export function Home() {
           subtitle: `${year}${status}`,
           metaLine: formatRemainingTime(item.remaining_seconds),
           posterPath: item.poster_path,
+          posterUrl: item.poster_url,
           imdbRating: item.imdb_rating,
           progressPercent: shouldShowProgress(item) ? item.progress_percent : undefined,
           cardState: showSearching ? "identifying" : showFailure ? "identify-failed" : "default",

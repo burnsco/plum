@@ -24,6 +24,11 @@ type LibraryJobStatus struct {
 	QueuedAt          string
 	EstimatedItems    int
 	Error             string
+	RetryCount        int
+	MaxRetries        int
+	NextRetryAt       string
+	LastError         string
+	NextScheduledAt   string
 	StartedAt         string
 	FinishedAt        string
 }
@@ -34,8 +39,9 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 		`INSERT INTO library_job_status (
 			library_id, phase, enriching, identify_phase, identified, identify_failed,
 			processed, added, updated, removed, unmatched, skipped,
-			identify_requested, queued_at, estimated_items, error, started_at, finished_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			identify_requested, queued_at, estimated_items, error, retry_count, max_retries,
+			next_retry_at, last_error, next_scheduled_at, started_at, finished_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(library_id) DO UPDATE SET
 			phase = excluded.phase,
 			enriching = excluded.enriching,
@@ -52,6 +58,11 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 			queued_at = excluded.queued_at,
 			estimated_items = excluded.estimated_items,
 			error = excluded.error,
+			retry_count = excluded.retry_count,
+			max_retries = excluded.max_retries,
+			next_retry_at = excluded.next_retry_at,
+			last_error = excluded.last_error,
+			next_scheduled_at = excluded.next_scheduled_at,
 			started_at = excluded.started_at,
 			finished_at = excluded.finished_at,
 			updated_at = excluded.updated_at`,
@@ -71,6 +82,11 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 		nullStr(status.QueuedAt),
 		status.EstimatedItems,
 		nullStr(status.Error),
+		status.RetryCount,
+		status.MaxRetries,
+		nullStr(status.NextRetryAt),
+		nullStr(status.LastError),
+		nullStr(status.NextScheduledAt),
 		nullStr(status.StartedAt),
 		nullStr(status.FinishedAt),
 		now,
@@ -99,6 +115,11 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			COALESCE(s.queued_at, ''),
 			COALESCE(s.estimated_items, 0),
 			COALESCE(s.error, ''),
+			COALESCE(s.retry_count, 0),
+			COALESCE(s.max_retries, 3),
+			COALESCE(s.next_retry_at, ''),
+			COALESCE(s.last_error, ''),
+			COALESCE(s.next_scheduled_at, ''),
 			COALESCE(s.started_at, ''),
 			COALESCE(s.finished_at, '')
 		FROM library_job_status s
@@ -133,6 +154,11 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			&status.QueuedAt,
 			&status.EstimatedItems,
 			&status.Error,
+			&status.RetryCount,
+			&status.MaxRetries,
+			&status.NextRetryAt,
+			&status.LastError,
+			&status.NextScheduledAt,
 			&status.StartedAt,
 			&status.FinishedAt,
 		); err != nil {

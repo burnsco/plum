@@ -5,7 +5,7 @@ import { BASE_URL } from "../api";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
-import { tmdbBackdropUrl, tmdbPosterUrl } from "@plum/shared";
+import { resolveBackdropUrl, resolvePosterUrl, tmdbBackdropUrl, tmdbPosterUrl } from "@plum/shared";
 import { useLibraryMedia, useSeries } from "../queries";
 
 function formatDuration(seconds: number): string {
@@ -116,15 +116,15 @@ export function ShowDetail() {
     ? series.poster_path.startsWith("http")
       ? series.poster_path
       : tmdbPosterUrl(series.poster_path, "w500")
-    : episodes[0]?.poster_path
-      ? tmdbPosterUrl(episodes[0].poster_path)
+    : episodes[0]
+      ? resolvePosterUrl(episodes[0].poster_url, episodes[0].poster_path)
       : "";
   const backdropUrl = series?.backdrop_path
     ? series.backdrop_path.startsWith("http")
       ? series.backdrop_path
       : tmdbBackdropUrl(series.backdrop_path, "w780")
-    : episodes[0]?.backdrop_path
-      ? tmdbBackdropUrl(episodes[0].backdrop_path)
+    : episodes[0]
+      ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path)
       : "";
 
   return (

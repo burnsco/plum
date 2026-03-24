@@ -13,8 +13,8 @@ import {
   embeddedSubtitleUrl,
   externalSubtitleUrl,
   mediaStreamUrl,
-  tmdbBackdropUrl,
-  tmdbPosterUrl,
+  resolveBackdropUrl,
+  resolvePosterUrl,
 } from "@plum/shared";
 import {
   Expand,
@@ -1218,10 +1218,12 @@ export function PlaybackDock() {
     return null;
   }
 
-  const posterUrl = activeItem.poster_path ? tmdbPosterUrl(activeItem.poster_path, "w500") : "";
-  const backdropUrl = activeItem.backdrop_path
-    ? tmdbBackdropUrl(activeItem.backdrop_path, "w780")
-    : "";
+  const posterUrl = resolvePosterUrl(activeItem.poster_url, activeItem.poster_path, "w500");
+  const backdropUrl = resolveBackdropUrl(
+    activeItem.backdrop_url,
+    activeItem.backdrop_path,
+    "w780",
+  );
   const progressMax =
     playbackState.duration > 0 ? playbackState.duration : Math.max(activeItem.duration, 0);
   const repeatLabel =
