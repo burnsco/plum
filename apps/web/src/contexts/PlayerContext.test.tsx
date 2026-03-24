@@ -38,6 +38,11 @@ const movie: MediaItem = {
   type: "movie",
 };
 
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 function PlayerHarness() {
   const { activeItem, dismissDock, lastEvent, playMovie, videoSourceUrl } =
     usePlayer();
@@ -194,48 +199,51 @@ describe("PlayerContext playback session updates", () => {
     );
 
     const MockWebSocket = globalThis.WebSocket as unknown as MockWebSocketClass;
-    await waitFor(() => {
-      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+      await vi.runOnlyPendingTimersAsync();
     });
+    expect(MockWebSocket.instances.length).toBeGreaterThan(0);
 
     const firstSocket = MockWebSocket.instances[0];
     if (!firstSocket) {
       throw new Error("Expected a mock WebSocket instance");
     }
 
-    fireEvent.click(screen.getByRole("button", { name: "Play" }));
-
-    await waitFor(() => {
-      expect(firstSocket.sentMessages).toContain(
-        JSON.stringify({
-          action: "attach_playback_session",
-          sessionId: "session-99",
-        }),
-      );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Play" }));
+      await flushMicrotasks();
     });
+    expect(firstSocket.sentMessages).toContain(
+      JSON.stringify({
+        action: "attach_playback_session",
+        sessionId: "session-99",
+      }),
+    );
 
     act(() => {
       firstSocket.close();
-      vi.advanceTimersByTime(3000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.runOnlyPendingTimersAsync();
+      await vi.runOnlyPendingTimersAsync();
+      await flushMicrotasks();
     });
 
-    await waitFor(() => {
-      expect(MockWebSocket.instances.length).toBeGreaterThan(1);
-    });
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
 
     const secondSocket = MockWebSocket.instances[1];
     if (!secondSocket) {
       throw new Error("Expected a reconnected mock WebSocket instance");
     }
 
-    await waitFor(() => {
-      expect(secondSocket.sentMessages).toContain(
-        JSON.stringify({
-          action: "attach_playback_session",
-          sessionId: "session-99",
-        }),
-      );
-    });
+    expect(secondSocket.sentMessages).toContain(
+      JSON.stringify({
+        action: "attach_playback_session",
+        sessionId: "session-99",
+      }),
+    );
   });
 
   it("detaches the playback session before closing it from the player", async () => {

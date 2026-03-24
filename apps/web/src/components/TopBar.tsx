@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthActions, useAuthState } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,33 @@ import { Search, Settings, User } from "lucide-react";
 export function TopBar() {
   const { user } = useAuthState();
   const { logout } = useAuthActions();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const activeQuery =
+    location.pathname === "/search" ? new URLSearchParams(location.search).get("q") ?? "" : "";
+  const [searchValue, setSearchValue] = useState(activeQuery);
+
+  useEffect(() => {
+    if (location.pathname === "/search") {
+      setSearchValue(activeQuery);
+    }
+  }, [activeQuery, location.pathname]);
+
+  useEffect(() => {
+    const trimmed = searchValue.trim();
+    const timeoutId = window.setTimeout(() => {
+      if (trimmed.length >= 2) {
+        const params = new URLSearchParams();
+        params.set("q", trimmed);
+        navigate(`/search?${params.toString()}`, { replace: location.pathname === "/search" });
+        return;
+      }
+      if (location.pathname === "/search" && activeQuery) {
+        navigate("/search", { replace: true });
+      }
+    }, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeQuery, location.pathname, navigate, searchValue]);
 
   return (
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-4 border-b border-[var(--plum-border)] bg-[var(--plum-panel)]/80 px-4 backdrop-blur-md">
@@ -38,6 +66,8 @@ export function TopBar() {
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--plum-muted)]" />
           <Input
             type="search"
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
             placeholder="Search…"
             className="h-9 pl-9 bg-[var(--plum-bg)]/60 border-[var(--plum-border)]"
           />

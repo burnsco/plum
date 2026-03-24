@@ -9,11 +9,16 @@ import {
   confirmShow,
   getDiscover,
   getDiscoverTitleDetails,
+  getMovieDetails,
+  getShowDetails,
   fetchLibraryMedia,
   fetchSeriesByTmdbId,
   getHomeDashboard,
+  searchLibraryMedia,
   searchDiscover,
   type HomeDashboard,
+  type MovieDetails,
+  type SearchResponse,
   getTranscodingSettings,
   identifyLibrary,
   listLibraries,
@@ -30,6 +35,7 @@ import {
   type ScanLibraryResult,
   type SeriesDetails,
   type ShowActionResult,
+  type ShowDetails,
   type TranscodingSettings,
   type TranscodingSettingsResponse,
   type UpdateLibraryPlaybackPreferencesPayload,
@@ -43,6 +49,9 @@ type DiscoverSearchResult = Awaited<ReturnType<typeof searchDiscover>>;
 type DiscoverTitleDetailsResult = Awaited<ReturnType<typeof getDiscoverTitleDetails>>;
 type LibraryMediaResult = Awaited<ReturnType<typeof fetchLibraryMedia>>;
 type HomeDashboardResult = Awaited<ReturnType<typeof getHomeDashboard>>;
+type MovieDetailsResult = Awaited<ReturnType<typeof getMovieDetails>>;
+type ShowDetailsResult = Awaited<ReturnType<typeof getShowDetails>>;
+type SearchLibraryMediaResult = Awaited<ReturnType<typeof searchLibraryMedia>>;
 type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
 
 function cloneLibrary(library: LibrariesResult[number]): Library {
@@ -99,6 +108,54 @@ function cloneDiscoverTitleDetails(
   };
 }
 
+function cloneMovieDetails(details: MovieDetailsResult): MovieDetails | null {
+  if (details == null) {
+    return null;
+  }
+  return {
+    ...details,
+    genres: [...details.genres],
+    cast: details.cast.map((member) => ({ ...member })),
+  };
+}
+
+function cloneShowDetails(details: ShowDetailsResult): ShowDetails | null {
+  if (details == null) {
+    return null;
+  }
+  return {
+    ...details,
+    genres: [...details.genres],
+    cast: details.cast.map((member) => ({ ...member })),
+  };
+}
+
+function cloneSeriesDetails(details: Awaited<ReturnType<typeof fetchSeriesByTmdbId>>): SeriesDetails | null {
+  if (details == null) {
+    return null;
+  }
+  return {
+    ...details,
+    genres: [...details.genres],
+    cast: details.cast.map((member) => ({ ...member })),
+  };
+}
+
+function cloneSearchResponse(response: SearchLibraryMediaResult): SearchResponse {
+  return {
+    ...response,
+    results: response.results.map((result) => ({
+      ...result,
+      genres: result.genres ? [...result.genres] : undefined,
+    })),
+    facets: {
+      libraries: response.facets.libraries.map((facet) => ({ ...facet })),
+      types: response.facets.types.map((facet) => ({ ...facet })),
+      genres: response.facets.genres.map((facet) => ({ ...facet })),
+    },
+  };
+}
+
 function cloneHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
   return {
     ...dashboard,
@@ -134,7 +191,11 @@ export const queryKeys = {
   home: ["home"] as const,
   libraries: ["libraries"] as const,
   library: (id: number) => ["library", id] as const,
+  movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
+  search: (query: string, libraryId: number | null, type: string, genre: string) =>
+    ["search", query, libraryId ?? 0, type, genre] as const,
   series: (tmdbId: number) => ["series", tmdbId] as const,
+  showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
 };
 
@@ -268,9 +329,70 @@ export function useSeries(
 ): UseQueryResult<SeriesDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.series(tmdbId ?? 0),
-    queryFn: () => fetchSeriesByTmdbId(tmdbId!),
+    queryFn: async () => cloneSeriesDetails(await fetchSeriesByTmdbId(tmdbId!)),
     enabled: (options?.enabled ?? true) && tmdbId != null && tmdbId > 0,
     staleTime: SERIES_STALE_MS,
+  });
+}
+
+export function useMovieDetails(
+  libraryId: number | null,
+  mediaId: number | null,
+  options?: { enabled?: boolean },
+): UseQueryResult<MovieDetails | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.movieDetails(libraryId ?? 0, mediaId ?? 0),
+    queryFn: async () => cloneMovieDetails(await getMovieDetails(libraryId!, mediaId!)),
+    enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
+    staleTime: SERIES_STALE_MS,
+  });
+}
+
+export function useShowDetails(
+  libraryId: number | null,
+  showKey: string | null,
+  options?: { enabled?: boolean },
+): UseQueryResult<ShowDetails | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.showDetails(libraryId ?? 0, showKey ?? ""),
+    queryFn: async () => cloneShowDetails(await getShowDetails(libraryId!, showKey!)),
+    enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
+    staleTime: SERIES_STALE_MS,
+  });
+}
+
+export function useLibrarySearch(
+  query: string,
+  options?: {
+    enabled?: boolean;
+    libraryId?: number | null;
+    type?: "movie" | "show" | "";
+    genre?: string;
+    limit?: number;
+  },
+): UseQueryResult<SearchResponse, Error> {
+  const normalizedQuery = query.trim();
+  const normalizedType = options?.type ?? "";
+  const normalizedGenre = options?.genre?.trim() ?? "";
+  const normalizedLibraryId = options?.libraryId ?? null;
+  return useQuery({
+    queryKey: queryKeys.search(
+      normalizedQuery,
+      normalizedLibraryId,
+      normalizedType,
+      normalizedGenre,
+    ),
+    queryFn: async () =>
+      cloneSearchResponse(
+        await searchLibraryMedia(normalizedQuery, {
+          libraryId: normalizedLibraryId ?? undefined,
+          type: normalizedType === "" ? undefined : normalizedType,
+          genre: normalizedGenre || undefined,
+          limit: options?.limit,
+        }),
+      ),
+    enabled: (options?.enabled ?? true) && normalizedQuery.length >= 2,
+    staleTime: 30_000,
   });
 }
 
@@ -282,8 +404,10 @@ export function useRefreshShow(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ libraryId, showKey }) => refreshShow(libraryId, showKey),
-    onSuccess: (_, { libraryId }) => {
+    onSuccess: (_, { libraryId, showKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
 }
@@ -296,8 +420,10 @@ export function useConfirmShow(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ libraryId, showKey }) => confirmShow(libraryId, { showKey }),
-    onSuccess: (_, { libraryId }) => {
+    onSuccess: (_, { libraryId, showKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
 }

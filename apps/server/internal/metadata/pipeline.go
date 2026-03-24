@@ -8,6 +8,7 @@ import (
 // Pipeline runs identification against multiple providers (TMDB, TVDB, etc.).
 type Pipeline struct {
 	movieProvider         MovieProvider
+	movieDetailsProvider  MovieDetailsProvider
 	tvProviders           []TVProvider
 	seriesDetailsProvider SeriesDetailsProvider
 	discoverProvider      DiscoverProvider
@@ -29,6 +30,7 @@ func NewPipeline(tmdbKey, tvdbKey, omdbKey, musicBrainzContact string) *Pipeline
 		tmdb := NewTMDBClient(tmdbKey)
 		p.tmdb = tmdb
 		p.movieProvider = tmdb
+		p.movieDetailsProvider = tmdb
 		p.seriesDetailsProvider = tmdb
 		p.discoverProvider = tmdb
 		if len(p.tvProviders) == 0 {
@@ -94,6 +96,22 @@ func (p *Pipeline) GetDiscoverTitleDetails(ctx context.Context, mediaType Discov
 		return details, err
 	}
 	if p.imdbRatings != nil && details.IMDbID != "" {
+		if rating, ratingErr := p.imdbRatings.GetIMDbRatingByID(ctx, details.IMDbID); ratingErr == nil && rating > 0 {
+			details.IMDbRating = rating
+		}
+	}
+	return details, nil
+}
+
+func (p *Pipeline) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDetails, error) {
+	if p.movieDetailsProvider == nil {
+		return nil, nil
+	}
+	details, err := p.movieDetailsProvider.GetMovieDetails(ctx, tmdbID)
+	if err != nil || details == nil {
+		return details, err
+	}
+	if p.imdbRatings != nil && details.IMDbID != "" && details.IMDbRating <= 0 {
 		if rating, ratingErr := p.imdbRatings.GetIMDbRatingByID(ctx, details.IMDbID); ratingErr == nil && rating > 0 {
 			details.IMDbRating = rating
 		}

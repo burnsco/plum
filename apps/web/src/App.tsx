@@ -12,7 +12,9 @@ import { Discover } from "./pages/Discover";
 import { DiscoverDetail } from "./pages/DiscoverDetail";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
+import { MovieDetail } from "./pages/MovieDetail";
 import { Onboarding } from "./pages/Onboarding";
+import { SearchPage } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { ShowDetail } from "./pages/ShowDetail";
 import "./App.css";
@@ -55,7 +57,9 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
                     <Route index element={<Dashboard />} />
                     <Route path="discover" element={<Discover />} />
                     <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
+                    <Route path="search" element={<SearchPage />} />
                     <Route path="library/:libraryId" element={<Home />} />
+                    <Route path="library/:libraryId/movie/:mediaId" element={<MovieDetail />} />
                     <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
                     <Route path="settings" element={<Settings />} />
                   </Route>
@@ -74,7 +78,10 @@ function App() {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 60_000 },
+          queries: {
+            staleTime: 60_000,
+            retry: import.meta.env.MODE === "test" ? false : 3,
+          },
         },
       }),
   );
