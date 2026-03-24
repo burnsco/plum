@@ -143,15 +143,21 @@ func (t *identifyRunTracker) clearLibrary(libraryID int) {
 }
 
 type createLibraryRequest struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Path string `json:"path"`
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	Path                string `json:"path"`
+	WatcherEnabled      *bool  `json:"watcher_enabled,omitempty"`
+	WatcherMode         string `json:"watcher_mode,omitempty"`
+	ScanIntervalMinutes *int   `json:"scan_interval_minutes,omitempty"`
 }
 
 type updateLibraryPlaybackPreferencesRequest struct {
 	PreferredAudioLanguage    string `json:"preferred_audio_language"`
 	PreferredSubtitleLanguage string `json:"preferred_subtitle_language"`
 	SubtitlesEnabledByDefault bool   `json:"subtitles_enabled_by_default"`
+	WatcherEnabled            *bool  `json:"watcher_enabled,omitempty"`
+	WatcherMode               string `json:"watcher_mode,omitempty"`
+	ScanIntervalMinutes       *int   `json:"scan_interval_minutes,omitempty"`
 }
 
 type libraryResponse struct {
@@ -163,6 +169,9 @@ type libraryResponse struct {
 	PreferredAudioLanguage    string `json:"preferred_audio_language,omitempty"`
 	PreferredSubtitleLanguage string `json:"preferred_subtitle_language,omitempty"`
 	SubtitlesEnabledByDefault bool   `json:"subtitles_enabled_by_default"`
+	WatcherEnabled            bool   `json:"watcher_enabled"`
+	WatcherMode               string `json:"watcher_mode,omitempty"`
+	ScanIntervalMinutes       int    `json:"scan_interval_minutes"`
 }
 
 func defaultLibraryPlaybackPreferences(libraryType string) (preferredAudio string, preferredSubtitle string, subtitlesEnabled bool) {
@@ -176,6 +185,45 @@ func defaultLibraryPlaybackPreferences(libraryType string) (preferredAudio strin
 	}
 }
 
+func defaultLibraryAutomation() (watcherEnabled bool, watcherMode string, scanIntervalMinutes int) {
+	return false, db.LibraryWatcherModeAuto, 0
+}
+
+func normalizeLibraryAutomationWithDefaults(
+	defaultEnabled bool,
+	defaultMode string,
+	defaultInterval int,
+	watcherEnabled *bool,
+	watcherMode string,
+	scanIntervalMinutes *int,
+) (bool, string, int) {
+	enabled := defaultEnabled
+	if watcherEnabled != nil {
+		enabled = *watcherEnabled
+	}
+	mode := strings.TrimSpace(strings.ToLower(watcherMode))
+	if mode == "" {
+		mode = defaultMode
+	}
+	if mode != db.LibraryWatcherModeAuto && mode != db.LibraryWatcherModePoll {
+		mode = defaultMode
+	}
+	interval := defaultInterval
+	if scanIntervalMinutes != nil && *scanIntervalMinutes > 0 {
+		interval = *scanIntervalMinutes
+	}
+	return enabled, mode, interval
+}
+
+func normalizeLibraryAutomation(
+	watcherEnabled *bool,
+	watcherMode string,
+	scanIntervalMinutes *int,
+) (bool, string, int) {
+	defaultEnabled, defaultMode, defaultInterval := defaultLibraryAutomation()
+	return normalizeLibraryAutomationWithDefaults(defaultEnabled, defaultMode, defaultInterval, watcherEnabled, watcherMode, scanIntervalMinutes)
+}
+
 func buildLibraryResponse(
 	id int,
 	name string,
@@ -185,8 +233,12 @@ func buildLibraryResponse(
 	preferredAudio sql.NullString,
 	preferredSubtitle sql.NullString,
 	subtitlesEnabled sql.NullBool,
+	watcherEnabled sql.NullBool,
+	watcherMode sql.NullString,
+	scanIntervalMinutes sql.NullInt64,
 ) libraryResponse {
 	defaultAudio, defaultSubtitle, defaultSubtitlesEnabled := defaultLibraryPlaybackPreferences(libraryType)
+	defaultWatcherEnabled, defaultWatcherMode, defaultScanIntervalMinutes := defaultLibraryAutomation()
 	return libraryResponse{
 		ID:                        id,
 		Name:                      name,
@@ -196,6 +248,9 @@ func buildLibraryResponse(
 		PreferredAudioLanguage:    strings.TrimSpace(coalesceNullableString(preferredAudio, defaultAudio)),
 		PreferredSubtitleLanguage: strings.TrimSpace(coalesceNullableString(preferredSubtitle, defaultSubtitle)),
 		SubtitlesEnabledByDefault: coalesceNullableBool(subtitlesEnabled, defaultSubtitlesEnabled),
+		WatcherEnabled:            coalesceNullableBool(watcherEnabled, defaultWatcherEnabled),
+		WatcherMode:               strings.TrimSpace(coalesceNullableString(watcherMode, defaultWatcherMode)),
+		ScanIntervalMinutes:       coalesceNullableInt(scanIntervalMinutes, defaultScanIntervalMinutes),
 	}
 }
 
@@ -209,6 +264,13 @@ func coalesceNullableString(value sql.NullString, fallback string) string {
 func coalesceNullableBool(value sql.NullBool, fallback bool) bool {
 	if value.Valid {
 		return value.Bool
+	}
+	return fallback
+}
+
+func coalesceNullableInt(value sql.NullInt64, fallback int) int {
+	if value.Valid {
+		return int(value.Int64)
 	}
 	return fallback
 }
@@ -267,11 +329,31 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	var libID int
 	defaultAudio, defaultSubtitle, subtitlesEnabled := defaultLibraryPlaybackPreferences(payload.Type)
-	err := retryCreateLibraryInsert(h.DB, u.ID, payload, defaultAudio, defaultSubtitle, subtitlesEnabled, now, &libID)
+	watcherEnabled, watcherMode, scanIntervalMinutes := normalizeLibraryAutomation(
+		payload.WatcherEnabled,
+		payload.WatcherMode,
+		payload.ScanIntervalMinutes,
+	)
+	err := retryCreateLibraryInsert(
+		h.DB,
+		u.ID,
+		payload,
+		defaultAudio,
+		defaultSubtitle,
+		subtitlesEnabled,
+		watcherEnabled,
+		watcherMode,
+		scanIntervalMinutes,
+		now,
+		&libID,
+	)
 	if err != nil {
 		log.Printf("create library: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if h.ScanJobs != nil {
+		h.ScanJobs.ConfigureLibraryAutomation(libID, payload.Path, payload.Type, watcherEnabled, watcherMode, scanIntervalMinutes)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -284,6 +366,9 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 		PreferredAudioLanguage:    defaultAudio,
 		PreferredSubtitleLanguage: defaultSubtitle,
 		SubtitlesEnabledByDefault: subtitlesEnabled,
+		WatcherEnabled:            watcherEnabled,
+		WatcherMode:               watcherMode,
+		ScanIntervalMinutes:       scanIntervalMinutes,
 	})
 }
 
@@ -294,19 +379,33 @@ func retryCreateLibraryInsert(
 	defaultAudio string,
 	defaultSubtitle string,
 	subtitlesEnabled bool,
+	watcherEnabled bool,
+	watcherMode string,
+	scanIntervalMinutes int,
 	now time.Time,
 	libID *int,
 ) error {
 	var err error
 	for attempt := 0; attempt < 4; attempt++ {
 		err = dbConn.QueryRow(
-			`INSERT INTO libraries (user_id, name, type, path, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-			userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, now,
+			`INSERT INTO libraries (
+				user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
+				subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, watcherEnabled, watcherMode, scanIntervalMinutes, now,
 		).Scan(libID)
 		if isMissingColumnError(err, "preferred_audio_language") {
 			err = dbConn.QueryRow(
 				`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
 				userID, payload.Name, payload.Type, payload.Path, now,
+			).Scan(libID)
+		} else if isMissingColumnError(err, "watcher_enabled") {
+			err = dbConn.QueryRow(
+				`INSERT INTO libraries (
+					user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
+					subtitles_enabled_by_default, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+				userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, now,
 			).Scan(libID)
 		}
 		if err == nil || !isSQLiteBusyError(err) {
@@ -325,14 +424,24 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(
-		`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default FROM libraries WHERE user_id = ? ORDER BY id`,
+		`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language,
+		        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes
+		   FROM libraries WHERE user_id = ? ORDER BY id`,
 		u.ID,
 	)
 	legacyColumns := false
+	legacyAutomationColumns := false
 	if err != nil && isMissingColumnError(err, "preferred_audio_language") {
 		legacyColumns = true
 		rows, err = h.DB.Query(
 			`SELECT id, name, type, path, user_id FROM libraries WHERE user_id = ? ORDER BY id`,
+			u.ID,
+		)
+	} else if err != nil && isMissingColumnError(err, "watcher_enabled") {
+		legacyAutomationColumns = true
+		rows, err = h.DB.Query(
+			`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default
+			   FROM libraries WHERE user_id = ? ORDER BY id`,
 			u.ID,
 		)
 	}
@@ -354,9 +463,23 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 			preferredAudio    sql.NullString
 			preferredSubtitle sql.NullString
 			subtitlesEnabled  sql.NullBool
+			watcherEnabled    sql.NullBool
+			watcherMode       sql.NullString
+			scanInterval      sql.NullInt64
 		)
 		if legacyColumns {
 			err = rows.Scan(&id, &name, &libraryType, &path, &userID)
+		} else if legacyAutomationColumns {
+			err = rows.Scan(
+				&id,
+				&name,
+				&libraryType,
+				&path,
+				&userID,
+				&preferredAudio,
+				&preferredSubtitle,
+				&subtitlesEnabled,
+			)
 		} else {
 			err = rows.Scan(
 				&id,
@@ -367,6 +490,9 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 				&preferredAudio,
 				&preferredSubtitle,
 				&subtitlesEnabled,
+				&watcherEnabled,
+				&watcherMode,
+				&scanInterval,
 			)
 		}
 		if err != nil {
@@ -383,6 +509,9 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 			preferredAudio,
 			preferredSubtitle,
 			subtitlesEnabled,
+			watcherEnabled,
+			watcherMode,
+			scanInterval,
 		))
 	}
 
@@ -408,16 +537,27 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 	payload.PreferredSubtitleLanguage = strings.TrimSpace(strings.ToLower(payload.PreferredSubtitleLanguage))
 
 	var (
-		libraryID   int
-		ownerID     int
-		name        string
-		libraryType string
-		path        string
+		libraryID             int
+		ownerID               int
+		name                  string
+		libraryType           string
+		path                  string
+		currentWatcherEnabled sql.NullBool
+		currentWatcherMode    sql.NullString
+		currentScanInterval   sql.NullInt64
 	)
 	err := h.DB.QueryRow(
-		`SELECT id, user_id, name, type, path FROM libraries WHERE id = ?`,
+		`SELECT id, user_id, name, type, path, watcher_enabled, watcher_mode, scan_interval_minutes FROM libraries WHERE id = ?`,
 		idStr,
-	).Scan(&libraryID, &ownerID, &name, &libraryType, &path)
+	).Scan(&libraryID, &ownerID, &name, &libraryType, &path, &currentWatcherEnabled, &currentWatcherMode, &currentScanInterval)
+	legacyAutomationColumns := false
+	if err != nil && isMissingColumnError(err, "watcher_enabled") {
+		legacyAutomationColumns = true
+		err = h.DB.QueryRow(
+			`SELECT id, user_id, name, type, path FROM libraries WHERE id = ?`,
+			idStr,
+		).Scan(&libraryID, &ownerID, &name, &libraryType, &path)
+	}
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -426,21 +566,56 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if legacyAutomationColumns {
+		currentWatcherEnabled = sql.NullBool{}
+		currentWatcherMode = sql.NullString{}
+		currentScanInterval = sql.NullInt64{}
+	}
+	defaultWatcherEnabled, defaultWatcherMode, defaultScanInterval := defaultLibraryAutomation()
+	watcherEnabled, watcherMode, scanIntervalMinutes := normalizeLibraryAutomationWithDefaults(
+		coalesceNullableBool(currentWatcherEnabled, defaultWatcherEnabled),
+		coalesceNullableString(currentWatcherMode, defaultWatcherMode),
+		coalesceNullableInt(currentScanInterval, defaultScanInterval),
+		payload.WatcherEnabled,
+		payload.WatcherMode,
+		payload.ScanIntervalMinutes,
+	)
 
 	if _, err := h.DB.Exec(
-		`UPDATE libraries SET preferred_audio_language = ?, preferred_subtitle_language = ?, subtitles_enabled_by_default = ? WHERE id = ?`,
+		`UPDATE libraries
+		    SET preferred_audio_language = ?, preferred_subtitle_language = ?, subtitles_enabled_by_default = ?,
+		        watcher_enabled = ?, watcher_mode = ?, scan_interval_minutes = ?
+		  WHERE id = ?`,
 		payload.PreferredAudioLanguage,
 		payload.PreferredSubtitleLanguage,
 		payload.SubtitlesEnabledByDefault,
+		watcherEnabled,
+		watcherMode,
+		scanIntervalMinutes,
 		libraryID,
 	); err != nil {
+		if isMissingColumnError(err, "watcher_enabled") {
+			if _, err := h.DB.Exec(
+				`UPDATE libraries SET preferred_audio_language = ?, preferred_subtitle_language = ?, subtitles_enabled_by_default = ? WHERE id = ?`,
+				payload.PreferredAudioLanguage,
+				payload.PreferredSubtitleLanguage,
+				payload.SubtitlesEnabledByDefault,
+				libraryID,
+			); err == nil {
+				goto encodeLibraryResponse
+			}
+		}
 		if !isMissingColumnError(err, "preferred_audio_language") {
 			log.Printf("update library playback preferences: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 	}
+	if h.ScanJobs != nil {
+		h.ScanJobs.ConfigureLibraryAutomation(libraryID, path, libraryType, watcherEnabled, watcherMode, scanIntervalMinutes)
+	}
 
+encodeLibraryResponse:
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(libraryResponse{
 		ID:                        libraryID,
@@ -451,6 +626,9 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		PreferredAudioLanguage:    payload.PreferredAudioLanguage,
 		PreferredSubtitleLanguage: payload.PreferredSubtitleLanguage,
 		SubtitlesEnabledByDefault: payload.SubtitlesEnabledByDefault,
+		WatcherEnabled:            watcherEnabled,
+		WatcherMode:               watcherMode,
+		ScanIntervalMinutes:       scanIntervalMinutes,
 	})
 }
 

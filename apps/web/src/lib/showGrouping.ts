@@ -37,7 +37,9 @@ export type ShowGroup = {
   showKey: string;
   showTitle: string;
   posterPath: string | undefined;
+  posterUrl: string | undefined;
   backdropPath: string | undefined;
+  backdropUrl: string | undefined;
   unmatchedCount: number;
   localCount: number;
   episodes: MediaItem[];
@@ -73,7 +75,9 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       showKey,
       showTitle: getShowName(first.title),
       posterPath: posterEpisode?.poster_path,
+      posterUrl: posterEpisode?.poster_url,
       backdropPath: backdropEpisode?.backdrop_path,
+      backdropUrl: backdropEpisode?.backdrop_url,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
       localCount: episodes.filter((episode) => episode.match_status === "local").length,
       episodes,

@@ -54,6 +54,11 @@ type libraryScanStatus struct {
 	EstimatedItems    int    `json:"estimatedItems"`
 	QueuePosition     int    `json:"queuePosition"`
 	Error             string `json:"error,omitempty"`
+	RetryCount        int    `json:"retryCount"`
+	MaxRetries        int    `json:"maxRetries"`
+	NextRetryAt       string `json:"nextRetryAt,omitempty"`
+	LastError         string `json:"lastError,omitempty"`
+	NextScheduledAt   string `json:"nextScheduledAt,omitempty"`
 	StartedAt         string `json:"startedAt,omitempty"`
 	FinishedAt        string `json:"finishedAt,omitempty"`
 }
@@ -71,7 +76,10 @@ type LibraryScanManager struct {
 	reruns         map[int]scanStartRequest
 	debounceReady  map[int]bool
 	debounceTimers map[int]*time.Timer
+	retryTimers    map[int]*time.Timer
 	enrichCancels  map[int]context.CancelFunc
+	watcherStops   map[int]context.CancelFunc
+	schedulerStops map[int]context.CancelFunc
 	enrichSem      chan struct{}
 	identifySem    chan struct{}
 	handler        *LibraryHandler
@@ -106,7 +114,10 @@ func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub)
 		reruns:         make(map[int]scanStartRequest),
 		debounceReady:  make(map[int]bool),
 		debounceTimers: make(map[int]*time.Timer),
+		retryTimers:    make(map[int]*time.Timer),
 		enrichCancels:  make(map[int]context.CancelFunc),
+		watcherStops:   make(map[int]context.CancelFunc),
+		schedulerStops: make(map[int]context.CancelFunc),
 		enrichSem:      make(chan struct{}, 1),
 		identifySem:    make(chan struct{}, 1),
 		lastFlushed:    make(map[int]libraryScanFlushState),
@@ -121,6 +132,10 @@ func (m *LibraryScanManager) AttachHandler(handler *LibraryHandler) {
 
 func (m *LibraryScanManager) Recover() error {
 	statuses, err := db.ListLibraryJobStatuses(m.db)
+	if err != nil {
+		return err
+	}
+	automationConfigs, err := loadLibraryAutomationConfigs(m.db)
 	if err != nil {
 		return err
 	}
@@ -169,6 +184,38 @@ func (m *LibraryScanManager) Recover() error {
 			status.Phase == libraryScanPhaseCompleted {
 			identifiesToResume = append(identifiesToResume, status.LibraryID)
 		}
+		if status.NextRetryAt != "" && status.RetryCount < status.MaxRetries {
+			retryAt, parseErr := time.Parse(time.RFC3339, status.NextRetryAt)
+			if parseErr == nil {
+				delay := time.Until(retryAt)
+				if delay < 0 {
+					delay = 0
+				}
+				retryIdentify := status.Phase == libraryScanPhaseCompleted && status.IdentifyPhase == libraryIdentifyPhaseFailed
+				if timer, ok := m.retryTimers[status.LibraryID]; ok {
+					timer.Stop()
+				}
+				libraryID := status.LibraryID
+				m.retryTimers[libraryID] = time.AfterFunc(delay, func() {
+					m.mu.Lock()
+					delete(m.retryTimers, libraryID)
+					current := m.jobs[libraryID]
+					current.NextRetryAt = ""
+					current.Error = ""
+					m.jobs[libraryID] = current
+					path := m.paths[libraryID]
+					libraryType := m.types[libraryID]
+					subpaths := append([]string(nil), m.subpaths[libraryID]...)
+					m.mu.Unlock()
+					m.flushStatus(libraryID, true)
+					if retryIdentify {
+						m.startIdentify(libraryID)
+						return
+					}
+					m.start(libraryID, path, libraryType, current.IdentifyRequested, subpaths)
+				})
+			}
+		}
 	}
 	m.mu.Unlock()
 
@@ -190,6 +237,9 @@ func (m *LibraryScanManager) Recover() error {
 	}
 	for _, libraryID := range identifiesToResume {
 		m.startIdentify(libraryID)
+	}
+	for _, cfg := range automationConfigs {
+		m.ConfigureLibraryAutomation(cfg.LibraryID, cfg.Path, cfg.Type, cfg.WatcherEnabled, cfg.WatcherMode, cfg.ScanIntervalMinutes)
 	}
 
 	return nil
@@ -220,6 +270,7 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 	}
 	if ok && status.Phase == libraryScanPhaseQueued {
 		status.IdentifyRequested = status.IdentifyRequested || identify
+		m.clearRetryStateLocked(libraryID, &status)
 		m.jobs[libraryID] = status
 		m.types[libraryID] = libraryType
 		m.paths[libraryID] = path
@@ -231,6 +282,9 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 		m.flushAllStatuses(true)
 		return result
 	}
+	if ok {
+		m.clearRetryStateLocked(libraryID, &status)
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	status = libraryScanStatus{
@@ -239,6 +293,8 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 		IdentifyPhase:     libraryIdentifyPhaseIdle,
 		IdentifyRequested: identify,
 		QueuedAt:          now,
+		MaxRetries:        3,
+		LastError:         "",
 		StartedAt:         now,
 	}
 	m.jobs[libraryID] = status
@@ -254,6 +310,20 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 	m.flushAllStatuses(true)
 	m.queueEstimate(libraryID, path, libraryType)
 	return result
+}
+
+func (m *LibraryScanManager) clearRetryStateLocked(libraryID int, status *libraryScanStatus) {
+	if status == nil {
+		return
+	}
+	status.RetryCount = 0
+	status.NextRetryAt = ""
+	status.Error = ""
+	status.LastError = ""
+	if timer, ok := m.retryTimers[libraryID]; ok {
+		timer.Stop()
+		delete(m.retryTimers, libraryID)
+	}
 }
 
 func mergeScanStartRequest(current, incoming scanStartRequest) scanStartRequest {
@@ -340,6 +410,9 @@ func (m *LibraryScanManager) scanSubpaths(libraryID int) []string {
 
 func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 	if status, ok := m.jobs[libraryID]; ok {
+		if status.MaxRetries <= 0 {
+			status.MaxRetries = 3
+		}
 		status.QueuePosition = m.queuePositionLocked(libraryID)
 		if status.Error == "" {
 			status.Error = scanStatusWarning(status, m.paths[libraryID])
@@ -352,6 +425,7 @@ func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 		Enriching:      false,
 		IdentifyPhase:  libraryIdentifyPhaseIdle,
 		EstimatedItems: 0,
+		MaxRetries:     3,
 		QueuePosition:  0,
 	}
 }
@@ -381,6 +455,7 @@ func (m *LibraryScanManager) scheduleNext() {
 	status.QueuePosition = 0
 	status.FinishedAt = ""
 	status.Error = ""
+	status.NextRetryAt = ""
 	m.jobs[nextID] = status
 	m.activeScanID = nextID
 	m.mu.Unlock()
@@ -530,12 +605,17 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		status.IdentifyFailed = result.Failed
 		if err != nil {
 			status.IdentifyPhase = libraryIdentifyPhaseFailed
+			status.LastError = err.Error()
 		} else {
 			status.IdentifyPhase = libraryIdentifyPhaseCompleted
+			m.clearRetryStateLocked(libraryID, &status)
 		}
 		m.jobs[libraryID] = status
 		m.mu.Unlock()
 		m.flushStatus(libraryID, true)
+		if err != nil {
+			_ = m.scheduleRetry(libraryID, true, err.Error())
+		}
 	}()
 }
 
@@ -553,6 +633,9 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	status.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	if phase == libraryScanPhaseFailed {
 		status.Enriching = false
+		status.LastError = errText
+	} else {
+		m.clearRetryStateLocked(libraryID, &status)
 	}
 	m.jobs[libraryID] = status
 	if m.activeScanID == libraryID {
@@ -579,6 +662,9 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	}
 	m.mu.Unlock()
 	m.flushAllStatuses(true)
+	if phase == libraryScanPhaseFailed {
+		_ = m.scheduleRetry(libraryID, false, errText)
+	}
 	m.scheduleNext()
 }
 
@@ -719,12 +805,21 @@ func runtimeLibraryStatusToPersistent(status libraryScanStatus, path, libraryTyp
 		QueuedAt:          status.QueuedAt,
 		EstimatedItems:    status.EstimatedItems,
 		Error:             status.Error,
+		RetryCount:        status.RetryCount,
+		MaxRetries:        status.MaxRetries,
+		NextRetryAt:       status.NextRetryAt,
+		LastError:         status.LastError,
+		NextScheduledAt:   status.NextScheduledAt,
 		StartedAt:         status.StartedAt,
 		FinishedAt:        status.FinishedAt,
 	}
 }
 
 func persistedLibraryStatusToRuntime(status db.LibraryJobStatus) libraryScanStatus {
+	maxRetries := status.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
 	return libraryScanStatus{
 		LibraryID:         status.LibraryID,
 		Phase:             status.Phase,
@@ -742,6 +837,11 @@ func persistedLibraryStatusToRuntime(status db.LibraryJobStatus) libraryScanStat
 		QueuedAt:          status.QueuedAt,
 		EstimatedItems:    status.EstimatedItems,
 		Error:             status.Error,
+		RetryCount:        status.RetryCount,
+		MaxRetries:        maxRetries,
+		NextRetryAt:       status.NextRetryAt,
+		LastError:         status.LastError,
+		NextScheduledAt:   status.NextScheduledAt,
 		StartedAt:         status.StartedAt,
 		FinishedAt:        status.FinishedAt,
 	}

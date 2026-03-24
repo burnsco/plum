@@ -45,6 +45,7 @@ function toPosterGridItem(
     title: getDashboardEntryTitle(entry),
     subtitle: getDashboardEntrySubtitle(entry, shelf),
     posterPath: entry.media.poster_path,
+    posterUrl: entry.media.poster_url,
     imdbRating: entry.media.imdb_rating,
     progressPercent: shelf === "continueWatching" ? entry.media.progress_percent : undefined,
     href: undefined,

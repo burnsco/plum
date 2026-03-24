@@ -105,6 +105,91 @@ func TestUpdateLibraryPlaybackPreferences(t *testing.T) {
 	}
 }
 
+func TestUpdateLibraryPlaybackPreferences_PreservesAutomationWhenOmitted(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"test@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (
+			user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
+			subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"TV",
+		db.LibraryTypeTV,
+		"/tv",
+		"en",
+		"en",
+		true,
+		true,
+		db.LibraryWatcherModePoll,
+		15,
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/libraries/"+strconv.Itoa(libraryID)+"/playback-preferences",
+		strings.NewReader(`{"preferred_audio_language":"ja","preferred_subtitle_language":"fr","subtitles_enabled_by_default":false}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.UpdateLibraryPlaybackPreferences(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		WatcherEnabled      bool   `json:"watcher_enabled"`
+		WatcherMode         string `json:"watcher_mode"`
+		ScanIntervalMinutes int    `json:"scan_interval_minutes"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.WatcherEnabled || payload.WatcherMode != db.LibraryWatcherModePoll || payload.ScanIntervalMinutes != 15 {
+		t.Fatalf("unexpected automation response: %+v", payload)
+	}
+
+	var (
+		watcherEnabled bool
+		watcherMode    string
+		scanInterval   int
+	)
+	if err := dbConn.QueryRow(
+		`SELECT watcher_enabled, watcher_mode, scan_interval_minutes FROM libraries WHERE id = ?`,
+		libraryID,
+	).Scan(&watcherEnabled, &watcherMode, &scanInterval); err != nil {
+		t.Fatalf("query library automation: %v", err)
+	}
+	if !watcherEnabled || watcherMode != db.LibraryWatcherModePoll || scanInterval != 15 {
+		t.Fatalf("unexpected library automation: enabled=%v mode=%q interval=%d", watcherEnabled, watcherMode, scanInterval)
+	}
+}
+
 type identifyStub struct {
 	tv    func(context.Context, metadata.MediaInfo) *metadata.MatchResult
 	movie func(context.Context, metadata.MediaInfo) *metadata.MatchResult
@@ -1531,6 +1616,90 @@ func TestLibraryScanManager_PreservesRerunPartialSubpathsWhileScanning(t *testin
 	}
 }
 
+func TestLibraryScanManager_QueueAutomatedScanUsesParentDirectoryForMissingPath(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	root := t.TempDir()
+	seasonDir := filepath.Join(root, "Show A", "Season 1")
+	if err := os.MkdirAll(seasonDir, 0o755); err != nil {
+		t.Fatalf("mkdir season dir: %v", err)
+	}
+	episodePath := filepath.Join(seasonDir, "Show A - S01E01.mkv")
+	if err := os.WriteFile(episodePath, []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write episode: %v", err)
+	}
+	if err := os.Remove(episodePath); err != nil {
+		t.Fatalf("remove episode: %v", err)
+	}
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	scanJobs.queueAutomatedScan(1, root, db.LibraryTypeTV, episodePath)
+
+	got := scanJobs.scanSubpaths(1)
+	want := filepath.Join("Show A", "Season 1")
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("scan subpaths = %#v, want [%q]", got, want)
+	}
+}
+
+func TestDetectLibraryPollChanges_IgnoresUnchangedSnapshots(t *testing.T) {
+	root := t.TempDir()
+	showDir := filepath.Join(root, "Show A")
+	if err := os.MkdirAll(showDir, 0o755); err != nil {
+		t.Fatalf("mkdir show dir: %v", err)
+	}
+	episodePath := filepath.Join(showDir, "Show A - S01E01.mkv")
+	if err := os.WriteFile(episodePath, []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write episode: %v", err)
+	}
+
+	first, err := snapshotLibraryPollState(root)
+	if err != nil {
+		t.Fatalf("first snapshot: %v", err)
+	}
+	second, err := snapshotLibraryPollState(root)
+	if err != nil {
+		t.Fatalf("second snapshot: %v", err)
+	}
+
+	if got := detectLibraryPollChanges(root, first, second); len(got) != 0 {
+		t.Fatalf("unexpected changed paths: %#v", got)
+	}
+}
+
+func TestDetectLibraryPollChanges_ReportsChangedEntries(t *testing.T) {
+	root := t.TempDir()
+	showDir := filepath.Join(root, "Show A")
+	if err := os.MkdirAll(showDir, 0o755); err != nil {
+		t.Fatalf("mkdir show dir: %v", err)
+	}
+	episodePath := filepath.Join(showDir, "Show A - S01E01.mkv")
+	if err := os.WriteFile(episodePath, []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write episode: %v", err)
+	}
+
+	first, err := snapshotLibraryPollState(root)
+	if err != nil {
+		t.Fatalf("first snapshot: %v", err)
+	}
+	if err := os.WriteFile(episodePath, []byte("updated video bytes"), 0o644); err != nil {
+		t.Fatalf("rewrite episode: %v", err)
+	}
+	second, err := snapshotLibraryPollState(root)
+	if err != nil {
+		t.Fatalf("second snapshot: %v", err)
+	}
+
+	got := detectLibraryPollChanges(root, first, second)
+	if len(got) != 1 || got[0] != episodePath {
+		t.Fatalf("changed paths = %#v, want [%q]", got, episodePath)
+	}
+}
+
 func TestStartLibraryScan_RejectsInvalidSubpath(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
@@ -1631,6 +1800,71 @@ func TestLibraryScanManager_StartDoesNotBlockOnEstimate(t *testing.T) {
 			t.Fatalf("expected estimated items update, got %+v", status)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestLibraryScanManager_StartClearsPendingRetryState(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	root := t.TempDir()
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	scanJobs.mu.Lock()
+	scanJobs.jobs[7] = libraryScanStatus{
+		LibraryID:   7,
+		Phase:       libraryScanPhaseCompleted,
+		RetryCount:  3,
+		MaxRetries:  3,
+		NextRetryAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+		Error:       "temporary failure",
+		LastError:   "temporary failure",
+	}
+	scanJobs.retryTimers[7] = time.AfterFunc(time.Hour, func() {})
+	scanJobs.mu.Unlock()
+
+	status := scanJobs.start(7, root, db.LibraryTypeTV, false, nil)
+
+	if status.RetryCount != 0 || status.NextRetryAt != "" || status.Error != "" || status.LastError != "" {
+		t.Fatalf("unexpected retry state after start: %+v", status)
+	}
+	if _, ok := scanJobs.retryTimers[7]; ok {
+		t.Fatal("expected pending retry timer to be cleared")
+	}
+}
+
+func TestLibraryScanManager_FinishSuccessResetsRetryCount(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	scanJobs.mu.Lock()
+	scanJobs.jobs[9] = libraryScanStatus{
+		LibraryID:   9,
+		Phase:       libraryScanPhaseScanning,
+		RetryCount:  2,
+		MaxRetries:  3,
+		NextRetryAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+		Error:       "temporary failure",
+		LastError:   "temporary failure",
+	}
+	scanJobs.retryTimers[9] = time.AfterFunc(time.Hour, func() {})
+	scanJobs.activeScanID = 9
+	scanJobs.mu.Unlock()
+
+	scanJobs.finish(9, libraryScanPhaseCompleted, db.ScanResult{}, "")
+
+	status := scanJobs.status(9)
+	if status.RetryCount != 0 || status.NextRetryAt != "" || status.Error != "" || status.LastError != "" {
+		t.Fatalf("unexpected retry state after finish: %+v", status)
+	}
+	if _, ok := scanJobs.retryTimers[9]; ok {
+		t.Fatal("expected pending retry timer to be cleared")
 	}
 }
 

@@ -108,6 +108,8 @@ type MediaItem struct {
 	Overview                  string               `json:"overview"`
 	PosterPath                string               `json:"poster_path"`
 	BackdropPath              string               `json:"backdrop_path"`
+	PosterURL                 string               `json:"poster_url,omitempty"`
+	BackdropURL               string               `json:"backdrop_url,omitempty"`
 	ReleaseDate               string               `json:"release_date"`
 	VoteAverage               float64              `json:"vote_average"`
 	IMDbID                    string               `json:"imdb_id,omitempty"`
@@ -136,6 +138,7 @@ type MediaItem struct {
 	MetadataConfirmed bool `json:"metadata_confirmed,omitempty"`
 	// ThumbnailPath is set for video items when a frame thumbnail has been generated (e.g. episode still).
 	ThumbnailPath  string `json:"thumbnail_path,omitempty"`
+	ThumbnailURL   string `json:"thumbnail_url,omitempty"`
 	Missing        bool   `json:"missing,omitempty"`
 	MissingSince   string `json:"missing_since,omitempty"`
 	Duplicate      bool   `json:"duplicate,omitempty"`
@@ -173,6 +176,9 @@ type Library struct {
 	PreferredAudioLanguage    string    `json:"preferred_audio_language,omitempty"`
 	PreferredSubtitleLanguage string    `json:"preferred_subtitle_language,omitempty"`
 	SubtitlesEnabledByDefault bool      `json:"subtitles_enabled_by_default,omitempty"`
+	WatcherEnabled            bool      `json:"watcher_enabled,omitempty"`
+	WatcherMode               string    `json:"watcher_mode,omitempty"`
+	ScanIntervalMinutes       int       `json:"scan_interval_minutes,omitempty"`
 	CreatedAt                 time.Time `json:"created_at"`
 }
 
@@ -183,6 +189,9 @@ const (
 	LibraryTypeMovie = "movie"
 	LibraryTypeMusic = "music"
 	LibraryTypeAnime = "anime"
+
+	LibraryWatcherModeAuto = "auto"
+	LibraryWatcherModePoll = "poll"
 )
 
 // sqlitePragmas are applied to every new connection via the DSN so pool connections
@@ -246,6 +255,9 @@ CREATE TABLE IF NOT EXISTS libraries (
   preferred_audio_language TEXT,
   preferred_subtitle_language TEXT,
   subtitles_enabled_by_default INTEGER,
+  watcher_enabled INTEGER NOT NULL DEFAULT 0,
+  watcher_mode TEXT NOT NULL DEFAULT 'auto',
+  scan_interval_minutes INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_libraries_user_id ON libraries(user_id);
@@ -447,6 +459,65 @@ CREATE TABLE IF NOT EXISTS embedded_audio_tracks (
 );
 CREATE INDEX IF NOT EXISTS idx_embedded_audio_tracks_media_id ON embedded_audio_tracks(media_id);
 
+CREATE TABLE IF NOT EXISTS media_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_id INTEGER NOT NULL REFERENCES media_global(id) ON DELETE CASCADE,
+  path TEXT NOT NULL UNIQUE,
+  file_size_bytes INTEGER NOT NULL DEFAULT 0,
+  file_mod_time TEXT,
+  file_hash TEXT,
+  file_hash_kind TEXT,
+  duration INTEGER NOT NULL DEFAULT 0,
+  missing_since TEXT,
+  last_seen_at TEXT,
+  is_primary INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_files_media_id ON media_files(media_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_files_primary_media_id ON media_files(media_id) WHERE is_primary = 1;
+CREATE INDEX IF NOT EXISTS idx_media_files_hash ON media_files(file_hash) WHERE file_hash IS NOT NULL AND file_hash != '';
+
+CREATE TABLE IF NOT EXISTS artwork_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_url TEXT NOT NULL,
+  artwork_kind TEXT NOT NULL CHECK (artwork_kind IN ('poster','backdrop')),
+  source_etag TEXT,
+  content_hash TEXT,
+  mime_type TEXT,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  original_rel_path TEXT NOT NULL,
+  last_fetched_at TEXT NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_assets_source ON artwork_assets(source_url, artwork_kind);
+CREATE INDEX IF NOT EXISTS idx_artwork_assets_hash ON artwork_assets(content_hash) WHERE content_hash IS NOT NULL AND content_hash != '';
+
+CREATE TABLE IF NOT EXISTS artwork_variants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id INTEGER NOT NULL REFERENCES artwork_assets(id) ON DELETE CASCADE,
+  profile TEXT NOT NULL,
+  rel_path TEXT NOT NULL,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_variants_asset_profile ON artwork_variants(asset_id, profile);
+
+CREATE TABLE IF NOT EXISTS artwork_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_kind TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  artwork_kind TEXT NOT NULL CHECK (artwork_kind IN ('poster','backdrop')),
+  asset_id INTEGER NOT NULL REFERENCES artwork_assets(id) ON DELETE CASCADE,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_links_entity_kind ON artwork_links(entity_kind, entity_id, artwork_kind);
+
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -478,6 +549,11 @@ CREATE TABLE IF NOT EXISTS library_job_status (
   queued_at DATETIME,
   estimated_items INTEGER NOT NULL DEFAULT 0,
   error TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  max_retries INTEGER NOT NULL DEFAULT 3,
+  next_retry_at DATETIME,
+  last_error TEXT,
+  next_scheduled_at DATETIME,
   started_at DATETIME,
   finished_at DATETIME,
   updated_at DATETIME NOT NULL
@@ -898,6 +974,107 @@ var schemaMigrations = []schemaMigration{
 			return err
 		},
 	},
+	{
+		version: 17,
+		name:    "library_automation_and_job_retry_fields",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, column := range []struct {
+				name string
+				def  string
+			}{
+				{name: "watcher_enabled", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "watcher_mode", def: "TEXT NOT NULL DEFAULT 'auto'"},
+				{name: "scan_interval_minutes", def: "INTEGER NOT NULL DEFAULT 0"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, "libraries", column.name, column.def); err != nil {
+					return err
+				}
+			}
+			for _, column := range []struct {
+				name string
+				def  string
+			}{
+				{name: "retry_count", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "max_retries", def: "INTEGER NOT NULL DEFAULT 3"},
+				{name: "next_retry_at", def: "DATETIME"},
+				{name: "last_error", def: "TEXT"},
+				{name: "next_scheduled_at", def: "DATETIME"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, "library_job_status", column.name, column.def); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		version: 18,
+		name:    "media_files_and_artwork_tables",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, stmt := range []string{
+				`CREATE TABLE IF NOT EXISTS media_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_id INTEGER NOT NULL REFERENCES media_global(id) ON DELETE CASCADE,
+  path TEXT NOT NULL UNIQUE,
+  file_size_bytes INTEGER NOT NULL DEFAULT 0,
+  file_mod_time TEXT,
+  file_hash TEXT,
+  file_hash_kind TEXT,
+  duration INTEGER NOT NULL DEFAULT 0,
+  missing_since TEXT,
+  last_seen_at TEXT,
+  is_primary INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE INDEX IF NOT EXISTS idx_media_files_media_id ON media_files(media_id)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_files_primary_media_id ON media_files(media_id) WHERE is_primary = 1`,
+				`CREATE INDEX IF NOT EXISTS idx_media_files_hash ON media_files(file_hash) WHERE file_hash IS NOT NULL AND file_hash != ''`,
+				`CREATE TABLE IF NOT EXISTS artwork_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_url TEXT NOT NULL,
+  artwork_kind TEXT NOT NULL CHECK (artwork_kind IN ('poster','backdrop')),
+  source_etag TEXT,
+  content_hash TEXT,
+  mime_type TEXT,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  original_rel_path TEXT NOT NULL,
+  last_fetched_at TEXT NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_assets_source ON artwork_assets(source_url, artwork_kind)`,
+				`CREATE INDEX IF NOT EXISTS idx_artwork_assets_hash ON artwork_assets(content_hash) WHERE content_hash IS NOT NULL AND content_hash != ''`,
+				`CREATE TABLE IF NOT EXISTS artwork_variants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id INTEGER NOT NULL REFERENCES artwork_assets(id) ON DELETE CASCADE,
+  profile TEXT NOT NULL,
+  rel_path TEXT NOT NULL,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_variants_asset_profile ON artwork_variants(asset_id, profile)`,
+				`CREATE TABLE IF NOT EXISTS artwork_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_kind TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  artwork_kind TEXT NOT NULL CHECK (artwork_kind IN ('poster','backdrop')),
+  asset_id INTEGER NOT NULL REFERENCES artwork_assets(id) ON DELETE CASCADE,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_links_entity_kind ON artwork_links(entity_kind, entity_id, artwork_kind)`,
+			} {
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return err
+				}
+			}
+			return backfillMediaFilesTx(ctx, tx)
+		},
+	},
 }
 
 func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
@@ -929,6 +1106,54 @@ func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+func backfillMediaFilesTx(ctx context.Context, tx *sql.Tx) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, table := range []string{"movies", "tv_episodes", "anime_episodes", "music_tracks"} {
+		kind := tableToKind(table)
+		if kind == "" {
+			continue
+		}
+		stmt := `INSERT OR IGNORE INTO media_files (
+media_id, path, file_size_bytes, file_mod_time, file_hash, file_hash_kind, duration, missing_since, last_seen_at, is_primary, created_at, updated_at
+)
+SELECT
+  g.id,
+  m.path,
+  COALESCE(m.file_size_bytes, 0),
+  COALESCE(m.file_mod_time, ''),
+  COALESCE(m.file_hash, ''),
+  COALESCE(m.file_hash_kind, ''),
+  COALESCE(m.duration, 0),
+  COALESCE(m.missing_since, ''),
+  COALESCE(m.last_seen_at, ''),
+  1,
+  ?,
+  ?
+FROM ` + table + ` m
+JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+WHERE COALESCE(m.path, '') != ''`
+		if _, err := tx.ExecContext(ctx, stmt, now, now, kind); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableToKind(table string) string {
+	switch table {
+	case "movies":
+		return LibraryTypeMovie
+	case "tv_episodes":
+		return LibraryTypeTV
+	case "anime_episodes":
+		return LibraryTypeAnime
+	case "music_tracks":
+		return LibraryTypeMusic
+	default:
+		return ""
+	}
 }
 
 func listAppliedSchemaMigrations(db *sql.DB) (map[int]struct{}, error) {
@@ -1000,6 +1225,10 @@ func columnExistsTx(ctx context.Context, tx *sql.Tx, table, column string) (bool
 
 func GetAllMediaForUser(db *sql.DB, userID int) ([]MediaItem, error) {
 	items, err := queryAllMediaByKind(db, userID, "")
+	if err != nil {
+		return nil, err
+	}
+	items, err = attachMediaFilesBatch(db, items)
 	if err != nil {
 		return nil, err
 	}
@@ -1707,6 +1936,19 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 	if tvdbID.Valid {
 		m.TVDBID = tvdbID.String
 	}
+	if file, err := lookupPrimaryMediaFile(db, id); err == nil {
+		m.Path = file.Path
+		if file.Duration > 0 {
+			m.Duration = file.Duration
+		}
+		m.FileSizeBytes = file.FileSizeBytes
+		m.FileModTime = file.FileModTime
+		m.FileHash = file.FileHash
+		m.FileHashKind = file.FileHashKind
+		m.MissingSince = file.MissingSince
+		m.Missing = file.MissingSince != ""
+	}
+	decorateMediaItemURLs(&m)
 	subs, err := getSubtitlesForMedia(db, id)
 	if err != nil {
 		return nil, err
@@ -1751,6 +1993,10 @@ func GetMediaByLibraryID(db *sql.DB, libraryID int) ([]MediaItem, error) {
 		return nil, err
 	}
 	items, err := queryMediaByLibraryID(db, libraryID, typ)
+	if err != nil {
+		return nil, err
+	}
+	items, err = attachMediaFilesBatch(db, items)
 	if err != nil {
 		return nil, err
 	}
@@ -1922,14 +2168,32 @@ func attachSingleDuplicateState(db *sql.DB, item *MediaItem) error {
 		item.DuplicateCount = 0
 		return nil
 	}
-	table := mediaTableForKind(item.Type)
 	var count int
 	if err := db.QueryRow(
-		`SELECT COUNT(1) FROM `+table+` WHERE library_id = ? AND COALESCE(file_hash, '') = ? AND COALESCE(missing_since, '') = ''`,
+		`SELECT COUNT(1)
+		   FROM media_files mf
+		   JOIN media_global g ON g.id = mf.media_id
+		   JOIN `+mediaTableForKind(item.Type)+` m ON m.id = g.ref_id
+		  WHERE g.kind = ?
+		    AND m.library_id = ?
+		    AND COALESCE(mf.file_hash, '') = ?
+		    AND COALESCE(mf.missing_since, '') = ''`,
+		item.Type,
 		item.LibraryID,
 		item.FileHash,
 	).Scan(&count); err != nil {
-		return err
+		if strings.Contains(strings.ToLower(err.Error()), "no such table: media_files") {
+			table := mediaTableForKind(item.Type)
+			if err := db.QueryRow(
+				`SELECT COUNT(1) FROM `+table+` WHERE library_id = ? AND COALESCE(file_hash, '') = ? AND COALESCE(missing_since, '') = ''`,
+				item.LibraryID,
+				item.FileHash,
+			).Scan(&count); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 	if count > 1 {
 		item.Duplicate = true
@@ -2402,6 +2666,18 @@ func HandleScanLibraryWithOptions(
 				if err := markMediaPresent(ctx, dbConn, table, existing.RefID, candidate.Size, candidate.ModTime, existing.FileHash, existing.FileHashKind, now); err != nil {
 					return err
 				}
+				if existing.GlobalID > 0 {
+					if err := upsertMediaFileForMediaID(ctx, dbConn, existing.GlobalID, MediaItem{
+						Path:          path,
+						Duration:      existing.Duration,
+						FileSizeBytes: candidate.Size,
+						FileModTime:   candidate.ModTime,
+						FileHash:      existing.FileHash,
+						FileHashKind:  existing.FileHashKind,
+					}, true); err != nil {
+						return err
+					}
+				}
 				result.Updated++
 				emitProgress()
 				return nil
@@ -2470,6 +2746,11 @@ func HandleScanLibraryWithOptions(
 					return err
 				}
 				result.Updated++
+			}
+			if globalID > 0 {
+				if err := upsertMediaFileForMediaID(ctx, dbConn, globalID, mItem, true); err != nil {
+					return err
+				}
 			}
 			emitProgress()
 
@@ -2734,6 +3015,18 @@ func markMissingMedia(ctx context.Context, dbConn *sql.DB, table, kind string, l
 		if _, err := dbConn.ExecContext(ctx, `UPDATE `+table+` SET missing_since = ?, last_seen_at = COALESCE(last_seen_at, '') WHERE id = ?`, missingSince, refID); err != nil {
 			return err
 		}
+		if _, err := dbConn.ExecContext(
+			ctx,
+			`UPDATE media_files
+			    SET missing_since = ?, updated_at = ?
+			  WHERE media_id = (SELECT id FROM media_global WHERE kind = ? AND ref_id = ?)`,
+			missingSince,
+			time.Now().UTC().Format(time.RFC3339),
+			kind,
+			refID,
+		); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such table: media_files") {
+			return err
+		}
 	}
 	return nil
 }
@@ -2755,6 +3048,7 @@ type existingMediaRow struct {
 	FileModTime               string
 	FileHash                  string
 	FileHashKind              string
+	Duration                  int
 	LastSeenAt                string
 	MissingSince              string
 	TMDBID                    int
@@ -2838,17 +3132,17 @@ func preloadExistingMediaByPath(dbConn *sql.DB, table, kind string, libraryID in
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ?`
 	if table == "music_tracks" {
-		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.match_status, 'local'), COALESCE(m.poster_path, ''), COALESCE(m.musicbrainz_artist_id, ''), COALESCE(m.musicbrainz_release_group_id, ''), COALESCE(m.musicbrainz_release_id, ''), COALESCE(m.musicbrainz_recording_id, '') FROM music_tracks m
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.match_status, 'local'), COALESCE(m.poster_path, ''), COALESCE(m.musicbrainz_artist_id, ''), COALESCE(m.musicbrainz_release_group_id, ''), COALESCE(m.musicbrainz_release_id, ''), COALESCE(m.musicbrainz_recording_id, '') FROM music_tracks m
 LEFT JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
 WHERE m.library_id = ?`
 	}
 	if table == "tv_episodes" || table == "anime_episodes" {
-		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0)
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0)
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ?`
 	} else if table != "music_tracks" {
-		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local')
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local')
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ?`
@@ -2872,15 +3166,15 @@ WHERE m.library_id = ?`
 	for rows.Next() {
 		var row existingMediaRow
 		if table == "music_tracks" {
-			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID); err != nil {
+			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID); err != nil {
 				return nil, err
 			}
 		} else if table == "tv_episodes" || table == "anime_episodes" {
-			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed); err != nil {
+			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus); err != nil {
+			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus); err != nil {
 				return nil, err
 			}
 		}
@@ -2892,8 +3186,8 @@ WHERE m.library_id = ?`
 func lookupExistingMedia(dbConn *sql.DB, table, kind string, libraryID int, path string) (existingMediaRow, error) {
 	var row existingMediaRow
 	if table == "music_tracks" {
-		err := dbConn.QueryRow(`SELECT m.id, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.match_status, 'local'), COALESCE(m.poster_path, ''), COALESCE(m.musicbrainz_artist_id, ''), COALESCE(m.musicbrainz_release_group_id, ''), COALESCE(m.musicbrainz_release_id, ''), COALESCE(m.musicbrainz_recording_id, '') FROM music_tracks m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).
-			Scan(&row.RefID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID)
+		err := dbConn.QueryRow(`SELECT m.id, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.match_status, 'local'), COALESCE(m.poster_path, ''), COALESCE(m.musicbrainz_artist_id, ''), COALESCE(m.musicbrainz_release_group_id, ''), COALESCE(m.musicbrainz_release_id, ''), COALESCE(m.musicbrainz_recording_id, '') FROM music_tracks m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).
+			Scan(&row.RefID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return row, nil
 		}
@@ -2906,8 +3200,8 @@ func lookupExistingMedia(dbConn *sql.DB, table, kind string, libraryID int, path
 		if table == "tv_episodes" || table == "anime_episodes" {
 			var metadataReviewNeeded sql.NullBool
 			var metadataConfirmed sql.NullBool
-			err = dbConn.QueryRow(`SELECT m.id, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0) FROM `+table+` m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).
-				Scan(&row.RefID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus, &metadataReviewNeeded, &metadataConfirmed)
+			err = dbConn.QueryRow(`SELECT m.id, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0) FROM `+table+` m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).
+				Scan(&row.RefID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus, &metadataReviewNeeded, &metadataConfirmed)
 			if metadataReviewNeeded.Valid {
 				row.MetadataReviewNeeded = metadataReviewNeeded.Bool
 			}
@@ -2915,8 +3209,8 @@ func lookupExistingMedia(dbConn *sql.DB, table, kind string, libraryID int, path
 				row.MetadataConfirmed = metadataConfirmed.Bool
 			}
 		} else {
-			err = dbConn.QueryRow(`SELECT m.id, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local') FROM `+table+` m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).
-				Scan(&row.RefID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus)
+			err = dbConn.QueryRow(`SELECT m.id, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local') FROM `+table+` m WHERE m.library_id = ? AND m.path = ?`, libraryID, path).
+				Scan(&row.RefID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus)
 		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return row, nil

@@ -224,6 +224,8 @@ It is this:
 
 If you mix those together, the schema gets ugly fast.
 
+For Plum specifically, Phase 1 should lock this boundary explicitly. The current server schema already has canonical `shows` and `seasons`, but movies and episode rows are still largely file-backed, with path/hash/missing state living on those rows. Before expanding more metadata and search behavior, Plum should decide whether logical items can own multiple physical files or versions instead of continuing to treat each scanned file row as the canonical item.
+
 ## My blunt recommendation for Plum
 
 Copy Jellyfin’s good instincts, not its full shape:

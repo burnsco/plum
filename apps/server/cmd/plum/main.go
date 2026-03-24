@@ -60,8 +60,12 @@ func main() {
 	if thumbDir == "" {
 		thumbDir = filepath.Join(filepath.Dir(conn), "thumbnails")
 	}
+	artDir := getEnv("PLUM_ARTWORK_DIR", "")
+	if artDir == "" {
+		artDir = filepath.Join(filepath.Dir(conn), "artwork")
+	}
 
-	srv := newHTTPServer(addr, buildRouter(sqlDB, hub, playbackSessions, pipeline, thumbDir))
+	srv := newHTTPServer(addr, buildRouter(sqlDB, hub, playbackSessions, pipeline, thumbDir, artDir))
 
 	go func() {
 		log.Printf("plum backend listening on %s", addr)
@@ -104,7 +108,7 @@ func getEnv(key, def string) string {
 	return def
 }
 
-func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string) http.Handler {
+func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string, artDir string) http.Handler {
 	r := chi.NewRouter()
 	allowedOrigins := httpapi.AllowedOriginsFromEnv(os.Getenv("PLUM_ALLOWED_ORIGINS"))
 	r.Use(httpapi.CORSMiddleware(allowedOrigins))
@@ -118,6 +122,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		DB:       sqlDB,
 		Sessions: playbackSessions,
 		ThumbDir: thumbDir,
+		ArtDir:   artDir,
 	}
 	libHandler := &httpapi.LibraryHandler{
 		DB:          sqlDB,
@@ -182,6 +187,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}", playbackHandler.StreamEmbeddedSubtitle)
 		protected.Get("/api/subtitles/{id}", playbackHandler.StreamSubtitle)
 		protected.Get("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)
+		protected.Get("/api/media/{id}/artwork/{kind}", playbackHandler.ServeArtwork)
 	})
 
 	r.Get("/ws", httpapi.ServeWebSocket(hub, playbackSessions, allowedOrigins))
