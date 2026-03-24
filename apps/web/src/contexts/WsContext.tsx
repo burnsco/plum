@@ -47,7 +47,6 @@ export function WsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!BASE_URL) return;
     mountedRef.current = true;
 
     const connect = () => {

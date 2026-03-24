@@ -53,7 +53,8 @@ services:
     env_file:
       - .env
     environment:
-      - VITE_BACKEND_URL=${VITE_BACKEND_URL:-http://localhost:8080}
+      - VITE_BACKEND_URL=${VITE_BROWSER_BACKEND_URL:-}
+      - BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL:-http://app:8080}
     volumes:
       - .:/app
       - /app/node_modules

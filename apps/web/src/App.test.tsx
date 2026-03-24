@@ -1345,6 +1345,49 @@ describe("App library and player wiring", () => {
     expect(screen.queryByRole("button", { name: /Retry identify/i })).not.toBeInTheDocument();
   });
 
+  it("keeps identified movies visible even when poster art is still missing", async () => {
+    const identifyRequest = deferred<{ identified: number; failed: number }>();
+
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 99,
+        title: "Visible Movie",
+        path: "/movies/Visible Movie (2025)/Visible Movie.mp4",
+        duration: 7200,
+        type: "movie",
+        match_status: "identified",
+        tmdb_id: 1234,
+        release_date: "2025-01-01",
+      },
+      {
+        id: 100,
+        title: "Still Matching",
+        path: "/movies/Still Matching (2025)/Still Matching.mp4",
+        duration: 7200,
+        type: "movie",
+        match_status: "local",
+      },
+    ]);
+    vi.mocked(api.identifyLibrary).mockImplementation(() => identifyRequest.promise);
+
+    await renderApp("/library/2");
+
+    expect(await screen.findByRole("link", { name: /^Visible Movie$/i })).toBeTruthy();
+    expect(screen.getByText(/2025/)).toBeTruthy();
+    expect(screen.queryByText("Identifying library…")).not.toBeInTheDocument();
+
+    const searchingCard = await screen.findByRole("link", { name: /^Still Matching$/i });
+    expect(within(searchingCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
+
+    await act(async () => {
+      identifyRequest.resolve({ identified: 1, failed: 0 });
+      await Promise.resolve();
+    });
+  });
+
   it("uses poster art from any matched anime episode before showing failed state", async () => {
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 3, name: "Anime", type: "anime", path: "/anime", user_id: 1 },
