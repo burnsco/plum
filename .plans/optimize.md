@@ -60,3 +60,4 @@ Implement the highest-confidence internal performance wins in the library scan a
 - We are not changing the pre-scan estimate walk in this pass; `EstimatedItems` behavior stays exactly as it is.
 - We are not batching DB writes or changing transaction visibility semantics during scan.
 - Best-effort enrichment remains non-fatal: probe/subtitle/audio failures should log/skip rather than fail the library run.
+- This pass assumes the current file-first storage shape for movies and episodes; it does not resolve the larger canonical media identity split between logical items and physical files/versions.

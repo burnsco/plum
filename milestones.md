@@ -40,7 +40,7 @@ Goal: handle background work and detect media on disk.
 
 - [x] job queue
 - [x] worker pool
-- [ ] job retry system
+- [ ] background job retry system (persisted retry state, bounded attempts, retryable vs terminal failures, restart-safe requeue for scan/identify jobs)
 - [x] job priority
 - [x] job monitoring
 
@@ -59,6 +59,7 @@ Goal: handle background work and detect media on disk.
 - [x] background scan jobs
 - [x] manual scan trigger
 - [ ] filesystem watcher
+- [ ] filesystem watcher options (per-library enable/disable, watcher mode or polling fallback, debounce behavior/config)
 - [x] debounce scan triggers
 - [x] partial folder scans
 - [ ] scan scheduling
@@ -72,7 +73,7 @@ Goal: handle background work and detect media on disk.
 - [x] stream detection (video/audio/subtitle)
 - [x] missing file detection
 - [x] duplicate detection
-- [ ] media identity model (items vs files)
+- [ ] canonical media identity model (logical items vs physical files/versions)
 
 ---
 

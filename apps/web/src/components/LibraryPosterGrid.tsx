@@ -8,7 +8,7 @@ import {
 import { Link } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Play } from "lucide-react";
-import { tmdbPosterUrl } from "@plum/shared";
+import { resolvePosterUrl } from "@plum/shared";
 import { useVirtualContainerMetrics } from "@/lib/virtualization";
 
 export type PosterCardState = "default" | "identifying" | "identify-failed" | "review-needed";
@@ -19,6 +19,7 @@ export type PosterGridItem = {
   subtitle: string;
   metaLine?: string;
   posterPath?: string;
+  posterUrl?: string;
   imdbRating?: number;
   progressPercent?: number;
   cardState?: PosterCardState;
@@ -152,7 +153,7 @@ function CardHitArea({ item }: { item: PosterGridItem }) {
 }
 
 function PosterCardBody({ item }: { item: PosterGridItem }) {
-  const posterUrl = tmdbPosterUrl(item.posterPath);
+  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath);
   const [posterErrored, setPosterErrored] = useState(false);
   const cardState = item.cardState ?? "default";
   const progressPercent =

@@ -78,6 +78,8 @@ export interface MediaItem {
   overview?: string;
   poster_path?: string;
   backdrop_path?: string;
+  poster_url?: string;
+  backdrop_url?: string;
   release_date?: string;
   vote_average?: number;
   imdb_id?: string;
@@ -100,6 +102,8 @@ export interface MediaItem {
   metadata_confirmed?: boolean;
   /** Path to generated frame thumbnail (video episodes); served at /api/media/:id/thumbnail. */
   thumbnail_path?: string;
+  /** Stable Plum-served thumbnail URL when available. */
+  thumbnail_url?: string;
   missing?: boolean;
   missing_since?: string;
   duplicate?: boolean;
@@ -123,6 +127,8 @@ export const MediaItemSchema = Schema.Struct({
   overview: Schema.optional(Schema.String),
   poster_path: Schema.optional(Schema.String),
   backdrop_path: Schema.optional(Schema.String),
+  poster_url: Schema.optional(Schema.String),
+  backdrop_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
   vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
@@ -143,6 +149,7 @@ export const MediaItemSchema = Schema.Struct({
   metadata_review_needed: Schema.optional(Schema.Boolean),
   metadata_confirmed: Schema.optional(Schema.Boolean),
   thumbnail_path: Schema.optional(Schema.String),
+  thumbnail_url: Schema.optional(Schema.String),
   missing: Schema.optional(Schema.Boolean),
   missing_since: Schema.optional(Schema.String),
   duplicate: Schema.optional(Schema.Boolean),
@@ -259,6 +266,9 @@ export interface Library {
   preferred_audio_language?: string;
   preferred_subtitle_language?: string;
   subtitles_enabled_by_default?: boolean;
+  watcher_enabled?: boolean;
+  watcher_mode?: "auto" | "poll";
+  scan_interval_minutes?: number;
 }
 
 export const LibrarySchema = Schema.Struct({
@@ -270,30 +280,45 @@ export const LibrarySchema = Schema.Struct({
   preferred_audio_language: Schema.optional(Schema.String),
   preferred_subtitle_language: Schema.optional(Schema.String),
   subtitles_enabled_by_default: Schema.optional(Schema.Boolean),
+  watcher_enabled: Schema.optional(Schema.Boolean),
+  watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
+  scan_interval_minutes: Schema.optional(Schema.Number),
 });
 
 export interface UpdateLibraryPlaybackPreferencesPayload {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
   subtitles_enabled_by_default: boolean;
+  watcher_enabled?: boolean;
+  watcher_mode?: "auto" | "poll";
+  scan_interval_minutes?: number;
 }
 
 export const UpdateLibraryPlaybackPreferencesPayloadSchema = Schema.Struct({
   preferred_audio_language: Schema.String,
   preferred_subtitle_language: Schema.String,
   subtitles_enabled_by_default: Schema.Boolean,
+  watcher_enabled: Schema.optional(Schema.Boolean),
+  watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
+  scan_interval_minutes: Schema.optional(Schema.Number),
 });
 
 export interface CreateLibraryPayload {
   name: string;
   type: LibraryType;
   path: string;
+  watcher_enabled?: boolean;
+  watcher_mode?: "auto" | "poll";
+  scan_interval_minutes?: number;
 }
 
 export const CreateLibraryPayloadSchema = Schema.Struct({
   name: Schema.String,
   type: LibraryTypeSchema,
   path: Schema.String,
+  watcher_enabled: Schema.optional(Schema.Boolean),
+  watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
+  scan_interval_minutes: Schema.optional(Schema.Number),
 });
 
 export interface CredentialsPayload {
@@ -380,6 +405,11 @@ export interface LibraryScanStatus {
   estimatedItems: number;
   queuePosition: number;
   error?: string;
+  retryCount?: number;
+  maxRetries?: number;
+  nextRetryAt?: string;
+  lastError?: string;
+  nextScheduledAt?: string;
   startedAt?: string;
   finishedAt?: string;
 }
@@ -402,6 +432,11 @@ export const LibraryScanStatusSchema = Schema.Struct({
   estimatedItems: Schema.Number,
   queuePosition: Schema.Number,
   error: Schema.optional(Schema.String),
+  retryCount: Schema.optional(Schema.Number),
+  maxRetries: Schema.optional(Schema.Number),
+  nextRetryAt: Schema.optional(Schema.String),
+  lastError: Schema.optional(Schema.String),
+  nextScheduledAt: Schema.optional(Schema.String),
   startedAt: Schema.optional(Schema.String),
   finishedAt: Schema.optional(Schema.String),
 });
@@ -421,6 +456,8 @@ export interface SeriesDetails {
   overview: string;
   poster_path: string;
   backdrop_path: string;
+  poster_url?: string;
+  backdrop_url?: string;
   first_air_date: string;
   imdb_id?: string;
   imdb_rating?: number;
@@ -431,6 +468,8 @@ export const SeriesDetailsSchema = Schema.Struct({
   overview: Schema.String,
   poster_path: Schema.String,
   backdrop_path: Schema.String,
+  poster_url: Schema.optional(Schema.String),
+  backdrop_url: Schema.optional(Schema.String),
   first_air_date: Schema.String,
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),

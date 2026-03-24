@@ -1,5 +1,5 @@
 import type { MediaItem } from "../api";
-import { tmdbPosterUrl } from "@plum/shared";
+import { resolvePosterUrl } from "@plum/shared";
 
 interface Props {
   items: MediaItem[];
@@ -29,7 +29,10 @@ export function MediaList({ items, onSelect, onTranscode }: Props) {
           }}
         >
           <div className="media-poster">
-            <img src={tmdbPosterUrl(m.poster_path) || "/placeholder-poster.svg"} alt={m.title} />
+            <img
+              src={resolvePosterUrl(m.poster_url, m.poster_path) || "/placeholder-poster.svg"}
+              alt={m.title}
+            />
             <div className="media-type-overlay">{m.type}</div>
           </div>
           <div className="media-info">
