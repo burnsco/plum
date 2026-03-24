@@ -3,8 +3,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// https://vite.dev/config/
-const backendUrl = process.env.VITE_BACKEND_URL || "http://localhost:8080";
+// In Docker dev, the browser may need a host-facing backend URL while the Vite
+// server inside the container needs to reach the backend over the Docker network.
+const backendUrl =
+  process.env.BACKEND_INTERNAL_URL ||
+  process.env.VITE_BACKEND_URL ||
+  "http://localhost:8080";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

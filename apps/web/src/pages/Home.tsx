@@ -76,11 +76,7 @@ function isMovieIncomplete(item: {
   tmdb_id?: number;
   tvdb_id?: string;
 }) {
-  return (
-    isExplicitlyUnmatched(item.match_status) ||
-    (!item.poster_path &&
-      (item.match_status === "identified" || hasProviderMatch(item.tmdb_id, item.tvdb_id)))
-  );
+  return isExplicitlyUnmatched(item.match_status);
 }
 
 function isMovieTerminalFailure(
