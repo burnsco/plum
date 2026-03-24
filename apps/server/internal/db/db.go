@@ -1075,6 +1075,98 @@ var schemaMigrations = []schemaMigration{
 			return backfillMediaFilesTx(ctx, tx)
 		},
 	},
+	{
+		version: 19,
+		name:    "title_metadata_and_search_index",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, stmt := range []string{
+				`CREATE TABLE IF NOT EXISTS metadata_genres (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE TABLE IF NOT EXISTS metadata_people (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  name_key TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL DEFAULT '',
+  provider_id TEXT NOT NULL DEFAULT '',
+  profile_path TEXT NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE TABLE IF NOT EXISTS title_genres (
+  title_kind TEXT NOT NULL CHECK (title_kind IN ('movie','show')),
+  title_id INTEGER NOT NULL,
+  genre_slug TEXT NOT NULL REFERENCES metadata_genres(slug) ON DELETE CASCADE,
+  PRIMARY KEY (title_kind, title_id, genre_slug)
+)`,
+				`CREATE TABLE IF NOT EXISTS title_cast (
+  title_kind TEXT NOT NULL CHECK (title_kind IN ('movie','show')),
+  title_id INTEGER NOT NULL,
+  person_name_key TEXT NOT NULL REFERENCES metadata_people(name_key) ON DELETE CASCADE,
+  character_name TEXT,
+  billing_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (title_kind, title_id, person_name_key, character_name)
+)`,
+				`CREATE INDEX IF NOT EXISTS idx_title_genres_kind_id ON title_genres(title_kind, title_id)`,
+				`CREATE INDEX IF NOT EXISTS idx_title_cast_kind_id ON title_cast(title_kind, title_id)`,
+				`CREATE INDEX IF NOT EXISTS idx_title_cast_person ON title_cast(person_name_key)`,
+				`CREATE TABLE IF NOT EXISTS search_documents (
+  doc_key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('movie','show')),
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  library_name TEXT NOT NULL,
+  library_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  normalized_title TEXT NOT NULL,
+  subtitle TEXT NOT NULL DEFAULT '',
+  poster_path TEXT NOT NULL DEFAULT '',
+  poster_url TEXT NOT NULL DEFAULT '',
+  imdb_rating REAL NOT NULL DEFAULT 0,
+  href TEXT NOT NULL,
+  show_key TEXT NOT NULL DEFAULT '',
+  media_id INTEGER NOT NULL DEFAULT 0,
+  title_ref_id INTEGER NOT NULL DEFAULT 0,
+  updated_at DATETIME NOT NULL
+)`,
+				`CREATE INDEX IF NOT EXISTS idx_search_documents_library ON search_documents(library_id, kind)`,
+				`CREATE TABLE IF NOT EXISTS search_document_genres (
+  doc_key TEXT NOT NULL REFERENCES search_documents(doc_key) ON DELETE CASCADE,
+  genre_slug TEXT NOT NULL,
+  genre_name TEXT NOT NULL,
+  PRIMARY KEY (doc_key, genre_slug)
+)`,
+				`CREATE INDEX IF NOT EXISTS idx_search_document_genres_slug ON search_document_genres(genre_slug)`,
+				`CREATE TABLE IF NOT EXISTS search_document_cast (
+  doc_key TEXT NOT NULL REFERENCES search_documents(doc_key) ON DELETE CASCADE,
+  person_name TEXT NOT NULL,
+  person_name_key TEXT NOT NULL,
+  billing_order INTEGER NOT NULL DEFAULT 0,
+  character_name TEXT,
+  PRIMARY KEY (doc_key, person_name_key, character_name)
+)`,
+				`CREATE INDEX IF NOT EXISTS idx_search_document_cast_person ON search_document_cast(person_name_key)`,
+				`CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(
+  doc_key UNINDEXED,
+  title,
+  normalized_title
+)`,
+				`CREATE VIRTUAL TABLE IF NOT EXISTS search_people_fts USING fts5(
+  doc_key UNINDEXED,
+  person_name,
+  person_name_key
+)`,
+			} {
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
 }
 
 func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
@@ -1593,11 +1685,27 @@ WHERE id = ?`,
 			_ = tx.Rollback()
 			return err
 		}
+		if err := syncTitleMetadataTx(ctx, tx, "show", showID, canonical); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
 		return tx.Commit()
 	}
-	_, err := db.Exec(`UPDATE `+table+` SET title = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ? WHERE id = ?`,
-		title, MatchStatusIdentified, tmdbID, nullStr(tvdbID), nullStr(overview), nullStr(posterPath), nullStr(backdropPath), nullStr(releaseDate), nullFloat64(voteAvg), nullStr(imdbID), nullFloat64(imdbRating), refID)
-	return err
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET title = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ? WHERE id = ?`,
+		title, MatchStatusIdentified, tmdbID, nullStr(tvdbID), nullStr(overview), nullStr(posterPath), nullStr(backdropPath), nullStr(releaseDate), nullFloat64(voteAvg), nullStr(imdbID), nullFloat64(imdbRating), refID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := syncTitleMetadataTx(ctx, tx, "movie", refID, canonical); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpdateShowMetadataState sets episodic metadata flags for a batch of rows.

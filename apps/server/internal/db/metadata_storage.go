@@ -79,6 +79,9 @@ type CanonicalMetadata struct {
 	ReleaseDate  string
 	IMDbID       string
 	IMDbRating   float64
+	Genres       []string
+	Cast         []CastCredit
+	Runtime      int
 }
 
 func showKindForTable(table string) string {

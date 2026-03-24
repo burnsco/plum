@@ -45,6 +45,15 @@ type MusicMatchResult struct {
 	ArtistID       string
 }
 
+type CastMember struct {
+	Name        string `json:"name"`
+	Character   string `json:"character,omitempty"`
+	Order       int    `json:"order,omitempty"`
+	ProfilePath string `json:"profile_path,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	ProviderID  string `json:"provider_id,omitempty"`
+}
+
 // MatchResult is a provider-agnostic metadata result for a movie or TV episode.
 // PosterURL and BackdropURL are full URLs so the pipeline owns URL shape.
 type MatchResult struct {
@@ -56,6 +65,9 @@ type MatchResult struct {
 	VoteAverage float64
 	IMDbID      string
 	IMDbRating  float64
+	Genres      []string
+	Cast        []CastMember
+	Runtime     int
 	Provider    string // e.g. "tmdb", "tvdb"
 	ExternalID  string // provider-specific id (string supports both TMDB int and TVDB string)
 }
@@ -83,15 +95,37 @@ type MovieLookupProvider interface {
 	GetMovie(ctx context.Context, movieID string) (*MatchResult, error)
 }
 
+type MovieDetails struct {
+	Title       string       `json:"title"`
+	Overview    string       `json:"overview"`
+	PosterPath  string       `json:"poster_path"`
+	BackdropPath string      `json:"backdrop_path"`
+	ReleaseDate string       `json:"release_date"`
+	IMDbID      string       `json:"imdb_id,omitempty"`
+	IMDbRating  float64      `json:"imdb_rating,omitempty"`
+	Genres      []string     `json:"genres"`
+	Cast        []CastMember `json:"cast"`
+	Runtime     int          `json:"runtime,omitempty"`
+}
+
+type MovieDetailsProvider interface {
+	GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDetails, error)
+}
+
 // SeriesDetails is minimal TV series info for the show-detail UI.
 type SeriesDetails struct {
-	Name         string  `json:"name"`
-	Overview     string  `json:"overview"`
-	PosterPath   string  `json:"poster_path"`   // full URL or path
-	BackdropPath string  `json:"backdrop_path"` // full URL or path
-	FirstAirDate string  `json:"first_air_date"`
-	IMDbID       string  `json:"imdb_id,omitempty"`
-	IMDbRating   float64 `json:"imdb_rating,omitempty"`
+	Name             string       `json:"name"`
+	Overview         string       `json:"overview"`
+	PosterPath       string       `json:"poster_path"`   // full URL or path
+	BackdropPath     string       `json:"backdrop_path"` // full URL or path
+	FirstAirDate     string       `json:"first_air_date"`
+	IMDbID           string       `json:"imdb_id,omitempty"`
+	IMDbRating       float64      `json:"imdb_rating,omitempty"`
+	Genres           []string     `json:"genres"`
+	Cast             []CastMember `json:"cast"`
+	Runtime          int          `json:"runtime,omitempty"`
+	NumberOfSeasons  int          `json:"number_of_seasons,omitempty"`
+	NumberOfEpisodes int          `json:"number_of_episodes,omitempty"`
 }
 
 // SeriesDetailsProvider fetches TV series metadata by TMDB ID.

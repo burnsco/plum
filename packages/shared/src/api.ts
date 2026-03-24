@@ -3,6 +3,7 @@ import type {
   CreateLibraryPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
+  MovieDetails,
   DiscoverItem,
   DiscoverLibraryMatch,
   DiscoverMediaType,
@@ -25,6 +26,7 @@ import type {
   PlumWebSocketCommand,
   PlumWebSocketEvent,
   PlaybackSession,
+  SearchResponse,
   RecentlyAddedEntry,
   ScanLibraryResult,
   SeriesDetails,
@@ -32,6 +34,7 @@ import type {
   SetupStatus,
   ShowActionResult,
   ShowConfirmPayload,
+  ShowDetails,
   Subtitle,
   TranscodingSettings,
   TranscodingSettingsResponse,
@@ -47,6 +50,7 @@ import {
   CreateLibraryPayloadSchema,
   CredentialsPayloadSchema,
   CreatePlaybackSessionPayloadSchema,
+  MovieDetailsSchema,
   DiscoverResponseSchema,
   DiscoverSearchResponseSchema,
   DiscoverTitleDetailsSchema,
@@ -59,12 +63,14 @@ import {
   PlaybackSessionSchema,
   PlumWebSocketCommandSchema,
   PlumWebSocketEventSchema,
+  SearchResponseSchema,
   ScanLibraryResultSchema,
   SeriesDetailsSchema,
   SeriesSearchResultSchema,
   SetupStatusSchema,
   ShowActionResultSchema,
   ShowConfirmPayloadSchema,
+  ShowDetailsSchema,
   TranscodingSettingsResponseSchema,
   TranscodingSettingsSchema,
   UpdatePlaybackSessionAudioPayloadSchema,
@@ -80,6 +86,7 @@ export type {
   CreateLibraryPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
+  MovieDetails,
   DiscoverItem,
   DiscoverLibraryMatch,
   DiscoverMediaType,
@@ -102,6 +109,7 @@ export type {
   PlumWebSocketCommand,
   PlumWebSocketEvent,
   PlaybackSession,
+  SearchResponse,
   RecentlyAddedEntry,
   ScanLibraryResult,
   SeriesDetails,
@@ -109,6 +117,7 @@ export type {
   SetupStatus,
   ShowActionResult,
   ShowConfirmPayload,
+  ShowDetails,
   Subtitle,
   TranscodingSettings,
   TranscodingSettingsResponse,
@@ -653,6 +662,65 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
               ? failHttpEffect(response, "GET", url, ({ status }) => `Series: ${status}`)
               : null,
       }),
+    searchLibraryMedia: (
+      query: string,
+      options?: {
+        readonly libraryId?: number;
+        readonly type?: "movie" | "show";
+        readonly genre?: string;
+        readonly limit?: number;
+      },
+    ) => {
+      const trimmed = query.trim();
+      if (trimmed.length < 2) {
+        return Effect.succeed<SearchResponse>({
+          query: trimmed,
+          results: [],
+          total: 0,
+          facets: { libraries: [], types: [], genres: [] },
+        });
+      }
+      const params = new URLSearchParams({ q: trimmed });
+      if (options?.libraryId != null) {
+        params.set("library_id", String(options.libraryId));
+      }
+      if (options?.type) {
+        params.set("type", options.type);
+      }
+      if (options?.genre) {
+        params.set("genre", options.genre);
+      }
+      if (options?.limit != null) {
+        params.set("limit", String(options.limit));
+      }
+      return jsonRequestEffect({
+        path: `/api/search?${params.toString()}`,
+        schema: SearchResponseSchema,
+        errorMessage: ({ status, body }) => body || `Search: ${status}`,
+      });
+    },
+    getMovieDetails: (libraryId: number, mediaId: number) =>
+      jsonRequestEffect({
+        path: `/api/libraries/${libraryId}/movies/${mediaId}`,
+        schema: Schema.NullOr(MovieDetailsSchema),
+        handleResponse: (response, url) =>
+          response.status === 404
+            ? Effect.succeed<MovieDetails | null>(null)
+            : !response.ok
+              ? failHttpEffect(response, "GET", url, ({ status, body }) => body || `Movie details: ${status}`)
+              : null,
+      }),
+    getShowDetails: (libraryId: number, showKey: string) =>
+      jsonRequestEffect({
+        path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/details`,
+        schema: Schema.NullOr(ShowDetailsSchema),
+        handleResponse: (response, url) =>
+          response.status === 404
+            ? Effect.succeed<ShowDetails | null>(null)
+            : !response.ok
+              ? failHttpEffect(response, "GET", url, ({ status, body }) => body || `Show details: ${status}`)
+              : null,
+      }),
     getDiscover: () =>
       jsonRequestEffect({
         path: "/api/discover",
@@ -863,6 +931,14 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     identifyLibrary: (id: number, options?: { readonly signal?: AbortSignal }) =>
       run(effects.identifyLibrary(id, options)),
     fetchSeriesByTmdbId: (tmdbId: number) => run(effects.fetchSeriesByTmdbId(tmdbId)),
+    searchLibraryMedia: (
+      query: string,
+      options?: { readonly libraryId?: number; readonly type?: "movie" | "show"; readonly genre?: string; readonly limit?: number },
+    ) => run(effects.searchLibraryMedia(query, options)),
+    getMovieDetails: (libraryId: number, mediaId: number) =>
+      run(effects.getMovieDetails(libraryId, mediaId)),
+    getShowDetails: (libraryId: number, showKey: string) =>
+      run(effects.getShowDetails(libraryId, showKey)),
     getDiscover: () => run(effects.getDiscover()),
     searchDiscover: (query: string) => run(effects.searchDiscover(query)),
     getDiscoverTitleDetails: (mediaType: DiscoverMediaType, tmdbId: number) =>

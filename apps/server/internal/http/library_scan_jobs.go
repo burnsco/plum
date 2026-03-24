@@ -665,6 +665,11 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	if phase == libraryScanPhaseFailed {
 		_ = m.scheduleRetry(libraryID, false, errText)
 	}
+	if phase == libraryScanPhaseCompleted && !hasRerun {
+		if handler := m.handler; handler != nil && handler.SearchIndex != nil {
+			handler.SearchIndex.Queue(libraryID, false)
+		}
+	}
 	m.scheduleNext()
 }
 
