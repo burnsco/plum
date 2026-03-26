@@ -1270,6 +1270,79 @@ describe("App library and player wiring", () => {
     });
   });
 
+  it("opens a movie context menu with retry identify for failed matches", async () => {
+    const retryIdentify = deferred<{ identified: number; failed: number }>();
+
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 99,
+        title: "Die My Love",
+        path: "/movies/Die My Love (2025)/Die My Love.mp4",
+        duration: 7200,
+        type: "movie",
+        match_status: "unmatched",
+      },
+    ]);
+    vi.mocked(api.identifyLibrary)
+      .mockResolvedValueOnce({ identified: 0, failed: 1 })
+      .mockImplementationOnce(() => retryIdentify.promise);
+
+    await renderApp("/library/2");
+
+    const movieCard = (await screen.findByRole("link", { name: /^Die My Love$/i })).closest(".show-card");
+    expect(movieCard).toBeTruthy();
+
+    fireEvent.contextMenu(movieCard!);
+
+    const movieMenu = await screen.findByRole("menu", { name: /Movie actions/i });
+    expect(within(movieMenu).getByRole("button", { name: /Retry identify/i })).toBeTruthy();
+    expect(within(movieMenu).getByRole("button", { name: /Open details/i })).toBeTruthy();
+
+    fireEvent.click(within(movieMenu).getByRole("button", { name: /Retry identify/i }));
+
+    await waitFor(() => {
+      expect(api.identifyLibrary).toHaveBeenCalledTimes(2);
+    });
+    expect(identifyLibraryIds()).toEqual([2, 2]);
+
+    await act(async () => {
+      retryIdentify.resolve({ identified: 0, failed: 1 });
+      await Promise.resolve();
+    });
+  });
+
+  it("opens a movie context menu without retry identify for matched movies", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 99,
+        title: "Die My Love",
+        path: "/movies/Die My Love (2025)/Die My Love.mp4",
+        duration: 7200,
+        type: "movie",
+        tmdb_id: 123,
+        poster_path: "/poster.jpg",
+        release_date: "2025-01-01",
+      },
+    ]);
+
+    await renderApp("/library/2");
+
+    const movieCard = (await screen.findByRole("link", { name: /^Die My Love$/i })).closest(".show-card");
+    expect(movieCard).toBeTruthy();
+
+    fireEvent.contextMenu(movieCard!);
+
+    const movieMenu = await screen.findByRole("menu", { name: /Movie actions/i });
+    expect(within(movieMenu).getByRole("button", { name: /Open details/i })).toBeTruthy();
+    expect(within(movieMenu).queryByRole("button", { name: /Retry identify/i })).not.toBeInTheDocument();
+  });
+
   it("prefers the local identify phase over persisted failed scan status", async () => {
     const activeIdentify = deferred<{ identified: number; failed: number }>();
 
