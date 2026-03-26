@@ -420,6 +420,52 @@ func TestListIdentifiableByLibrary_SkipsConfirmedEpisodes(t *testing.T) {
 	}
 }
 
+func TestListEpisodeIdentifyRowsByLibrary_SkipsConfirmedEpisodes(t *testing.T) {
+	dbConn := newTestDB(t)
+	tvLibID := getLibraryID(t, dbConn, "tv")
+
+	if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tmdb_id, metadata_confirmed, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tvLibID,
+		"Confirmed Show - S01E01",
+		"/tv/Confirmed Show/Season 1/Confirmed Show - S01E01.mkv",
+		120,
+		MatchStatusIdentified,
+		123,
+		true,
+		1,
+		1,
+	); err != nil {
+		t.Fatalf("insert confirmed episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tmdb_id, tvdb_id, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tvLibID,
+		"Repair Show - S01E02",
+		"/tv/Repair Show/Season 1/Repair Show - S01E02.mkv",
+		120,
+		MatchStatusIdentified,
+		456,
+		"tvdb-456",
+		1,
+		2,
+	); err != nil {
+		t.Fatalf("insert repair episode: %v", err)
+	}
+
+	rows, err := ListEpisodeIdentifyRowsByLibrary(dbConn, tvLibID)
+	if err != nil {
+		t.Fatalf("ListEpisodeIdentifyRowsByLibrary: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 episodic row, got %d", len(rows))
+	}
+	if rows[0].Title != "Repair Show - S01E02" {
+		t.Fatalf("unexpected episodic row: %#v", rows[0])
+	}
+	if rows[0].TMDBID != 456 || rows[0].TVDBID != "tvdb-456" {
+		t.Fatalf("unexpected provider ids: tmdb=%d tvdb=%q", rows[0].TMDBID, rows[0].TVDBID)
+	}
+}
+
 // TestHandleScanLibrary_RecursesSubdirectories verifies that HandleScanLibrary walks
 // nested directories and inserts into the correct category tables (tv_episodes, movies).
 func TestHandleScanLibrary_RecursesSubdirectories(t *testing.T) {
@@ -1509,6 +1555,138 @@ func TestHandleScanLibraryWithOptions_DeferredRescanBackfillsStableMissingHashes
 	}
 	if fileHash != filepath.Base(file) {
 		t.Fatalf("expected backfilled hash %q, got %q", filepath.Base(file), fileHash)
+	}
+}
+
+func TestScanLibraryDiscovery_TargetedEnrichmentTouchesOnlyChangedFiles(t *testing.T) {
+	dbConn := newTestDB(t)
+	tvLibID := getLibraryID(t, dbConn, "tv")
+
+	tmp := t.TempDir()
+	showDir := filepath.Join(tmp, "Show", "Season 1")
+	if err := os.MkdirAll(showDir, 0o755); err != nil {
+		t.Fatalf("mkdir show dir: %v", err)
+	}
+	firstFile := filepath.Join(showDir, "Show - S01E01.mkv")
+	secondFile := filepath.Join(showDir, "Show - S01E02.mkv")
+	for _, file := range []string{firstFile, secondFile} {
+		if err := os.WriteFile(file, []byte("video-bytes"), 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+	}
+
+	prevHash := computeMediaHash
+	prevVideoProbe := readVideoMetadata
+	computeMediaHash = func(_ context.Context, path string) (string, error) {
+		return filepath.Base(path), nil
+	}
+	readVideoMetadata = func(_ context.Context, path string) (VideoProbeResult, error) {
+		return VideoProbeResult{
+			Duration: 42,
+			EmbeddedSubtitles: []EmbeddedSubtitle{{
+				StreamIndex: 2,
+				Language:    "en",
+				Title:       filepath.Base(path) + " subtitle",
+			}},
+			EmbeddedAudioTracks: []EmbeddedAudioTrack{{
+				StreamIndex: 1,
+				Language:    "en",
+				Title:       filepath.Base(path) + " audio",
+			}},
+		}, nil
+	}
+	t.Cleanup(func() {
+		computeMediaHash = prevHash
+		readVideoMetadata = prevVideoProbe
+	})
+
+	delta, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	})
+	if err != nil {
+		t.Fatalf("initial discovery: %v", err)
+	}
+	if delta.Result.Added != 2 {
+		t.Fatalf("initial added = %d, want 2", delta.Result.Added)
+	}
+	if len(delta.TouchedFiles) != 2 {
+		t.Fatalf("initial touched files = %d, want 2", len(delta.TouchedFiles))
+	}
+	if err := EnrichLibraryTasks(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, delta.TouchedFiles, ScanOptions{
+		ProbeMedia:             true,
+		ProbeEmbeddedSubtitles: true,
+	}); err != nil {
+		t.Fatalf("initial enrichment: %v", err)
+	}
+
+	updatedAt := time.Now().Add(2 * time.Second)
+	if err := os.WriteFile(firstFile, []byte("video-bytes-updated"), 0o644); err != nil {
+		t.Fatalf("rewrite first file: %v", err)
+	}
+	if err := os.Chtimes(firstFile, updatedAt, updatedAt); err != nil {
+		t.Fatalf("chtimes first file: %v", err)
+	}
+
+	delta, err = ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	})
+	if err != nil {
+		t.Fatalf("second discovery: %v", err)
+	}
+	if delta.Result.Updated != 2 {
+		t.Fatalf("second updated = %d, want 2", delta.Result.Updated)
+	}
+	if len(delta.TouchedFiles) != 1 {
+		t.Fatalf("second touched files = %d, want 1", len(delta.TouchedFiles))
+	}
+	if delta.TouchedFiles[0].Path != firstFile {
+		t.Fatalf("second touched path = %q, want %q", delta.TouchedFiles[0].Path, firstFile)
+	}
+
+	hashCalls := map[string]int{}
+	probeCalls := map[string]int{}
+	computeMediaHash = func(_ context.Context, path string) (string, error) {
+		hashCalls[path]++
+		return filepath.Base(path), nil
+	}
+	readVideoMetadata = func(_ context.Context, path string) (VideoProbeResult, error) {
+		probeCalls[path]++
+		return VideoProbeResult{
+			Duration:            84,
+			EmbeddedSubtitles:   []EmbeddedSubtitle{{StreamIndex: 3, Language: "en", Title: "subtitle"}},
+			EmbeddedAudioTracks: []EmbeddedAudioTrack{{StreamIndex: 1, Language: "en", Title: "audio"}},
+		}, nil
+	}
+
+	if err := EnrichLibraryTasks(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, delta.TouchedFiles, ScanOptions{
+		ProbeMedia:             true,
+		ProbeEmbeddedSubtitles: true,
+	}); err != nil {
+		t.Fatalf("targeted enrichment: %v", err)
+	}
+	if hashCalls[firstFile] != 1 || hashCalls[secondFile] != 0 {
+		t.Fatalf("hash calls = %#v", hashCalls)
+	}
+	if probeCalls[firstFile] != 1 || probeCalls[secondFile] != 0 {
+		t.Fatalf("probe calls = %#v", probeCalls)
+	}
+
+	var duration int
+	if err := dbConn.QueryRow(`SELECT duration FROM tv_episodes WHERE library_id = ? AND path = ?`, tvLibID, firstFile).Scan(&duration); err != nil {
+		t.Fatalf("query duration: %v", err)
+	}
+	if duration != 84 {
+		t.Fatalf("duration = %d, want 84", duration)
+	}
+	var subtitleCount, audioCount int
+	if err := dbConn.QueryRow(`SELECT COUNT(1) FROM embedded_subtitles`).Scan(&subtitleCount); err != nil {
+		t.Fatalf("count subtitles: %v", err)
+	}
+	if err := dbConn.QueryRow(`SELECT COUNT(1) FROM embedded_audio_tracks`).Scan(&audioCount); err != nil {
+		t.Fatalf("count audio tracks: %v", err)
+	}
+	if subtitleCount == 0 || audioCount == 0 {
+		t.Fatalf("expected embedded streams to be stored, got subtitles=%d audio=%d", subtitleCount, audioCount)
 	}
 }
 

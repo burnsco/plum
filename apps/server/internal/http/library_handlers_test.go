@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1161,17 +1162,20 @@ func TestIdentifyLibrary_TimesOutHungRowsAndSkipsFinishedRows(t *testing.T) {
 
 	prevInitialTimeout := identifyInitialTimeout
 	prevRetryTimeout := identifyRetryTimeout
-	prevWorkers := identifyLibraryWorkers
-	prevRateInterval := identifyRateLimitInterval
+	prevWorkers := identifyMovieWorkers
+	prevRateInterval := identifyMovieRateLimit
+	prevRateBurst := identifyMovieRateBurst
 	identifyInitialTimeout = 10 * time.Millisecond
 	identifyRetryTimeout = 25 * time.Millisecond
-	identifyLibraryWorkers = 2
-	identifyRateLimitInterval = time.Millisecond
+	identifyMovieWorkers = 2
+	identifyMovieRateLimit = time.Millisecond
+	identifyMovieRateBurst = 1
 	t.Cleanup(func() {
 		identifyInitialTimeout = prevInitialTimeout
 		identifyRetryTimeout = prevRetryTimeout
-		identifyLibraryWorkers = prevWorkers
-		identifyRateLimitInterval = prevRateInterval
+		identifyMovieWorkers = prevWorkers
+		identifyMovieRateLimit = prevRateInterval
+		identifyMovieRateBurst = prevRateBurst
 	})
 
 	now := time.Now().UTC()
@@ -1265,6 +1269,795 @@ func TestIdentifyLibrary_TimesOutHungRowsAndSkipsFinishedRows(t *testing.T) {
 	}
 	if finishedTitle != "Finished Movie" || finishedStatus != db.MatchStatusIdentified || finishedTMDBID != 999 {
 		t.Fatalf("unexpected finished movie state: title=%q status=%q tmdb=%d", finishedTitle, finishedStatus, finishedTMDBID)
+	}
+}
+
+func TestIdentifyLibrary_DedupesDuplicateMovieLookupsWithinRun(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	prevWorkers := identifyMovieWorkers
+	prevRateInterval := identifyMovieRateLimit
+	prevRateBurst := identifyMovieRateBurst
+	identifyMovieWorkers = 4
+	identifyMovieRateLimit = time.Millisecond
+	identifyMovieRateBurst = 4
+	t.Cleanup(func() {
+		identifyMovieWorkers = prevWorkers
+		identifyMovieRateLimit = prevRateInterval
+		identifyMovieRateBurst = prevRateBurst
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "dedupe@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	for _, row := range []struct {
+		title string
+		path  string
+	}{
+		{title: "Shared Movie", path: "/movies/Shared Movie (2024)/Shared Movie (2024) [1080p].mp4"},
+		{title: "Shared Movie", path: "/movies/Shared Movie (2024)/Shared Movie (2024) [4k].mkv"},
+		{title: "Unique Movie", path: "/movies/Unique Movie (2024)/Unique Movie (2024).mp4"},
+	} {
+		if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`, libraryID, row.title, row.path, 0, db.MatchStatusLocal); err != nil {
+			t.Fatalf("insert movie %q: %v", row.path, err)
+		}
+	}
+
+	var (
+		mu    sync.Mutex
+		calls = map[string]int{}
+	)
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			movie: func(ctx context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+				key := metadata.NormalizeTitle(info.Title)
+				mu.Lock()
+				calls[key]++
+				mu.Unlock()
+				return &metadata.MatchResult{
+					Title:      info.Title,
+					Provider:   "tmdb",
+					ExternalID: "101",
+				}
+			},
+		},
+	}
+
+	result, err := handler.identifyLibrary(context.Background(), libraryID)
+	if err != nil {
+		t.Fatalf("identify library: %v", err)
+	}
+	if result.Identified != 3 || result.Failed != 0 {
+		rows, queryErr := dbConn.Query(`SELECT title, path, match_status, COALESCE(tmdb_id, 0) FROM movies WHERE library_id = ? ORDER BY path`, libraryID)
+		if queryErr != nil {
+			t.Fatalf("unexpected result: %+v (query err: %v)", result, queryErr)
+		}
+		defer rows.Close()
+		var states []string
+		for rows.Next() {
+			var title, path, status string
+			var tmdbID int
+			if err := rows.Scan(&title, &path, &status, &tmdbID); err != nil {
+				t.Fatalf("scan state: %v", err)
+			}
+			states = append(states, fmt.Sprintf("%s|%s|%s|%d", title, path, status, tmdbID))
+		}
+		t.Fatalf("unexpected result: %+v states=%v calls=%v", result, states, calls)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls["shared movie"] != 1 {
+		t.Fatalf("shared movie calls = %d, want 1", calls["shared movie"])
+	}
+	if calls["unique movie"] != 1 {
+		t.Fatalf("unique movie calls = %d, want 1", calls["unique movie"])
+	}
+}
+
+func TestIdentifyLibrary_GroupsTVEpisodesByShow(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	prevWorkers := identifyEpisodeWorkers
+	prevRateInterval := identifyEpisodeRateLimit
+	prevRateBurst := identifyEpisodeRateBurst
+	identifyEpisodeWorkers = 4
+	identifyEpisodeRateLimit = time.Millisecond
+	identifyEpisodeRateBurst = 4
+	t.Cleanup(func() {
+		identifyEpisodeWorkers = prevWorkers
+		identifyEpisodeRateLimit = prevRateInterval
+		identifyEpisodeRateBurst = prevRateBurst
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "tv-group@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	for episode := 1; episode <= 2; episode++ {
+		path := fmt.Sprintf("/tv/Slow Horses/Season 1/Slow Horses - S01E%02d.mkv", episode)
+		title := fmt.Sprintf("Slow Horses - S01E%02d", episode)
+		if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			libraryID,
+			title,
+			path,
+			0,
+			db.MatchStatusUnmatched,
+			1,
+			episode,
+		); err != nil {
+			t.Fatalf("insert episode %d: %v", episode, err)
+		}
+	}
+
+	var (
+		searchCalls  int32
+		detailsCalls int32
+		episodeCalls int32
+		queueCalls   int32
+	)
+	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	searchIndex.onQueue = func(gotLibraryID int, full bool) {
+		if gotLibraryID != libraryID {
+			t.Fatalf("queued library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental queue")
+		}
+		atomic.AddInt32(&queueCalls, 1)
+	}
+	searchIndex.refresh = func(gotLibraryID int, full bool) error {
+		if gotLibraryID != libraryID {
+			t.Fatalf("refresh library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental refresh")
+		}
+		return nil
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			tv: func(_ context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+				t.Fatalf("unexpected per-row TV identify for %+v", info)
+				return nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				atomic.AddInt32(&searchCalls, 1)
+				if !strings.EqualFold(query, "Slow Horses") {
+					t.Fatalf("query = %q", query)
+				}
+				return []metadata.MatchResult{{
+					Title:      "Slow Horses",
+					Provider:   "tmdb",
+					ExternalID: "321",
+				}}, nil
+			},
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				atomic.AddInt32(&episodeCalls, 1)
+				if provider != "tmdb" || seriesID != "321" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				return &metadata.MatchResult{
+					Title:      fmt.Sprintf("Slow Horses - S01E%02d - Episode %d", episode, episode),
+					Provider:   "tmdb",
+					ExternalID: "321",
+				}, nil
+			},
+		},
+		Series: &seriesDetailsStub{
+			getSeriesDetails: func(_ context.Context, tmdbID int) (*metadata.SeriesDetails, error) {
+				atomic.AddInt32(&detailsCalls, 1)
+				if tmdbID != 321 {
+					t.Fatalf("tmdb id = %d", tmdbID)
+				}
+				return &metadata.SeriesDetails{Name: "Slow Horses"}, nil
+			},
+		},
+		SearchIndex: searchIndex,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/identify", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyLibrary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Identified int `json:"identified"`
+		Failed     int `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Identified != 2 || payload.Failed != 0 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if got := atomic.LoadInt32(&searchCalls); got != 1 {
+		t.Fatalf("search calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&detailsCalls); got != 1 {
+		t.Fatalf("series detail calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&episodeCalls); got != 2 {
+		t.Fatalf("episode calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&queueCalls); got != 1 {
+		t.Fatalf("queue calls = %d", got)
+	}
+}
+
+func TestIdentifyLibrary_GroupsTVDBEpisodesAndFallsBackToTitleSearch(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	prevWorkers := identifyEpisodeWorkers
+	prevRateInterval := identifyEpisodeRateLimit
+	prevRateBurst := identifyEpisodeRateBurst
+	identifyEpisodeWorkers = 1
+	identifyEpisodeRateLimit = time.Millisecond
+	identifyEpisodeRateBurst = 1
+	t.Cleanup(func() {
+		identifyEpisodeWorkers = prevWorkers
+		identifyEpisodeRateLimit = prevRateInterval
+		identifyEpisodeRateBurst = prevRateBurst
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "tvdb-group@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tvdb_id, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		libraryID,
+		"Slow Horses - S01E01",
+		"/tv/Slow Horses/Season 1/Slow Horses - S01E01.mkv",
+		0,
+		db.MatchStatusIdentified,
+		"tvdb-321",
+		1,
+		1,
+	); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+
+	var (
+		searchCalls  int32
+		episodeCalls int32
+	)
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			tv: func(_ context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+				t.Fatalf("unexpected per-row TV identify for %+v", info)
+				return nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				atomic.AddInt32(&searchCalls, 1)
+				if !strings.EqualFold(query, "Slow Horses") {
+					t.Fatalf("query = %q", query)
+				}
+				return []metadata.MatchResult{{
+					Title:      "Slow Horses",
+					Provider:   "tmdb",
+					ExternalID: "321",
+				}}, nil
+			},
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				atomic.AddInt32(&episodeCalls, 1)
+				if provider != "tmdb" || seriesID != "321" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				return &metadata.MatchResult{
+					Title:      "Slow Horses - S01E01 - Episode 1",
+					Provider:   "tmdb",
+					ExternalID: "321",
+				}, nil
+			},
+		},
+		Series: &seriesDetailsStub{
+			getSeriesDetails: func(_ context.Context, tmdbID int) (*metadata.SeriesDetails, error) {
+				return &metadata.SeriesDetails{Name: "Slow Horses"}, nil
+			},
+		},
+	}
+
+	result, err := handler.identifyLibrary(context.Background(), libraryID)
+	if err != nil {
+		t.Fatalf("identify library: %v", err)
+	}
+	if result.Identified != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got := atomic.LoadInt32(&searchCalls); got != 1 {
+		t.Fatalf("search calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&episodeCalls); got != 1 {
+		t.Fatalf("episode calls = %d", got)
+	}
+}
+
+func TestIdentifyLibrary_GroupedEpisodeRetryUsesLongerTimeoutAndFreshLookup(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	prevInitialTimeout := identifyInitialTimeout
+	prevRetryTimeout := identifyRetryTimeout
+	prevWorkers := identifyEpisodeWorkers
+	prevRateInterval := identifyEpisodeRateLimit
+	prevRateBurst := identifyEpisodeRateBurst
+	identifyInitialTimeout = 5 * time.Millisecond
+	identifyRetryTimeout = 50 * time.Millisecond
+	identifyEpisodeWorkers = 1
+	identifyEpisodeRateLimit = time.Millisecond
+	identifyEpisodeRateBurst = 1
+	t.Cleanup(func() {
+		identifyInitialTimeout = prevInitialTimeout
+		identifyRetryTimeout = prevRetryTimeout
+		identifyEpisodeWorkers = prevWorkers
+		identifyEpisodeRateLimit = prevRateInterval
+		identifyEpisodeRateBurst = prevRateBurst
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "retry-group@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tmdb_id, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		libraryID,
+		"Slow Horses - S01E01",
+		"/tv/Slow Horses/Season 1/Slow Horses - S01E01.mkv",
+		0,
+		db.MatchStatusIdentified,
+		321,
+		1,
+		1,
+	); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+
+	var episodeCalls int32
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			tv: func(_ context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+				t.Fatalf("unexpected per-row TV identify for %+v", info)
+				return nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				t.Fatalf("unexpected fallback search for %q", query)
+				return nil, nil
+			},
+			getEpisode: func(ctx context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				atomic.AddInt32(&episodeCalls, 1)
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("expected identify timeout on grouped lookup")
+				}
+				if time.Until(deadline) < 20*time.Millisecond {
+					return nil, nil
+				}
+				return &metadata.MatchResult{
+					Title:      "Slow Horses - S01E01 - Episode 1",
+					Provider:   "tmdb",
+					ExternalID: "321",
+				}, nil
+			},
+		},
+		Series: &seriesDetailsStub{
+			getSeriesDetails: func(_ context.Context, tmdbID int) (*metadata.SeriesDetails, error) {
+				return &metadata.SeriesDetails{Name: "Slow Horses"}, nil
+			},
+		},
+	}
+
+	result, err := handler.identifyLibrary(context.Background(), libraryID)
+	if err != nil {
+		t.Fatalf("identify library: %v", err)
+	}
+	if result.Identified != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got := atomic.LoadInt32(&episodeCalls); got != 2 {
+		t.Fatalf("episode calls = %d", got)
+	}
+}
+
+func TestIdentifyLibrary_GroupedEpisodesFallbackOnlyForUnresolvedRows(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	prevWorkers := identifyEpisodeWorkers
+	prevRateInterval := identifyEpisodeRateLimit
+	prevRateBurst := identifyEpisodeRateBurst
+	identifyEpisodeWorkers = 4
+	identifyEpisodeRateLimit = time.Millisecond
+	identifyEpisodeRateBurst = 4
+	t.Cleanup(func() {
+		identifyEpisodeWorkers = prevWorkers
+		identifyEpisodeRateLimit = prevRateInterval
+		identifyEpisodeRateBurst = prevRateBurst
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "tv-partial@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	for episode := 1; episode <= 2; episode++ {
+		path := fmt.Sprintf("/tv/Slow Horses/Season 1/Slow Horses - S01E%02d.mkv", episode)
+		title := fmt.Sprintf("Slow Horses - S01E%02d", episode)
+		if _, err := dbConn.Exec(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			libraryID,
+			title,
+			path,
+			0,
+			db.MatchStatusUnmatched,
+			1,
+			episode,
+		); err != nil {
+			t.Fatalf("insert episode %d: %v", episode, err)
+		}
+	}
+
+	var (
+		searchCalls  int32
+		detailsCalls int32
+		episodeCalls int32
+	)
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			tv: func(_ context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+				t.Fatalf("unexpected per-row TV identify for %+v", info)
+				return nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				atomic.AddInt32(&searchCalls, 1)
+				return []metadata.MatchResult{{Title: "Slow Horses", Provider: "tmdb", ExternalID: "321"}}, nil
+			},
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				atomic.AddInt32(&episodeCalls, 1)
+				if episode == 2 {
+					return nil, nil
+				}
+				return &metadata.MatchResult{
+					Title:      "Slow Horses - S01E01 - Pilot",
+					Provider:   "tmdb",
+					ExternalID: "321",
+				}, nil
+			},
+		},
+		Series: &seriesDetailsStub{
+			getSeriesDetails: func(_ context.Context, tmdbID int) (*metadata.SeriesDetails, error) {
+				atomic.AddInt32(&detailsCalls, 1)
+				return &metadata.SeriesDetails{Name: "Slow Horses"}, nil
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/identify", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyLibrary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Identified int `json:"identified"`
+		Failed     int `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Identified != 1 || payload.Failed != 1 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if got := atomic.LoadInt32(&searchCalls); got != 1 {
+		t.Fatalf("search calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&detailsCalls); got != 1 {
+		t.Fatalf("series detail calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&episodeCalls); got != 3 {
+		t.Fatalf("episode calls = %d", got)
+	}
+}
+
+func TestIdentifyLibrary_GroupsSafeAnimeAndLeavesAbsoluteEpisodesOnResidualPath(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	prevWorkers := identifyEpisodeWorkers
+	prevRateInterval := identifyEpisodeRateLimit
+	prevRateBurst := identifyEpisodeRateBurst
+	identifyEpisodeWorkers = 4
+	identifyEpisodeRateLimit = time.Millisecond
+	identifyEpisodeRateBurst = 4
+	t.Cleanup(func() {
+		identifyEpisodeWorkers = prevWorkers
+		identifyEpisodeRateLimit = prevRateInterval
+		identifyEpisodeRateBurst = prevRateBurst
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "anime-group@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Anime", db.LibraryTypeAnime, "/anime", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	for episode := 1; episode <= 2; episode++ {
+		path := fmt.Sprintf("/anime/Frieren/Season 1/Frieren - S01E%02d.mkv", episode)
+		title := fmt.Sprintf("Frieren - S01E%02d", episode)
+		if _, err := dbConn.Exec(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			libraryID,
+			title,
+			path,
+			0,
+			db.MatchStatusUnmatched,
+			1,
+			episode,
+		); err != nil {
+			t.Fatalf("insert safe anime episode %d: %v", episode, err)
+		}
+	}
+	var absoluteID int
+	if err := dbConn.QueryRow(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Frieren - 12",
+		"/anime/Frieren/Frieren - 12.mkv",
+		0,
+		db.MatchStatusUnmatched,
+		0,
+		0,
+	).Scan(&absoluteID); err != nil {
+		t.Fatalf("insert absolute anime episode: %v", err)
+	}
+
+	var (
+		searchCalls   int32
+		episodeCalls  int32
+		identifyCalls int32
+	)
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			anime: func(_ context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+				atomic.AddInt32(&identifyCalls, 1)
+				if info.AbsoluteEpisode != 12 {
+					t.Fatalf("unexpected residual anime info: %+v", info)
+				}
+				return &metadata.MatchResult{
+					Title:      "Frieren - Episode 12",
+					Provider:   "tmdb",
+					ExternalID: "123",
+				}
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			searchTV: func(_ context.Context, query string) ([]metadata.MatchResult, error) {
+				atomic.AddInt32(&searchCalls, 1)
+				if !strings.EqualFold(query, "Frieren") {
+					t.Fatalf("query = %q", query)
+				}
+				return []metadata.MatchResult{{Title: "Frieren", Provider: "tmdb", ExternalID: "123"}}, nil
+			},
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				atomic.AddInt32(&episodeCalls, 1)
+				return &metadata.MatchResult{
+					Title:      fmt.Sprintf("Frieren - S01E%02d - Episode %d", episode, episode),
+					Provider:   "tmdb",
+					ExternalID: "123",
+				}, nil
+			},
+		},
+		Series: &seriesDetailsStub{
+			getSeriesDetails: func(_ context.Context, tmdbID int) (*metadata.SeriesDetails, error) {
+				return &metadata.SeriesDetails{Name: "Frieren"}, nil
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/identify", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyLibrary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Identified int `json:"identified"`
+		Failed     int `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Identified != 3 || payload.Failed != 0 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if got := atomic.LoadInt32(&searchCalls); got != 1 {
+		t.Fatalf("search calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&episodeCalls); got != 2 {
+		t.Fatalf("episode calls = %d", got)
+	}
+	if got := atomic.LoadInt32(&identifyCalls); got != 1 {
+		t.Fatalf("anime identify calls = %d", got)
+	}
+
+	var absoluteTitle string
+	if err := dbConn.QueryRow(`SELECT title FROM anime_episodes WHERE id = ?`, absoluteID).Scan(&absoluteTitle); err != nil {
+		t.Fatalf("query absolute anime episode: %v", err)
+	}
+	if absoluteTitle != "Frieren - Episode 12" {
+		t.Fatalf("absolute episode title = %q", absoluteTitle)
+	}
+}
+
+func TestIdentifyConfigForKind_UsesIndependentEpisodeTuning(t *testing.T) {
+	prevMovieWorkers := identifyMovieWorkers
+	prevMovieRateLimit := identifyMovieRateLimit
+	prevMovieRateBurst := identifyMovieRateBurst
+	prevEpisodeWorkers := identifyEpisodeWorkers
+	prevEpisodeRateLimit := identifyEpisodeRateLimit
+	prevEpisodeRateBurst := identifyEpisodeRateBurst
+
+	identifyMovieWorkers = 6
+	identifyMovieRateLimit = 100 * time.Millisecond
+	identifyMovieRateBurst = 6
+	identifyEpisodeWorkers = 4
+	identifyEpisodeRateLimit = 150 * time.Millisecond
+	identifyEpisodeRateBurst = 4
+	t.Cleanup(func() {
+		identifyMovieWorkers = prevMovieWorkers
+		identifyMovieRateLimit = prevMovieRateLimit
+		identifyMovieRateBurst = prevMovieRateBurst
+		identifyEpisodeWorkers = prevEpisodeWorkers
+		identifyEpisodeRateLimit = prevEpisodeRateLimit
+		identifyEpisodeRateBurst = prevEpisodeRateBurst
+	})
+
+	movieConfig := identifyConfigForKind(db.LibraryTypeMovie)
+	episodeConfig := identifyConfigForKind(db.LibraryTypeTV)
+
+	if movieConfig.workers != 6 || movieConfig.rateInterval != 100*time.Millisecond || movieConfig.rateBurst != 6 {
+		t.Fatalf("unexpected movie config: %+v", movieConfig)
+	}
+	if episodeConfig.workers != 4 || episodeConfig.rateInterval != 150*time.Millisecond || episodeConfig.rateBurst != 4 {
+		t.Fatalf("unexpected episodic config: %+v", episodeConfig)
+	}
+}
+
+func TestSearchIndexManager_QueueWhileRunningSchedulesRerun(t *testing.T) {
+	manager := NewSearchIndexManager(nil, nil, nil)
+	firstRunStarted := make(chan struct{}, 1)
+	releaseFirstRun := make(chan struct{})
+
+	var (
+		mu    sync.Mutex
+		calls []bool
+	)
+	manager.refresh = func(libraryID int, full bool) error {
+		mu.Lock()
+		calls = append(calls, full)
+		callCount := len(calls)
+		mu.Unlock()
+
+		if libraryID != 7 {
+			t.Fatalf("library id = %d", libraryID)
+		}
+		if callCount == 1 {
+			firstRunStarted <- struct{}{}
+			<-releaseFirstRun
+		}
+		return nil
+	}
+
+	manager.Queue(7, false)
+	select {
+	case <-firstRunStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected first refresh to start")
+	}
+
+	manager.Queue(7, false)
+	close(releaseFirstRun)
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		mu.Lock()
+		callCount := len(calls)
+		mu.Unlock()
+		if callCount == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected rerun after in-flight queue, got %d refreshes", callCount)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 2 {
+		t.Fatalf("refresh calls = %d", len(calls))
+	}
+	if calls[0] || calls[1] {
+		t.Fatalf("unexpected full refresh flags: %+v", calls)
 	}
 }
 
@@ -1604,40 +2397,56 @@ func TestLibraryScanManager_CompletedScanAdvancesQueueWhileFirstLibraryEnriches(
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	originalHandleScan := handleScanLibraryWithOptions
+	originalDiscovery := scanLibraryDiscovery
+	originalEnrichment := enrichLibraryTasks
 	enrichmentStarted := make(chan struct{}, 1)
 	secondScanStarted := make(chan struct{}, 1)
 	releaseEnrichment := make(chan struct{})
 	var releaseOnce sync.Once
 	firstRoot := filepath.Join(t.TempDir(), "library-a")
 	secondRoot := filepath.Join(t.TempDir(), "library-b")
-	handleScanLibraryWithOptions = func(
+	scanLibraryDiscovery = func(
 		ctx context.Context,
 		dbConn *sql.DB,
 		root, mediaType string,
 		libraryID int,
 		options db.ScanOptions,
-	) (db.ScanResult, error) {
-		if options.ProbeMedia {
-			if root == firstRoot {
-				select {
-				case enrichmentStarted <- struct{}{}:
-				default:
-				}
-				<-releaseEnrichment
-			}
-			return db.ScanResult{}, nil
-		}
+	) (db.ScanDelta, error) {
 		if root == secondRoot {
 			select {
 			case secondScanStarted <- struct{}{}:
 			default:
 			}
 		}
-		return db.ScanResult{Added: 1}, nil
+		return db.ScanDelta{
+			Result: db.ScanResult{Added: 1},
+			TouchedFiles: []db.EnrichmentTask{{
+				LibraryID: libraryID,
+				Kind:      mediaType,
+				Path:      filepath.Join(root, "file.mkv"),
+			}},
+		}, nil
+	}
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		if root == firstRoot {
+			select {
+			case enrichmentStarted <- struct{}{}:
+			default:
+			}
+			<-releaseEnrichment
+		}
+		return nil
 	}
 	t.Cleanup(func() {
-		handleScanLibraryWithOptions = originalHandleScan
+		scanLibraryDiscovery = originalDiscovery
+		enrichLibraryTasks = originalEnrichment
 		releaseOnce.Do(func() {
 			close(releaseEnrichment)
 		})
@@ -1692,22 +2501,38 @@ func TestLibraryScanManager_EnrichmentFailureMarksJobFailedAndSchedulesRetry(t *
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	originalHandleScan := handleScanLibraryWithOptions
+	originalDiscovery := scanLibraryDiscovery
+	originalEnrichment := enrichLibraryTasks
 	enrichErr := errors.New("hash failed")
-	handleScanLibraryWithOptions = func(
+	scanLibraryDiscovery = func(
 		ctx context.Context,
 		dbConn *sql.DB,
 		root, mediaType string,
 		libraryID int,
 		options db.ScanOptions,
-	) (db.ScanResult, error) {
-		if options.ProbeMedia {
-			return db.ScanResult{}, enrichErr
-		}
-		return db.ScanResult{Added: 1}, nil
+	) (db.ScanDelta, error) {
+		return db.ScanDelta{
+			Result: db.ScanResult{Added: 1},
+			TouchedFiles: []db.EnrichmentTask{{
+				LibraryID: libraryID,
+				Kind:      mediaType,
+				Path:      filepath.Join(root, "file.mkv"),
+			}},
+		}, nil
+	}
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		return enrichErr
 	}
 	t.Cleanup(func() {
-		handleScanLibraryWithOptions = originalHandleScan
+		scanLibraryDiscovery = originalDiscovery
+		enrichLibraryTasks = originalEnrichment
 	})
 
 	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
@@ -1892,22 +2717,14 @@ func TestLibraryScanManager_StartDoesNotBlockOnEstimate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(showDir, "Show - S01E01.mkv"), []byte("not a real video"), 0o644); err != nil {
 		t.Fatalf("write episode: %v", err)
 	}
-
-	estimateStarted := make(chan struct{}, 1)
-	releaseEstimate := make(chan struct{})
-	var releaseEstimateOnce sync.Once
-	originalEstimate := estimateLibraryFiles
-	estimateLibraryFiles = func(ctx context.Context, root, mediaType string) (int, error) {
-		estimateStarted <- struct{}{}
-		<-releaseEstimate
-		return originalEstimate(ctx, root, mediaType)
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "estimate@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
 	}
-	t.Cleanup(func() {
-		estimateLibraryFiles = originalEstimate
-		releaseEstimateOnce.Do(func() {
-			close(releaseEstimate)
-		})
-	})
+	if _, err := dbConn.Exec(`INSERT INTO libraries (id, user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?, ?)`, 7, userID, "TV", db.LibraryTypeTV, root, now); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
 
 	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
 	startedAt := time.Now()
@@ -1919,27 +2736,17 @@ func TestLibraryScanManager_StartDoesNotBlockOnEstimate(t *testing.T) {
 		t.Fatalf("unexpected status: %+v", status)
 	}
 	if status.EstimatedItems != 0 {
-		t.Fatalf("estimated items = %d", status.EstimatedItems)
+		t.Fatalf("estimated items = %d, want 0", status.EstimatedItems)
 	}
-
-	select {
-	case <-estimateStarted:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected background estimate to start")
-	}
-
-	releaseEstimateOnce.Do(func() {
-		close(releaseEstimate)
-	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		status = scanJobs.status(7)
-		if status.EstimatedItems == 1 {
+		if status.Phase == libraryScanPhaseCompleted {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("expected estimated items update, got %+v", status)
+			t.Fatalf("expected scan to complete, got %+v", status)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
