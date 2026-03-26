@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"sync"
 	"time"
@@ -522,6 +523,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 	status.IdentifyPhase = libraryIdentifyPhaseQueued
 	m.jobs[libraryID] = status
 	m.mu.Unlock()
+	log.Printf("identify library=%d status=queued", libraryID)
 	m.flushStatus(libraryID, true)
 
 	go func() {

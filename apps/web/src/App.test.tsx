@@ -1707,7 +1707,7 @@ describe("App library and player wiring", () => {
     });
   });
 
-  it("finishes onboarding after scan-only import without waiting for identify", async () => {
+  it("finishes onboarding after background identify starts without waiting for completion", async () => {
     mockAuthSession({ hasAdmin: false, user: null });
     vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
     vi.spyOn(api, "createAdmin").mockResolvedValue({
@@ -1735,7 +1735,7 @@ describe("App library and player wiring", () => {
       removed: 0,
       unmatched: 0,
       skipped: 0,
-      identifyRequested: false,
+      identifyRequested: true,
       estimatedItems: 0,
       queuePosition: 1,
       startedAt: new Date().toISOString(),
@@ -1773,7 +1773,7 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Add library$/i }));
 
     await waitFor(() => {
-      expect(api.startLibraryScan).toHaveBeenCalledWith(10, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenCalledWith(10, { identify: true });
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Finish setup/i }));
@@ -1809,7 +1809,7 @@ describe("App library and player wiring", () => {
       removed: 0,
       unmatched: 0,
       skipped: 0,
-      identifyRequested: false,
+      identifyRequested: true,
       estimatedItems: 0,
       queuePosition: 1,
       startedAt: new Date().toISOString(),
@@ -1827,7 +1827,7 @@ describe("App library and player wiring", () => {
       removed: 0,
       unmatched: 0,
       skipped: 0,
-      identifyRequested: false,
+      identifyRequested: true,
       estimatedItems: 0,
       queuePosition: 0,
     });
@@ -1864,7 +1864,7 @@ describe("App library and player wiring", () => {
     ).toBeTruthy();
   });
 
-  it("auto-enters the app after adding default libraries with scan-only import", async () => {
+  it("auto-enters the app after adding default libraries while identify runs in the background", async () => {
     mockAuthSession({ hasAdmin: false, user: null });
     vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
     vi.spyOn(api, "createAdmin").mockResolvedValue({
@@ -1890,7 +1890,7 @@ describe("App library and player wiring", () => {
       removed: 0,
       unmatched: 0,
       skipped: 0,
-      identifyRequested: false,
+      identifyRequested: true,
       estimatedItems: 0,
       queuePosition: 1,
       startedAt: new Date().toISOString(),
@@ -1922,10 +1922,10 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add default libraries and continue/i }));
 
     await waitFor(() => {
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11, { identify: false });
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(2, 12, { identify: false });
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(3, 13, { identify: false });
-      expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14, { identify: false });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11, { identify: true });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(2, 12, { identify: true });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(3, 13, { identify: true });
+      expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14, { identify: true });
     });
 
     expect(await screen.findByText(/No media in this library yet/i)).toBeTruthy();

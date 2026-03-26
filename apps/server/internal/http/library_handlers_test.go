@@ -198,6 +198,11 @@ type identifyStub struct {
 	anime func(context.Context, metadata.MediaInfo) *metadata.MatchResult
 }
 
+type identifyMusicStub struct {
+	identifyStub
+	music func(context.Context, metadata.MusicInfo) *metadata.MusicMatchResult
+}
+
 type seriesQueryStub struct {
 	searchTV   func(context.Context, string) ([]metadata.MatchResult, error)
 	getEpisode func(context.Context, string, string, int, int) (*metadata.MatchResult, error)
@@ -280,6 +285,16 @@ func (s *identifyStub) IdentifyMovie(ctx context.Context, info metadata.MediaInf
 		return nil
 	}
 	return s.movie(ctx, info)
+}
+
+func (s *identifyMusicStub) IdentifyMusic(
+	ctx context.Context,
+	info metadata.MusicInfo,
+) *metadata.MusicMatchResult {
+	if s.music == nil {
+		return nil
+	}
+	return s.music(ctx, info)
 }
 
 func TestIdentifyLibrary_UsesRelativeMovieParsing(t *testing.T) {
@@ -2834,6 +2849,83 @@ func TestLibraryScanManager_EnrichmentFailureMarksJobFailedAndSchedulesRetry(t *
 			t.Fatalf("expected enrichment failure to mark job failed, got %+v", status)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestLibraryScanManager_RunUsesOriginalIdentifyRequestForMusicEnrichment(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	originalDiscovery := scanLibraryDiscovery
+	originalEnrichment := enrichLibraryTasks
+	usedMusicIdentifier := make(chan bool, 1)
+	scanLibraryDiscovery = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		options db.ScanOptions,
+	) (db.ScanDelta, error) {
+		return db.ScanDelta{
+			Result: db.ScanResult{Added: 1},
+			TouchedFiles: []db.EnrichmentTask{{
+				LibraryID: libraryID,
+				Kind:      mediaType,
+				Path:      filepath.Join(root, "track.flac"),
+			}},
+		}, nil
+	}
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		select {
+		case usedMusicIdentifier <- options.MusicIdentifier != nil:
+		default:
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		scanLibraryDiscovery = originalDiscovery
+		enrichLibraryTasks = originalEnrichment
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, &identifyMusicStub{}, nil)
+	scanJobs.mu.Lock()
+	scanJobs.jobs[1] = libraryScanStatus{
+		LibraryID:         1,
+		Phase:             libraryScanPhaseScanning,
+		IdentifyRequested: true,
+	}
+	scanJobs.types[1] = db.LibraryTypeMusic
+	scanJobs.paths[1] = "/music"
+	scanJobs.mu.Unlock()
+
+	scanJobs.run(
+		1,
+		libraryScanStatus{
+			LibraryID:         1,
+			Phase:             libraryScanPhaseScanning,
+			IdentifyRequested: false,
+		},
+		db.LibraryTypeMusic,
+		"/music",
+	)
+
+	select {
+	case got := <-usedMusicIdentifier:
+		if got {
+			t.Fatal("expected enrichment to ignore identify requested by a queued rerun")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected enrichment to run")
 	}
 }
 
