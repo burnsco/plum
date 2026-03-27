@@ -39,12 +39,11 @@ function canShowFailureState(
   hasActiveIdentifyItems: boolean,
   identifyFailedCount: number,
 ) {
+  const explicitFailure = identifyPhase === "identify-failed";
   return (
-    !isProcessing &&
     !isFetching &&
     !hasActiveIdentifyItems &&
-    (identifyPhase === "identify-failed" ||
-      (identifyPhase === "complete" && identifyFailedCount > 0))
+    (explicitFailure || (!isProcessing && identifyPhase === "complete" && identifyFailedCount > 0))
   );
 }
 
@@ -481,6 +480,8 @@ export function Home() {
                     ? "Importing library…"
                     : selectedLibraryActivity === "finishing"
                       ? "Finishing library…"
+                      : selectedLibraryActivity === "identify-queued"
+                        ? "Queued for identify…"
                       : "Identifying library…"}
                   {selectedLibraryActivity === "importing" && selectedLibraryScanStatus && (
                     <>
@@ -495,7 +496,11 @@ export function Home() {
               ) : selectedItems.length === 0 ? (
                 <p className="text-sm text-[var(--plum-muted)]">No media in this library yet.</p>
               ) : showIdentifyPlaceholder ? (
-                <p className="text-sm text-[var(--plum-muted)]">Identifying library…</p>
+                <p className="text-sm text-[var(--plum-muted)]">
+                  {selectedLibraryIdentifyPhase === "queued"
+                    ? "Queued for identify…"
+                    : "Identifying library…"}
+                </p>
               ) : isTVOrAnime(selectedLib) ? (
                 <LibraryPosterGrid items={showCardState.visibleCards} />
               ) : selectedLib.type === "movie" ? (

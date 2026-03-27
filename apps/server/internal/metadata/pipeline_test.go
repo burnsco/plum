@@ -474,6 +474,78 @@ func TestIdentifyMovie_ExactTitleAndYearAutoMatches(t *testing.T) {
 	}
 }
 
+func TestIdentifyMovie_ExactTitleYearTieUsesFirstRankedResult(t *testing.T) {
+	movie := &stubMovieProvider{
+		searchResults: []MatchResult{
+			{Title: "Smile", ReleaseDate: "2022-09-23", Provider: "tmdb", ExternalID: "111"},
+			{Title: "Smile", ReleaseDate: "2022-10-28", Provider: "tmdb", ExternalID: "222"},
+		},
+	}
+	p := &Pipeline{movieProvider: movie}
+
+	res := p.IdentifyMovie(context.Background(), MediaInfo{Title: "Smile", Year: 2022})
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.ExternalID != "111" {
+		t.Fatalf("external id = %q", res.ExternalID)
+	}
+}
+
+func TestIdentifyMovie_ExactTitleWithoutYearAutoMatchesWhenUnique(t *testing.T) {
+	movie := &stubMovieProvider{
+		searchResults: []MatchResult{
+			{Title: "Die My Love", ReleaseDate: "2025-01-01", Provider: "tmdb", ExternalID: "444"},
+			{Title: "Different Movie", ReleaseDate: "2024-01-01", Provider: "tmdb", ExternalID: "555"},
+		},
+	}
+	p := &Pipeline{movieProvider: movie}
+
+	res := p.IdentifyMovie(context.Background(), MediaInfo{Title: "Die My Love"})
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.Title != "Die My Love" {
+		t.Fatalf("title = %q", res.Title)
+	}
+}
+
+func TestIdentifyMovie_NoisyFolderTitleAutoMatches(t *testing.T) {
+	movie := &stubMovieProvider{
+		searchResults: []MatchResult{
+			{Title: "I Heart Huckabees", ReleaseDate: "2004-01-01", Provider: "tmdb", ExternalID: "444"},
+		},
+	}
+	p := &Pipeline{movieProvider: movie}
+
+	parsed := ParseMovie(
+		"I.Heart.Huckabees.2004.1080p.AMZN.WEBRip.DDP5.1.x264-monkee/I.Heart.Huckabees.2004.1080p.AMZN.WEBRip.DDP5.1.x264-monkee.mkv",
+		"I.Heart.Huckabees.2004.1080p.AMZN.WEBRip.DDP5.1.x264-monkee.mkv",
+	)
+	res := p.IdentifyMovie(context.Background(), MovieMediaInfo(parsed))
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.Title != "I Heart Huckabees" {
+		t.Fatalf("title = %q", res.Title)
+	}
+}
+
+func TestIdentifyMovie_ExactTitleWithoutYearStaysUnmatchedWhenAmbiguous(t *testing.T) {
+	movie := &stubMovieProvider{
+		searchResults: []MatchResult{
+			{Title: "Suspiria", ReleaseDate: "1977-01-01", Provider: "tmdb", ExternalID: "111"},
+			{Title: "Suspiria", ReleaseDate: "2018-01-01", Provider: "tmdb", ExternalID: "222"},
+		},
+	}
+	p := &Pipeline{movieProvider: movie}
+
+	res := p.IdentifyMovie(context.Background(), MediaInfo{Title: "Suspiria"})
+	if res != nil {
+		t.Fatalf("expected no match, got %#v", res)
+	}
+}
+
 func TestIdentifyMovie_ConflictingYearStaysUnmatched(t *testing.T) {
 	movie := &stubMovieProvider{
 		searchResults: []MatchResult{
