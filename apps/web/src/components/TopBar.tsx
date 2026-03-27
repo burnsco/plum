@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthActions, useAuthState } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { LibraryActivityCenter } from "@/components/LibraryActivityCenter";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -75,6 +76,8 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-1">
+        <LibraryActivityCenter />
+
         <Link to="/settings">
           <Button variant="icon" size="icon" aria-label="Settings">
             <Settings className="size-5" />

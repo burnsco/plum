@@ -15,8 +15,8 @@ const tmdbBaseURL = "https://api.themoviedb.org/3"
 const tmdbImageBase = "https://image.tmdb.org/t/p"
 
 type TMDBClient struct {
-	APIKey string
-	cache  ProviderCache
+	APIKey  string
+	cache   ProviderCache
 	baseURL string
 
 	mu           sync.RWMutex
@@ -56,18 +56,20 @@ type tmdbCredits struct {
 
 type tmdbMovieDetails struct {
 	TMDBResult
-	Runtime  int          `json:"runtime"`
-	Genres   []tmdbGenre  `json:"genres"`
-	Credits  tmdbCredits  `json:"credits"`
+	Runtime     int                     `json:"runtime"`
+	Genres      []tmdbGenre             `json:"genres"`
+	Credits     tmdbCredits             `json:"credits"`
+	ExternalIDs tmdbExternalIDsResponse `json:"external_ids"`
 }
 
 type tmdbTVDetails struct {
 	TMDBResult
-	Genres           []tmdbGenre `json:"genres"`
-	EpisodeRunTime   []int       `json:"episode_run_time"`
-	NumberOfSeasons  int         `json:"number_of_seasons"`
-	NumberOfEpisodes int         `json:"number_of_episodes"`
-	Credits          tmdbCredits `json:"credits"`
+	Genres           []tmdbGenre             `json:"genres"`
+	EpisodeRunTime   []int                   `json:"episode_run_time"`
+	NumberOfSeasons  int                     `json:"number_of_seasons"`
+	NumberOfEpisodes int                     `json:"number_of_episodes"`
+	Credits          tmdbCredits             `json:"credits"`
+	ExternalIDs      tmdbExternalIDsResponse `json:"external_ids"`
 }
 
 type tmdbExternalIDsResponse struct {
@@ -211,7 +213,7 @@ func (c *TMDBClient) getTVDetails(ctx context.Context, id int) (*tmdbTVDetails, 
 		return &copy, nil
 	}
 	c.mu.RUnlock()
-	u := fmt.Sprintf("%s/tv/%d?api_key=%s&append_to_response=credits", c.baseURL, id, c.APIKey)
+	u := fmt.Sprintf("%s/tv/%d?api_key=%s&append_to_response=credits,external_ids", c.baseURL, id, c.APIKey)
 	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -234,7 +236,7 @@ func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*tmdbMovieDet
 		return &copy, nil
 	}
 	c.mu.RUnlock()
-	u := fmt.Sprintf("%s/movie/%d?api_key=%s&append_to_response=credits", c.baseURL, id, c.APIKey)
+	u := fmt.Sprintf("%s/movie/%d?api_key=%s&append_to_response=credits,external_ids", c.baseURL, id, c.APIKey)
 	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -291,6 +293,9 @@ func (c *TMDBClient) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDet
 }
 
 func (c *TMDBClient) getMovieIMDbID(ctx context.Context, id int) (string, error) {
+	if detail, err := c.getMovieDetails(ctx, id); err == nil && detail != nil && detail.ExternalIDs.IMDbID != "" {
+		return detail.ExternalIDs.IMDbID, nil
+	}
 	c.mu.RLock()
 	if cached, ok := c.movieIMDbIDs[id]; ok {
 		c.mu.RUnlock()
@@ -308,6 +313,9 @@ func (c *TMDBClient) getMovieIMDbID(ctx context.Context, id int) (string, error)
 }
 
 func (c *TMDBClient) getTVIMDbID(ctx context.Context, id int) (string, error) {
+	if detail, err := c.getTVDetails(ctx, id); err == nil && detail != nil && detail.ExternalIDs.IMDbID != "" {
+		return detail.ExternalIDs.IMDbID, nil
+	}
 	c.mu.RLock()
 	if cached, ok := c.tvIMDbIDs[id]; ok {
 		c.mu.RUnlock()

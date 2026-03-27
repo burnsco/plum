@@ -69,6 +69,58 @@ func TestParseMovie_RemovesReleasePrefixNoise(t *testing.T) {
 	}
 }
 
+func TestParseMovie_NoisyFolderNameUsesCleanTitleAndYear(t *testing.T) {
+	info := ParseMovie(
+		"I.Heart.Huckabees.2004.1080p.AMZN.WEBRip.DDP5.1.x264-monkee/I.Heart.Huckabees.2004.1080p.AMZN.WEBRip.DDP5.1.x264-monkee.mkv",
+		"I.Heart.Huckabees.2004.1080p.AMZN.WEBRip.DDP5.1.x264-monkee.mkv",
+	)
+	if info.Title != "I Heart Huckabees" {
+		t.Fatalf("title = %q", info.Title)
+	}
+	if info.Year != 2004 {
+		t.Fatalf("year = %d", info.Year)
+	}
+}
+
+func TestParseMovie_FolderTitleKeepsInitialisms(t *testing.T) {
+	info := ParseMovie(
+		"L.A. Confidential (1997)/L A Confidential 1997 1080p BluRay DDP5 1 x265 10bit GalaxyRG265.mkv",
+		"L A Confidential 1997 1080p BluRay DDP5 1 x265 10bit GalaxyRG265.mkv",
+	)
+	if info.Title != "L.A. Confidential" {
+		t.Fatalf("title = %q", info.Title)
+	}
+	if info.Year != 1997 {
+		t.Fatalf("year = %d", info.Year)
+	}
+}
+
+func TestParseMovie_FolderTitleKeepsHonorificWord(t *testing.T) {
+	info := ParseMovie(
+		"Mr. Brooks (2007)/Mr. Brooks (2007) (1080p BluRay x265 HEVC 10bit AAC 5.1 afm72).mkv",
+		"Mr. Brooks (2007) (1080p BluRay x265 HEVC 10bit AAC 5.1 afm72).mkv",
+	)
+	if info.Title != "Mr. Brooks" {
+		t.Fatalf("title = %q", info.Title)
+	}
+	if info.Year != 2007 {
+		t.Fatalf("year = %d", info.Year)
+	}
+}
+
+func TestParseMovie_FolderTitleStripsReleasePrefixBeforeYear(t *testing.T) {
+	info := ParseMovie(
+		"[YTS] Mr. Brooks (2007)/Mr. Brooks (2007) (1080p BluRay x265 HEVC 10bit AAC 5.1 afm72).mkv",
+		"Mr. Brooks (2007) (1080p BluRay x265 HEVC 10bit AAC 5.1 afm72).mkv",
+	)
+	if info.Title != "Mr. Brooks" {
+		t.Fatalf("title = %q", info.Title)
+	}
+	if info.Year != 2007 {
+		t.Fatalf("year = %d", info.Year)
+	}
+}
+
 func TestParseFilename_StructuredTVNormalizesSeriesName(t *testing.T) {
 	info := ParseFilename("Dragon Ball (1986) - S01E01 - Secret of the Dragon Balls [SDTV][AAC 2.0][x265].mkv")
 	if info.Title != "dragon ball" {

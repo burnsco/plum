@@ -36,16 +36,29 @@ var (
 	animeEpisodeRegex3  = regexp.MustCompile(`(?i)^(.*?\b(?:ova|ona|special|specials))\s*(\d{1,4})(?:\s*[-~]\s*(\d{1,4}))?(?:\b|$)`)
 	bracketedNoiseRegex = regexp.MustCompile(`\[[^\]]+\]|\{[^}]+\}`)
 	specialRegex        = regexp.MustCompile(`(?i)\b(ova|ona|special|specials|ncop|nced)\b`)
+	titleSeparatorRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 	spaceRegex          = regexp.MustCompile(`\s+`)
 
 	trailingYearParenRegex = regexp.MustCompile(`(?i)^(.*?)[\s._-]*\(((?:19|20)\d{2})\)\s*$`)
 	trailingYearBareRegex  = regexp.MustCompile(`(?i)^(.*?)[\s._-]+((?:19|20)\d{2})\s*$`)
 )
 
+var titleSymbolReplacer = strings.NewReplacer(
+	"♥", " heart ",
+	"❤", " heart ",
+	"’", "",
+	"'", "",
+	"`", "",
+	"´", "",
+	"ʼ", "",
+)
+
 // NormalizeTitle lowercases, collapses spaces, strips common release/quality tags.
 func NormalizeTitle(s string) string {
 	s = strings.ToLower(s)
+	s = titleSymbolReplacer.Replace(s)
 	s = noiseRegex.ReplaceAllString(s, " ")
+	s = titleSeparatorRegex.ReplaceAllString(s, " ")
 	s = spaceRegex.ReplaceAllString(strings.TrimSpace(s), " ")
 	return s
 }

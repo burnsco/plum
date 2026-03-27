@@ -5,9 +5,10 @@ import tailwindcss from "@tailwindcss/vite";
 
 // In Docker dev, the browser may need a host-facing backend URL while the Vite
 // server inside the container needs to reach the backend over the Docker network.
-const backendUrl =
+const browserBackendUrl = process.env.VITE_BACKEND_URL;
+const proxyTarget =
   process.env.BACKEND_INTERNAL_URL ||
-  process.env.VITE_BACKEND_URL ||
+  browserBackendUrl ||
   "http://localhost:8080";
 
 export default defineConfig({
@@ -18,16 +19,20 @@ export default defineConfig({
   },
   server: {
     host: true, // Needed for Docker
-    proxy: {
-      "/api": {
-        target: backendUrl,
-        changeOrigin: true,
-      },
-      "/ws": {
-        target: backendUrl,
-        ws: true,
-        changeOrigin: true,
-      },
-    },
+    ...(browserBackendUrl
+      ? {}
+      : {
+          proxy: {
+            "/api": {
+              target: proxyTarget,
+              changeOrigin: true,
+            },
+            "/ws": {
+              target: proxyTarget,
+              ws: true,
+              changeOrigin: true,
+            },
+          },
+        }),
   },
 });

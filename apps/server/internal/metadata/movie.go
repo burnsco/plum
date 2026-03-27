@@ -62,7 +62,7 @@ func ParseMovie(relPath, filename string) MovieInfo {
 	}
 
 	if len(meaningful) > 0 {
-		title, year := SplitTitleAndYear(meaningful[len(meaningful)-1])
+		title, year := parseMovieTitleCandidate(meaningful[len(meaningful)-1])
 		if title != "" {
 			out.Title = title
 		}
@@ -88,6 +88,11 @@ func ParseMovie(relPath, filename string) MovieInfo {
 }
 
 func parseMovieTitleCandidate(name string) (string, int) {
+	if title, year := SplitTitleAndYear(strings.TrimSpace(name)); title != "" && year > 0 {
+		title = moviePrefixTagRegex.ReplaceAllString(title, "")
+		title = strings.TrimSpace(strings.Trim(title, "-:"))
+		return title, year
+	}
 	cleaned := cleanupReleaseName(name)
 	cleaned = moviePrefixTagRegex.ReplaceAllString(cleaned, "")
 	cleaned = strings.TrimSpace(strings.Trim(cleaned, "-:"))
