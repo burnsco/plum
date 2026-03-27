@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"sync"
 	"time"
@@ -20,8 +21,8 @@ const (
 	libraryScanDebounceWindow        = 300 * time.Millisecond
 )
 
-var estimateLibraryFiles = db.EstimateLibraryFiles
-var handleScanLibraryWithOptions = db.HandleScanLibraryWithOptions
+var scanLibraryDiscovery = db.ScanLibraryDiscovery
+var enrichLibraryTasks = db.EnrichLibraryTasks
 
 const (
 	libraryScanPhaseIdle      = "idle"
@@ -141,16 +142,8 @@ func (m *LibraryScanManager) Recover() error {
 		return err
 	}
 
-	type pendingEstimate struct {
-		libraryID int
-		path      string
-		kind      string
-	}
-
 	var (
-		scansToEstimate     []pendingEstimate
-		enrichmentsToResume []int
-		identifiesToResume  []int
+		identifiesToResume []int
 	)
 
 	m.mu.Lock()
@@ -172,13 +165,12 @@ func (m *LibraryScanManager) Recover() error {
 			}
 			m.jobs[status.LibraryID] = status
 			m.debounceReady[status.LibraryID] = true
-			scansToEstimate = append(scansToEstimate, pendingEstimate{
-				libraryID: status.LibraryID,
-				path:      persisted.Path,
-				kind:      persisted.Type,
-			})
 		case status.Enriching:
-			enrichmentsToResume = append(enrichmentsToResume, status.LibraryID)
+			status.Enriching = false
+			status.Phase = libraryScanPhaseQueued
+			status.FinishedAt = ""
+			m.jobs[status.LibraryID] = status
+			m.debounceReady[status.LibraryID] = true
 		}
 		if status.IdentifyRequested &&
 			(status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying) &&
@@ -219,23 +211,9 @@ func (m *LibraryScanManager) Recover() error {
 		}
 	}
 	m.mu.Unlock()
-
-	for _, pending := range scansToEstimate {
-		m.mu.Lock()
-		status := m.jobs[pending.libraryID]
-		if status.QueuedAt == "" {
-			status.QueuedAt = time.Now().UTC().Format(time.RFC3339)
-		}
-		m.jobs[pending.libraryID] = status
-		m.mu.Unlock()
-		m.queueEstimate(pending.libraryID, pending.path, pending.kind)
-	}
 	m.flushAllStatuses(true)
 	m.scheduleNext()
 
-	for _, libraryID := range enrichmentsToResume {
-		m.startEnrichment(libraryID, m.types[libraryID], m.paths[libraryID], m.subpaths[libraryID])
-	}
 	for _, libraryID := range identifiesToResume {
 		m.startIdentify(libraryID)
 	}
@@ -309,7 +287,6 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 	m.mu.Unlock()
 
 	m.flushAllStatuses(true)
-	m.queueEstimate(libraryID, path, libraryType)
 	return result
 }
 
@@ -363,34 +340,6 @@ func (m *LibraryScanManager) scheduleDebounceLocked(libraryID int) {
 		m.mu.Unlock()
 		m.scheduleNext()
 	})
-}
-
-func (m *LibraryScanManager) queueEstimate(libraryID int, path, libraryType string) {
-	if path == "" {
-		return
-	}
-	go func() {
-		estimatedItems, err := estimateLibraryFiles(context.Background(), path, libraryType)
-		if err != nil {
-			return
-		}
-
-		m.mu.Lock()
-		status, ok := m.jobs[libraryID]
-		if !ok || m.paths[libraryID] != path || m.types[libraryID] != libraryType {
-			m.mu.Unlock()
-			return
-		}
-		if status.EstimatedItems == estimatedItems {
-			m.mu.Unlock()
-			return
-		}
-		status.EstimatedItems = estimatedItems
-		m.jobs[libraryID] = status
-		m.mu.Unlock()
-
-		m.flushStatus(libraryID, true)
-	}()
 }
 
 func (m *LibraryScanManager) status(libraryID int) libraryScanStatus {
@@ -525,7 +474,7 @@ func (m *LibraryScanManager) queuePositionLocked(libraryID int) int {
 
 func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, libraryType, path string) {
 	subpaths := m.scanSubpaths(libraryID)
-	result, err := handleScanLibraryWithOptions(context.Background(), m.db, path, libraryType, libraryID, db.ScanOptions{
+	delta, err := scanLibraryDiscovery(context.Background(), m.db, path, libraryType, libraryID, db.ScanOptions{
 		ProbeMedia:             false,
 		ProbeEmbeddedSubtitles: false,
 		ScanSidecarSubtitles:   false,
@@ -539,11 +488,11 @@ func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, librar
 		m.finish(libraryID, libraryScanPhaseFailed, db.ScanResult{}, err.Error())
 		return
 	}
-	m.finish(libraryID, libraryScanPhaseCompleted, result, "")
+	m.finish(libraryID, libraryScanPhaseCompleted, delta.Result, "")
 	if status.IdentifyRequested && libraryType != db.LibraryTypeMusic {
 		m.startIdentify(libraryID)
 	}
-	m.startEnrichment(libraryID, libraryType, path, subpaths)
+	m.startEnrichment(libraryID, libraryType, path, subpaths, delta.TouchedFiles, status.IdentifyRequested)
 }
 
 func (m *LibraryScanManager) updateProgress(libraryID int, progress db.ScanProgress) {
@@ -574,6 +523,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 	status.IdentifyPhase = libraryIdentifyPhaseQueued
 	m.jobs[libraryID] = status
 	m.mu.Unlock()
+	log.Printf("identify library=%d status=queued", libraryID)
 	m.flushStatus(libraryID, true)
 
 	go func() {
@@ -675,7 +625,10 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	m.scheduleNext()
 }
 
-func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path string, subpaths []string) {
+func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path string, subpaths []string, tasks []db.EnrichmentTask, identifyRequested bool) {
+	if len(tasks) == 0 {
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	m.mu.Lock()
@@ -706,12 +659,12 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 			ScanSidecarSubtitles:   true,
 			Subpaths:               subpaths,
 		}
-		if libraryType == db.LibraryTypeMusic && status.IdentifyRequested {
+		if libraryType == db.LibraryTypeMusic && identifyRequested {
 			if musicIdentifier, ok := m.meta.(metadata.MusicIdentifier); ok {
 				options.MusicIdentifier = musicIdentifier
 			}
 		}
-		_, err := handleScanLibraryWithOptions(ctx, m.db, path, libraryType, libraryID, options)
+		err := enrichLibraryTasks(ctx, m.db, path, libraryType, libraryID, tasks, options)
 		if err != nil {
 			if ctx.Err() == nil {
 				m.failEnrichment(libraryID, err.Error())
