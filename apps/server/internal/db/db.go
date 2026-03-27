@@ -48,6 +48,12 @@ type ScanProgress struct {
 	Result    ScanResult
 }
 
+type ScanActivity struct {
+	Phase  string
+	Target string
+	Path   string
+}
+
 type ScanHashMode string
 
 const (
@@ -63,6 +69,7 @@ type ScanOptions struct {
 	ScanSidecarSubtitles   bool
 	Subpaths               []string
 	Progress               func(ScanProgress)
+	Activity               func(ScanActivity)
 	HashMode               ScanHashMode
 }
 
@@ -2675,14 +2682,20 @@ type scanCandidate struct {
 
 func EstimateLibraryFiles(ctx context.Context, root, mediaType string) (int, error) {
 	count := 0
-	err := iterateLibraryFiles(ctx, root, mediaType, nil, func(scanCandidate) error {
+	err := iterateLibraryFiles(ctx, root, mediaType, nil, nil, func(scanCandidate) error {
 		count++
 		return nil
 	})
 	return count, err
 }
 
-func iterateLibraryFiles(ctx context.Context, root, mediaType string, onSkip func(), visit func(scanCandidate) error) error {
+func iterateLibraryFiles(
+	ctx context.Context,
+	root, mediaType string,
+	onDirectory func(string),
+	onSkip func(),
+	visit func(scanCandidate) error,
+) error {
 	if root == "" {
 		return fmt.Errorf("path is required")
 	}
@@ -2707,6 +2720,9 @@ func iterateLibraryFiles(ctx context.Context, root, mediaType string, onSkip fun
 			return walkErr
 		}
 		if d.IsDir() {
+			if onDirectory != nil && path != root {
+				onDirectory(path)
+			}
 			return nil
 		}
 		select {
@@ -3040,10 +3056,25 @@ func ScanLibraryDiscovery(
 	}
 
 	for _, scanRoot := range scanRoots {
-		err = iterateLibraryFiles(ctx, scanRoot, kind, func() {
+		err = iterateLibraryFiles(ctx, scanRoot, kind, func(path string) {
+			if options.Activity != nil {
+				options.Activity(ScanActivity{
+					Phase:  "discovery",
+					Target: "directory",
+					Path:   path,
+				})
+			}
+		}, func() {
 			delta.Result.Skipped++
 			emitProgress()
 		}, func(candidate scanCandidate) error {
+			if options.Activity != nil {
+				options.Activity(ScanActivity{
+					Phase:  "discovery",
+					Target: "file",
+					Path:   candidate.Path,
+				})
+			}
 			if _, ok := seenPaths[candidate.Path]; ok {
 				return nil
 			}
@@ -3314,6 +3345,13 @@ func EnrichLibraryTasks(
 		go func() {
 			defer wg.Done()
 			for task := range jobs {
+				if options.Activity != nil && task.Path != "" {
+					options.Activity(ScanActivity{
+						Phase:  "enrichment",
+						Target: "file",
+						Path:   task.Path,
+					})
+				}
 				if err := enrichTask(ctx, dbConn, root, mediaType, libraryID, task, options); err != nil {
 					errs <- err
 				}
@@ -3389,10 +3427,25 @@ func HandleScanLibraryWithOptions(
 		}
 	}
 	for _, scanRoot := range scanRoots {
-		err = iterateLibraryFiles(ctx, scanRoot, kind, func() {
+		err = iterateLibraryFiles(ctx, scanRoot, kind, func(path string) {
+			if options.Activity != nil {
+				options.Activity(ScanActivity{
+					Phase:  "discovery",
+					Target: "directory",
+					Path:   path,
+				})
+			}
+		}, func() {
 			result.Skipped++
 			emitProgress()
 		}, func(candidate scanCandidate) error {
+			if options.Activity != nil {
+				options.Activity(ScanActivity{
+					Phase:  "discovery",
+					Target: "file",
+					Path:   candidate.Path,
+				})
+			}
 			path := candidate.Path
 			if _, ok := seenPaths[path]; ok {
 				return nil

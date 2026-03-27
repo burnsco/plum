@@ -440,6 +440,59 @@ export const LibraryIdentifyPhaseSchema = Schema.Literals([
   "failed",
 ]);
 
+export type LibraryScanActivityStage =
+  | "queued"
+  | "discovery"
+  | "enrichment"
+  | "identify"
+  | "failed";
+
+export const LibraryScanActivityStageSchema = Schema.Literals([
+  "queued",
+  "discovery",
+  "enrichment",
+  "identify",
+  "failed",
+]);
+
+export type LibraryScanActivityPhase = "discovery" | "enrichment" | "identify";
+
+export const LibraryScanActivityPhaseSchema = Schema.Literals([
+  "discovery",
+  "enrichment",
+  "identify",
+]);
+
+export type LibraryScanActivityTarget = "directory" | "file";
+
+export const LibraryScanActivityTargetSchema = Schema.Literals(["directory", "file"]);
+
+export interface LibraryScanActivityEntry {
+  phase: LibraryScanActivityPhase;
+  target: LibraryScanActivityTarget;
+  relativePath: string;
+  at: string;
+}
+
+export const LibraryScanActivityEntrySchema = Schema.Struct({
+  phase: LibraryScanActivityPhaseSchema,
+  target: LibraryScanActivityTargetSchema,
+  relativePath: Schema.String,
+  at: Schema.String,
+});
+
+export interface LibraryScanActivity {
+  stage: LibraryScanActivityStage;
+  current?: LibraryScanActivityEntry;
+  recent: readonly LibraryScanActivityEntry[];
+}
+
+export const LibraryScanActivitySchema = Schema.Struct({
+  stage: LibraryScanActivityStageSchema,
+  current: Schema.optional(LibraryScanActivityEntrySchema),
+  recent: Schema.Array(LibraryScanActivityEntrySchema),
+});
+
 export interface LibraryScanStatus {
   libraryId: number;
   phase: LibraryScanPhase;
@@ -465,6 +518,7 @@ export interface LibraryScanStatus {
   nextScheduledAt?: string;
   startedAt?: string;
   finishedAt?: string;
+  activity?: LibraryScanActivity;
 }
 
 export const LibraryScanStatusSchema = Schema.Struct({
@@ -492,6 +546,7 @@ export const LibraryScanStatusSchema = Schema.Struct({
   nextScheduledAt: Schema.optional(Schema.String),
   startedAt: Schema.optional(Schema.String),
   finishedAt: Schema.optional(Schema.String),
+  activity: Schema.optional(LibraryScanActivitySchema),
 });
 
 export interface IdentifyResult {

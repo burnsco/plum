@@ -1687,6 +1687,9 @@ func (h *LibraryHandler) identifyEpisodeGroup(
 	rateLimiter <-chan struct{},
 ) (identified int, retry bool, failed []identifyJobResult) {
 	identifyGroupRowsAsIdentifying(h.identifyRun, libraryID, job.group.rows)
+	if h.ScanJobs != nil {
+		h.ScanJobs.RecordIdentifyActivity(libraryID, job.group.representative.Path)
+	}
 	select {
 	case <-ctx.Done():
 		return 0, false, episodeIdentifyFailedResults(job.group)
@@ -1864,6 +1867,9 @@ func (h *LibraryHandler) identifyLibraryJob(
 	queueSearch bool,
 ) identifyJobResult {
 	h.identifyRun.setState(libraryID, job.row.Kind, job.row.Path, "identifying")
+	if h.ScanJobs != nil {
+		h.ScanJobs.RecordIdentifyActivity(libraryID, job.row.Path)
+	}
 	select {
 	case <-ctx.Done():
 		return identifyJobResult{job: job}

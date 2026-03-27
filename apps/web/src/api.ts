@@ -22,6 +22,8 @@ export type {
   HomeDashboard,
   IdentifyResult,
   Library,
+  LibraryScanActivity,
+  LibraryScanActivityEntry,
   LibraryScanStatus,
   LibraryType,
   MatchStatus,

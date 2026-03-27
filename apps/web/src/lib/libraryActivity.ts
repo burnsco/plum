@@ -1,4 +1,8 @@
-export type LibraryActivity = "importing" | "finishing" | "identifying";
+export type LibraryActivity =
+  | "importing"
+  | "finishing"
+  | "identify-queued"
+  | "identifying";
 
 export function getLibraryActivity(options: {
   scanPhase?: string;
@@ -6,15 +10,21 @@ export function getLibraryActivity(options: {
   identifyPhase?: string;
   localIdentifyPhase?: string;
 }): LibraryActivity | undefined {
-  const backendIdentifying =
-    options.identifyPhase === "queued" || options.identifyPhase === "identifying";
+  const backendIdentifying = options.identifyPhase === "identifying";
+  const backendIdentifyQueued = options.identifyPhase === "queued";
   const localIdentifying =
-    options.localIdentifyPhase === "queued" ||
     options.localIdentifyPhase === "identifying" ||
     options.localIdentifyPhase === "soft-reveal";
+  const localIdentifyQueued = options.localIdentifyPhase === "queued";
 
   if (backendIdentifying || localIdentifying) {
     return "identifying";
+  }
+  if (backendIdentifyQueued || localIdentifyQueued) {
+    return "identify-queued";
+  }
+  if (options.identifyPhase === "failed" || options.localIdentifyPhase === "identify-failed") {
+    return undefined;
   }
   if (options.scanPhase === "queued" || options.scanPhase === "scanning") {
     return "importing";
@@ -31,6 +41,8 @@ export function getLibraryActivityLabel(activity: LibraryActivity | undefined): 
       return "Importing";
     case "finishing":
       return "Finishing";
+    case "identify-queued":
+      return "Queued for identify";
     case "identifying":
       return "Identifying";
     default:

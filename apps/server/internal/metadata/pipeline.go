@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"strconv"
+	"strings"
 )
 
 // Pipeline runs identification against multiple providers (TMDB, TVDB, etc.).
@@ -137,6 +138,12 @@ func (p *Pipeline) IdentifyMovie(ctx context.Context, info MediaInfo) *MatchResu
 		return nil
 	}
 	best, _ := bestScored(results, info, ScoreMovie, ScoreMovieAutoMatch, ScoreMargin)
+	if best == nil && info.Year > 0 {
+		best = firstExactMovieTitleYearMatch(results, info)
+	}
+	if best == nil && info.Year == 0 {
+		best = uniqueExactMovieTitleMatch(results, info)
+	}
 	if best == nil {
 		return nil
 	}
@@ -148,6 +155,51 @@ func (p *Pipeline) IdentifyMovie(ctx context.Context, info MediaInfo) *MatchResu
 	}
 	p.enrichIMDbRating(ctx, best)
 	return best
+}
+
+func uniqueExactMovieTitleMatch(results []MatchResult, info MediaInfo) *MatchResult {
+	infoTitle := NormalizeTitle(info.Title)
+	if infoTitle == "" {
+		return nil
+	}
+	var match *MatchResult
+	for i := range results {
+		candidate := &results[i]
+		if NormalizeTitle(candidate.Title) != infoTitle {
+			continue
+		}
+		if match != nil {
+			return nil
+		}
+		match = candidate
+	}
+	if match == nil {
+		return nil
+	}
+	// Avoid loose matches when the candidate title still contains extra qualifiers
+	// that were not present in the parsed library title.
+	if strings.TrimSpace(match.Title) == "" {
+		return nil
+	}
+	return match
+}
+
+func firstExactMovieTitleYearMatch(results []MatchResult, info MediaInfo) *MatchResult {
+	infoTitle := NormalizeTitle(info.Title)
+	if infoTitle == "" || info.Year <= 0 {
+		return nil
+	}
+	for i := range results {
+		candidate := &results[i]
+		if NormalizeTitle(candidate.Title) != infoTitle {
+			continue
+		}
+		if parseYear(candidate.ReleaseDate) != info.Year {
+			continue
+		}
+		return candidate
+	}
+	return nil
 }
 
 // IdentifyTV returns the best TV match: explicit ID first, then scored candidates with threshold + margin.
