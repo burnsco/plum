@@ -43,7 +43,7 @@ func TestRunRevisionFallsBackToSoftwareBeforeReady(t *testing.T) {
 		ffmpegCommandContext = previousCommandContext
 	})
 
-	if _, err := manager.startRevision(session, settings, -1); err != nil {
+	if _, err := manager.startRevision(session, settings, -1, playbackDecision{Delivery: "transcode"}); err != nil {
 		t.Fatalf("startRevision: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 		ffmpegCommandContext = previousCommandContext
 	})
 
-	if _, err := manager.startRevision(session, settings, -1); err != nil {
+	if _, err := manager.startRevision(session, settings, -1, playbackDecision{Delivery: "transcode"}); err != nil {
 		t.Fatalf("startRevision: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestHandleDisconnectClosesSessionAfterGracePeriod(t *testing.T) {
 		playbackDisconnectGracePeriod = previousGrace
 	})
 
-	if err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
+	if _, err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestAttachCancelsPendingDisconnectClose(t *testing.T) {
 		playbackDisconnectGracePeriod = previousGrace
 	})
 
-	if err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
+	if _, err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
 		t.Fatalf("Attach initial: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestAttachCancelsPendingDisconnectClose(t *testing.T) {
 
 	time.Sleep(25 * time.Millisecond)
 
-	if err := manager.Attach(session.id, session.userID, "client-b"); err != nil {
+	if _, err := manager.Attach(session.id, session.userID, "client-b"); err != nil {
 		t.Fatalf("Attach reconnect: %v", err)
 	}
 
@@ -279,10 +279,10 @@ func TestAttachTransfersOwnershipFromPreviousClient(t *testing.T) {
 		playbackDisconnectGracePeriod = previousGrace
 	})
 
-	if err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
+	if _, err := manager.Attach(session.id, session.userID, "client-a"); err != nil {
 		t.Fatalf("Attach initial: %v", err)
 	}
-	if err := manager.Attach(session.id, session.userID, "client-b"); err != nil {
+	if _, err := manager.Attach(session.id, session.userID, "client-b"); err != nil {
 		t.Fatalf("Attach transfer: %v", err)
 	}
 
@@ -299,6 +299,78 @@ func TestAttachTransfersOwnershipFromPreviousClient(t *testing.T) {
 	}
 	if ownedBy != session.id {
 		t.Fatalf("client-b owner = %q, want %q", ownedBy, session.id)
+	}
+}
+
+func TestAttachReturnsReplayStateForReadyRevision(t *testing.T) {
+	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	session := &playbackSession{
+		id:              "session-ready-replay",
+		userID:          10,
+		media:           db.MediaItem{ID: 16},
+		audioIndex:      2,
+		activeRevision:  3,
+		desiredRevision: 3,
+		revisions: map[int]*playbackRevision{
+			3: {
+				number:     3,
+				delivery:   "transcode",
+				audioIndex: 2,
+				status:     "ready",
+				streamURL:  "/api/playback/sessions/session-ready-replay/revisions/3/index.m3u8",
+			},
+		},
+	}
+
+	manager.mu.Lock()
+	manager.sessions[session.id] = session
+	manager.mu.Unlock()
+
+	state, err := manager.Attach(session.id, session.userID, "client-ready")
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected replay state")
+	}
+	if state.Status != "ready" || state.Revision != 3 || state.AudioIndex != 2 {
+		t.Fatalf("unexpected replay state: %+v", state)
+	}
+}
+
+func TestAttachReturnsReplayStateForErroredRevision(t *testing.T) {
+	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	session := &playbackSession{
+		id:              "session-error-replay",
+		userID:          11,
+		media:           db.MediaItem{ID: 17},
+		audioIndex:      -1,
+		desiredRevision: 4,
+		revisions: map[int]*playbackRevision{
+			4: {
+				number:     4,
+				delivery:   "transcode",
+				audioIndex: -1,
+				status:     "error",
+				streamURL:  "/api/playback/sessions/session-error-replay/revisions/4/index.m3u8",
+				err:        "transcode failed",
+			},
+		},
+	}
+
+	manager.mu.Lock()
+	manager.sessions[session.id] = session
+	manager.mu.Unlock()
+
+	state, err := manager.Attach(session.id, session.userID, "client-error")
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected replay state")
+	}
+	if state.Status != "error" || state.Error != "transcode failed" || state.Revision != 4 {
+		t.Fatalf("unexpected replay state: %+v", state)
 	}
 }
 
@@ -361,23 +433,44 @@ func hlsArgsUseHardware(args []string) bool {
 func fakeHLSCommand(ctx context.Context, args []string, exitCode string) *exec.Cmd {
 	playlistPath := args[len(args)-1]
 	segmentTemplate := ""
+	masterPlaylistName := ""
 	for index := 0; index < len(args)-1; index += 1 {
 		if args[index] == "-hls_segment_filename" && index+1 < len(args) {
 			segmentTemplate = args[index+1]
-			break
+		}
+		if args[index] == "-master_pl_name" && index+1 < len(args) {
+			masterPlaylistName = args[index+1]
 		}
 	}
 
 	script := `
 playlist_path="$1"
 segment_template="$2"
-exit_code="$3"
-mkdir -p "$(dirname "$playlist_path")"
-printf '#EXTM3U\n' > "$playlist_path"
-segment_path="${segment_template//%05d/00000}"
+master_playlist_name="$3"
+exit_code="$4"
+resolved_playlist_path="${playlist_path//%v/0}"
+resolved_segment_template="${segment_template//%v/0}"
+mkdir -p "$(dirname "$resolved_playlist_path")"
+printf '#EXTM3U\n' > "$resolved_playlist_path"
+if [ -n "$master_playlist_name" ]; then
+  out_dir="$(dirname "$(dirname "$resolved_playlist_path")")"
+  printf '#EXTM3U\n' > "$out_dir/$master_playlist_name"
+fi
+segment_path="${resolved_segment_template//%05d/00000}"
+mkdir -p "$(dirname "$segment_path")"
 printf 'segment' > "$segment_path"
 exit "$exit_code"
 `
 
-	return exec.CommandContext(ctx, "bash", "-lc", script, "bash", playlistPath, segmentTemplate, exitCode)
+	return exec.CommandContext(
+		ctx,
+		"bash",
+		"-lc",
+		script,
+		"bash",
+		playlistPath,
+		segmentTemplate,
+		masterPlaylistName,
+		exitCode,
+	)
 }

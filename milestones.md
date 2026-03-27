@@ -40,7 +40,7 @@ Goal: handle background work and detect media on disk.
 
 - [x] job queue
 - [x] worker pool
-- [ ] background job retry system (persisted retry state, bounded attempts, retryable vs terminal failures, restart-safe requeue for scan/identify jobs)
+- [x] background job retry system (persisted retry state, bounded attempts, retryable vs terminal failures, restart-safe requeue for scan/identify jobs)
 - [x] job priority
 - [x] job monitoring
 
@@ -58,11 +58,11 @@ Goal: handle background work and detect media on disk.
 - [x] file change detection
 - [x] background scan jobs
 - [x] manual scan trigger
-- [ ] filesystem watcher
+- [x] filesystem watcher
 - [ ] filesystem watcher options (per-library enable/disable, watcher mode or polling fallback, debounce behavior/config)
 - [x] debounce scan triggers
 - [x] partial folder scans
-- [ ] scan scheduling
+- [x] scan scheduling
 
 ### Media file model
 
@@ -145,18 +145,18 @@ Goal: basic UI for browsing media.
 
 - [x] posters
 - [x] descriptions
-- [ ] cast lists
-- [ ] genres
+- [x] cast lists
+- [x] genres
 - [x] runtime
 
 ### Search System
 
-- [ ] search index
-- [ ] title search
-- [ ] actor search
-- [ ] genre filtering
-- [ ] fuzzy search
-- [ ] index refresh jobs
+- [x] search index
+- [x] title search
+- [x] actor search
+- [x] genre filtering
+- [x] fuzzy search
+- [x] index refresh jobs
 
 ---
 

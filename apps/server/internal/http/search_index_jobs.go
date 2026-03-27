@@ -16,6 +16,9 @@ type SearchIndexManager struct {
 	movies metadata.MovieDetailsProvider
 	series metadata.SeriesDetailsProvider
 
+	onQueue func(libraryID int, full bool)
+	refresh func(libraryID int, full bool) error
+
 	sem      chan struct{}
 	mu       sync.Mutex
 	queued   map[int]bool
@@ -25,12 +28,12 @@ type SearchIndexManager struct {
 
 func NewSearchIndexManager(sqlDB *sql.DB, movies metadata.MovieDetailsProvider, series metadata.SeriesDetailsProvider) *SearchIndexManager {
 	return &SearchIndexManager{
-		db:     sqlDB,
-		movies: movies,
-		series: series,
-		sem:    make(chan struct{}, 1),
-		queued: make(map[int]bool),
-		running: make(map[int]bool),
+		db:       sqlDB,
+		movies:   movies,
+		series:   series,
+		sem:      make(chan struct{}, 1),
+		queued:   make(map[int]bool),
+		running:  make(map[int]bool),
 		needFull: make(map[int]bool),
 	}
 }
@@ -39,11 +42,15 @@ func (m *SearchIndexManager) Queue(libraryID int, full bool) {
 	if m == nil || libraryID <= 0 {
 		return
 	}
+	if m.onQueue != nil {
+		m.onQueue(libraryID, full)
+	}
 	m.mu.Lock()
 	if full {
 		m.needFull[libraryID] = true
 	}
 	if m.running[libraryID] || m.queued[libraryID] {
+		m.queued[libraryID] = true
 		m.mu.Unlock()
 		return
 	}
@@ -81,8 +88,12 @@ func (m *SearchIndexManager) runLibrary(libraryID int) {
 		delete(m.needFull, libraryID)
 		m.mu.Unlock()
 
+		refresh := m.refresh
+		if refresh == nil {
+			refresh = m.refreshLibrary
+		}
 		m.sem <- struct{}{}
-		err := m.refreshLibrary(libraryID, full)
+		err := refresh(libraryID, full)
 		<-m.sem
 		if err != nil {
 			log.Printf("search index refresh library %d: %v", libraryID, err)

@@ -70,6 +70,19 @@ function mapBackendIdentifyPhase(phase?: string): IdentifyLibraryPhase | undefin
   }
 }
 
+function resolveLibraryIdentifyPhase(
+  localPhase: IdentifyLibraryPhase | undefined,
+  backendPhase: IdentifyLibraryPhase | undefined,
+) {
+  if (localPhase === "queued" || localPhase === "identifying" || localPhase === "soft-reveal") {
+    return localPhase;
+  }
+  if (backendPhase === "queued" || backendPhase === "identifying") {
+    return backendPhase;
+  }
+  return localPhase ?? backendPhase;
+}
+
 function isMovieIncomplete(item: {
   match_status?: string;
   poster_path?: string;
@@ -104,6 +117,21 @@ function getGroupIdentifyState(group: ShowGroup): ItemIdentifyState {
   return undefined;
 }
 
+type LibraryContextMenuState =
+  | {
+      kind: "show";
+      x: number;
+      y: number;
+      group: ShowGroup;
+    }
+  | {
+      kind: "movie";
+      x: number;
+      y: number;
+      movieId: number;
+      canRetryIdentify: boolean;
+    };
+
 export function Home() {
   const { libraryId: libraryIdParam } = useParams();
   const navigate = useNavigate();
@@ -125,8 +153,10 @@ export function Home() {
   const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
     selectedLibraryScanStatus?.identifyPhase,
   );
-  const selectedLibraryIdentifyPhase =
-    getLibraryPhase(selectedLibraryId) ?? selectedLibraryBackendIdentifyPhase;
+  const selectedLibraryIdentifyPhase = resolveLibraryIdentifyPhase(
+    getLibraryPhase(selectedLibraryId),
+    selectedLibraryBackendIdentifyPhase,
+  );
   const selectedLibraryActivity = getLibraryActivity({
     scanPhase: selectedLibraryScanStatus?.phase,
     enriching: selectedLibraryScanStatus?.enriching === true,
@@ -165,11 +195,7 @@ export function Home() {
   const confirmShowMutation = useConfirmShow();
   const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
 
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    group: ShowGroup;
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<LibraryContextMenuState | null>(null);
   const [identifyGroup, setIdentifyGroup] = useState<ShowGroup | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
@@ -230,15 +256,7 @@ export function Home() {
         confirmShowMutation.variables?.libraryId === selectedLibraryId &&
         confirmShowMutation.variables?.showKey === group.showKey;
       const identifyState = getGroupIdentifyState(group);
-      const hasMatchedEpisode = group.episodes.some(
-        (episode) =>
-          episode.match_status === "identified" ||
-          hasProviderMatch(episode.tmdb_id, episode.tvdb_id),
-      );
-      const isIncomplete =
-        group.unmatchedCount > 0 ||
-        group.localCount > 0 ||
-        (!group.posterPath && hasMatchedEpisode);
+      const isIncomplete = group.unmatchedCount > 0 || group.localCount > 0;
       if (isIncomplete && shouldDeferIncompleteCard(identifyState, selectedLibraryIdentifyPhase)) {
         deferredGroups.push(group);
         return [];
@@ -306,7 +324,7 @@ export function Home() {
           onPlay: () => playShowGroup(group.episodes, progressEpisode),
           onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
             event.preventDefault();
-            setContextMenu({ x: event.clientX, y: event.clientY, group });
+            setContextMenu({ kind: "show", x: event.clientX, y: event.clientY, group });
           },
         },
       ] satisfies PosterGridItem[];
@@ -373,6 +391,16 @@ export function Home() {
               : undefined,
           href: selectedLibraryId != null ? `/library/${selectedLibraryId}/movie/${item.id}` : undefined,
           onPlay: () => playMovie(item),
+          onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            setContextMenu({
+              kind: "movie",
+              x: event.clientX,
+              y: event.clientY,
+              movieId: item.id,
+              canRetryIdentify: showFailure,
+            });
+          },
         },
       ] satisfies PosterGridItem[];
     });
@@ -478,47 +506,81 @@ export function Home() {
               {contextMenu && selectedLibraryId != null && (
                 <div
                   ref={contextMenuRef}
+                  role="menu"
+                  aria-label={contextMenu.kind === "show" ? "Show actions" : "Movie actions"}
                   className="fixed z-50 min-w-[10rem] rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] py-1 text-[var(--plum-text)] shadow-lg"
                   style={{ left: contextMenu.x, top: contextMenu.y }}
                 >
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                    onClick={() => {
-                      refreshShowMutation.mutate(
-                        {
-                          libraryId: selectedLibraryId,
-                          showKey: contextMenu.group.showKey,
-                        },
-                        { onSettled: closeContextMenu },
-                      );
-                    }}
-                    disabled={refreshShowMutation.isPending}
-                  >
-                    Refresh metadata
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                    onClick={() => {
-                      navigate(
-                        `/library/${selectedLibraryId}/show/${encodeURIComponent(contextMenu.group.showKey)}`,
-                      );
-                      closeContextMenu();
-                    }}
-                  >
-                    Edit show
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                    onClick={() => {
-                      setIdentifyGroup(contextMenu.group);
-                      closeContextMenu();
-                    }}
-                  >
-                    Identify…
-                  </button>
+                  {contextMenu.kind === "show" ? (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                        onClick={() => {
+                          refreshShowMutation.mutate(
+                            {
+                              libraryId: selectedLibraryId,
+                              showKey: contextMenu.group.showKey,
+                            },
+                            { onSettled: closeContextMenu },
+                          );
+                        }}
+                        disabled={refreshShowMutation.isPending}
+                      >
+                        Refresh metadata
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                        onClick={() => {
+                          navigate(
+                            `/library/${selectedLibraryId}/show/${encodeURIComponent(contextMenu.group.showKey)}`,
+                          );
+                          closeContextMenu();
+                        }}
+                      >
+                        Open details
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                        onClick={() => {
+                          setIdentifyGroup(contextMenu.group);
+                          closeContextMenu();
+                        }}
+                      >
+                        Identify…
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {contextMenu.canRetryIdentify ? (
+                        <button
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                          onClick={() => {
+                            queueLibraryIdentify(selectedLibraryId, {
+                              prioritize: true,
+                              resetState: true,
+                            });
+                            closeContextMenu();
+                          }}
+                        >
+                          Retry identify
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                        onClick={() => {
+                          navigate(`/library/${selectedLibraryId}/movie/${contextMenu.movieId}`);
+                          closeContextMenu();
+                        }}
+                      >
+                        Open details
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
               {identifyGroup && selectedLibraryId != null && (
