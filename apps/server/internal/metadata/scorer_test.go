@@ -112,3 +112,39 @@ func TestScoreMovie_ExactTitleAndYearClearsMovieThreshold(t *testing.T) {
 		t.Fatalf("score = %d, want >= %d", score, ScoreMovieAutoMatch)
 	}
 }
+
+func TestScoreMovie_PunctuationVariantsStillClearThreshold(t *testing.T) {
+	score := ScoreMovie(&MatchResult{
+		Title:       "Mission: Impossible - Fallout",
+		ReleaseDate: "2018-01-01",
+		Provider:    "tmdb",
+		ExternalID:  "10",
+	}, MediaInfo{Title: "Mission - Impossible - Fallout", Year: 2018})
+	if score < ScoreMovieAutoMatch {
+		t.Fatalf("score = %d, want >= %d", score, ScoreMovieAutoMatch)
+	}
+}
+
+func TestScoreMovie_HeartSymbolVariantStillClearsThreshold(t *testing.T) {
+	score := ScoreMovie(&MatchResult{
+		Title:       "I ♥ Huckabees",
+		ReleaseDate: "2004-01-01",
+		Provider:    "tmdb",
+		ExternalID:  "10",
+	}, MediaInfo{Title: "I Heart Huckabees", Year: 2004})
+	if score < ScoreMovieAutoMatch {
+		t.Fatalf("score = %d, want >= %d", score, ScoreMovieAutoMatch)
+	}
+}
+
+func TestScoreMovie_PossessiveVariantStillClearsThreshold(t *testing.T) {
+	score := ScoreMovie(&MatchResult{
+		Title:       "Jennifer's Body",
+		ReleaseDate: "2009-01-01",
+		Provider:    "tmdb",
+		ExternalID:  "10",
+	}, MediaInfo{Title: "Jennifers Body", Year: 2009})
+	if score < ScoreMovieAutoMatch {
+		t.Fatalf("score = %d, want >= %d", score, ScoreMovieAutoMatch)
+	}
+}

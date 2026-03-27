@@ -69,6 +69,7 @@ export function Sidebar() {
             });
             const activityLabel = getLibraryActivityLabel(activity);
             const isBusy = activity != null;
+            const showActivePulse = activity != null && activity !== "identify-queued";
             return (
               <Link
                 key={lib.id}
@@ -93,7 +94,9 @@ export function Sidebar() {
                       className="relative flex size-2.5 items-center justify-center"
                       aria-hidden="true"
                     >
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
+                      {showActivePulse && (
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
+                      )}
                       <span className="relative size-2 rounded-full bg-[var(--plum-accent)] shadow-[0_0_10px_var(--plum-accent)]" />
                     </span>
                     <span>{activityLabel}</span>
