@@ -3,13 +3,15 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// In Docker dev, the browser may need a host-facing backend URL while the Vite
-// server inside the container needs to reach the backend over the Docker network.
-const browserBackendUrl = process.env.VITE_BACKEND_URL;
+// When VITE_BACKEND_URL is set, the browser talks to that backend directly for
+// both HTTP and WebSocket traffic. When it is unset, Vite proxies `/api` and
+// `/ws` to the internal backend target instead.
+const browserBackendUrl = process.env.VITE_BACKEND_URL?.trim() || undefined;
 const proxyTarget =
   process.env.BACKEND_INTERNAL_URL ||
   browserBackendUrl ||
   "http://localhost:8080";
+const useDirectBackendUrl = browserBackendUrl != null;
 
 export default defineConfig({
   cacheDir: ".vite",
@@ -19,7 +21,7 @@ export default defineConfig({
   },
   server: {
     host: true, // Needed for Docker
-    ...(browserBackendUrl
+    ...(useDirectBackendUrl
       ? {}
       : {
           proxy: {

@@ -786,6 +786,11 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 			time.Since(startedAt).Round(time.Millisecond),
 		)
 		m.flushStatus(libraryID, true)
+		if result.Identified == 0 {
+			if handler != nil && handler.SearchIndex != nil {
+				handler.SearchIndex.Queue(libraryID, false)
+			}
+		}
 		if err != nil {
 			_ = m.scheduleRetry(libraryID, true, err.Error())
 		}
@@ -842,7 +847,7 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	if phase == libraryScanPhaseFailed {
 		_ = m.scheduleRetry(libraryID, false, errText)
 	}
-	if phase == libraryScanPhaseCompleted && !hasRerun {
+	if phase == libraryScanPhaseCompleted && !hasRerun && !status.IdentifyRequested {
 		if handler := m.handler; handler != nil && handler.SearchIndex != nil {
 			handler.SearchIndex.Queue(libraryID, false)
 		}

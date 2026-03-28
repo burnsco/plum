@@ -122,20 +122,35 @@ func (p *Pipeline) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDetai
 
 // IdentifyMovie returns the best movie match using scorer and confidence threshold.
 func (p *Pipeline) IdentifyMovie(ctx context.Context, info MediaInfo) *MatchResult {
+	result, _ := p.IdentifyMovieResult(ctx, info)
+	return result
+}
+
+// IdentifyMovieResult exposes provider failures so callers can retry transient
+// movie lookup issues instead of treating them as an unmatched title.
+func (p *Pipeline) IdentifyMovieResult(ctx context.Context, info MediaInfo) (*MatchResult, error) {
 	if p.movieProvider == nil {
-		return nil
+		return nil, nil
 	}
 	if info.TMDBID > 0 {
 		if lookup, ok := p.movieProvider.(MovieLookupProvider); ok {
-			if res, err := lookup.GetMovie(ctx, strconv.Itoa(info.TMDBID)); err == nil && res != nil {
+			res, err := lookup.GetMovie(ctx, strconv.Itoa(info.TMDBID))
+			if err != nil {
+				if IsRetryableProviderError(err) {
+					return nil, err
+				}
+			} else if res != nil {
 				p.enrichIMDbRating(ctx, res)
-				return res
+				return res, nil
 			}
 		}
 	}
 	results, err := p.movieProvider.SearchMovie(ctx, info.Title)
-	if err != nil || len(results) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
 	}
 	best, _ := bestScored(results, info, ScoreMovie, ScoreMovieAutoMatch, ScoreMargin)
 	if best == nil && info.Year > 0 {
@@ -145,16 +160,21 @@ func (p *Pipeline) IdentifyMovie(ctx context.Context, info MediaInfo) *MatchResu
 		best = uniqueExactMovieTitleMatch(results, info)
 	}
 	if best == nil {
-		return nil
+		return nil, nil
 	}
 	if lookup, ok := p.movieProvider.(MovieLookupProvider); ok {
-		if detailed, err := lookup.GetMovie(ctx, best.ExternalID); err == nil && detailed != nil {
+		detailed, err := lookup.GetMovie(ctx, best.ExternalID)
+		if err != nil {
+			if IsRetryableProviderError(err) {
+				return nil, err
+			}
+		} else if detailed != nil {
 			p.enrichIMDbRating(ctx, detailed)
-			return detailed
+			return detailed, nil
 		}
 	}
 	p.enrichIMDbRating(ctx, best)
-	return best
+	return best, nil
 }
 
 func uniqueExactMovieTitleMatch(results []MatchResult, info MediaInfo) *MatchResult {

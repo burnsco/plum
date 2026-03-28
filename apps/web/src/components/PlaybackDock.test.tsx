@@ -106,6 +106,14 @@ function setVideoCurrentTime(video: HTMLVideoElement, currentTime: number) {
   });
 }
 
+function setVideoDuration(video: HTMLVideoElement, duration: number) {
+  Object.defineProperty(video, "duration", {
+    configurable: true,
+    value: duration,
+    writable: true,
+  });
+}
+
 describe("PlaybackDock audio track selection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -151,6 +159,7 @@ describe("PlaybackDock audio track selection", () => {
       muted: false,
       videoSourceUrl:
         "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
+      playbackDurationSeconds: 120,
       wsConnected: false,
       lastEvent: "",
       registerMediaElement: vi.fn(),
@@ -239,6 +248,47 @@ describe("PlaybackDock audio track selection", () => {
       expect(api.updateMediaProgress).toHaveBeenCalledWith(42, {
         position_seconds: 3,
         duration_seconds: 120,
+        completed: false,
+      });
+    });
+  });
+
+  it("shows and persists the full session duration when the queue item duration is missing", async () => {
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        id: 42,
+        library_id: 7,
+        title: "Track Test",
+        path: "/movies/track-test.mkv",
+        duration: 0,
+        type: "movie",
+        embeddedAudioTracks: [
+          { streamIndex: 1, language: "eng", title: "English" },
+          { streamIndex: 2, language: "jpn", title: "Japanese" },
+        ],
+      },
+      playbackDurationSeconds: 7200,
+    });
+
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    setVideoDuration(video, 15);
+    setVideoCurrentTime(video, 3);
+
+    fireEvent.loadedMetadata(video);
+    fireEvent.timeUpdate(video);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("2:00:00").length).toBeGreaterThan(0);
+      expect(api.updateMediaProgress).toHaveBeenCalledWith(42, {
+        position_seconds: 3,
+        duration_seconds: 7200,
         completed: false,
       });
     });

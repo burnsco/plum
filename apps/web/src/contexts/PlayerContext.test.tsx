@@ -163,6 +163,7 @@ describe("PlayerContext playback session updates", () => {
       audioIndex: -1,
       status: "starting",
       streamUrl: "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+      durationSeconds: 7200,
     });
     vi.spyOn(api, "closePlaybackSession").mockResolvedValue();
     vi.spyOn(api, "updatePlaybackSessionAudio").mockResolvedValue({
@@ -173,6 +174,7 @@ describe("PlayerContext playback session updates", () => {
       audioIndex: 1,
       status: "starting",
       streamUrl: "/api/playback/sessions/session-99/revisions/2/index.m3u8",
+      durationSeconds: 7200,
     });
     (globalThis.WebSocket as unknown as MockWebSocketClass).reset();
   });
@@ -242,6 +244,7 @@ describe("PlayerContext playback session updates", () => {
           status: "ready",
           streamUrl:
             "/api/playback/sessions/session-22/revisions/1/index.m3u8",
+          durationSeconds: 1800,
         }),
       );
     });
@@ -260,6 +263,7 @@ describe("PlayerContext playback session updates", () => {
           status: "ready",
           streamUrl:
             "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+          durationSeconds: 7200,
         }),
       );
     });

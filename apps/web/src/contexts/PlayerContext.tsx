@@ -8,11 +8,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { MediaItem, PlaybackSession as ApiPlaybackSession } from "../api";
+import { buildBackendUrl } from "@plum/shared";
 import {
-  type PlumWebSocketCommand,
+  BASE_URL,
   closePlaybackSession,
   createPlaybackSession,
+  type MediaItem,
+  type PlaybackSession as ApiPlaybackSession,
+  type PlumWebSocketCommand,
   updatePlaybackSessionAudio,
 } from "../api";
 import { resolveLibraryPlaybackPreferences } from "../lib/playbackPreferences";
@@ -52,8 +55,13 @@ type VideoSessionState = {
   audioIndex: number;
   status: "starting" | "ready" | "error" | "closed";
   streamUrl: string;
+  durationSeconds: number;
   error: string;
 };
+
+function resolvePlaybackStreamUrl(streamUrl: string): string {
+  return buildBackendUrl(BASE_URL, streamUrl);
+}
 
 function toVideoSessionState(session: ApiPlaybackSession): VideoSessionState {
   if (session.delivery === "direct") {
@@ -65,7 +73,8 @@ function toVideoSessionState(session: ApiPlaybackSession): VideoSessionState {
       currentRevision: 0,
       audioIndex: session.audioIndex ?? -1,
       status: session.status,
-      streamUrl: session.streamUrl,
+      streamUrl: resolvePlaybackStreamUrl(session.streamUrl),
+      durationSeconds: session.durationSeconds,
       error: session.error ?? "",
     };
   }
@@ -78,7 +87,8 @@ function toVideoSessionState(session: ApiPlaybackSession): VideoSessionState {
     currentRevision: session.status === "ready" ? session.revision : 0,
     audioIndex: session.audioIndex,
     status: session.status,
-    streamUrl: session.streamUrl,
+    streamUrl: resolvePlaybackStreamUrl(session.streamUrl),
+    durationSeconds: session.durationSeconds,
     error: session.error ?? "",
   };
 }
@@ -100,6 +110,7 @@ type PlayerContextValue = {
   volume: number;
   muted: boolean;
   videoSourceUrl: string;
+  playbackDurationSeconds: number;
   playMedia: (item: MediaItem) => void;
   playMovie: (item: MediaItem) => void;
   playEpisode: (item: MediaItem) => void;
@@ -168,6 +179,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     activeMode === "video" && videoSession?.status === "ready"
       ? videoSession.streamUrl
       : "";
+  const playbackDurationSeconds =
+    activeMode === "video"
+      ? (videoSession?.durationSeconds && videoSession.durationSeconds > 0
+          ? videoSession.durationSeconds
+          : Math.max(activeItem?.duration ?? 0, 0))
+      : 0;
 
   const sendPlaybackCommand = useCallback(
     (command: PlumWebSocketCommand) => {
@@ -348,7 +365,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 desiredRevision: nextSession.revision,
                 audioIndex: nextSession.audioIndex,
                 status: nextSession.status,
-                streamUrl: nextSession.streamUrl,
+                streamUrl: resolvePlaybackStreamUrl(nextSession.streamUrl),
+                durationSeconds: nextSession.durationSeconds,
                 error: nextSession.error ?? "",
               },
         );
@@ -613,7 +631,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               delivery: latestEvent.delivery,
               audioIndex: latestEvent.audioIndex,
               status: "ready",
-              streamUrl: latestEvent.streamUrl,
+              streamUrl: resolvePlaybackStreamUrl(latestEvent.streamUrl),
+              durationSeconds:
+                latestEvent.durationSeconds > 0
+                  ? latestEvent.durationSeconds
+                  : current.durationSeconds,
               error: latestEvent.error ?? "",
             },
       );
@@ -662,6 +684,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       volume,
       muted,
       videoSourceUrl,
+      playbackDurationSeconds,
       playMedia,
       playMovie,
       playEpisode,
@@ -696,6 +719,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       volume,
       muted,
       videoSourceUrl,
+      playbackDurationSeconds,
       playMedia,
       playMovie,
       playEpisode,

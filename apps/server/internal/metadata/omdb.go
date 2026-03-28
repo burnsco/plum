@@ -50,7 +50,7 @@ func (c *OMDBClient) GetIMDbRatingByID(ctx context.Context, imdbID string) (floa
 	}
 	c.mu.RUnlock()
 	u := fmt.Sprintf("%s?apikey=%s&i=%s", omdbBaseURL, url.QueryEscape(c.APIKey), url.QueryEscape(imdbID))
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "omdb", http.MethodGet, u, nil, nil, 30*24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "omdb", http.MethodGet, u, nil, nil, 30*24*time.Hour, 1)
 	if err != nil {
 		return 0, err
 	}
