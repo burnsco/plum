@@ -79,6 +79,7 @@ type libraryScanActivityEntry struct {
 	Phase        string `json:"phase"`
 	Target       string `json:"target"`
 	RelativePath string `json:"relativePath"`
+	Detail       string `json:"detail,omitempty"`
 	At           string `json:"at"`
 }
 
@@ -424,7 +425,7 @@ func (m *LibraryScanManager) relativeActivityPathLocked(libraryID int, path stri
 	return relPath
 }
 
-func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target string, path string) {
+func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target string, path string, detail string) {
 	m.mu.Lock()
 	if _, ok := m.jobs[libraryID]; !ok {
 		m.mu.Unlock()
@@ -435,6 +436,7 @@ func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target 
 		Phase:        phase,
 		Target:       target,
 		RelativePath: relativePath,
+		Detail:       detail,
 		At:           time.Now().UTC().Format(time.RFC3339),
 	}
 	activity := m.activities[libraryID]
@@ -457,7 +459,7 @@ func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target 
 }
 
 func (m *LibraryScanManager) RecordIdentifyActivity(libraryID int, path string) {
-	m.recordActivity(libraryID, "identify", "file", path)
+	m.recordActivity(libraryID, "identify", "file", path, "")
 }
 
 func (m *LibraryScanManager) finalizeActivityLocked(libraryID int, status libraryScanStatus) {
@@ -675,7 +677,7 @@ func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, librar
 			m.updateProgress(libraryID, progress)
 		},
 		Activity: func(activity db.ScanActivity) {
-			m.recordActivity(libraryID, activity.Phase, activity.Target, activity.Path)
+			m.recordActivity(libraryID, activity.Phase, activity.Target, activity.Path, activity.Detail)
 		},
 	})
 	if err != nil {
@@ -879,6 +881,7 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 	m.enrichCancels[libraryID] = cancel
 	m.setActivityStageLocked(libraryID, "enrichment", true, false)
 	m.mu.Unlock()
+	m.recordActivity(libraryID, "enrichment", "library", "", "Waiting for enrichment worker")
 	m.flushStatus(libraryID, true)
 
 	go func() {
@@ -896,7 +899,7 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 			ScanSidecarSubtitles:   true,
 			Subpaths:               subpaths,
 			Activity: func(activity db.ScanActivity) {
-				m.recordActivity(libraryID, activity.Phase, activity.Target, activity.Path)
+				m.recordActivity(libraryID, activity.Phase, activity.Target, activity.Path, activity.Detail)
 			},
 		}
 		if libraryType == db.LibraryTypeMusic && identifyRequested {

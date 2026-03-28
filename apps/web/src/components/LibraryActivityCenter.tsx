@@ -13,6 +13,12 @@ type ActivityLibraryStatus = {
   status: LibraryScanStatus;
 };
 
+type ActivitySummary = {
+  label: string;
+  detail: string;
+  secondaryDetail: string;
+};
+
 function isActiveStatus(status: LibraryScanStatus) {
   return (
     status.phase === "queued" ||
@@ -35,50 +41,71 @@ function getStatusSortOrder(status: LibraryScanStatus) {
 function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
   if (!entry) return "";
   const basePath = entry.relativePath.trim();
+  if (entry.target === "library") {
+    return basePath;
+  }
   if (entry.target === "directory") {
     return basePath ? `${basePath}/` : "Library root/";
   }
   return basePath || "Library root";
 }
 
-function getNowSummary(status: LibraryScanStatus) {
+function getActivityDetail(entry?: LibraryScanActivityEntry | null) {
+  return entry?.detail?.trim() ?? "";
+}
+
+function getNowSummary(status: LibraryScanStatus, library: Library): ActivitySummary {
+  const currentDetail = getActivityDetail(status.activity?.current);
+  const currentPath = formatActivityPath(status.activity?.current);
+
   if (status.identifyPhase === "identifying") {
     return {
       label: "Identifying",
-      detail:
-        formatActivityPath(status.activity?.current) ||
-        (status.identified > 0 ? `Identified ${status.identified} so far` : ""),
+      detail: currentDetail || (status.identified > 0 ? `Identified ${status.identified} so far` : "Matching metadata"),
+      secondaryDetail: currentPath,
     };
   }
   if (status.identifyPhase === "queued") {
     return {
       label: "Waiting for identify worker",
-      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
+      detail: currentDetail || (status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "Queued for identify"),
+      secondaryDetail: currentPath,
     };
   }
   if (status.enriching) {
     return {
       label: "Analyzing media",
-      detail: formatActivityPath(status.activity?.current),
+      detail:
+        currentDetail ||
+        (library.type === "music"
+          ? "Reading music metadata"
+          : "Collecting playback and stream details"),
+      secondaryDetail: currentPath,
     };
   }
   if (status.phase === "scanning") {
     return {
       label: "Importing",
-      detail: formatActivityPath(status.activity?.current) || `Processed ${status.processed}`,
+      detail: currentPath || `Processed ${status.processed}`,
+      secondaryDetail: "",
     };
   }
   if (status.phase === "queued") {
     return {
       label: "Queued",
-      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
+      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "Waiting to start",
+      secondaryDetail: "",
     };
   }
-  return { label: "Done", detail: "" };
+  return {
+    label: "Done",
+    detail: "",
+    secondaryDetail: "",
+  };
 }
 
 function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
-  const summary = getNowSummary(status);
+  const summary = getNowSummary(status, library);
 
   return (
     <section
@@ -93,10 +120,17 @@ function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
           {summary.detail ? (
             <div className="mt-1 text-xs text-[var(--plum-muted)]">{summary.detail}</div>
           ) : null}
+          {summary.secondaryDetail ? (
+            <div className="mt-1 truncate text-xs text-[var(--plum-muted)]/80">{summary.secondaryDetail}</div>
+          ) : null}
         </div>
-        <span className="rounded-full bg-[var(--plum-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-accent)]">
-          {summary.label}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <span
+            className="rounded-full bg-[var(--plum-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-accent)]"
+          >
+            {summary.label}
+          </span>
+        </div>
       </div>
     </section>
   );

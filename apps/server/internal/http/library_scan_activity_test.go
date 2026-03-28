@@ -70,6 +70,7 @@ func TestGetLibraryScanStatus_IncludesActivityDetails(t *testing.T) {
 			Phase:        "discovery",
 			Target:       "file",
 			RelativePath: "Shows/Example/episode01.mkv",
+			Detail:       "Discovering media file",
 			At:           time.Now().UTC().Format(time.RFC3339),
 		},
 		Recent: []libraryScanActivityEntry{
@@ -77,6 +78,7 @@ func TestGetLibraryScanStatus_IncludesActivityDetails(t *testing.T) {
 				Phase:        "discovery",
 				Target:       "directory",
 				RelativePath: "Shows/Example",
+				Detail:       "Scanning directory",
 				At:           time.Now().UTC().Format(time.RFC3339),
 			},
 		},
@@ -110,6 +112,9 @@ func TestGetLibraryScanStatus_IncludesActivityDetails(t *testing.T) {
 	if payload.Activity.Current == nil || payload.Activity.Current.RelativePath != "Shows/Example/episode01.mkv" {
 		t.Fatalf("unexpected current activity: %+v", payload.Activity.Current)
 	}
+	if payload.Activity.Current.Detail != "Discovering media file" {
+		t.Fatalf("unexpected current activity detail: %+v", payload.Activity.Current)
+	}
 	if len(payload.Activity.Recent) != 1 || payload.Activity.Recent[0].RelativePath != "Shows/Example" {
 		t.Fatalf("unexpected recent activity: %+v", payload.Activity.Recent)
 	}
@@ -127,8 +132,8 @@ func TestLibraryScanManager_TracksRelativeActivityAndCapsRecent(t *testing.T) {
 	manager.paths[7] = "/library"
 	manager.mu.Unlock()
 
-	manager.recordActivity(7, "discovery", "directory", "/library/Shows")
-	manager.recordActivity(7, "enrichment", "file", "/library/Shows/Example/episode01.mkv")
+	manager.recordActivity(7, "discovery", "directory", "/library/Shows", "Scanning directory")
+	manager.recordActivity(7, "enrichment", "file", "/library/Shows/Example/episode01.mkv", "Probing media streams")
 	manager.RecordIdentifyActivity(7, "/library/Shows/Example/episode01.mkv")
 	for idx := 0; idx < 24; idx++ {
 		manager.recordActivity(
@@ -136,6 +141,7 @@ func TestLibraryScanManager_TracksRelativeActivityAndCapsRecent(t *testing.T) {
 			"discovery",
 			"file",
 			filepath.Join("/library", "Shows", "Example", "episode"+strconv.Itoa(idx)+".mkv"),
+			"Discovering media file",
 		)
 	}
 
@@ -154,6 +160,9 @@ func TestLibraryScanManager_TracksRelativeActivityAndCapsRecent(t *testing.T) {
 	}
 	if status.Activity.Recent[len(status.Activity.Recent)-1].RelativePath != "Shows/Example/episode4.mkv" {
 		t.Fatalf("recent tail relative path = %q", status.Activity.Recent[len(status.Activity.Recent)-1].RelativePath)
+	}
+	if status.Activity.Current.Detail != "Discovering media file" {
+		t.Fatalf("unexpected current detail = %q", status.Activity.Current.Detail)
 	}
 }
 
@@ -174,12 +183,14 @@ func TestLibraryScanManager_FinalizeActivityClearsOnSuccessAndKeepsFailureWithou
 			Phase:        "identify",
 			Target:       "file",
 			RelativePath: "Shows/Example/episode01.mkv",
+			Detail:       "Matching metadata",
 			At:           time.Now().UTC().Format(time.RFC3339),
 		},
 		Recent: []libraryScanActivityEntry{{
 			Phase:        "identify",
 			Target:       "file",
 			RelativePath: "Shows/Example/episode01.mkv",
+			Detail:       "Matching metadata",
 			At:           time.Now().UTC().Format(time.RFC3339),
 		}},
 	}
@@ -203,12 +214,14 @@ func TestLibraryScanManager_FinalizeActivityClearsOnSuccessAndKeepsFailureWithou
 			Phase:        "identify",
 			Target:       "file",
 			RelativePath: "Shows/Example/episode02.mkv",
+			Detail:       "Matching metadata",
 			At:           time.Now().UTC().Format(time.RFC3339),
 		},
 		Recent: []libraryScanActivityEntry{{
 			Phase:        "identify",
 			Target:       "file",
 			RelativePath: "Shows/Example/episode02.mkv",
+			Detail:       "Matching metadata",
 			At:           time.Now().UTC().Format(time.RFC3339),
 		}},
 	}
@@ -238,6 +251,7 @@ func TestLibraryScanUpdatePayload_IncludesActivity(t *testing.T) {
 				Phase:        "discovery",
 				Target:       "file",
 				RelativePath: "Movies/Example (2024)/Example.mkv",
+				Detail:       "Discovering media file",
 				At:           time.Now().UTC().Format(time.RFC3339),
 			},
 			Recent: []libraryScanActivityEntry{},

@@ -103,3 +103,51 @@ func TestGetLibraryMovieDetails_ConvertsRuntimeToMinutes(t *testing.T) {
 		t.Fatalf("expected 120 minute runtime, got %d", details.Runtime)
 	}
 }
+
+func TestGetLibraryShowDetails_UsesAbsolutePosterURLWhenAvailable(t *testing.T) {
+	dbConn := newTestDB(t)
+	defer dbConn.Close()
+
+	libraryID := getLibraryID(t, dbConn, LibraryTypeTV)
+	now := time.Now().UTC().Format(time.RFC3339)
+	posterURL := "https://image.tmdb.org/t/p/w500/show-poster.jpg"
+
+	var showID int
+	if err := dbConn.QueryRow(`INSERT INTO shows (
+library_id, kind, tmdb_id, title, title_key, poster_path, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, LibraryTypeTV, 456, "Andor", "andor", posterURL, now, now,
+	).Scan(&showID); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var seasonID int
+	if err := dbConn.QueryRow(`INSERT INTO seasons (
+show_id, season_number, title, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		showID, 1, "Season 1", now, now,
+	).Scan(&seasonID); err != nil {
+		t.Fatalf("insert season: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Andor - S01E01 - Kassa", "/tv/Andor/S01E01.mkv", 2400, MatchStatusIdentified, 456, showID, seasonID, 1, 1,
+	).Scan(&refID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, refID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	details, err := GetLibraryShowDetails(dbConn, libraryID, "tmdb-456")
+	if err != nil {
+		t.Fatalf("get library show details: %v", err)
+	}
+	if details == nil {
+		t.Fatal("expected show details")
+	}
+	if details.PosterURL != posterURL {
+		t.Fatalf("poster url = %q", details.PosterURL)
+	}
+}
