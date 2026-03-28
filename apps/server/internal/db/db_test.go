@@ -1802,6 +1802,155 @@ func TestGetMediaByLibraryID_ExposesDuplicateStateAndFiltersMissingRows(t *testi
 	}
 }
 
+func TestQueryMediaByLibraryID_EpisodeShowPosterUsesLinkedShow(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "tv")
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	var showID int
+	if err := dbConn.QueryRow(`INSERT INTO shows (
+library_id, kind, tmdb_id, title, title_key, poster_path, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, LibraryTypeTV, 321, "Slow Horses", "slowhorses", "/show-poster.jpg", now, now,
+	).Scan(&showID); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var seasonID int
+	if err := dbConn.QueryRow(`INSERT INTO seasons (
+show_id, season_number, title, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		showID, 1, "Season 1", now, now,
+	).Scan(&seasonID); err != nil {
+		t.Fatalf("insert season: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Slow Horses - S01E01 - Pilot", "/tv/Slow Horses/S01E01.mkv", 1800, MatchStatusIdentified, 321, showID, seasonID, 1, 1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	items, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV)
+	if err != nil {
+		t.Fatalf("query media: %v", err)
+	}
+	if got := items[0].ShowPosterPath; got != "/show-poster.jpg" {
+		t.Fatalf("show poster path = %q", got)
+	}
+}
+
+func TestQueryMediaByLibraryID_EpisodeShowPosterFallsBackByTMDBID(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "tv")
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if _, err := dbConn.Exec(`INSERT INTO shows (
+library_id, kind, tmdb_id, title, title_key, poster_path, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		libraryID, LibraryTypeTV, 654, "Andor", "andor", "/andor-show.jpg", now, now,
+	); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Andor - S01E01 - Kassa", "/tv/Andor/S01E01.mkv", 1800, MatchStatusIdentified, 654, 1, 1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	items, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV)
+	if err != nil {
+		t.Fatalf("query media: %v", err)
+	}
+	if got := items[0].ShowPosterPath; got != "/andor-show.jpg" {
+		t.Fatalf("show poster path = %q", got)
+	}
+}
+
+func TestQueryMediaByLibraryID_EpisodeShowPosterFallsBackByTitleKey(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "tv")
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if _, err := dbConn.Exec(`INSERT INTO shows (
+library_id, kind, title, title_key, poster_path, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		libraryID, LibraryTypeTV, "Battlestar Galactica (2004)", "battlestargalactica2004", "/bsg-2004.jpg", now, now,
+	); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Battlestar Galactica (2004) - S01E01 - 33", "/tv/Battlestar Galactica (2004)/S01E01.mkv", 1800, MatchStatusLocal, 1, 1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	items, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV)
+	if err != nil {
+		t.Fatalf("query media: %v", err)
+	}
+	if got := items[0].ShowPosterPath; got != "/bsg-2004.jpg" {
+		t.Fatalf("show poster path = %q", got)
+	}
+}
+
+func TestGetMediaByLibraryID_RelinksMissingEpisodeShowAndSeason(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "tv")
+
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, overview, poster_path, release_date, imdb_id, imdb_rating, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Severance - S01E01 - Good News About Hell", "/tv/Severance/S01E01.mkv", 1800, MatchStatusIdentified, 777, "overview", "/episode-poster.jpg", "2022-02-18", "tt11280740", 8.7, 1, 1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	items, err := GetMediaByLibraryID(dbConn, libraryID)
+	if err != nil {
+		t.Fatalf("get media by library: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+
+	var showID, seasonID int
+	if err := dbConn.QueryRow(`SELECT COALESCE(show_id, 0), COALESCE(season_id, 0) FROM tv_episodes WHERE id = ?`, episodeID).Scan(&showID, &seasonID); err != nil {
+		t.Fatalf("query episode links: %v", err)
+	}
+	if showID == 0 || seasonID == 0 {
+		t.Fatalf("expected relinked show/season, got show=%d season=%d", showID, seasonID)
+	}
+
+	var showPoster string
+	if err := dbConn.QueryRow(`SELECT COALESCE(poster_path, '') FROM shows WHERE id = ?`, showID).Scan(&showPoster); err != nil {
+		t.Fatalf("query show poster: %v", err)
+	}
+	if showPoster != "/episode-poster.jpg" {
+		t.Fatalf("show poster = %q", showPoster)
+	}
+}
+
 func TestHandleScanLibrary_ImportsMusicExtensionsAndTags(t *testing.T) {
 	db := newTestDB(t)
 	musicLibID := createLibraryForTest(t, db, LibraryTypeMusic, "/music")

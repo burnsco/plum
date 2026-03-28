@@ -399,6 +399,73 @@ WHERE id = ?`, showID, seasonID, contentHash, now, refID); err != nil {
 	return nil
 }
 
+func ensureLibraryShowsAndSeasons(dbConn *sql.DB, libraryID int, kind string) error {
+	table := mediaTableForKind(kind)
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return nil
+	}
+
+	ctx := context.Background()
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, library_id, title, COALESCE(tmdb_id, 0), COALESCE(tvdb_id, ''), COALESCE(overview, ''), COALESCE(poster_path, ''), COALESCE(backdrop_path, ''), COALESCE(release_date, ''), COALESCE(imdb_id, ''), COALESCE(imdb_rating, 0), COALESCE(season, 0)
+FROM `+table+`
+WHERE library_id = ? AND (show_id IS NULL OR season_id IS NULL)
+ORDER BY id`, libraryID)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer rows.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for rows.Next() {
+		var (
+			refID       int
+			rowLibrary  int
+			title       string
+			tmdbID      int
+			tvdbID      string
+			overview    string
+			posterPath  string
+			backdrop    string
+			releaseDate string
+			imdbID      string
+			imdbRating  float64
+			season      int
+		)
+		if err := rows.Scan(&refID, &rowLibrary, &title, &tmdbID, &tvdbID, &overview, &posterPath, &backdrop, &releaseDate, &imdbID, &imdbRating, &season); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		showID, seasonID, err := upsertShowAndSeasonForEpisodeTx(ctx, tx, rowLibrary, table, tmdbID, tvdbID, title, overview, posterPath, backdrop, releaseDate, imdbID, imdbRating, season)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if showID == 0 || seasonID == 0 {
+			continue
+		}
+		contentHash := metadataHash(title, overview, posterPath, backdrop, releaseDate, imdbID, fmt.Sprintf("%.3f", imdbRating), strconvInt(tmdbID), tvdbID, strconvInt(season))
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET
+show_id = ?,
+season_id = ?,
+metadata_content_hash = COALESCE(NULLIF(metadata_content_hash, ''), ?),
+last_metadata_refresh_at = COALESCE(NULLIF(last_metadata_refresh_at, ''), ?)
+WHERE id = ?`, showID, seasonID, contentHash, now, refID); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 func strconvInt(v int) string {
 	return fmt.Sprintf("%d", v)
 }

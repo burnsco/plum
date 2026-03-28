@@ -1532,6 +1532,8 @@ describe("App library and player wiring", () => {
         type: "tv",
         match_status: "identified",
         tmdb_id: 321,
+        show_poster_path: "/slow-horses-show.jpg",
+        vote_average: 8.7,
         season: 1,
         episode: 1,
       },
@@ -1543,6 +1545,7 @@ describe("App library and player wiring", () => {
         type: "tv",
         match_status: "identified",
         tmdb_id: 321,
+        vote_average: 8.7,
         season: 1,
         episode: 2,
       },
@@ -1554,6 +1557,11 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("link", { name: /^Slow Horses$/i })).toBeTruthy();
     expect(screen.queryByText("Searching…")).not.toBeInTheDocument();
     expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+    expect(screen.getByText("TMDB")).toBeTruthy();
+    expect(screen.getByText("8.7")).toBeTruthy();
+    expect(screen.queryByText("IMDb")).not.toBeInTheDocument();
+    const showCard = screen.getByRole("link", { name: /^Slow Horses$/i }).closest(".show-card");
+    expect(showCard?.querySelector("img")).toHaveAttribute("src", "/slow-horses-show.jpg");
   });
 
   it("uses poster art from any matched anime episode before showing failed state", async () => {
@@ -1592,6 +1600,32 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("link", { name: /Frieren/i })).toBeTruthy();
     expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Identify manually/i })).not.toBeInTheDocument();
+    const showCard = screen.getByRole("link", { name: /Frieren/i }).closest(".show-card");
+    expect(showCard?.querySelector("img")).toHaveAttribute("src", "/frieren.jpg");
+  });
+
+  it("keeps IMDb badges on movie cards", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 99,
+        title: "Movie Badge",
+        path: "/movies/Movie Badge (2025)/Movie Badge.mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "identified",
+        imdb_rating: 8.3,
+        release_date: "2025-01-01",
+      },
+    ]);
+
+    await renderApp("/library/2");
+
+    expect(await screen.findByRole("link", { name: /^Movie Badge$/i })).toBeTruthy();
+    expect(screen.getByText("IMDb")).toBeTruthy();
+    expect(screen.getByText("8.3")).toBeTruthy();
   });
 
   it("keeps incomplete anime cards hidden until they have a review prompt or real match", async () => {

@@ -47,19 +47,15 @@ export function TopBar() {
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-4 border-b border-[var(--plum-border)] bg-[var(--plum-panel)]/80 px-4 backdrop-blur-md">
       <Link
         to="/"
-        className="flex items-center gap-2.5 rounded-[var(--radius-md)] transition-opacity hover:opacity-90"
+        className="flex items-center rounded-[var(--radius-md)] p-1 transition-opacity hover:opacity-90"
         aria-label="Plum home"
       >
-        <div
-          className="size-8 rounded-full bg-[var(--plum-accent)] shadow-[0_0_20px_var(--plum-accent-soft)]"
-          aria-hidden
+        <img
+          src="/logo.svg"
+          alt=""
+          aria-hidden="true"
+          className="h-10 w-10 shrink-0 rounded-[12px] object-contain shadow-[0_0_24px_var(--plum-accent-soft)]"
         />
-        <span
-          className="text-lg font-semibold tracking-tight text-[var(--plum-text)]"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          Plum
-        </span>
       </Link>
 
       <div className="flex flex-1 justify-center px-4">

@@ -12,6 +12,7 @@ services:
       - TMDB_API_KEY=${TMDB_API_KEY}
       - TVDB_API_KEY=${TVDB_API_KEY}
       - OMDB_API_KEY=${OMDB_API_KEY}
+      - FANART_API_KEY=${FANART_API_KEY}
       - GOMODCACHE=/go/pkg/mod
       - GOCACHE=/go-cache
     devices:
