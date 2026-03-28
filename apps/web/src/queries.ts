@@ -10,7 +10,10 @@ import {
   getDiscover,
   getDiscoverTitleDetails,
   getMovieDetails,
+  getMoviePosterCandidates,
+  getMetadataArtworkSettings,
   getShowDetails,
+  getShowPosterCandidates,
   fetchLibraryMedia,
   fetchSeriesByTmdbId,
   getHomeDashboard,
@@ -31,8 +34,15 @@ import {
   type DiscoverTitleDetails,
   type IdentifyResult,
   type Library,
+  type MetadataArtworkSettings,
+  type MetadataArtworkSettingsResponse,
   type MediaItem,
+  type PosterCandidatesResponse,
   type ScanLibraryResult,
+  resetMoviePosterSelection,
+  resetShowPosterSelection,
+  setMoviePosterSelection,
+  setShowPosterSelection,
   type SeriesDetails,
   type ShowActionResult,
   type ShowDetails,
@@ -40,6 +50,7 @@ import {
   type TranscodingSettingsResponse,
   type UpdateLibraryPlaybackPreferencesPayload,
   updateLibraryPlaybackPreferences,
+  updateMetadataArtworkSettings,
   updateTranscodingSettings,
 } from "./api";
 
@@ -50,7 +61,10 @@ type DiscoverTitleDetailsResult = Awaited<ReturnType<typeof getDiscoverTitleDeta
 type LibraryMediaResult = Awaited<ReturnType<typeof fetchLibraryMedia>>;
 type HomeDashboardResult = Awaited<ReturnType<typeof getHomeDashboard>>;
 type MovieDetailsResult = Awaited<ReturnType<typeof getMovieDetails>>;
+type MoviePosterCandidatesResult = Awaited<ReturnType<typeof getMoviePosterCandidates>>;
+type MetadataArtworkSettingsResult = Awaited<ReturnType<typeof getMetadataArtworkSettings>>;
 type ShowDetailsResult = Awaited<ReturnType<typeof getShowDetails>>;
+type ShowPosterCandidatesResult = Awaited<ReturnType<typeof getShowPosterCandidates>>;
 type SearchLibraryMediaResult = Awaited<ReturnType<typeof searchLibraryMedia>>;
 type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
 
@@ -183,6 +197,30 @@ function cloneTranscodingSettingsResponse(
   };
 }
 
+function cloneMetadataArtworkSettingsResponse(
+  response: MetadataArtworkSettingsResult,
+): MetadataArtworkSettingsResponse {
+  return {
+    settings: {
+      movies: { ...response.settings.movies },
+      shows: { ...response.settings.shows },
+      seasons: { ...response.settings.seasons },
+      episodes: { ...response.settings.episodes },
+    },
+    provider_availability: response.provider_availability.map((provider) => ({ ...provider })),
+  };
+}
+
+function clonePosterCandidatesResponse(
+  response: MoviePosterCandidatesResult | ShowPosterCandidatesResult,
+): PosterCandidatesResponse {
+  return {
+    candidates: response.candidates.map((candidate) => ({ ...candidate })),
+    provider_availability: response.provider_availability.map((provider) => ({ ...provider })),
+    has_custom_selection: response.has_custom_selection,
+  };
+}
+
 export const queryKeys = {
   discover: ["discover"] as const,
   discoverSearch: (query: string) => ["discover-search", query] as const,
@@ -192,9 +230,14 @@ export const queryKeys = {
   libraries: ["libraries"] as const,
   library: (id: number) => ["library", id] as const,
   movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
+  moviePosterCandidates: (libraryId: number, mediaId: number) =>
+    ["movie-poster-candidates", libraryId, mediaId] as const,
+  metadataArtworkSettings: ["metadata-artwork-settings"] as const,
   search: (query: string, libraryId: number | null, type: string, genre: string) =>
     ["search", query, libraryId ?? 0, type, genre] as const,
   series: (tmdbId: number) => ["series", tmdbId] as const,
+  showPosterCandidates: (libraryId: number, showKey: string) =>
+    ["show-poster-candidates", libraryId, showKey] as const,
   showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
 };
@@ -361,6 +404,32 @@ export function useShowDetails(
   });
 }
 
+export function useMoviePosterCandidates(
+  libraryId: number | null,
+  mediaId: number | null,
+  options?: { enabled?: boolean },
+): UseQueryResult<PosterCandidatesResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.moviePosterCandidates(libraryId ?? 0, mediaId ?? 0),
+    queryFn: async () => clonePosterCandidatesResponse(await getMoviePosterCandidates(libraryId!, mediaId!)),
+    enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
+    staleTime: 30_000,
+  });
+}
+
+export function useShowPosterCandidates(
+  libraryId: number | null,
+  showKey: string | null,
+  options?: { enabled?: boolean },
+): UseQueryResult<PosterCandidatesResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.showPosterCandidates(libraryId ?? 0, showKey ?? ""),
+    queryFn: async () => clonePosterCandidatesResponse(await getShowPosterCandidates(libraryId!, showKey!)),
+    enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
+    staleTime: 30_000,
+  });
+}
+
 export function useLibrarySearch(
   query: string,
   options?: {
@@ -439,6 +508,17 @@ export function useTranscodingSettings(options?: {
   });
 }
 
+export function useMetadataArtworkSettings(options?: {
+  enabled?: boolean;
+}): UseQueryResult<MetadataArtworkSettingsResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.metadataArtworkSettings,
+    queryFn: async () => cloneMetadataArtworkSettingsResponse(await getMetadataArtworkSettings()),
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
 export function useUpdateTranscodingSettings(): UseMutationResult<
   TranscodingSettingsResponse,
   Error,
@@ -450,6 +530,95 @@ export function useUpdateTranscodingSettings(): UseMutationResult<
       cloneTranscodingSettingsResponse(await updateTranscodingSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.transcodingSettings, data);
+    },
+  });
+}
+
+export function useUpdateMetadataArtworkSettings(): UseMutationResult<
+  MetadataArtworkSettingsResponse,
+  Error,
+  MetadataArtworkSettings
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (settings) =>
+      cloneMetadataArtworkSettingsResponse(await updateMetadataArtworkSettings(settings)),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.metadataArtworkSettings, data);
+    },
+  });
+}
+
+export function useSetMoviePosterSelection(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; mediaId: number; sourceUrl: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, mediaId, sourceUrl }) =>
+      setMoviePosterSelection(libraryId, mediaId, { source_url: sourceUrl }),
+    onSuccess: (_, { libraryId, mediaId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+  });
+}
+
+export function useResetMoviePosterSelection(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; mediaId: number }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, mediaId }) => resetMoviePosterSelection(libraryId, mediaId),
+    onSuccess: (_, { libraryId, mediaId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+  });
+}
+
+export function useSetShowPosterSelection(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; showKey: string; sourceUrl: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, showKey, sourceUrl }) =>
+      setShowPosterSelection(libraryId, showKey, { source_url: sourceUrl }),
+    onSuccess: (_, { libraryId, showKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+  });
+}
+
+export function useResetShowPosterSelection(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; showKey: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, showKey }) => resetShowPosterSelection(libraryId, showKey),
+    onSuccess: (_, { libraryId, showKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
 }

@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useLibraries } from "@/queries";
-import { getLibraryActivity, getLibraryActivityLabel } from "@/lib/libraryActivity";
+import { getLibraryActivity } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
 import { Compass, Film, Home, Music, Tv } from "lucide-react";
@@ -67,7 +67,8 @@ export function Sidebar() {
               identifyPhase: scanStatus?.identifyPhase,
               localIdentifyPhase: identifyPhase,
             });
-            const activityLabel = getLibraryActivityLabel(activity);
+            const isFailed =
+              scanStatus?.phase === "failed" || scanStatus?.identifyPhase === "failed";
             const isBusy = activity != null;
             const showActivePulse = activity != null && activity !== "identify-queued";
             return (
@@ -85,21 +86,27 @@ export function Sidebar() {
               >
                 <LibraryIcon lib={lib} />
                 <span className="min-w-0 truncate">{getLibraryTabLabel(lib)}</span>
-                {activityLabel && (
+                {(isBusy || isFailed) && (
                   <span
-                    className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] uppercase tracking-[0.08em] text-[var(--plum-muted)]"
+                    className="ml-auto flex shrink-0 items-center"
                     data-testid={`library-identifying-${lib.id}`}
+                    aria-hidden="true"
                   >
                     <span
                       className="relative flex size-2.5 items-center justify-center"
-                      aria-hidden="true"
                     >
-                      {showActivePulse && (
+                      {showActivePulse && !isFailed && (
                         <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
                       )}
-                      <span className="relative size-2 rounded-full bg-[var(--plum-accent)] shadow-[0_0_10px_var(--plum-accent)]" />
+                      <span
+                        className={cn(
+                          "relative size-2 rounded-full",
+                          isFailed
+                            ? "bg-rose-400"
+                            : "bg-[var(--plum-accent)] shadow-[0_0_10px_var(--plum-accent)]",
+                        )}
+                      />
                     </span>
-                    <span>{activityLabel}</span>
                   </span>
                 )}
               </Link>

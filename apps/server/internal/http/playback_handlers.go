@@ -61,7 +61,7 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var payload struct {
-		AudioIndex          int                                 `json:"audioIndex"`
+		AudioIndex         int                                   `json:"audioIndex"`
 		ClientCapabilities transcoder.ClientPlaybackCapabilities `json:"clientCapabilities"`
 	}
 	payload.AudioIndex = -1
@@ -172,6 +172,40 @@ func (h *PlaybackHandler) ServeArtwork(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := chi.URLParam(r, "kind")
 	if err := db.HandleServeArtwork(w, r, h.DB, id, h.ArtDir, kind); err != nil {
+		writePlaybackError(w, err)
+	}
+}
+
+func (h *PlaybackHandler) ServeShowArtwork(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	var ownerID int
+	if err := h.DB.QueryRow(`SELECT user_id FROM libraries WHERE id = ?`, libraryID).Scan(&ownerID); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != user.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	showKey := chi.URLParam(r, "showKey")
+	target, err := db.GetShowArtworkTarget(h.DB, libraryID, showKey)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if target == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := db.HandleServeShowArtwork(w, r, h.DB, target.ID, h.ArtDir, "poster", target.PosterPath); err != nil {
 		writePlaybackError(w, err)
 	}
 }

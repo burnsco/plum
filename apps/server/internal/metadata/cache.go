@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -115,16 +116,31 @@ func doCachedJSONRequest(
 }
 
 func newProviderTransportError(provider string, err error) error {
-	retryable := errors.Is(err, context.DeadlineExceeded)
-	if !retryable {
-		var netErr net.Error
-		retryable = errors.As(err, &netErr) && netErr.Timeout()
-	}
+	retryable := isRetryableTransportError(err)
 	return &ProviderError{
 		Provider:  strings.ToLower(strings.TrimSpace(provider)),
 		Retryable: retryable,
 		Cause:     err,
 	}
+}
+
+func isRetryableTransportError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+
+	return errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETDOWN) ||
+		errors.Is(err, syscall.ENETUNREACH) ||
+		errors.Is(err, syscall.EPIPE)
 }
 
 func newProviderStatusError(provider string, statusCode int, _ []byte) error {

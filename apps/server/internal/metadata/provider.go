@@ -133,6 +133,7 @@ type SeriesDetails struct {
 	Runtime          int          `json:"runtime,omitempty"`
 	NumberOfSeasons  int          `json:"number_of_seasons,omitempty"`
 	NumberOfEpisodes int          `json:"number_of_episodes,omitempty"`
+	TVDBID           string       `json:"-"`
 }
 
 // SeriesDetailsProvider fetches TV series metadata by TMDB ID.
@@ -256,4 +257,26 @@ type DiscoverProvider interface {
 // IMDbRatingProvider resolves an IMDb rating by IMDb title id.
 type IMDbRatingProvider interface {
 	GetIMDbRatingByID(ctx context.Context, imdbID string) (float64, error)
+}
+
+type ArtworkProviderStatus struct {
+	Provider  string `json:"provider"`
+	Enabled   bool   `json:"enabled"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type PosterCandidate struct {
+	Provider  string `json:"provider"`
+	Label     string `json:"label"`
+	ImageURL  string `json:"image_url"`
+	SourceURL string `json:"source_url"`
+}
+
+type MetadataArtworkProvider interface {
+	ProviderStatuses() []ArtworkProviderStatus
+	GetMoviePosterCandidates(ctx context.Context, tmdbID int, imdbID string) ([]PosterCandidate, error)
+	GetShowPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string) ([]PosterCandidate, error)
+	GetSeasonPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string, season int) ([]PosterCandidate, error)
+	GetEpisodePosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string, imdbID string, season int, episode int) ([]PosterCandidate, error)
 }

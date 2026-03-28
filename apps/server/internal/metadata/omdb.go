@@ -77,3 +77,25 @@ func (c *OMDBClient) GetIMDbRatingByID(ctx context.Context, imdbID string) (floa
 	c.mu.Unlock()
 	return rating, nil
 }
+
+func (c *OMDBClient) GetPosterByID(ctx context.Context, imdbID string) (string, error) {
+	if c == nil || c.APIKey == "" || imdbID == "" {
+		return "", nil
+	}
+	u := fmt.Sprintf("%s?apikey=%s&i=%s", omdbBaseURL, url.QueryEscape(c.APIKey), url.QueryEscape(imdbID))
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "omdb", http.MethodGet, u, nil, nil, 30*24*time.Hour, 1)
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		Response string `json:"Response"`
+		Poster   string `json:"Poster"`
+	}
+	if err := json.Unmarshal(resp.Body, &payload); err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(payload.Response, "True") || payload.Poster == "" || payload.Poster == "N/A" {
+		return "", nil
+	}
+	return payload.Poster, nil
+}

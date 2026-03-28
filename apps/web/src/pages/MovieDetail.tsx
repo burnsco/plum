@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
 import type { MediaItem } from "@/api";
+import { PosterPickerDialog } from "@/components/PosterPickerDialog";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useMovieDetails } from "@/queries";
 
@@ -22,6 +24,7 @@ export function MovieDetail() {
   const mediaId = mediaIdParam ? Number(mediaIdParam) : null;
   const { data: details, isLoading, error } = useMovieDetails(libraryId, mediaId);
   const { playMovie } = usePlayer();
+  const [posterPickerOpen, setPosterPickerOpen] = useState(false);
 
   if (libraryId == null || mediaId == null) {
     return (
@@ -82,7 +85,13 @@ export function MovieDetail() {
 
       <section className="show-detail-header">
         {posterUrl ? (
-          <div className="show-detail-poster">
+          <div
+            className="show-detail-poster"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setPosterPickerOpen(true);
+            }}
+          >
             <img src={posterUrl} alt="" />
           </div>
         ) : null}
@@ -114,9 +123,16 @@ export function MovieDetail() {
             </div>
           ) : null}
 
-          <div>
+          <div className="flex flex-wrap gap-3">
             <button type="button" className="play-button" onClick={() => playMovie(movie)}>
               Play
+            </button>
+            <button
+              type="button"
+              className="rounded-[var(--radius-md)] border border-[var(--plum-border)] px-4 py-2 text-sm text-[var(--plum-text)] transition-colors hover:bg-[var(--plum-panel)]"
+              onClick={() => setPosterPickerOpen(true)}
+            >
+              Change poster…
             </button>
           </div>
         </div>
@@ -142,6 +158,15 @@ export function MovieDetail() {
           </div>
         )}
       </section>
+
+      <PosterPickerDialog
+        open={posterPickerOpen}
+        onOpenChange={setPosterPickerOpen}
+        kind="movie"
+        libraryId={libraryId}
+        mediaId={mediaId}
+        title={details.title}
+      />
     </div>
   );
 }

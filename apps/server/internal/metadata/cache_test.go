@@ -6,8 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -138,6 +141,37 @@ func TestDoCachedJSONRequest_ClassifiesTimeoutAsRetryable(t *testing.T) {
 	}
 }
 
+func TestDoCachedJSONRequest_ClassifiesConnectionResetAsRetryable(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			return nil, &url.Error{
+				Op:  "Get",
+				URL: "https://example.com/test",
+				Err: &os.SyscallError{Syscall: "read", Err: syscall.ECONNRESET},
+			}
+		}),
+	}
+
+	_, err := doCachedJSONRequest(context.Background(), client, nil, "tmdb", http.MethodGet, "https://example.com/test", nil, nil, time.Hour, 1)
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if !IsRetryableProviderError(err) {
+		t.Fatalf("expected retryable provider error, got %v", err)
+	}
+}
+
+func TestIsRetryableTransportError_RecognizesTemporaryNetError(t *testing.T) {
+	err := &url.Error{
+		Op:  "Get",
+		URL: "https://example.com/test",
+		Err: tempNetError{msg: "temporary DNS failure"},
+	}
+	if !isRetryableTransportError(err) {
+		t.Fatalf("expected temporary net error to be retryable")
+	}
+}
+
 func TestTMDBClientSearchMovie_ReturnsErrorForNon2xxResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "provider unavailable", http.StatusServiceUnavailable)
@@ -165,6 +199,14 @@ type inMemoryProviderCache struct {
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+type tempNetError struct {
+	msg string
+}
+
+func (e tempNetError) Error() string   { return e.msg }
+func (e tempNetError) Timeout() bool   { return false }
+func (e tempNetError) Temporary() bool { return true }
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
