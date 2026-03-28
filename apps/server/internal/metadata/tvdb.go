@@ -302,6 +302,9 @@ func (c *TVDBClient) seasonPoster(ctx context.Context, title string, seriesID st
 	if c == nil || c.APIKey == "" {
 		return "", nil
 	}
+	if seriesID == "" {
+		return "", nil
+	}
 	match, err := c.GetEpisode(ctx, seriesID, season, 0)
 	if err != nil {
 		return "", err

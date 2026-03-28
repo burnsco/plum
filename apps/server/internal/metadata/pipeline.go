@@ -164,13 +164,6 @@ func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imd
 func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string) ([]PosterCandidate, error) {
 	candidates := make([]PosterCandidate, 0, 3)
 	seen := map[string]struct{}{}
-	if p.fanart != nil && tvdbID != "" {
-		poster, err := p.fanart.showPoster(ctx, tvdbID)
-		if err != nil {
-			return nil, err
-		}
-		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
-	}
 	if p.seriesDetailsProvider != nil && tmdbID > 0 {
 		details, err := p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID)
 		if err != nil {
@@ -182,6 +175,13 @@ func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tm
 				tvdbID = strings.TrimSpace(details.TVDBID)
 			}
 		}
+	}
+	if p.fanart != nil && tvdbID != "" {
+		poster, err := p.fanart.showPoster(ctx, tvdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
 	}
 	if prov := p.tvProviderByName("tvdb"); prov != nil {
 		if tvdbClient, ok := prov.(*TVDBClient); ok {
