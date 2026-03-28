@@ -72,16 +72,17 @@ func metadataHash(parts ...string) string {
 }
 
 type CanonicalMetadata struct {
-	Title        string
-	Overview     string
-	PosterPath   string
-	BackdropPath string
-	ReleaseDate  string
-	IMDbID       string
-	IMDbRating   float64
-	Genres       []string
-	Cast         []CastCredit
-	Runtime      int
+	Title            string
+	Overview         string
+	PosterPath       string
+	SeasonPosterPath string
+	BackdropPath     string
+	ReleaseDate      string
+	IMDbID           string
+	IMDbRating       float64
+	Genres           []string
+	Cast             []CastCredit
+	Runtime          int
 }
 
 func showKindForTable(table string) string {
@@ -157,6 +158,10 @@ func upsertShowAndSeasonTx(
 		canonical.IMDbID,
 		fmt.Sprintf("%.3f", canonical.IMDbRating),
 	)
+	seasonPosterPath := strings.TrimSpace(canonical.SeasonPosterPath)
+	if seasonPosterPath == "" {
+		seasonPosterPath = canonical.PosterPath
+	}
 
 	showID, err := findShowIDTx(ctx, tx, libraryID, kind, tmdbID, titleKey)
 	if err != nil {
@@ -186,6 +191,18 @@ library_id, kind, tmdb_id, tvdb_id, title, title_key, overview, poster_path, bac
 			return 0, 0, err
 		}
 	} else {
+		var (
+			existingPosterPath string
+			posterLocked       int
+		)
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(poster_path, ''), COALESCE(poster_locked, 0) FROM shows WHERE id = ?`, showID).
+			Scan(&existingPosterPath, &posterLocked); err != nil {
+			return 0, 0, err
+		}
+		showPosterPath := canonical.PosterPath
+		if posterLocked != 0 {
+			showPosterPath = existingPosterPath
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE shows SET
 tmdb_id = ?,
 tvdb_id = ?,
@@ -207,7 +224,7 @@ WHERE id = ?`,
 			showTitle,
 			titleKey,
 			nullStr(canonical.Overview),
-			nullStr(canonical.PosterPath),
+			nullStr(showPosterPath),
 			nullStr(canonical.BackdropPath),
 			nullStr(canonical.ReleaseDate),
 			nullStr(canonical.IMDbID),
@@ -225,7 +242,7 @@ WHERE id = ?`,
 	seasonHash := metadataHash(
 		strconvInt(seasonNumber),
 		canonical.Overview,
-		canonical.PosterPath,
+		seasonPosterPath,
 		canonical.ReleaseDate,
 	)
 	seasonID, err := findSeasonIDTx(ctx, tx, showID, seasonNumber)
@@ -241,7 +258,7 @@ show_id, season_number, title, overview, poster_path, air_date, metadata_version
 			seasonNumber,
 			seasonTitle,
 			nullStr(canonical.Overview),
-			nullStr(canonical.PosterPath),
+			nullStr(seasonPosterPath),
 			nullStr(canonical.ReleaseDate),
 			seasonHash,
 			now,
@@ -263,7 +280,7 @@ updated_at = ?
 WHERE id = ?`,
 			seasonDisplayTitle(seasonNumber),
 			nullStr(canonical.Overview),
-			nullStr(canonical.PosterPath),
+			nullStr(seasonPosterPath),
 			nullStr(canonical.ReleaseDate),
 			seasonHash,
 			seasonHash,

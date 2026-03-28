@@ -272,3 +272,42 @@ func (c *TVDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 		ExternalID:  externalID,
 	}, nil
 }
+
+func (c *TVDBClient) showPoster(ctx context.Context, title string, seriesID string) (string, error) {
+	if c == nil || c.APIKey == "" {
+		return "", nil
+	}
+	if seriesID != "" {
+		match, err := c.GetEpisode(ctx, seriesID, 0, 0)
+		if err != nil {
+			return "", err
+		}
+		if match != nil && match.PosterURL != "" {
+			return match.PosterURL, nil
+		}
+	}
+	results, err := c.SearchTV(ctx, title)
+	if err != nil {
+		return "", err
+	}
+	for _, result := range results {
+		if result.PosterURL != "" {
+			return result.PosterURL, nil
+		}
+	}
+	return "", nil
+}
+
+func (c *TVDBClient) seasonPoster(ctx context.Context, title string, seriesID string, season int) (string, error) {
+	if c == nil || c.APIKey == "" {
+		return "", nil
+	}
+	match, err := c.GetEpisode(ctx, seriesID, season, 0)
+	if err != nil {
+		return "", err
+	}
+	if match != nil && match.PosterURL != "" {
+		return match.PosterURL, nil
+	}
+	return c.showPoster(ctx, title, seriesID)
+}

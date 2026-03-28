@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import type {
   HardwareEncodeFormat,
   Library,
+  MetadataArtworkSettings as MetadataArtworkSettingsShape,
   TranscodingSettings as TranscodingSettingsShape,
+  MetadataArtworkProviderStatus,
   TranscodingSettingsWarning,
   VaapiDecodeCodec,
 } from "@plum/contracts";
@@ -20,7 +22,9 @@ import {
   type PlayerControlsAppearance,
 } from "@/lib/playbackPreferences";
 import {
+  useMetadataArtworkSettings,
   useLibraries,
+  useUpdateMetadataArtworkSettings,
   useTranscodingSettings,
   useUpdateLibraryPlaybackPreferences,
   useUpdateTranscodingSettings,
@@ -64,11 +68,52 @@ const encodeFormatOptions: Array<{
   },
 ];
 
+const movieArtworkProviderOptions: Array<{
+  key: keyof MetadataArtworkSettingsShape["movies"];
+  label: string;
+  description: string;
+}> = [
+  { key: "fanart", label: "Fanart", description: "Use fanart.tv artwork when it is available." },
+  { key: "tmdb", label: "TMDB", description: "Use TMDB posters for movies and series." },
+  { key: "tvdb", label: "TVDB", description: "Use TVDB posters for movies and series." },
+];
+
+const showArtworkProviderOptions: Array<{
+  key: keyof MetadataArtworkSettingsShape["shows"];
+  label: string;
+  description: string;
+}> = [
+  { key: "fanart", label: "Fanart", description: "Use fanart.tv artwork when it is available." },
+  { key: "tmdb", label: "TMDB", description: "Use TMDB posters for shows and seasons." },
+  { key: "tvdb", label: "TVDB", description: "Use TVDB posters for shows and seasons." },
+];
+
+const episodeArtworkProviderOptions: Array<{
+  key: keyof MetadataArtworkSettingsShape["episodes"];
+  label: string;
+  description: string;
+}> = [
+  { key: "tmdb", label: "TMDB", description: "Use TMDB stills and episode posters first." },
+  { key: "tvdb", label: "TVDB", description: "Use TVDB episode artwork when available." },
+  { key: "omdb", label: "OMDb", description: "Use OMDb when an episode IMDb ID is known." },
+];
+
 function cloneSettings(settings: TranscodingSettingsShape): TranscodingSettingsShape {
   return {
     ...settings,
     decodeCodecs: { ...settings.decodeCodecs },
     encodeFormats: { ...settings.encodeFormats },
+  };
+}
+
+function cloneMetadataArtworkSettings(
+  settings: MetadataArtworkSettingsShape,
+): MetadataArtworkSettingsShape {
+  return {
+    movies: { ...settings.movies },
+    shows: { ...settings.shows },
+    seasons: { ...settings.seasons },
+    episodes: { ...settings.episodes },
   };
 }
 
@@ -112,9 +157,13 @@ export function Settings() {
   const isAdmin = user?.is_admin ?? false;
   const librariesQuery = useLibraries();
   const settingsQuery = useTranscodingSettings({ enabled: isAdmin });
+  const metadataArtworkQuery = useMetadataArtworkSettings({ enabled: isAdmin });
   const updateLibraryPreferences = useUpdateLibraryPlaybackPreferences();
   const updateSettings = useUpdateTranscodingSettings();
+  const updateMetadataArtwork = useUpdateMetadataArtworkSettings();
   const [form, setForm] = useState<TranscodingSettingsShape | null>(null);
+  const [metadataArtworkForm, setMetadataArtworkForm] =
+    useState<MetadataArtworkSettingsShape | null>(null);
   const [libraryForms, setLibraryForms] = useState<Record<number, LibraryPlaybackPreferencesForm>>({});
   const [playerControlsAppearance, setPlayerControlsAppearance] = useState<PlayerControlsAppearance>(
     () => readStoredPlayerControlsAppearance(),
@@ -124,12 +173,19 @@ export function Settings() {
   const [warnings, setWarnings] = useState<TranscodingSettingsWarning[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
+  const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data || dirty) return;
     setForm(cloneSettings(settingsQuery.data.settings));
     setWarnings(settingsQuery.data.warnings);
   }, [dirty, settingsQuery.data]);
+
+  useEffect(() => {
+    if (!metadataArtworkQuery.data || metadataArtworkDirty) return;
+    setMetadataArtworkForm(cloneMetadataArtworkSettings(metadataArtworkQuery.data.settings));
+  }, [metadataArtworkDirty, metadataArtworkQuery.data]);
 
   useEffect(() => {
     if (!librariesQuery.data) return;
@@ -471,36 +527,43 @@ export function Settings() {
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         {playbackDefaultsSection}
         <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Transcoding</h2>
+          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-[var(--plum-muted)]">
-            Server transcoding settings are only available to admin accounts.
+            Server transcoding and metadata artwork settings are only available to admin accounts.
           </p>
         </div>
       </div>
     );
   }
 
-  if (settingsQuery.isError) {
+  if (settingsQuery.isError || metadataArtworkQuery.isError) {
     return (
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         {playbackDefaultsSection}
         <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Transcoding</h2>
+          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-red-300">
-            {settingsQuery.error.message || "Failed to load transcoding settings."}
+            {settingsQuery.error?.message ||
+              metadataArtworkQuery.error?.message ||
+              "Failed to load server settings."}
           </p>
         </div>
       </div>
     );
   }
 
-  if (settingsQuery.isLoading || form == null) {
+  if (
+    settingsQuery.isLoading ||
+    metadataArtworkQuery.isLoading ||
+    form == null ||
+    metadataArtworkForm == null
+  ) {
     return (
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         {playbackDefaultsSection}
         <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Transcoding</h2>
-          <p className="mt-2 text-sm text-[var(--plum-muted)]">Loading transcoding settings…</p>
+          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
+          <p className="mt-2 text-sm text-[var(--plum-muted)]">Loading server settings…</p>
         </div>
       </div>
     );
@@ -562,9 +625,232 @@ export function Settings() {
     }
   };
 
+  function setArtworkField(
+    section: keyof Pick<MetadataArtworkSettingsShape, "movies" | "shows" | "seasons">,
+    key: keyof MetadataArtworkSettingsShape["shows"],
+    checked: boolean,
+  ) {
+    setMetadataArtworkForm((current) =>
+      current
+        ? {
+            ...current,
+            [section]: { ...current[section], [key]: checked },
+          }
+        : current,
+    );
+    setMetadataArtworkDirty(true);
+    setMetadataArtworkSaveMessage(null);
+  }
+
+  function setEpisodeArtworkField(
+    key: keyof MetadataArtworkSettingsShape["episodes"],
+    checked: boolean,
+  ) {
+    setMetadataArtworkForm((current) =>
+      current
+        ? {
+            ...current,
+            episodes: { ...current.episodes, [key]: checked },
+          }
+        : current,
+    );
+    setMetadataArtworkDirty(true);
+    setMetadataArtworkSaveMessage(null);
+  }
+
+  const handleSaveMetadataArtwork = async () => {
+    if (!metadataArtworkForm) return;
+    setMetadataArtworkSaveMessage(null);
+    try {
+      const response = await updateMetadataArtwork.mutateAsync(metadataArtworkForm);
+      setMetadataArtworkForm(cloneMetadataArtworkSettings(response.settings));
+      setMetadataArtworkDirty(false);
+      setMetadataArtworkSaveMessage("Metadata artwork settings saved.");
+    } catch (error) {
+      setMetadataArtworkSaveMessage(
+        error instanceof Error ? error.message : "Failed to save metadata artwork settings.",
+      );
+    }
+  };
+
+  const metadataArtworkAvailabilityByProvider = new Map<string, MetadataArtworkProviderStatus>(
+    (metadataArtworkQuery.data?.provider_availability ?? []).map((provider) => [
+      provider.provider,
+      provider,
+    ]),
+  );
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       {playbackDefaultsSection}
+
+      <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Metadata artwork</h1>
+            <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
+              Control which image fetchers Plum uses for movies, shows, seasons, and episodes.
+              Provider order is fixed; these toggles only enable or disable each step.
+            </p>
+          </div>
+          <Button onClick={handleSaveMetadataArtwork} disabled={updateMetadataArtwork.isPending}>
+            {updateMetadataArtwork.isPending ? "Saving…" : "Save settings"}
+          </Button>
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+        <div className="flex flex-col gap-6">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+            <h2 className="text-lg font-medium text-[var(--plum-text)]">Movies</h2>
+            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+              Automatic order: Fanart, then TMDB, then TVDB.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {movieArtworkProviderOptions.map((option) => {
+                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                return (
+                  <CheckboxCard
+                    key={`movies-${option.key}`}
+                    checked={metadataArtworkForm.movies[option.key]}
+                    label={option.label}
+                    description={
+                      availability && !availability.available && availability.reason
+                        ? `${option.description} ${availability.reason}.`
+                        : option.description
+                    }
+                    disabled={availability?.available === false}
+                    onChange={(checked) => setArtworkField("movies", option.key, checked)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+            <h2 className="text-lg font-medium text-[var(--plum-text)]">Shows</h2>
+            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+              Automatic order: Fanart, then TMDB, then TVDB.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {showArtworkProviderOptions.map((option) => {
+                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                return (
+                  <CheckboxCard
+                    key={`shows-${option.key}`}
+                    checked={metadataArtworkForm.shows[option.key]}
+                    label={option.label}
+                    description={
+                      availability && !availability.available && availability.reason
+                        ? `${option.description} ${availability.reason}.`
+                        : option.description
+                    }
+                    disabled={availability?.available === false}
+                    onChange={(checked) => setArtworkField("shows", option.key, checked)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+            <h2 className="text-lg font-medium text-[var(--plum-text)]">Seasons</h2>
+            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+              Automatic order: Fanart, then TMDB, then TVDB.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {showArtworkProviderOptions.map((option) => {
+                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                return (
+                  <CheckboxCard
+                    key={`seasons-${option.key}`}
+                    checked={metadataArtworkForm.seasons[option.key]}
+                    label={option.label}
+                    description={
+                      availability && !availability.available && availability.reason
+                        ? `${option.description} ${availability.reason}.`
+                        : option.description
+                    }
+                    disabled={availability?.available === false}
+                    onChange={(checked) => setArtworkField("seasons", option.key, checked)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+            <h2 className="text-lg font-medium text-[var(--plum-text)]">Episodes</h2>
+            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+              Automatic order: TMDB, TVDB, then OMDb.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {episodeArtworkProviderOptions.map((option) => {
+                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                return (
+                  <CheckboxCard
+                    key={`episodes-${option.key}`}
+                    checked={metadataArtworkForm.episodes[option.key]}
+                    label={option.label}
+                    description={
+                      availability && !availability.available && availability.reason
+                        ? `${option.description} ${availability.reason}.`
+                        : option.description
+                    }
+                    disabled={availability?.available === false}
+                    onChange={(checked) => setEpisodeArtworkField(option.key, checked)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <aside className="flex flex-col gap-4">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+              Provider status
+            </h2>
+            <ul className="mt-3 space-y-3">
+              {(metadataArtworkQuery.data?.provider_availability ?? []).map((provider) => (
+                <li
+                  key={provider.provider}
+                  className={`rounded-[var(--radius-md)] border p-3 text-sm ${
+                    provider.available
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                      : "border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 text-[var(--plum-muted)]"
+                  }`}
+                >
+                  <div className="font-medium uppercase tracking-[0.12em]">{provider.provider}</div>
+                  <div className="mt-1">
+                    {provider.available ? "Available" : provider.reason || "Unavailable"}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+              Save status
+            </h2>
+            <p
+              className={`mt-3 text-sm ${
+                metadataArtworkSaveMessage?.includes("saved")
+                  ? "text-emerald-300"
+                  : metadataArtworkSaveMessage
+                    ? "text-red-300"
+                    : "text-[var(--plum-muted)]"
+              }`}
+            >
+              {metadataArtworkSaveMessage ??
+                (metadataArtworkDirty
+                  ? "Unsaved changes."
+                  : "Saved settings are active for future metadata refreshes.")}
+            </p>
+          </div>
+        </aside>
+      </section>
 
       <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -806,19 +1092,28 @@ function CheckboxCard({
   checked,
   label,
   description,
+  disabled,
   onChange,
 }: {
   checked: boolean;
   label: string;
   description: string;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer gap-3 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-3 transition-colors hover:border-[var(--plum-accent-soft)]">
+    <label
+      className={`flex gap-3 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-3 transition-colors ${
+        disabled
+          ? "cursor-not-allowed opacity-70"
+          : "cursor-pointer hover:border-[var(--plum-accent-soft)]"
+      }`}
+    >
       <input
         type="checkbox"
         checked={checked}
         aria-label={label}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
         className="mt-1 size-4 rounded border-[var(--plum-border)] bg-[var(--plum-panel-alt)] accent-[var(--plum-accent)]"
       />

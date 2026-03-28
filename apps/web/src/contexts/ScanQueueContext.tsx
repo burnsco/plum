@@ -22,16 +22,27 @@ type QueueScanOptions = {
   subpath?: string;
 };
 
+export type RecentLibraryActivity = {
+  libraryId: number;
+  status: "done" | "failed";
+  summary: string;
+  detail?: string;
+  finishedAt: string;
+};
+
 type ScanQueueContextValue = {
   scanStatuses: Record<number, LibraryScanStatus>;
   activeLibraryIds: number[];
   activityScanStatuses: LibraryScanStatus[];
+  recentLibraryActivities: RecentLibraryActivity[];
   getLibraryScanStatus: (libraryId: number | null) => LibraryScanStatus | undefined;
   hasLibraryScanStatus: (libraryId: number | null) => boolean;
   queueLibraryScan: (libraryId: number, options?: QueueScanOptions) => Promise<LibraryScanStatus>;
 };
 
 const SCAN_POLL_INTERVAL_MS = 2_000;
+const JUST_FINISHED_TTL_MS = 5 * 60 * 1000;
+const JUST_FINISHED_MAX_ITEMS = 5;
 
 const ScanQueueContext = createContext<ScanQueueContextValue | null>(null);
 
@@ -51,13 +62,6 @@ function isLibraryProcessing(status?: LibraryScanStatus) {
 
 function hasActivityDetails(status?: LibraryScanStatus) {
   return status?.activity != null;
-}
-
-function shouldShowInActivityCenter(status?: LibraryScanStatus) {
-  return (
-    status != null &&
-    (isLibraryProcessing(status) || status.phase === "failed" || status.identifyPhase === "failed")
-  );
 }
 
 function sameActivityEntry(
@@ -114,6 +118,67 @@ function sameScanStatus(previous?: LibraryScanStatus, next?: LibraryScanStatus) 
   );
 }
 
+function isSuccessfulLibraryCompletion(status?: LibraryScanStatus) {
+  return (
+    status != null &&
+    status.phase === "completed" &&
+    !status.enriching &&
+    status.identifyPhase !== "queued" &&
+    status.identifyPhase !== "identifying" &&
+    status.identifyPhase !== "failed"
+  );
+}
+
+function buildRecentLibraryActivity(
+  previous: LibraryScanStatus | undefined,
+  next: LibraryScanStatus,
+): RecentLibraryActivity | null {
+  if (previous == null || !isLibraryProcessing(previous) || isLibraryProcessing(next)) {
+    return null;
+  }
+  if (next.phase === "failed" || next.identifyPhase === "failed") {
+    return {
+      libraryId: next.libraryId,
+      status: "failed",
+      summary: "Failed",
+      detail: next.lastError || next.error || undefined,
+      finishedAt: next.finishedAt || new Date().toISOString(),
+    };
+  }
+  if (isSuccessfulLibraryCompletion(next)) {
+    const detail =
+      next.identifyRequested && next.identified > 0
+        ? `Identified ${next.identified} item${next.identified === 1 ? "" : "s"}`
+        : next.processed > 0
+          ? `Processed ${next.processed} item${next.processed === 1 ? "" : "s"}`
+          : undefined;
+    return {
+      libraryId: next.libraryId,
+      status: "done",
+      summary: "Done",
+      detail,
+      finishedAt: next.finishedAt || new Date().toISOString(),
+    };
+  }
+  return null;
+}
+
+function pruneRecentLibraryActivities(
+  activities: RecentLibraryActivity[],
+  validLibraryIds?: Set<number>,
+) {
+  const now = Date.now();
+  return activities
+    .filter((activity) => {
+      if (validLibraryIds && !validLibraryIds.has(activity.libraryId)) {
+        return false;
+      }
+      const finishedAt = Date.parse(activity.finishedAt);
+      return Number.isFinite(finishedAt) && now-finishedAt <= JUST_FINISHED_TTL_MS;
+    })
+    .slice(0, JUST_FINISHED_MAX_ITEMS);
+}
+
 function hasMeaningfulStatusChange(previous: LibraryScanStatus | undefined, next: LibraryScanStatus) {
   if (previous == null) return true;
   return (
@@ -140,17 +205,34 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
   const { data: libraries = [] } = useLibraries();
   const { latestEvent, eventSequence } = useWs();
   const [scanStatuses, setScanStatuses] = useState<Record<number, LibraryScanStatus>>({});
+  const [recentLibraryActivities, setRecentLibraryActivities] = useState<RecentLibraryActivity[]>([]);
   const scanStatusesRef = useRef<Record<number, LibraryScanStatus>>({});
 
   const setScanStatus = useCallback((status: LibraryScanStatus) => {
-    setScanStatuses((current) => {
-      const previous = current[status.libraryId];
-      if (sameScanStatus(previous, status)) {
-        return current;
-      }
-      const next = { ...current, [status.libraryId]: status };
-      scanStatusesRef.current = next;
-      return next;
+    const previous = scanStatusesRef.current[status.libraryId];
+    if (sameScanStatus(previous, status)) {
+      return;
+    }
+    const next = { ...scanStatusesRef.current, [status.libraryId]: status };
+    scanStatusesRef.current = next;
+    setScanStatuses(next);
+    const recentActivity = buildRecentLibraryActivity(previous, status);
+    if (recentActivity == null) {
+      return;
+    }
+    setRecentLibraryActivities((current) => {
+      const nextActivities = pruneRecentLibraryActivities([
+        recentActivity,
+        ...current.filter(
+          (activity) =>
+            !(
+              activity.libraryId === recentActivity.libraryId &&
+              activity.finishedAt === recentActivity.finishedAt &&
+              activity.status === recentActivity.status
+            ),
+        ),
+      ]);
+      return nextActivities;
     });
   }, []);
 
@@ -208,10 +290,20 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       scanStatusesRef.current = next;
       return next;
     });
+    setRecentLibraryActivities((current) =>
+      pruneRecentLibraryActivities(current, activeLibraryIds),
+    );
 
     if (libraries.length === 0) return;
     void Promise.allSettled(libraries.map((library) => refreshLibraryScanStatus(library.id)));
   }, [libraries, refreshLibraryScanStatus]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setRecentLibraryActivities((current) => pruneRecentLibraryActivities(current));
+    }, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     const activeScanIds = Object.values(scanStatuses)
@@ -256,9 +348,14 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
   const activityScanStatuses = useMemo(
     () =>
       Object.values(scanStatuses).filter((status) =>
-        shouldShowInActivityCenter(status) || hasActivityDetails(status),
+        isLibraryProcessing(status) || hasActivityDetails(status),
       ),
     [scanStatuses],
+  );
+
+  const visibleRecentLibraryActivities = useMemo(
+    () => pruneRecentLibraryActivities(recentLibraryActivities),
+    [recentLibraryActivities],
   );
 
   const value = useMemo<ScanQueueContextValue>(
@@ -266,6 +363,7 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       scanStatuses,
       activeLibraryIds,
       activityScanStatuses,
+      recentLibraryActivities: visibleRecentLibraryActivities,
       getLibraryScanStatus,
       hasLibraryScanStatus,
       queueLibraryScan,
@@ -276,6 +374,7 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       getLibraryScanStatus,
       hasLibraryScanStatus,
       queueLibraryScan,
+      visibleRecentLibraryActivities,
       scanStatuses,
     ],
   );

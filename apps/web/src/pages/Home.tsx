@@ -11,6 +11,7 @@ import type { Library } from "../api";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
 import { LibraryPosterGrid, type PosterGridItem } from "../components/LibraryPosterGrid";
 import { MusicLibraryView } from "../components/MusicLibraryView";
+import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
 import { usePlayer } from "../contexts/PlayerContext";
 import { useScanQueue } from "../contexts/ScanQueueContext";
@@ -128,6 +129,7 @@ type LibraryContextMenuState =
       x: number;
       y: number;
       movieId: number;
+      title: string;
       canRetryIdentify: boolean;
     };
 
@@ -196,6 +198,11 @@ export function Home() {
 
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState | null>(null);
   const [identifyGroup, setIdentifyGroup] = useState<ShowGroup | null>(null);
+  const [posterPicker, setPosterPicker] = useState<
+    | { kind: "movie"; libraryId: number; mediaId: number; title: string }
+    | { kind: "show"; libraryId: number; showKey: string; title: string }
+    | null
+  >(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
@@ -397,6 +404,7 @@ export function Home() {
               x: event.clientX,
               y: event.clientY,
               movieId: item.id,
+              title: item.title,
               canRetryIdentify: showFailure,
             });
           },
@@ -478,11 +486,11 @@ export function Home() {
                 <p className="text-sm text-[var(--plum-muted)]">
                   {selectedLibraryActivity === "importing"
                     ? "Importing library…"
-                    : selectedLibraryActivity === "finishing"
-                      ? "Finishing library…"
+                    : selectedLibraryActivity === "analyzing"
+                      ? "Analyzing media…"
                       : selectedLibraryActivity === "identify-queued"
                         ? "Queued for identify…"
-                      : "Identifying library…"}
+                        : "Identifying library…"}
                   {selectedLibraryActivity === "importing" && selectedLibraryScanStatus && (
                     <>
                       {" "}
@@ -518,6 +526,21 @@ export function Home() {
                 >
                   {contextMenu.kind === "show" ? (
                     <>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                        onClick={() => {
+                          setPosterPicker({
+                            kind: "show",
+                            libraryId: selectedLibraryId,
+                            showKey: contextMenu.group.showKey,
+                            title: contextMenu.group.showTitle,
+                          });
+                          closeContextMenu();
+                        }}
+                      >
+                        Change poster…
+                      </button>
                       <button
                         type="button"
                         className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
@@ -559,6 +582,21 @@ export function Home() {
                     </>
                   ) : (
                     <>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
+                        onClick={() => {
+                          setPosterPicker({
+                            kind: "movie",
+                            libraryId: selectedLibraryId,
+                            mediaId: contextMenu.movieId,
+                            title: contextMenu.title,
+                          });
+                          closeContextMenu();
+                        }}
+                      >
+                        Change poster…
+                      </button>
                       {contextMenu.canRetryIdentify ? (
                         <button
                           type="button"
@@ -598,6 +636,13 @@ export function Home() {
                   onSuccess={() => void refetchLibraryMedia()}
                 />
               )}
+              {posterPicker ? (
+                <PosterPickerDialog
+                  open={posterPicker != null}
+                  onOpenChange={(open) => !open && setPosterPicker(null)}
+                  {...posterPicker}
+                />
+              ) : null}
             </div>
           )}
         </>

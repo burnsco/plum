@@ -89,6 +89,7 @@ describe("Sidebar", () => {
       }),
       activeLibraryIds: [2, 3],
       activityScanStatuses: [],
+      recentLibraryActivities: [],
       scanStatuses: {},
       hasLibraryScanStatus: vi.fn(),
       queueLibraryScan: vi.fn(),
@@ -96,7 +97,13 @@ describe("Sidebar", () => {
 
     renderSidebar();
 
-    expect(within(screen.getByRole("link", { name: /Movies/i })).getByText("Queued for identify")).toBeVisible();
-    expect(within(screen.getByRole("link", { name: /Anime/i })).getByText("Identifying")).toBeVisible();
+    expect(
+      within(screen.getByRole("link", { name: /Movies/i })).getByTestId("library-identifying-2"),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("link", { name: /Anime/i })).getByTestId("library-identifying-3"),
+    ).toBeVisible();
+    expect(screen.queryByText("Queued for identify")).not.toBeInTheDocument();
+    expect(screen.queryByText("Identifying")).not.toBeInTheDocument();
   });
 });

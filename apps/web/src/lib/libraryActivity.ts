@@ -1,6 +1,6 @@
 export type LibraryActivity =
   | "importing"
-  | "finishing"
+  | "analyzing"
   | "identify-queued"
   | "identifying";
 
@@ -30,7 +30,7 @@ export function getLibraryActivity(options: {
     return "importing";
   }
   if (options.scanPhase === "completed" && options.enriching) {
-    return "finishing";
+    return "analyzing";
   }
   return undefined;
 }
@@ -39,8 +39,8 @@ export function getLibraryActivityLabel(activity: LibraryActivity | undefined): 
   switch (activity) {
     case "importing":
       return "Importing";
-    case "finishing":
-      return "Finishing";
+    case "analyzing":
+      return "Analyzing media";
     case "identify-queued":
       return "Queued for identify";
     case "identifying":

@@ -24,15 +24,24 @@ import type {
   LibraryScanActivityEntry,
   LibraryScanStatus,
   LibraryType,
+  MetadataArtworkProvider,
+  MetadataArtworkProviderStatus,
+  MetadataArtworkSettings,
+  MetadataArtworkSettingsResponse,
   MatchStatus,
   MediaItem,
+  EpisodeMetadataArtworkFetchers,
   PlumWebSocketCommand,
   PlumWebSocketEvent,
   PlaybackDelivery,
   PlaybackSession,
+  PosterCandidate,
+  PosterCandidatesResponse,
   SearchResponse,
   RecentlyAddedEntry,
   ScanLibraryResult,
+  SetPosterSelectionPayload,
+  ShowMetadataArtworkFetchers,
   SeriesDetails,
   SeriesSearchResult,
   SetupStatus,
@@ -63,12 +72,16 @@ import {
   IdentifyResultSchema,
   LibrarySchema,
   LibraryScanStatusSchema,
+  MetadataArtworkSettingsResponseSchema,
+  MetadataArtworkSettingsSchema,
   MediaItemSchema,
+  PosterCandidatesResponseSchema,
   PlaybackSessionSchema,
   PlumWebSocketCommandSchema,
   PlumWebSocketEventSchema,
   SearchResponseSchema,
   ScanLibraryResultSchema,
+  SetPosterSelectionPayloadSchema,
   SeriesDetailsSchema,
   SeriesSearchResultSchema,
   SetupStatusSchema,
@@ -135,6 +148,15 @@ export type {
   UpdateMediaProgressPayload,
   User,
   VaapiDecodeCodec,
+  EpisodeMetadataArtworkFetchers,
+  MetadataArtworkProvider,
+  MetadataArtworkProviderStatus,
+  MetadataArtworkSettings,
+  MetadataArtworkSettingsResponse,
+  PosterCandidate,
+  PosterCandidatesResponse,
+  SetPosterSelectionPayload,
+  ShowMetadataArtworkFetchers,
 };
 
 const defaultFetchOptions = { credentials: "include" } satisfies RequestInit;
@@ -864,6 +886,88 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
+    getMetadataArtworkSettings: () =>
+      jsonRequestEffect({
+        path: "/api/settings/metadata-artwork",
+        schema: MetadataArtworkSettingsResponseSchema,
+        errorMessage: ({ status, body }) => body || `Metadata artwork settings: ${status}`,
+      }),
+    updateMetadataArtworkSettings: (payload: MetadataArtworkSettings) =>
+      decodeSchemaEffect(
+        MetadataArtworkSettingsSchema,
+        payload,
+        "PUT",
+        "/api/settings/metadata-artwork",
+        "Invalid metadata artwork settings payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "PUT",
+            path: "/api/settings/metadata-artwork",
+            schema: MetadataArtworkSettingsResponseSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Save metadata artwork settings: ${status}`,
+          }),
+        ),
+      ),
+    getMoviePosterCandidates: (libraryId: number, mediaId: number) =>
+      jsonRequestEffect({
+        path: `/api/libraries/${libraryId}/movies/${mediaId}/artwork/poster/candidates`,
+        schema: PosterCandidatesResponseSchema,
+        errorMessage: ({ status, body }) => body || `Movie poster candidates: ${status}`,
+      }),
+    setMoviePosterSelection: (libraryId: number, mediaId: number, payload: SetPosterSelectionPayload) =>
+      decodeSchemaEffect(
+        SetPosterSelectionPayloadSchema,
+        payload,
+        "PUT",
+        `/api/libraries/${libraryId}/movies/${mediaId}/artwork/poster`,
+        "Invalid poster selection payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          voidRequestEffect({
+            method: "PUT",
+            path: `/api/libraries/${libraryId}/movies/${mediaId}/artwork/poster`,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Save movie poster: ${status}`,
+          }),
+        ),
+      ),
+    resetMoviePosterSelection: (libraryId: number, mediaId: number) =>
+      voidRequestEffect({
+        method: "DELETE",
+        path: `/api/libraries/${libraryId}/movies/${mediaId}/artwork/poster`,
+        errorMessage: ({ status, body }) => body || `Reset movie poster: ${status}`,
+      }),
+    getShowPosterCandidates: (libraryId: number, showKey: string) =>
+      jsonRequestEffect({
+        path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/artwork/poster/candidates`,
+        schema: PosterCandidatesResponseSchema,
+        errorMessage: ({ status, body }) => body || `Show poster candidates: ${status}`,
+      }),
+    setShowPosterSelection: (libraryId: number, showKey: string, payload: SetPosterSelectionPayload) =>
+      decodeSchemaEffect(
+        SetPosterSelectionPayloadSchema,
+        payload,
+        "PUT",
+        `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/artwork/poster`,
+        "Invalid poster selection payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          voidRequestEffect({
+            method: "PUT",
+            path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/artwork/poster`,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Save show poster: ${status}`,
+          }),
+        ),
+      ),
+    resetShowPosterSelection: (libraryId: number, showKey: string) =>
+      voidRequestEffect({
+        method: "DELETE",
+        path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/artwork/poster`,
+        errorMessage: ({ status, body }) => body || `Reset show poster: ${status}`,
+      }),
     searchSeries: (query: string) => {
       const trimmed = query.trim();
       if (!trimmed) {
@@ -964,6 +1068,27 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     getTranscodingSettings: () => run(effects.getTranscodingSettings()),
     updateTranscodingSettings: (payload: TranscodingSettings) =>
       run(effects.updateTranscodingSettings(payload)),
+    getMetadataArtworkSettings: () => run(effects.getMetadataArtworkSettings()),
+    updateMetadataArtworkSettings: (payload: MetadataArtworkSettings) =>
+      run(effects.updateMetadataArtworkSettings(payload)),
+    getMoviePosterCandidates: (libraryId: number, mediaId: number) =>
+      run(effects.getMoviePosterCandidates(libraryId, mediaId)),
+    setMoviePosterSelection: (
+      libraryId: number,
+      mediaId: number,
+      payload: SetPosterSelectionPayload,
+    ) => run(effects.setMoviePosterSelection(libraryId, mediaId, payload)),
+    resetMoviePosterSelection: (libraryId: number, mediaId: number) =>
+      run(effects.resetMoviePosterSelection(libraryId, mediaId)),
+    getShowPosterCandidates: (libraryId: number, showKey: string) =>
+      run(effects.getShowPosterCandidates(libraryId, showKey)),
+    setShowPosterSelection: (
+      libraryId: number,
+      showKey: string,
+      payload: SetPosterSelectionPayload,
+    ) => run(effects.setShowPosterSelection(libraryId, showKey, payload)),
+    resetShowPosterSelection: (libraryId: number, showKey: string) =>
+      run(effects.resetShowPosterSelection(libraryId, showKey)),
     searchSeries: (query: string) => run(effects.searchSeries(query)),
     refreshShow: (libraryId: number, showKey: string) =>
       run(effects.refreshShow(libraryId, showKey)),

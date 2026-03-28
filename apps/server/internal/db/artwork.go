@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/jpeg"
 	_ "image/gif"
+	"image/jpeg"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -57,6 +57,31 @@ func HandleServeArtwork(
 	default:
 		return ErrNotFound
 	}
+	return serveEntityArtwork(w, r, dbConn, "media", globalID, artworkDir, artworkKind, source)
+}
+
+func HandleServeShowArtwork(
+	w http.ResponseWriter,
+	r *http.Request,
+	dbConn *sql.DB,
+	showID int,
+	artworkDir string,
+	artworkKind string,
+	source string,
+) error {
+	return serveEntityArtwork(w, r, dbConn, "show", showID, artworkDir, artworkKind, source)
+}
+
+func serveEntityArtwork(
+	w http.ResponseWriter,
+	r *http.Request,
+	dbConn *sql.DB,
+	entityKind string,
+	entityID int,
+	artworkDir string,
+	artworkKind string,
+	source string,
+) error {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return ErrNotFound
@@ -66,7 +91,7 @@ func HandleServeArtwork(
 	if requested := strings.TrimSpace(r.URL.Query().Get("profile")); requested != "" && requested == "original" {
 		profile = artworkProfile{Name: "original"}
 	}
-	asset, err := ensureArtworkAsset(r.Context(), dbConn, "media", globalID, artworkKind, source, artworkDir)
+	asset, err := ensureArtworkAsset(r.Context(), dbConn, entityKind, entityID, artworkKind, source, artworkDir)
 	if err != nil {
 		return err
 	}
@@ -95,13 +120,13 @@ func HandleServeArtwork(
 }
 
 type artworkAssetRecord struct {
-	id             int
-	sourceURL      string
-	kind           string
-	contentHash    string
-	mimeType       string
-	width          int
-	height         int
+	id              int
+	sourceURL       string
+	kind            string
+	contentHash     string
+	mimeType        string
+	width           int
+	height          int
 	originalRelPath string
 }
 

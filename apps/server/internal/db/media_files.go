@@ -4,9 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
+
+func ShowPosterURL(libraryID int, showKey string) string {
+	showKey = strings.TrimSpace(showKey)
+	if libraryID <= 0 || showKey == "" {
+		return ""
+	}
+	return fmt.Sprintf("/api/libraries/%d/shows/%s/artwork/poster", libraryID, url.PathEscape(showKey))
+}
 
 func isMissingMediaFilesSchemaError(err error) bool {
 	if err == nil {
@@ -41,6 +50,9 @@ func decorateMediaItemURLs(item *MediaItem) {
 	}
 	if item.Type == LibraryTypeTV || item.Type == LibraryTypeAnime {
 		item.ThumbnailURL = fmt.Sprintf("/api/media/%d/thumbnail", item.ID)
+		if item.ShowPosterPath != "" {
+			item.ShowPosterURL = ShowPosterURL(item.LibraryID, showKeyFromItem(item.TMDBID, item.Title))
+		}
 	}
 }
 
