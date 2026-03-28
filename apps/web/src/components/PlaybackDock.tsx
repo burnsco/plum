@@ -316,6 +316,7 @@ export function PlaybackDock() {
     volume,
     muted,
     videoSourceUrl,
+    playbackDurationSeconds,
     wsConnected,
     lastEvent,
     registerMediaElement,
@@ -503,12 +504,16 @@ export function PlaybackDock() {
       setPlaybackState({
         currentTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
         duration: isVideo
-          ? resolvedVideoDuration(activeItem?.duration ?? 0, elementDuration)
+          ? resolvedVideoDuration(
+              playbackDurationSeconds,
+              activeItem?.duration ?? 0,
+              elementDuration,
+            )
           : elementDuration,
         isPlaying: !element.paused && !element.ended,
       });
     },
-    [activeItem?.duration, isVideo],
+    [activeItem?.duration, isVideo, playbackDurationSeconds],
   );
   const syncPlaybackStateRef = useRef(syncPlaybackState);
 
@@ -556,6 +561,7 @@ export function PlaybackDock() {
       const fallbackPosition =
         fallback?.mediaId === activeItem.id ? fallback.positionSeconds : playbackState.currentTime;
       const duration = resolvedVideoDuration(
+        playbackDurationSeconds,
         activeItem.duration,
         candidate?.duration ?? fallbackDuration,
       );
@@ -575,7 +581,7 @@ export function PlaybackDock() {
         ended,
       };
     },
-    [activeItem, isVideo, playbackState.currentTime],
+    [activeItem, isVideo, playbackDurationSeconds, playbackState.currentTime],
   );
 
   const syncVideoProgressSnapshot = useCallback(
@@ -663,11 +669,15 @@ export function PlaybackDock() {
         resumeAppliedRef.current = activeItem.id;
         return;
       }
-      const maxResumeTime = resolvedVideoDuration(activeItem.duration, element.duration) - 1;
+      const maxResumeTime = resolvedVideoDuration(
+        playbackDurationSeconds,
+        activeItem.duration,
+        element.duration,
+      ) - 1;
       element.currentTime = Math.max(0, Math.min(resumeAt, maxResumeTime));
       resumeAppliedRef.current = activeItem.id;
     },
-    [activeItem, isVideo],
+    [activeItem, isVideo, playbackDurationSeconds],
   );
 
   const persistInitialPlaybackProgress = useCallback(
@@ -773,6 +783,15 @@ export function PlaybackDock() {
     setAudioMenuOpen(false);
     setPlayerSettingsOpen(false);
   }, [activeItemDuration, activeItemId]);
+
+  useEffect(() => {
+    if (!isVideo) return;
+    const nextDuration = resolvedVideoDuration(playbackDurationSeconds, activeItemDuration, 0);
+    if (nextDuration <= 0) return;
+    setPlaybackState((current) =>
+      current.duration === nextDuration ? current : { ...current, duration: nextDuration },
+    );
+  }, [activeItemDuration, isVideo, playbackDurationSeconds]);
 
   useEffect(() => {
     if (!activeItem) {
@@ -1230,7 +1249,7 @@ export function PlaybackDock() {
     "w780",
   );
   const progressMax =
-    playbackState.duration > 0 ? playbackState.duration : Math.max(activeItem.duration, 0);
+    playbackState.duration > 0 ? playbackState.duration : Math.max(playbackDurationSeconds, 0);
   const repeatLabel =
     repeatMode === "one" ? "Repeat track" : repeatMode === "all" ? "Repeat queue" : "Repeat off";
   const showDefaultControls = isVideo && playerControlsAppearance === "default";

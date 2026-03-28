@@ -60,6 +60,96 @@ func TestRunRevisionFallsBackToSoftwareBeforeReady(t *testing.T) {
 	}
 }
 
+func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "media.mp4")
+	if err := os.WriteFile(mediaPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	previousProbeCommandContext := ffprobeCommandContext
+	ffprobeCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeFFProbeCommand(
+			ctx,
+			`{"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","bit_rate":"0","duration":"7200.9"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","bit_rate":"0"},{"index":1,"codec_type":"audio","codec_name":"aac","bit_rate":"0"}]}`,
+		)
+	}
+	t.Cleanup(func() {
+		ffprobeCommandContext = previousProbeCommandContext
+	})
+
+	manager := NewPlaybackSessionManager(root, nil)
+	state, err := manager.Create(
+		db.MediaItem{ID: 21, Path: mediaPath, Duration: 120},
+		db.DefaultTranscodingSettings(),
+		-1,
+		99,
+		ClientPlaybackCapabilities{
+			Containers:  []string{"mp4"},
+			VideoCodecs: []string{"h264"},
+			AudioCodecs: []string{"aac"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if state.Delivery != "direct" {
+		t.Fatalf("delivery = %q, want direct", state.Delivery)
+	}
+	if state.DurationSeconds != 7200 {
+		t.Fatalf("durationSeconds = %d, want 7200", state.DurationSeconds)
+	}
+}
+
+func TestRunRevisionUpdatesDurationSecondsFromProbe(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "media.mkv")
+	if err := os.WriteFile(mediaPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	previousProbeCommandContext := ffprobeCommandContext
+	ffprobeCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeFFProbeCommand(
+			ctx,
+			`{"format":{"format_name":"matroska","bit_rate":"0","duration":"3600.7"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","bit_rate":"0"},{"index":1,"codec_type":"audio","codec_name":"aac","bit_rate":"0"}]}`,
+		)
+	}
+	t.Cleanup(func() {
+		ffprobeCommandContext = previousProbeCommandContext
+	})
+
+	previousCommandContext := ffmpegCommandContext
+	ffmpegCommandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		return fakeHLSCommand(ctx, args, "0")
+	}
+	t.Cleanup(func() {
+		ffmpegCommandContext = previousCommandContext
+	})
+
+	manager := NewPlaybackSessionManager(root, nil)
+	session := &playbackSession{
+		id:              "session-duration",
+		media:           db.MediaItem{ID: 44, Path: mediaPath},
+		durationSeconds: 0,
+		revisions:       make(map[int]*playbackRevision),
+	}
+
+	if _, err := manager.startRevision(session, db.DefaultTranscodingSettings(), -1, playbackDecision{Delivery: "transcode"}); err != nil {
+		t.Fatalf("startRevision: %v", err)
+	}
+
+	waitForRevisionStatus(t, session, 1, "ready")
+
+	session.mu.Lock()
+	durationSeconds := session.durationSeconds
+	session.mu.Unlock()
+	if durationSeconds != 3600 {
+		t.Fatalf("durationSeconds = %d, want 3600", durationSeconds)
+	}
+}
+
 func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 	root := t.TempDir()
 	manager := NewPlaybackSessionManager(root, nil)
@@ -308,6 +398,7 @@ func TestAttachReturnsReplayStateForReadyRevision(t *testing.T) {
 		id:              "session-ready-replay",
 		userID:          10,
 		media:           db.MediaItem{ID: 16},
+		durationSeconds: 1800,
 		audioIndex:      2,
 		activeRevision:  3,
 		desiredRevision: 3,
@@ -333,7 +424,7 @@ func TestAttachReturnsReplayStateForReadyRevision(t *testing.T) {
 	if state == nil {
 		t.Fatal("expected replay state")
 	}
-	if state.Status != "ready" || state.Revision != 3 || state.AudioIndex != 2 {
+	if state.Status != "ready" || state.Revision != 3 || state.AudioIndex != 2 || state.DurationSeconds != 1800 {
 		t.Fatalf("unexpected replay state: %+v", state)
 	}
 }
@@ -344,6 +435,7 @@ func TestAttachReturnsReplayStateForErroredRevision(t *testing.T) {
 		id:              "session-error-replay",
 		userID:          11,
 		media:           db.MediaItem{ID: 17},
+		durationSeconds: 2400,
 		audioIndex:      -1,
 		desiredRevision: 4,
 		revisions: map[int]*playbackRevision{
@@ -369,8 +461,61 @@ func TestAttachReturnsReplayStateForErroredRevision(t *testing.T) {
 	if state == nil {
 		t.Fatal("expected replay state")
 	}
-	if state.Status != "error" || state.Error != "transcode failed" || state.Revision != 4 {
+	if state.Status != "error" || state.Error != "transcode failed" || state.Revision != 4 || state.DurationSeconds != 2400 {
 		t.Fatalf("unexpected replay state: %+v", state)
+	}
+}
+
+func TestUpdateAudioReturnsDurationSecondsFromProbe(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "media.mp4")
+	if err := os.WriteFile(mediaPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	previousProbeCommandContext := ffprobeCommandContext
+	ffprobeCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeFFProbeCommand(
+			ctx,
+			`{"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","bit_rate":"0","duration":"5400.4"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","bit_rate":"0"},{"index":1,"codec_type":"audio","codec_name":"aac","bit_rate":"0"}]}`,
+		)
+	}
+	t.Cleanup(func() {
+		ffprobeCommandContext = previousProbeCommandContext
+	})
+
+	manager := NewPlaybackSessionManager(root, nil)
+	session := &playbackSession{
+		id:     "session-update-audio",
+		userID: 42,
+		media: db.MediaItem{
+			ID:       22,
+			Path:     mediaPath,
+			Duration: 90,
+		},
+		capabilities: ClientPlaybackCapabilities{
+			Containers:  []string{"mp4"},
+			VideoCodecs: []string{"h264"},
+			AudioCodecs: []string{"aac"},
+		},
+		revisions: map[int]*playbackRevision{
+			1: {number: 1, delivery: "transcode"},
+		},
+	}
+	manager.mu.Lock()
+	manager.sessions[session.id] = session
+	manager.mu.Unlock()
+
+	state, err := manager.UpdateAudio(session.id, db.DefaultTranscodingSettings(), -1)
+	if err != nil {
+		t.Fatalf("UpdateAudio: %v", err)
+	}
+
+	if state.Delivery != "direct" {
+		t.Fatalf("delivery = %q, want direct", state.Delivery)
+	}
+	if state.DurationSeconds != 5400 {
+		t.Fatalf("durationSeconds = %d, want 5400", state.DurationSeconds)
 	}
 }
 
@@ -473,4 +618,9 @@ exit "$exit_code"
 		masterPlaylistName,
 		exitCode,
 	)
+}
+
+func fakeFFProbeCommand(ctx context.Context, output string) *exec.Cmd {
+	script := "printf '%s' '" + strings.ReplaceAll(output, "'", "'\\''") + "'"
+	return exec.CommandContext(ctx, "bash", "-lc", script)
 }

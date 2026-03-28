@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -64,13 +65,13 @@ func (c *TVDBClient) ensureToken(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := providerHTTPClient.Do(req)
 	if err != nil {
-		return err
+		return newProviderTransportError("tvdb", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("tvdb login: %s", resp.Status)
+		return newProviderStatusError("tvdb", resp.StatusCode, nil)
 	}
 	var login tvdbLoginResponse
 	if err := json.NewDecoder(resp.Body).Decode(&login); err != nil {
@@ -94,7 +95,7 @@ func (c *TVDBClient) do(ctx context.Context, method, path string, query url.Valu
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	return http.DefaultClient.Do(req)
+	return providerHTTPClient.Do(req)
 }
 
 type tvdbSearchResponse struct {
@@ -125,20 +126,17 @@ func (c *TVDBClient) SearchTV(ctx context.Context, query string) ([]MatchResult,
 		return nil, err
 	}
 	rawURL := tvdbBaseURL + "/search?" + q.Encode()
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tvdb", http.MethodGet, rawURL, nil, map[string]string{
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tvdb", http.MethodGet, rawURL, nil, map[string]string{
 		"Authorization": "Bearer " + c.token,
 	}, 24*time.Hour, 1)
 	if err != nil {
+		var providerErr *ProviderError
+		if errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized {
+			c.mu.Lock()
+			c.token = ""
+			c.mu.Unlock()
+		}
 		return nil, err
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		c.mu.Lock()
-		c.token = ""
-		c.mu.Unlock()
-		return nil, fmt.Errorf("tvdb: unauthorized")
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tvdb search: status %d", resp.StatusCode)
 	}
 	var search tvdbSearchResponse
 	if err := json.Unmarshal(resp.Body, &search); err != nil {
@@ -217,20 +215,17 @@ func (c *TVDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 		return nil, err
 	}
 	rawURL := tvdbBaseURL + path + "?" + q.Encode()
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tvdb", http.MethodGet, rawURL, nil, map[string]string{
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tvdb", http.MethodGet, rawURL, nil, map[string]string{
 		"Authorization": "Bearer " + c.token,
 	}, 7*24*time.Hour, 1)
 	if err != nil {
+		var providerErr *ProviderError
+		if errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized {
+			c.mu.Lock()
+			c.token = ""
+			c.mu.Unlock()
+		}
 		return nil, err
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		c.mu.Lock()
-		c.token = ""
-		c.mu.Unlock()
-		return nil, fmt.Errorf("tvdb: unauthorized")
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tvdb episodes: status %d", resp.StatusCode)
 	}
 	var epResp tvdbSeriesEpisodesResponse
 	if err := json.Unmarshal(resp.Body, &epResp); err != nil {

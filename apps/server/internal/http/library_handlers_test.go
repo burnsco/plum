@@ -193,9 +193,10 @@ func TestUpdateLibraryPlaybackPreferences_PreservesAutomationWhenOmitted(t *test
 }
 
 type identifyStub struct {
-	tv    func(context.Context, metadata.MediaInfo) *metadata.MatchResult
-	movie func(context.Context, metadata.MediaInfo) *metadata.MatchResult
-	anime func(context.Context, metadata.MediaInfo) *metadata.MatchResult
+	tv          func(context.Context, metadata.MediaInfo) *metadata.MatchResult
+	movie       func(context.Context, metadata.MediaInfo) *metadata.MatchResult
+	movieResult func(context.Context, metadata.MediaInfo) (*metadata.MatchResult, error)
+	anime       func(context.Context, metadata.MediaInfo) *metadata.MatchResult
 }
 
 type identifyMusicStub struct {
@@ -281,10 +282,24 @@ func (s *identifyStub) IdentifyAnime(ctx context.Context, info metadata.MediaInf
 }
 
 func (s *identifyStub) IdentifyMovie(ctx context.Context, info metadata.MediaInfo) *metadata.MatchResult {
+	if s.movieResult != nil {
+		result, _ := s.movieResult(ctx, info)
+		return result
+	}
 	if s.movie == nil {
 		return nil
 	}
 	return s.movie(ctx, info)
+}
+
+func (s *identifyStub) IdentifyMovieResult(
+	ctx context.Context,
+	info metadata.MediaInfo,
+) (*metadata.MatchResult, error) {
+	if s.movieResult != nil {
+		return s.movieResult(ctx, info)
+	}
+	return s.IdentifyMovie(ctx, info), nil
 }
 
 func (s *identifyMusicStub) IdentifyMusic(
@@ -1372,7 +1387,7 @@ func TestIdentifyLibrary_TimesOutHungRowsAndSkipsFinishedRows(t *testing.T) {
 	if payload.Identified != 1 || payload.Failed != 1 {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
-	if got := atomic.LoadInt32(&calls); got != 3 {
+	if got := atomic.LoadInt32(&calls); got != 2 {
 		t.Fatalf("identifier call count = %d", got)
 	}
 
@@ -1487,6 +1502,175 @@ func TestIdentifyLibrary_DedupesDuplicateMovieLookupsWithinRun(t *testing.T) {
 	}
 	if calls["unique movie"] != 1 {
 		t.Fatalf("unique movie calls = %d, want 1", calls["unique movie"])
+	}
+}
+
+func TestIdentifyLibrary_RetriesRetryableMovieProviderFailures(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "retry@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Blade",
+		"/movies/Blade (1998)/Blade.1998.2160p.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	var calls int32
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+				if info.Title != "blade" || info.Year != 1998 {
+					t.Fatalf("unexpected info: %+v", info)
+				}
+				if atomic.AddInt32(&calls, 1) == 1 {
+					return nil, &metadata.ProviderError{
+						Provider:   "tmdb",
+						StatusCode: http.StatusTooManyRequests,
+						Retryable:  true,
+					}
+				}
+				return &metadata.MatchResult{
+					Title:      "Blade",
+					Provider:   "tmdb",
+					ExternalID: "36647",
+				}, nil
+			},
+		},
+	}
+
+	result, err := handler.identifyLibrary(context.Background(), libraryID)
+	if err != nil {
+		t.Fatalf("identify library: %v", err)
+	}
+	if result.Identified != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("identify calls = %d, want 2", got)
+	}
+}
+
+func TestLibraryScanManager_FailedMovieNoMatchReindexesAfterTerminalState(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "nomatch@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Unknown Title",
+		"/movies/Unknown Title (2026)/Unknown.Title.2026.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	var calls int32
+	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	var queueCalls int32
+	searchIndex.onQueue = func(gotLibraryID int, full bool) {
+		if gotLibraryID != libraryID {
+			t.Fatalf("queued library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental queue")
+		}
+		atomic.AddInt32(&queueCalls, 1)
+	}
+	searchIndex.refresh = func(gotLibraryID int, full bool) error {
+		if gotLibraryID != libraryID {
+			t.Fatalf("refresh library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental refresh")
+		}
+		return nil
+	}
+
+	scanJobs := NewLibraryScanManager(dbConn, &identifyStub{
+		movieResult: func(_ context.Context, _ metadata.MediaInfo) (*metadata.MatchResult, error) {
+			atomic.AddInt32(&calls, 1)
+			return nil, nil
+		},
+	}, nil)
+	scanJobs.handler = &LibraryHandler{
+		DB:          dbConn,
+		Meta:        scanJobs.meta,
+		ScanJobs:    scanJobs,
+		SearchIndex: searchIndex,
+	}
+	scanJobs.mu.Lock()
+	scanJobs.jobs[libraryID] = libraryScanStatus{
+		LibraryID:         libraryID,
+		Phase:             libraryScanPhaseCompleted,
+		IdentifyPhase:     libraryIdentifyPhaseIdle,
+		IdentifyRequested: true,
+		MaxRetries:        3,
+	}
+	scanJobs.types[libraryID] = db.LibraryTypeMovie
+	scanJobs.paths[libraryID] = "/movies"
+	scanJobs.mu.Unlock()
+
+	scanJobs.startIdentify(libraryID)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.IdentifyPhase == libraryIdentifyPhaseFailed {
+			if status.IdentifyFailed != 1 {
+				t.Fatalf("identify failed count = %d", status.IdentifyFailed)
+			}
+			if status.LastError != "1 item(s) could not be identified automatically" {
+				t.Fatalf("last error = %q", status.LastError)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("identify did not fail: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("identify calls = %d, want 1", got)
+	}
+	deadline = time.Now().Add(time.Second)
+	for {
+		if atomic.LoadInt32(&queueCalls) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("search index queue calls = %d, want 1", atomic.LoadInt32(&queueCalls))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -2347,6 +2531,148 @@ func TestSearchIndexManager_QueueWhileRunningSchedulesRerun(t *testing.T) {
 	}
 	if calls[0] || calls[1] {
 		t.Fatalf("unexpected full refresh flags: %+v", calls)
+	}
+}
+
+func TestLibraryScanManager_FinishSkipsSearchIndexQueueWhenIdentifyRequested(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	manager := NewLibraryScanManager(dbConn, nil, nil)
+	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	var queueCalls int32
+	searchIndex.onQueue = func(gotLibraryID int, full bool) {
+		if gotLibraryID != 7 {
+			t.Fatalf("queued library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental queue")
+		}
+		atomic.AddInt32(&queueCalls, 1)
+	}
+	manager.handler = &LibraryHandler{DB: dbConn, SearchIndex: searchIndex}
+
+	manager.mu.Lock()
+	manager.jobs[7] = libraryScanStatus{
+		LibraryID:         7,
+		Phase:             libraryScanPhaseScanning,
+		IdentifyRequested: true,
+		MaxRetries:        3,
+	}
+	manager.paths[7] = "/library"
+	manager.types[7] = db.LibraryTypeMovie
+	manager.mu.Unlock()
+
+	manager.finish(7, libraryScanPhaseCompleted, db.ScanResult{Added: 3}, "")
+
+	if got := atomic.LoadInt32(&queueCalls); got != 0 {
+		t.Fatalf("search index queue calls = %d, want 0", got)
+	}
+}
+
+func TestLibraryScanManager_StartIdentifyQueuesSearchIndexOnceAtTerminalState(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "queue@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Contact",
+		"/movies/Contact (1997)/Contact.1997.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	var queueCalls int32
+	searchIndex.onQueue = func(gotLibraryID int, full bool) {
+		if gotLibraryID != libraryID {
+			t.Fatalf("queued library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental queue")
+		}
+		atomic.AddInt32(&queueCalls, 1)
+	}
+	searchIndex.refresh = func(gotLibraryID int, full bool) error {
+		if gotLibraryID != libraryID {
+			t.Fatalf("refresh library id = %d", gotLibraryID)
+		}
+		if full {
+			t.Fatal("expected incremental refresh")
+		}
+		return nil
+	}
+
+	manager := NewLibraryScanManager(dbConn, &identifyStub{
+		movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+			if info.Title != "contact" || info.Year != 1997 {
+				t.Fatalf("unexpected info: %+v", info)
+			}
+			return &metadata.MatchResult{
+				Title:      "Contact",
+				Provider:   "tmdb",
+				ExternalID: "686",
+			}, nil
+		},
+	}, nil)
+	manager.handler = &LibraryHandler{
+		DB:          dbConn,
+		Meta:        manager.meta,
+		ScanJobs:    manager,
+		SearchIndex: searchIndex,
+	}
+	manager.mu.Lock()
+	manager.jobs[libraryID] = libraryScanStatus{
+		LibraryID:         libraryID,
+		Phase:             libraryScanPhaseCompleted,
+		IdentifyPhase:     libraryIdentifyPhaseIdle,
+		IdentifyRequested: true,
+		MaxRetries:        3,
+	}
+	manager.paths[libraryID] = "/movies"
+	manager.types[libraryID] = db.LibraryTypeMovie
+	manager.mu.Unlock()
+
+	manager.startIdentify(libraryID)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := manager.status(libraryID)
+		if status.IdentifyPhase == libraryIdentifyPhaseCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("identify did not complete: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	deadline = time.Now().Add(time.Second)
+	for {
+		if atomic.LoadInt32(&queueCalls) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("search index queue calls = %d, want 1", atomic.LoadInt32(&queueCalls))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

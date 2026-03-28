@@ -97,7 +97,7 @@ func (c *TMDBClient) SetCache(cache ProviderCache) {
 
 func (c *TMDBClient) SearchTV(ctx context.Context, query string) ([]MatchResult, error) {
 	u := fmt.Sprintf("%s/search/tv?api_key=%s&query=%s", c.baseURL, c.APIKey, url.QueryEscape(query))
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 24*time.Hour, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (c *TMDBClient) SearchTV(ctx context.Context, query string) ([]MatchResult,
 
 func (c *TMDBClient) SearchMovie(ctx context.Context, query string) ([]MatchResult, error) {
 	u := fmt.Sprintf("%s/search/movie?api_key=%s&query=%s", c.baseURL, c.APIKey, url.QueryEscape(query))
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 24*time.Hour, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (c *TMDBClient) getTVDetails(ctx context.Context, id int) (*tmdbTVDetails, 
 	}
 	c.mu.RUnlock()
 	u := fmt.Sprintf("%s/tv/%d?api_key=%s&append_to_response=credits,external_ids", c.baseURL, id, c.APIKey)
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*tmdbMovieDet
 	}
 	c.mu.RUnlock()
 	u := fmt.Sprintf("%s/movie/%d?api_key=%s&append_to_response=credits,external_ids", c.baseURL, id, c.APIKey)
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +333,7 @@ func (c *TMDBClient) getTVIMDbID(ctx context.Context, id int) (string, error) {
 }
 
 func (c *TMDBClient) getIMDbID(ctx context.Context, endpoint string) (string, error) {
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, endpoint, nil, nil, 30*24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, endpoint, nil, nil, 30*24*time.Hour, 1)
 	if err != nil {
 		return "", err
 	}
@@ -346,7 +346,7 @@ func (c *TMDBClient) getIMDbID(ctx context.Context, endpoint string) (string, er
 
 func (c *TMDBClient) getEpisodeDetails(tvID, season, episode int) (*TMDBResult, error) {
 	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s", c.baseURL, tvID, season, episode, c.APIKey)
-	resp, err := doCachedJSONRequest(context.Background(), http.DefaultClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
+	resp, err := doCachedJSONRequest(context.Background(), providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
 	}

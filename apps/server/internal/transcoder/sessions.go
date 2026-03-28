@@ -26,14 +26,15 @@ var previousRevisionCancelDelay = 20 * time.Second
 var playbackDisconnectGracePeriod = 10 * time.Second
 
 type PlaybackSessionState struct {
-	SessionID  string `json:"sessionId,omitempty"`
-	Delivery   string `json:"delivery"`
-	MediaID    int    `json:"mediaId"`
-	Revision   int    `json:"revision,omitempty"`
-	AudioIndex int    `json:"audioIndex,omitempty"`
-	Status     string `json:"status"`
-	StreamURL  string `json:"streamUrl"`
-	Error      string `json:"error,omitempty"`
+	SessionID       string `json:"sessionId,omitempty"`
+	Delivery        string `json:"delivery"`
+	MediaID         int    `json:"mediaId"`
+	Revision        int    `json:"revision,omitempty"`
+	AudioIndex      int    `json:"audioIndex,omitempty"`
+	Status          string `json:"status"`
+	StreamURL       string `json:"streamUrl"`
+	DurationSeconds int    `json:"durationSeconds"`
+	Error           string `json:"error,omitempty"`
 }
 
 type playbackRevision struct {
@@ -53,6 +54,7 @@ type playbackSession struct {
 	id              string
 	userID          int
 	media           db.MediaItem
+	durationSeconds int
 	capabilities    ClientPlaybackCapabilities
 	audioIndex      int
 	activeRevision  int
@@ -91,14 +93,16 @@ func (m *PlaybackSessionManager) Create(
 	if err != nil {
 		log.Printf("playback probe failed media=%d path=%s error=%v", media.ID, media.Path, err)
 	}
+	durationSeconds := resolvePlaybackDurationSeconds(media.Duration, probe.DurationSeconds)
 	decision := decidePlayback(media.ID, probe, capabilities, audioIndex)
 	if decision.Delivery == "direct" {
 		return PlaybackSessionState{
-			Delivery:   "direct",
-			MediaID:    media.ID,
-			AudioIndex: audioIndex,
-			Status:     "ready",
-			StreamURL:  decision.StreamURL,
+			Delivery:        "direct",
+			MediaID:         media.ID,
+			AudioIndex:      audioIndex,
+			Status:          "ready",
+			StreamURL:       decision.StreamURL,
+			DurationSeconds: durationSeconds,
 		}, nil
 	}
 
@@ -115,6 +119,7 @@ func (m *PlaybackSessionManager) Create(
 		id:              sessionID,
 		userID:          userID,
 		media:           media,
+		durationSeconds: durationSeconds,
 		capabilities:    capabilities,
 		audioIndex:      audioIndex,
 		activeRevision:  0,
@@ -148,15 +153,24 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 	if err != nil {
 		log.Printf("playback probe failed media=%d path=%s error=%v", session.media.ID, session.media.Path, err)
 	}
+	durationSeconds := resolvePlaybackDurationSeconds(session.media.Duration, probe.DurationSeconds)
+	session.mu.Lock()
+	if durationSeconds > 0 {
+		session.durationSeconds = durationSeconds
+	} else {
+		durationSeconds = session.durationSeconds
+	}
+	session.mu.Unlock()
 	decision := decidePlayback(session.media.ID, probe, session.capabilities, audioIndex)
 	if decision.Delivery == "direct" {
 		m.Close(sessionID)
 		return PlaybackSessionState{
-			Delivery:   "direct",
-			MediaID:    session.media.ID,
-			AudioIndex: audioIndex,
-			Status:     "ready",
-			StreamURL:  decision.StreamURL,
+			Delivery:        "direct",
+			MediaID:         session.media.ID,
+			AudioIndex:      audioIndex,
+			Status:          "ready",
+			StreamURL:       decision.StreamURL,
+			DurationSeconds: durationSeconds,
 		}, nil
 	}
 	return m.startRevision(session, settings, audioIndex, decision)
@@ -251,6 +265,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 	activeRevision := session.activeRevision
 	audioIndex := session.audioIndex
 	mediaID := session.media.ID
+	durationSeconds := session.durationSeconds
 	ownerClientID := session.ownerClientID
 	delivery := "transcode"
 	if active := session.revisions[activeRevision]; active != nil && active.delivery != "" {
@@ -274,12 +289,13 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 	}
 	_ = os.RemoveAll(filepath.Join(m.root, sessionID))
 	m.broadcast(PlaybackSessionState{
-		SessionID:  sessionID,
-		Delivery:   delivery,
-		MediaID:    mediaID,
-		Revision:   activeRevision,
-		AudioIndex: audioIndex,
-		Status:     "closed",
+		SessionID:       sessionID,
+		Delivery:        delivery,
+		MediaID:         mediaID,
+		Revision:        activeRevision,
+		AudioIndex:      audioIndex,
+		Status:          "closed",
+		DurationSeconds: durationSeconds,
 	})
 }
 
@@ -302,14 +318,15 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			continue
 		}
 		return &PlaybackSessionState{
-			SessionID:  s.id,
-			Delivery:   revision.delivery,
-			MediaID:    s.media.ID,
-			Revision:   revision.number,
-			AudioIndex: revision.audioIndex,
-			Status:     revision.status,
-			StreamURL:  revision.streamURL,
-			Error:      revision.err,
+			SessionID:       s.id,
+			Delivery:        revision.delivery,
+			MediaID:         s.media.ID,
+			Revision:        revision.number,
+			AudioIndex:      revision.audioIndex,
+			Status:          revision.status,
+			StreamURL:       revision.streamURL,
+			DurationSeconds: s.durationSeconds,
+			Error:           revision.err,
 		}
 	}
 	return nil
@@ -376,6 +393,7 @@ func (m *PlaybackSessionManager) startRevision(
 	session.desiredRevision += 1
 	revisionNumber := session.desiredRevision
 	session.audioIndex = audioIndex
+	durationSeconds := session.durationSeconds
 
 	for _, revision := range session.revisions {
 		if revision.number > session.activeRevision && revision.number != revisionNumber && revision.cancel != nil {
@@ -413,13 +431,14 @@ func (m *PlaybackSessionManager) startRevision(
 	go m.runRevision(ctx, session, revision, settings, decision)
 
 	return PlaybackSessionState{
-		SessionID:  session.id,
-		Delivery:   revision.delivery,
-		MediaID:    session.media.ID,
-		Revision:   revision.number,
-		AudioIndex: audioIndex,
-		Status:     revision.status,
-		StreamURL:  revision.streamURL,
+		SessionID:       session.id,
+		Delivery:        revision.delivery,
+		MediaID:         session.media.ID,
+		Revision:        revision.number,
+		AudioIndex:      audioIndex,
+		Status:          revision.status,
+		StreamURL:       revision.streamURL,
+		DurationSeconds: durationSeconds,
 	}, nil
 }
 
@@ -459,15 +478,24 @@ func (m *PlaybackSessionManager) runRevision(
 	if err != nil {
 		log.Printf("playback probe failed media=%d path=%s error=%v", session.media.ID, session.media.Path, err)
 	}
+	durationSeconds := resolvePlaybackDurationSeconds(session.media.Duration, probe.DurationSeconds)
+	session.mu.Lock()
+	if durationSeconds > 0 {
+		session.durationSeconds = durationSeconds
+	} else {
+		durationSeconds = session.durationSeconds
+	}
+	session.mu.Unlock()
 	plans := buildPlaybackHLSPlans(session.media.Path, revision.dir, settings, probe, decision)
 	finalState := PlaybackSessionState{
-		SessionID:  session.id,
-		Delivery:   revision.delivery,
-		MediaID:    session.media.ID,
-		Revision:   revision.number,
-		AudioIndex: revision.audioIndex,
-		Status:     "error",
-		StreamURL:  revision.streamURL,
+		SessionID:       session.id,
+		Delivery:        revision.delivery,
+		MediaID:         session.media.ID,
+		Revision:        revision.number,
+		AudioIndex:      revision.audioIndex,
+		Status:          "error",
+		StreamURL:       revision.streamURL,
+		DurationSeconds: durationSeconds,
 	}
 
 	for index, plan := range plans {
@@ -604,16 +632,18 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 	audioIndex := session.audioIndex
 	mediaID := session.media.ID
 	sessionID := session.id
+	durationSeconds := session.durationSeconds
 	session.mu.Unlock()
 
 	m.broadcast(PlaybackSessionState{
-		SessionID:  sessionID,
-		Delivery:   revision.delivery,
-		MediaID:    mediaID,
-		Revision:   revision.number,
-		AudioIndex: audioIndex,
-		Status:     "ready",
-		StreamURL:  revision.streamURL,
+		SessionID:       sessionID,
+		Delivery:        revision.delivery,
+		MediaID:         mediaID,
+		Revision:        revision.number,
+		AudioIndex:      audioIndex,
+		Status:          "ready",
+		StreamURL:       revision.streamURL,
+		DurationSeconds: durationSeconds,
 	})
 
 	if previousActive > 0 && previousActive != activeRevision {
@@ -642,15 +672,16 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 		return
 	}
 	payload, err := json.Marshal(map[string]any{
-		"type":       "playback_session_update",
-		"sessionId":  state.SessionID,
-		"delivery":   state.Delivery,
-		"mediaId":    state.MediaID,
-		"revision":   state.Revision,
-		"audioIndex": state.AudioIndex,
-		"status":     state.Status,
-		"streamUrl":  state.StreamURL,
-		"error":      state.Error,
+		"type":            "playback_session_update",
+		"sessionId":       state.SessionID,
+		"delivery":        state.Delivery,
+		"mediaId":         state.MediaID,
+		"revision":        state.Revision,
+		"audioIndex":      state.AudioIndex,
+		"status":          state.Status,
+		"streamUrl":       state.StreamURL,
+		"durationSeconds": state.DurationSeconds,
+		"error":           state.Error,
 	})
 	if err != nil {
 		log.Printf("marshal playback session update: %v", err)
@@ -735,6 +766,16 @@ func compactFFmpegError(stderr string, err error) string {
 		return err.Error()
 	}
 	return stderr
+}
+
+func resolvePlaybackDurationSeconds(mediaDuration int, probedDuration int) int {
+	if probedDuration > 0 {
+		return probedDuration
+	}
+	if mediaDuration > 0 {
+		return mediaDuration
+	}
+	return 0
 }
 
 func newPlaybackSessionID() (string, error) {

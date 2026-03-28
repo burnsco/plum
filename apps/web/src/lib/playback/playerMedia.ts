@@ -132,7 +132,14 @@ export function formatHlsErrorMessage(data: HlsErrorData): string {
   return data.details || data.type || data.error?.message || "Playback stream failed";
 }
 
-export function resolvedVideoDuration(itemDuration: number, elementDuration: number): number {
+export function resolvedVideoDuration(
+  authoritativeDuration: number,
+  itemDuration: number,
+  elementDuration: number,
+): number {
+  if (Number.isFinite(authoritativeDuration) && authoritativeDuration > 0) {
+    return authoritativeDuration;
+  }
   if (Number.isFinite(itemDuration) && itemDuration > 0) {
     return itemDuration;
   }

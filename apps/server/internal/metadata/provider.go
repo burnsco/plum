@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"errors"
+	"strconv"
 )
 
 // Identifier is implemented by Pipeline and by test mocks. Used by the scanner to resolve metadata.
@@ -10,6 +11,12 @@ type Identifier interface {
 	IdentifyTV(ctx context.Context, info MediaInfo) *MatchResult
 	IdentifyAnime(ctx context.Context, info MediaInfo) *MatchResult
 	IdentifyMovie(ctx context.Context, info MediaInfo) *MatchResult
+}
+
+// MovieIdentifierWithError exposes retryable provider failures for internal callers
+// that need to distinguish "no result" from "provider temporarily failed".
+type MovieIdentifierWithError interface {
+	IdentifyMovieResult(ctx context.Context, info MediaInfo) (*MatchResult, error)
 }
 
 // MusicInfo is the provider-facing metadata used to identify a track.
@@ -96,16 +103,16 @@ type MovieLookupProvider interface {
 }
 
 type MovieDetails struct {
-	Title       string       `json:"title"`
-	Overview    string       `json:"overview"`
-	PosterPath  string       `json:"poster_path"`
-	BackdropPath string      `json:"backdrop_path"`
-	ReleaseDate string       `json:"release_date"`
-	IMDbID      string       `json:"imdb_id,omitempty"`
-	IMDbRating  float64      `json:"imdb_rating,omitempty"`
-	Genres      []string     `json:"genres"`
-	Cast        []CastMember `json:"cast"`
-	Runtime     int          `json:"runtime,omitempty"`
+	Title        string       `json:"title"`
+	Overview     string       `json:"overview"`
+	PosterPath   string       `json:"poster_path"`
+	BackdropPath string       `json:"backdrop_path"`
+	ReleaseDate  string       `json:"release_date"`
+	IMDbID       string       `json:"imdb_id,omitempty"`
+	IMDbRating   float64      `json:"imdb_rating,omitempty"`
+	Genres       []string     `json:"genres"`
+	Cast         []CastMember `json:"cast"`
+	Runtime      int          `json:"runtime,omitempty"`
 }
 
 type MovieDetailsProvider interface {
@@ -141,6 +148,39 @@ const (
 )
 
 var ErrTMDBNotConfigured = errors.New("tmdb discover requires TMDB_API_KEY")
+
+// ProviderError describes a provider HTTP or transport failure.
+type ProviderError struct {
+	Provider   string
+	StatusCode int
+	Retryable  bool
+	Cause      error
+}
+
+func (e *ProviderError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Cause != nil {
+		return e.Provider + ": " + e.Cause.Error()
+	}
+	if e.StatusCode > 0 {
+		return e.Provider + ": status " + strconv.Itoa(e.StatusCode)
+	}
+	return e.Provider + ": provider request failed"
+}
+
+func (e *ProviderError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func IsRetryableProviderError(err error) bool {
+	var providerErr *ProviderError
+	return errors.As(err, &providerErr) && providerErr.Retryable
+}
 
 type DiscoverLibraryMatch struct {
 	LibraryID   int    `json:"library_id"`

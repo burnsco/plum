@@ -2,6 +2,8 @@ package metadata
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 )
 
@@ -36,18 +38,20 @@ func (s *stubTVProvider) GetEpisode(_ context.Context, seriesID string, season, 
 
 type stubMovieProvider struct {
 	searchResults []MatchResult
+	searchErr     error
 	lookupResult  *MatchResult
+	lookupErr     error
 	lookupCalls   []string
 }
 
 func (s *stubMovieProvider) SearchMovie(_ context.Context, _ string) ([]MatchResult, error) {
-	return s.searchResults, nil
+	return s.searchResults, s.searchErr
 }
 
 func (s *stubMovieProvider) GetMovie(_ context.Context, movieID string) (*MatchResult, error) {
 	s.lookupCalls = append(s.lookupCalls, movieID)
-	if s.lookupResult == nil {
-		return nil, nil
+	if s.lookupErr != nil {
+		return nil, s.lookupErr
 	}
 	return s.lookupResult, nil
 }
@@ -91,6 +95,67 @@ func TestIdentifyTV_ExplicitTMDBIDUsesEpisodeMetadata(t *testing.T) {
 	}
 	if len(tmdb.episodeCalls) != 1 || tmdb.episodeCalls[0] != "123" {
 		t.Fatalf("episode lookup calls = %#v", tmdb.episodeCalls)
+	}
+}
+
+func TestIdentifyMovieResult_ReturnsRetryableProviderErrors(t *testing.T) {
+	provider := &stubMovieProvider{
+		searchErr: &ProviderError{
+			Provider:   "tmdb",
+			StatusCode: http.StatusTooManyRequests,
+			Retryable:  true,
+		},
+	}
+	p := &Pipeline{movieProvider: provider}
+
+	result, err := p.IdentifyMovieResult(context.Background(), MediaInfo{Title: "Blade", Year: 1998})
+	if result != nil {
+		t.Fatalf("expected no result, got %#v", result)
+	}
+	if !IsRetryableProviderError(err) {
+		t.Fatalf("expected retryable provider error, got %v", err)
+	}
+}
+
+func TestIdentifyMovieResult_ExplicitTMDBIDFallsBackToSearchWhenLookupFailsNonRetryably(t *testing.T) {
+	provider := &stubMovieProvider{
+		searchResults: []MatchResult{{
+			Title:       "Blade",
+			ReleaseDate: "1998-08-21",
+			Provider:    "tmdb",
+			ExternalID:  "36647",
+		}},
+		lookupErr: errors.New("not found"),
+	}
+	p := &Pipeline{movieProvider: provider}
+
+	result, err := p.IdentifyMovieResult(context.Background(), MediaInfo{Title: "Blade", Year: 1998, TMDBID: 444})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || result.Title != "Blade" {
+		t.Fatalf("expected fallback search result, got %#v", result)
+	}
+}
+
+func TestIdentifyMovieResult_FallsBackToSearchCandidateWhenLookupFailsNonRetryably(t *testing.T) {
+	provider := &stubMovieProvider{
+		searchResults: []MatchResult{{
+			Title:       "Blade",
+			ReleaseDate: "1998-08-21",
+			Provider:    "tmdb",
+			ExternalID:  "36647",
+		}},
+		lookupErr: errors.New("not found"),
+	}
+	p := &Pipeline{movieProvider: provider}
+
+	result, err := p.IdentifyMovieResult(context.Background(), MediaInfo{Title: "Blade", Year: 1998})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || result.Title != "Blade" {
+		t.Fatalf("expected fallback search result, got %#v", result)
 	}
 }
 

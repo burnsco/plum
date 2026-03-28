@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -66,12 +67,19 @@ func TestDoCachedJSONRequest_DoesNotCacheUnsuccessfulResponses(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	first, err := doCachedJSONRequest(ctx, http.DefaultClient, cache, "tmdb", http.MethodGet, server.URL+"/search?q=failure", nil, nil, time.Hour, 1)
-	if err != nil {
-		t.Fatalf("first request: %v", err)
-	}
-	if first.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("first status = %d", first.StatusCode)
+	if _, err := doCachedJSONRequest(ctx, http.DefaultClient, cache, "tmdb", http.MethodGet, server.URL+"/search?q=failure", nil, nil, time.Hour, 1); err == nil {
+		t.Fatal("expected provider error for first request")
+	} else {
+		var providerErr *ProviderError
+		if !errors.As(err, &providerErr) {
+			t.Fatalf("expected provider error, got %T", err)
+		}
+		if providerErr.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("first status = %d", providerErr.StatusCode)
+		}
+		if !providerErr.Retryable {
+			t.Fatal("expected 500 error to be retryable")
+		}
 	}
 	if len(cache.entries) != 0 {
 		t.Fatalf("expected no cache entry after failure, got %d", len(cache.entries))
@@ -92,9 +100,74 @@ func TestDoCachedJSONRequest_DoesNotCacheUnsuccessfulResponses(t *testing.T) {
 	}
 }
 
+func TestDoCachedJSONRequest_Classifies429AsRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	_, err := doCachedJSONRequest(context.Background(), http.DefaultClient, nil, "tmdb", http.MethodGet, server.URL, nil, nil, time.Hour, 1)
+	if err == nil {
+		t.Fatal("expected provider error")
+	}
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected provider error, got %T", err)
+	}
+	if providerErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d", providerErr.StatusCode)
+	}
+	if !providerErr.Retryable {
+		t.Fatal("expected 429 to be retryable")
+	}
+}
+
+func TestDoCachedJSONRequest_ClassifiesTimeoutAsRetryable(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}),
+	}
+
+	_, err := doCachedJSONRequest(context.Background(), client, nil, "tmdb", http.MethodGet, "https://example.com/test", nil, nil, time.Hour, 1)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !IsRetryableProviderError(err) {
+		t.Fatalf("expected retryable provider error, got %v", err)
+	}
+}
+
+func TestTMDBClientSearchMovie_ReturnsErrorForNon2xxResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "provider unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := NewTMDBClient("test-key")
+	client.baseURL = server.URL
+
+	results, err := client.SearchMovie(context.Background(), "Blade")
+	if err == nil {
+		t.Fatal("expected tmdb search error")
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected no results, got %#v", results)
+	}
+	if !IsRetryableProviderError(err) {
+		t.Fatalf("expected retryable provider error, got %v", err)
+	}
+}
+
 type inMemoryProviderCache struct {
 	mu      sync.Mutex
 	entries map[string]*ProviderCacheEntry
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func (c *inMemoryProviderCache) cacheKey(key ProviderCacheKey) string {
