@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -219,6 +221,10 @@ type discoverStub struct {
 	getDiscoverTitleDetail func(context.Context, metadata.DiscoverMediaType, int) (*metadata.DiscoverTitleDetails, error)
 }
 
+type nonRetryableNetError struct {
+	msg string
+}
+
 func (s *seriesQueryStub) SearchTV(ctx context.Context, query string) ([]metadata.MatchResult, error) {
 	if s.searchTV == nil {
 		return nil, nil
@@ -266,6 +272,10 @@ func (s *discoverStub) GetDiscoverTitleDetails(ctx context.Context, mediaType me
 	}
 	return s.getDiscoverTitleDetail(ctx, mediaType, tmdbID)
 }
+
+func (e nonRetryableNetError) Error() string   { return e.msg }
+func (e nonRetryableNetError) Timeout() bool   { return false }
+func (e nonRetryableNetError) Temporary() bool { return false }
 
 func (s *identifyStub) IdentifyTV(ctx context.Context, info metadata.MediaInfo) *metadata.MatchResult {
 	if s.tv == nil {
@@ -1564,6 +1574,130 @@ func TestIdentifyLibrary_RetriesRetryableMovieProviderFailures(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&calls); got != 2 {
 		t.Fatalf("identify calls = %d, want 2", got)
+	}
+}
+
+func TestIdentifyLibrary_RetriesRetryableMovieTransportFailures(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "transport@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Blade",
+		"/movies/Blade (1998)/Blade.1998.2160p.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	var calls int32
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+				if info.Title != "blade" || info.Year != 1998 {
+					t.Fatalf("unexpected info: %+v", info)
+				}
+				if atomic.AddInt32(&calls, 1) == 1 {
+					return nil, &metadata.ProviderError{
+						Provider: "tmdb",
+						Cause: &os.SyscallError{
+							Syscall: "read",
+							Err:     syscall.ECONNRESET,
+						},
+						Retryable: true,
+					}
+				}
+				return &metadata.MatchResult{
+					Title:      "Blade",
+					Provider:   "tmdb",
+					ExternalID: "36647",
+				}, nil
+			},
+		},
+	}
+
+	result, err := handler.identifyLibrary(context.Background(), libraryID)
+	if err != nil {
+		t.Fatalf("identify library: %v", err)
+	}
+	if result.Identified != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("identify calls = %d, want 2", got)
+	}
+}
+
+func TestIdentifyLibrary_DoesNotRetryNonRetryableMovieTransportFailures(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "nonretry@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Blade",
+		"/movies/Blade (1998)/Blade.1998.2160p.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	var calls int32
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Meta: &identifyStub{
+			movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+				if info.Title != "blade" || info.Year != 1998 {
+					t.Fatalf("unexpected info: %+v", info)
+				}
+				atomic.AddInt32(&calls, 1)
+				return nil, &metadata.ProviderError{
+					Provider: "tmdb",
+					Cause: &url.Error{
+						Op:  "Get",
+						URL: "https://example.com/test",
+						Err: nonRetryableNetError{msg: "temporary provider hiccup"},
+					},
+				}
+			},
+		},
+	}
+
+	result, err := handler.identifyLibrary(context.Background(), libraryID)
+	if err != nil {
+		t.Fatalf("identify library: %v", err)
+	}
+	if result.Identified != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("identify calls = %d, want 1", got)
 	}
 }
 

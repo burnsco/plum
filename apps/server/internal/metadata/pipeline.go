@@ -18,13 +18,15 @@ type Pipeline struct {
 	omdb                  *OMDBClient
 	tmdb                  *TMDBClient
 	tvdb                  []*TVDBClient
+	fanart                *FanartClient
 	providerCache         ProviderCache
 }
 
 // NewPipeline builds a pipeline from API keys. Empty keys skip that provider.
-func NewPipeline(tmdbKey, tvdbKey, omdbKey, musicBrainzContact string) *Pipeline {
+func NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact string) *Pipeline {
 	p := &Pipeline{
 		omdb:          NewOMDBClient(omdbKey),
+		fanart:        NewFanartClient(fanartKey),
 		musicProvider: NewMusicBrainzClient(musicBrainzContact),
 	}
 	if tmdbKey != "" {
@@ -65,6 +67,9 @@ func (p *Pipeline) SetProviderCache(cache ProviderCache) {
 	if p.omdb != nil {
 		p.omdb.SetCache(cache)
 	}
+	if p.fanart != nil {
+		p.fanart.SetCache(cache)
+	}
 }
 
 func (p *Pipeline) IdentifyMusic(ctx context.Context, info MusicInfo) *MusicMatchResult {
@@ -72,6 +77,182 @@ func (p *Pipeline) IdentifyMusic(ctx context.Context, info MusicInfo) *MusicMatc
 		return nil
 	}
 	return p.musicProvider.IdentifyMusic(ctx, info)
+}
+
+func (p *Pipeline) ProviderStatuses() []ArtworkProviderStatus {
+	statuses := []ArtworkProviderStatus{
+		{Provider: "fanart", Enabled: p.fanart != nil, Available: p.fanart != nil},
+		{Provider: "tmdb", Enabled: p.tmdb != nil, Available: p.tmdb != nil},
+		{Provider: "tvdb", Enabled: p.tvProviderByName("tvdb") != nil, Available: p.tvProviderByName("tvdb") != nil},
+		{Provider: "omdb", Enabled: p.omdb != nil, Available: p.omdb != nil},
+	}
+	for index := range statuses {
+		if statuses[index].Available {
+			continue
+		}
+		switch statuses[index].Provider {
+		case "fanart":
+			statuses[index].Reason = "Missing FANART_API_KEY"
+		case "tmdb":
+			statuses[index].Reason = "Missing TMDB_API_KEY"
+		case "tvdb":
+			statuses[index].Reason = "Missing TVDB_API_KEY"
+		case "omdb":
+			statuses[index].Reason = "Missing OMDB_API_KEY"
+		}
+	}
+	return statuses
+}
+
+func appendPosterCandidate(candidates []PosterCandidate, seen map[string]struct{}, provider string, imageURL string) []PosterCandidate {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL == "" {
+		return candidates
+	}
+	key := provider + ":" + imageURL
+	if _, ok := seen[key]; ok {
+		return candidates
+	}
+	seen[key] = struct{}{}
+	label := strings.ToUpper(provider[:1]) + provider[1:]
+	if provider == "tmdb" {
+		label = "TMDB"
+	} else if provider == "tvdb" {
+		label = "TVDB"
+	} else if provider == "omdb" {
+		label = "OMDb"
+	} else if provider == "fanart" {
+		label = "Fanart"
+	}
+	return append(candidates, PosterCandidate{
+		Provider:  provider,
+		Label:     label,
+		ImageURL:  imageURL,
+		SourceURL: imageURL,
+	})
+}
+
+func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imdbID string) ([]PosterCandidate, error) {
+	candidates := make([]PosterCandidate, 0, 3)
+	seen := map[string]struct{}{}
+	if p.fanart != nil && tmdbID > 0 {
+		poster, err := p.fanart.moviePoster(ctx, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
+	}
+	if p.movieDetailsProvider != nil && tmdbID > 0 {
+		details, err := p.movieDetailsProvider.GetMovieDetails(ctx, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+		if details != nil {
+			candidates = appendPosterCandidate(candidates, seen, "tmdb", details.PosterPath)
+		}
+	}
+	if p.omdb != nil && imdbID != "" {
+		poster, err := p.omdb.GetPosterByID(ctx, imdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "omdb", poster)
+	}
+	return candidates, nil
+}
+
+func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string) ([]PosterCandidate, error) {
+	candidates := make([]PosterCandidate, 0, 3)
+	seen := map[string]struct{}{}
+	if p.seriesDetailsProvider != nil && tmdbID > 0 {
+		details, err := p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+		if details != nil {
+			candidates = appendPosterCandidate(candidates, seen, "tmdb", details.PosterPath)
+			if tvdbID == "" && strings.TrimSpace(details.TVDBID) != "" {
+				tvdbID = strings.TrimSpace(details.TVDBID)
+			}
+		}
+	}
+	if p.fanart != nil && tvdbID != "" {
+		poster, err := p.fanart.showPoster(ctx, tvdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
+	}
+	if prov := p.tvProviderByName("tvdb"); prov != nil {
+		if tvdbClient, ok := prov.(*TVDBClient); ok {
+			poster, err := tvdbClient.showPoster(ctx, title, tvdbID)
+			if err != nil {
+				return nil, err
+			}
+			candidates = appendPosterCandidate(candidates, seen, "tvdb", poster)
+		}
+	}
+	return candidates, nil
+}
+
+func (p *Pipeline) GetSeasonPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string, season int) ([]PosterCandidate, error) {
+	candidates := make([]PosterCandidate, 0, 3)
+	seen := map[string]struct{}{}
+	if p.fanart != nil && tvdbID != "" {
+		poster, err := p.fanart.seasonPoster(ctx, tvdbID, season)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
+	}
+	if p.tmdb != nil && tmdbID > 0 {
+		poster, err := p.tmdb.seasonPoster(ctx, tmdbID, season)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "tmdb", poster)
+	}
+	if prov := p.tvProviderByName("tvdb"); prov != nil {
+		if tvdbClient, ok := prov.(*TVDBClient); ok {
+			poster, err := tvdbClient.seasonPoster(ctx, title, tvdbID, season)
+			if err != nil {
+				return nil, err
+			}
+			candidates = appendPosterCandidate(candidates, seen, "tvdb", poster)
+		}
+	}
+	return candidates, nil
+}
+
+func (p *Pipeline) GetEpisodePosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string, imdbID string, season int, episode int) ([]PosterCandidate, error) {
+	candidates := make([]PosterCandidate, 0, 3)
+	seen := map[string]struct{}{}
+	if p.tmdb != nil && tmdbID > 0 {
+		match, err := p.tmdb.GetEpisode(ctx, strconv.Itoa(tmdbID), season, episode)
+		if err != nil {
+			return nil, err
+		}
+		if match != nil {
+			candidates = appendPosterCandidate(candidates, seen, "tmdb", match.PosterURL)
+		}
+	}
+	if prov := p.tvProviderByName("tvdb"); prov != nil && tvdbID != "" {
+		match, err := prov.GetEpisode(ctx, tvdbID, season, episode)
+		if err != nil {
+			return nil, err
+		}
+		if match != nil {
+			candidates = appendPosterCandidate(candidates, seen, "tvdb", match.PosterURL)
+		}
+	}
+	if p.omdb != nil && imdbID != "" {
+		poster, err := p.omdb.GetPosterByID(ctx, imdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidate(candidates, seen, "omdb", poster)
+	}
+	return candidates, nil
 }
 
 func (p *Pipeline) GetDiscover(ctx context.Context) (*DiscoverResponse, error) {

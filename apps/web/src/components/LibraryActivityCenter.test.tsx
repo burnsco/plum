@@ -62,6 +62,7 @@ describe("LibraryActivityCenter", () => {
           },
         },
       ],
+      recentLibraryActivities: [],
       scanStatuses: {},
       getLibraryScanStatus: vi.fn(),
       hasLibraryScanStatus: vi.fn(),
@@ -73,15 +74,14 @@ describe("LibraryActivityCenter", () => {
     expect(screen.getByTestId("library-activity-badge")).toHaveTextContent("1");
 
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Library activity/i }),
+      screen.getByRole("button", { name: /Server activity/i }),
     );
 
-    expect(await screen.findByText("Library Activity")).toBeVisible();
-    expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent(
-      "TV",
-    );
+    expect(await screen.findByText("Server activity")).toBeVisible();
+    expect(screen.getByText("Now")).toBeVisible();
+    expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("TV");
+    expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("Importing");
     expect(screen.getByText("Shows/Example/episode01.mkv")).toBeVisible();
-    expect(screen.getByText("Shows/Example/")).toBeVisible();
   });
 
   it("shows the empty state when nothing is active", async () => {
@@ -91,6 +91,7 @@ describe("LibraryActivityCenter", () => {
     vi.mocked(useScanQueue).mockReturnValue({
       activeLibraryIds: [],
       activityScanStatuses: [],
+      recentLibraryActivities: [],
       scanStatuses: {},
       getLibraryScanStatus: vi.fn(),
       hasLibraryScanStatus: vi.fn(),
@@ -100,11 +101,11 @@ describe("LibraryActivityCenter", () => {
     render(<LibraryActivityCenter />);
 
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Library activity/i }),
+      screen.getByRole("button", { name: /Server activity/i }),
     );
 
     expect(
-      await screen.findByText("No active library activity."),
+      await screen.findByText("Nothing is happening right now."),
     ).toBeVisible();
   });
 
@@ -135,6 +136,7 @@ describe("LibraryActivityCenter", () => {
           queuePosition: 0,
         },
       ],
+      recentLibraryActivities: [],
       scanStatuses: {},
       getLibraryScanStatus: vi.fn(),
       hasLibraryScanStatus: vi.fn(),
@@ -144,16 +146,11 @@ describe("LibraryActivityCenter", () => {
     render(<LibraryActivityCenter />);
 
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Library activity/i }),
+      screen.getByRole("button", { name: /Server activity/i }),
     );
 
     const statusCard = await screen.findByTestId("library-activity-status-2");
-    expect(within(statusCard).getAllByText("Queued for identify")).toHaveLength(
-      2,
-    );
-    expect(
-      within(statusCard).getByText("Waiting for an identify worker"),
-    ).toBeVisible();
+    expect(within(statusCard).getByText("Waiting for identify worker")).toBeVisible();
     expect(
       within(statusCard).queryByText("Identifying"),
     ).not.toBeInTheDocument();
@@ -187,6 +184,7 @@ describe("LibraryActivityCenter", () => {
           queuePosition: 0,
         },
       ],
+      recentLibraryActivities: [],
       scanStatuses: {},
       getLibraryScanStatus: vi.fn(),
       hasLibraryScanStatus: vi.fn(),
@@ -196,32 +194,22 @@ describe("LibraryActivityCenter", () => {
     const view = render(<LibraryActivityCenter />);
 
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Library activity/i }),
+      screen.getByRole("button", { name: /Server activity/i }),
     );
 
     let statusCard = await screen.findByTestId("library-activity-status-4");
-    expect(within(statusCard).getAllByText("Identifying")).toHaveLength(2);
+    expect(within(statusCard).getByText("Identifying")).toBeVisible();
 
     vi.mocked(useScanQueue).mockReturnValue({
       activeLibraryIds: [],
-      activityScanStatuses: [
+      activityScanStatuses: [],
+      recentLibraryActivities: [
         {
           libraryId: 4,
-          phase: "completed",
-          enriching: false,
-          identifyPhase: "failed",
-          identified: 77,
-          identifyFailed: 18,
-          processed: 95,
-          added: 95,
-          updated: 0,
-          removed: 0,
-          unmatched: 0,
-          skipped: 0,
-          identifyRequested: true,
-          estimatedItems: 95,
-          queuePosition: 0,
-          lastError: "18 item(s) could not be identified automatically",
+          status: "failed",
+          summary: "Failed",
+          detail: "18 item(s) could not be identified automatically",
+          finishedAt: "2026-03-27T13:05:00Z",
         },
       ],
       scanStatuses: {},
@@ -232,15 +220,9 @@ describe("LibraryActivityCenter", () => {
 
     view.rerender(<LibraryActivityCenter />);
 
-    statusCard = await screen.findByTestId("library-activity-status-4");
-    expect(within(statusCard).getAllByText("Failed")).toHaveLength(2);
-    expect(
-      within(statusCard).getByText(
-        "18 item(s) could not be identified automatically",
-      ),
-    ).toBeVisible();
-    expect(
-      within(statusCard).queryByText("Identifying"),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByText("Just finished")).toBeVisible();
+    expect(screen.getByText("Failed")).toBeVisible();
+    expect(screen.getByText("18 item(s) could not be identified automatically")).toBeVisible();
+    expect(screen.queryByText("Identifying")).not.toBeInTheDocument();
   });
 });

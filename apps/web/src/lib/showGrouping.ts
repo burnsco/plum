@@ -69,13 +69,13 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
   for (const [showKey, episodes] of map.entries()) {
     sortEpisodes(episodes);
     const first = episodes[0];
-    const posterEpisode = episodes.find((episode) => episode.poster_path);
+    const posterEpisode = episodes.find((episode) => episode.show_poster_path || episode.poster_path);
     const backdropEpisode = episodes.find((episode) => episode.backdrop_path);
     groups.push({
       showKey,
       showTitle: getShowName(first.title),
-      posterPath: posterEpisode?.poster_path,
-      posterUrl: posterEpisode?.poster_url,
+      posterPath: posterEpisode?.show_poster_path ?? posterEpisode?.poster_path,
+      posterUrl: posterEpisode?.show_poster_url ?? posterEpisode?.poster_url,
       backdropPath: backdropEpisode?.backdrop_path,
       backdropUrl: backdropEpisode?.backdrop_url,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,

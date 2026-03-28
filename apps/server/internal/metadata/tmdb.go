@@ -74,6 +74,17 @@ type tmdbTVDetails struct {
 
 type tmdbExternalIDsResponse struct {
 	IMDbID string `json:"imdb_id"`
+	TVDBID int    `json:"tvdb_id"`
+}
+
+type tmdbEpisodeDetails struct {
+	Name         string  `json:"name"`
+	Overview     string  `json:"overview"`
+	StillPath    string  `json:"still_path"`
+	AirDate      string  `json:"air_date"`
+	VoteAverage  float64 `json:"vote_average"`
+	SeasonNumber int     `json:"season_number"`
+	EpisodeNum   int     `json:"episode_number"`
 }
 
 type TMDBSearchResponse struct {
@@ -156,11 +167,11 @@ func (c *TMDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 		return nil, err
 	}
 	series, _ := c.getTVDetails(ctx, tvID)
-	posterPath := ep.PosterPath
+	posterPath := ep.StillPath
 	if posterPath == "" && series != nil {
 		posterPath = series.PosterPath
 	}
-	releaseDate := ep.ReleaseDate
+	releaseDate := ep.AirDate
 	if releaseDate == "" && series != nil {
 		releaseDate = series.FirstAirDate
 	}
@@ -173,7 +184,7 @@ func (c *TMDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 	m := c.tmdbResultToMatch(TMDBResult{
 		Overview:     ep.Overview,
 		PosterPath:   posterPath,
-		BackdropPath: ep.BackdropPath,
+		BackdropPath: ep.StillPath,
 		ReleaseDate:  releaseDate,
 		VoteAverage:  ep.VoteAverage,
 	}, title, releaseDate)
@@ -258,6 +269,10 @@ func (c *TMDBClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesD
 		return nil, err
 	}
 	imdbID, _ := c.getTVIMDbID(ctx, tmdbID)
+	tvdbID := ""
+	if detail.ExternalIDs.TVDBID > 0 {
+		tvdbID = strconv.Itoa(detail.ExternalIDs.TVDBID)
+	}
 	return &SeriesDetails{
 		Name:             detail.Name,
 		Overview:         detail.Overview,
@@ -270,6 +285,7 @@ func (c *TMDBClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesD
 		Runtime:          tmdbPrimaryRuntime(detail.EpisodeRunTime),
 		NumberOfSeasons:  detail.NumberOfSeasons,
 		NumberOfEpisodes: detail.NumberOfEpisodes,
+		TVDBID:           tvdbID,
 	}, nil
 }
 
@@ -344,17 +360,35 @@ func (c *TMDBClient) getIMDbID(ctx context.Context, endpoint string) (string, er
 	return payload.IMDbID, nil
 }
 
-func (c *TMDBClient) getEpisodeDetails(tvID, season, episode int) (*TMDBResult, error) {
+func (c *TMDBClient) getEpisodeDetails(tvID, season, episode int) (*tmdbEpisodeDetails, error) {
 	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s", c.baseURL, tvID, season, episode, c.APIKey)
 	resp, err := doCachedJSONRequest(context.Background(), providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
 	}
-	var res TMDBResult
+	var res tmdbEpisodeDetails
 	if err := json.Unmarshal(resp.Body, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
+}
+
+func (c *TMDBClient) seasonPoster(ctx context.Context, tvID int, season int) (string, error) {
+	if c == nil || tvID <= 0 || season < 0 {
+		return "", nil
+	}
+	u := fmt.Sprintf("%s/tv/%d/season/%d?api_key=%s", c.baseURL, tvID, season, c.APIKey)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		PosterPath string `json:"poster_path"`
+	}
+	if err := json.Unmarshal(resp.Body, &payload); err != nil {
+		return "", err
+	}
+	return tmdbImageURL(payload.PosterPath, "w500"), nil
 }
 
 func tmdbImageURL(path, size string) string {
