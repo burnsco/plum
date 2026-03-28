@@ -225,6 +225,7 @@ export interface DirectPlaybackSession {
   audioIndex?: number;
   status: PlaybackSessionStatus;
   streamUrl: string;
+  durationSeconds: number;
   error?: string;
 }
 
@@ -236,6 +237,7 @@ export interface HlsPlaybackSession {
   audioIndex: number;
   status: PlaybackSessionStatus;
   streamUrl: string;
+  durationSeconds: number;
   error?: string;
 }
 
@@ -247,6 +249,7 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   audioIndex: Schema.optional(Schema.Number),
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
+  durationSeconds: Schema.Number,
   error: Schema.optional(Schema.String),
 });
 
@@ -258,6 +261,7 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   audioIndex: Schema.Number,
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
+  durationSeconds: Schema.Number,
   error: Schema.optional(Schema.String),
 });
 
@@ -1072,6 +1076,7 @@ export interface PlaybackSessionUpdateEvent {
   audioIndex: number;
   status: PlaybackSessionStatus;
   streamUrl: string;
+  durationSeconds: number;
   error?: string;
 }
 
@@ -1116,6 +1121,7 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   audioIndex: Schema.Number,
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
+  durationSeconds: Schema.Number,
   error: Schema.optional(Schema.String),
 });
 

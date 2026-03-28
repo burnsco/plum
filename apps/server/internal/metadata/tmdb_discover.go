@@ -78,17 +78,9 @@ type tmdbTVDetailResponse struct {
 	Videos           tmdbVideosResponse `json:"videos"`
 }
 
-type tmdbDiscoverHTTPError struct {
-	StatusCode int
-}
-
-func (e *tmdbDiscoverHTTPError) Error() string {
-	return fmt.Sprintf("tmdb discover: status %d", e.StatusCode)
-}
-
 func isTMDBDiscoverHTTPStatus(err error, statusCode int) bool {
-	var httpErr *tmdbDiscoverHTTPError
-	return errors.As(err, &httpErr) && httpErr.StatusCode == statusCode
+	var providerErr *ProviderError
+	return errors.As(err, &providerErr) && providerErr.Provider == "tmdb" && providerErr.StatusCode == statusCode
 }
 
 func (c *TMDBClient) GetDiscover(ctx context.Context) (*DiscoverResponse, error) {
@@ -277,12 +269,9 @@ func (c *TMDBClient) fetchSearchDiscoverList(ctx context.Context, path string, q
 }
 
 func (c *TMDBClient) fetchJSON(ctx context.Context, rawURL string, ttl time.Duration, dest any) error {
-	resp, err := doCachedJSONRequest(ctx, http.DefaultClient, c.cache, "tmdb", http.MethodGet, rawURL, nil, nil, ttl, 1)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, rawURL, nil, nil, ttl, 1)
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return &tmdbDiscoverHTTPError{StatusCode: resp.StatusCode}
 	}
 	return json.Unmarshal(resp.Body, dest)
 }
