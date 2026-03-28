@@ -74,6 +74,7 @@ function sameActivityEntry(
     left.phase === right.phase &&
     left.target === right.target &&
     left.relativePath === right.relativePath &&
+    left.detail === right.detail &&
     left.at === right.at
   );
 }

@@ -1910,6 +1910,49 @@ library_id, title, path, duration, match_status, season, episode
 	}
 }
 
+func TestGetMediaByLibraryID_EpisodeShowPosterURLUsesAbsoluteSource(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "tv")
+	now := time.Now().UTC().Format(time.RFC3339)
+	posterURL := "https://image.tmdb.org/t/p/w500/slow-horses.jpg"
+
+	var showID int
+	if err := dbConn.QueryRow(`INSERT INTO shows (
+library_id, kind, tmdb_id, title, title_key, poster_path, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, LibraryTypeTV, 321, "Slow Horses", "slowhorses", posterURL, now, now,
+	).Scan(&showID); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var seasonID int
+	if err := dbConn.QueryRow(`INSERT INTO seasons (
+show_id, season_number, title, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		showID, 1, "Season 1", now, now,
+	).Scan(&seasonID); err != nil {
+		t.Fatalf("insert season: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Slow Horses - S01E01 - Pilot", "/tv/Slow Horses/S01E01.mkv", 1800, MatchStatusIdentified, 321, showID, seasonID, 1, 1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	items, err := GetMediaByLibraryID(dbConn, libraryID)
+	if err != nil {
+		t.Fatalf("get media: %v", err)
+	}
+	if got := items[0].ShowPosterURL; got != posterURL {
+		t.Fatalf("show poster url = %q", got)
+	}
+}
+
 func TestGetMediaByLibraryID_RelinksMissingEpisodeShowAndSeason(t *testing.T) {
 	dbConn := newTestDB(t)
 	libraryID := getLibraryID(t, dbConn, "tv")

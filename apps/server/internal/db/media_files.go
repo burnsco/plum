@@ -17,6 +17,17 @@ func ShowPosterURL(libraryID int, showKey string) string {
 	return fmt.Sprintf("/api/libraries/%d/shows/%s/artwork/poster", libraryID, url.PathEscape(showKey))
 }
 
+func showPosterDisplayURL(libraryID int, showKey string, posterPath string) string {
+	posterPath = strings.TrimSpace(posterPath)
+	if posterPath == "" {
+		return ""
+	}
+	if strings.HasPrefix(posterPath, "http://") || strings.HasPrefix(posterPath, "https://") {
+		return posterPath
+	}
+	return ShowPosterURL(libraryID, showKey)
+}
+
 func isMissingMediaFilesSchemaError(err error) bool {
 	if err == nil {
 		return false
@@ -51,7 +62,7 @@ func decorateMediaItemURLs(item *MediaItem) {
 	if item.Type == LibraryTypeTV || item.Type == LibraryTypeAnime {
 		item.ThumbnailURL = fmt.Sprintf("/api/media/%d/thumbnail", item.ID)
 		if item.ShowPosterPath != "" {
-			item.ShowPosterURL = ShowPosterURL(item.LibraryID, showKeyFromItem(item.TMDBID, item.Title))
+			item.ShowPosterURL = showPosterDisplayURL(item.LibraryID, showKeyFromItem(item.TMDBID, item.Title), item.ShowPosterPath)
 		}
 	}
 }

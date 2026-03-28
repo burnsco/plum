@@ -43,6 +43,7 @@ describe("LibraryActivityCenter", () => {
               phase: "discovery",
               target: "file",
               relativePath: "Shows/Example/episode01.mkv",
+              detail: "Discovering media file",
               at: "2026-03-27T13:00:00Z",
             },
             recent: [
@@ -50,12 +51,14 @@ describe("LibraryActivityCenter", () => {
                 phase: "discovery",
                 target: "file",
                 relativePath: "Shows/Example/episode01.mkv",
+                detail: "Discovering media file",
                 at: "2026-03-27T13:00:00Z",
               },
               {
                 phase: "discovery",
                 target: "directory",
                 relativePath: "Shows/Example",
+                detail: "Scanning directory",
                 at: "2026-03-27T12:59:59Z",
               },
             ],
@@ -82,6 +85,63 @@ describe("LibraryActivityCenter", () => {
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("TV");
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("Importing");
     expect(screen.getByText("Shows/Example/episode01.mkv")).toBeVisible();
+  });
+
+  it("shows the exact backend analysis step and file path", async () => {
+    vi.mocked(useLibraries).mockReturnValue({
+      data: [{ id: 3, name: "Music", type: "music", path: "/music", user_id: 1 }],
+    } as unknown as ReturnType<typeof useLibraries>);
+    vi.mocked(useScanQueue).mockReturnValue({
+      activeLibraryIds: [3],
+      activityScanStatuses: [
+        {
+          libraryId: 3,
+          phase: "completed",
+          enriching: true,
+          identifyPhase: "idle",
+          identified: 0,
+          identifyFailed: 0,
+          processed: 12,
+          added: 0,
+          updated: 0,
+          removed: 0,
+          unmatched: 0,
+          skipped: 0,
+          identifyRequested: false,
+          estimatedItems: 12,
+          queuePosition: 0,
+          activity: {
+            stage: "enrichment",
+            current: {
+              phase: "enrichment",
+              target: "file",
+              relativePath: "Music/Artist/Album/track01.flac",
+              detail: "Reading audio tags and duration",
+              at: "2026-03-27T13:00:00Z",
+            },
+            recent: [],
+          },
+        },
+      ],
+      recentLibraryActivities: [],
+      scanStatuses: {},
+      getLibraryScanStatus: vi.fn(),
+      hasLibraryScanStatus: vi.fn(),
+      queueLibraryScan: vi.fn(),
+    });
+
+    render(<LibraryActivityCenter />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
+
+    const statusCard = await screen.findByTestId("library-activity-status-3");
+    expect(within(statusCard).getByText("Analyzing media")).toBeVisible();
+    expect(
+      within(statusCard).getByText("Reading audio tags and duration"),
+    ).toBeVisible();
+    expect(
+      within(statusCard).getByText("Music/Artist/Album/track01.flac"),
+    ).toBeVisible();
   });
 
   it("shows the empty state when nothing is active", async () => {

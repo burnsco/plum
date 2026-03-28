@@ -471,14 +471,15 @@ export const LibraryScanActivityPhaseSchema = Schema.Literals([
   "identify",
 ]);
 
-export type LibraryScanActivityTarget = "directory" | "file";
+export type LibraryScanActivityTarget = "directory" | "file" | "library";
 
-export const LibraryScanActivityTargetSchema = Schema.Literals(["directory", "file"]);
+export const LibraryScanActivityTargetSchema = Schema.Literals(["directory", "file", "library"]);
 
 export interface LibraryScanActivityEntry {
   phase: LibraryScanActivityPhase;
   target: LibraryScanActivityTarget;
   relativePath: string;
+  detail?: string;
   at: string;
 }
 
@@ -486,6 +487,7 @@ export const LibraryScanActivityEntrySchema = Schema.Struct({
   phase: LibraryScanActivityPhaseSchema,
   target: LibraryScanActivityTargetSchema,
   relativePath: Schema.String,
+  detail: Schema.optional(Schema.String),
   at: Schema.String,
 });
 

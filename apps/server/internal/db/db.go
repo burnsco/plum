@@ -52,6 +52,7 @@ type ScanActivity struct {
 	Phase  string
 	Target string
 	Path   string
+	Detail string
 }
 
 type ScanHashMode string
@@ -3287,7 +3288,20 @@ func enrichTask(
 	task EnrichmentTask,
 	options ScanOptions,
 ) error {
+	emitActivity := func(detail string) {
+		if options.Activity == nil {
+			return
+		}
+		options.Activity(ScanActivity{
+			Phase:  "enrichment",
+			Target: "file",
+			Path:   task.Path,
+			Detail: detail,
+		})
+	}
+
 	table := mediaTableForKind(mediaType)
+	emitActivity("Loading existing library item")
 	existing, err := lookupExistingMedia(dbConn, table, mediaType, libraryID, task.Path)
 	if err != nil {
 		return err
@@ -3333,6 +3347,7 @@ func enrichTask(
 	)
 	if mediaType == LibraryTypeMusic {
 		if options.ProbeMedia && !SkipFFprobeInScan {
+			emitActivity("Reading audio tags and duration")
 			if probed, duration, err := readAudioMetadata(ctx, task.Path); err == nil {
 				merged := metadata.MergeMusicMetadata(metadata.ParsePathForMusic(candidate.RelPath, candidate.Name), probed, item.Title)
 				item.Title = merged.Title
@@ -3355,12 +3370,14 @@ func enrichTask(
 			}
 		}
 		if options.MusicIdentifier != nil {
+			emitActivity("Matching music metadata")
 			if res := options.MusicIdentifier.IdentifyMusic(ctx, musicInfo); res != nil {
 				applyMusicMatchResultToMediaItem(&item, res)
 				item.MatchStatus = MatchStatusIdentified
 			}
 		}
 	} else if options.ProbeMedia && !SkipFFprobeInScan {
+		emitActivity("Probing media streams")
 		if probed, err := readVideoMetadata(ctx, task.Path); err == nil {
 			if probed.Duration > 0 {
 				item.Duration = probed.Duration
@@ -3372,6 +3389,7 @@ func enrichTask(
 		}
 	}
 
+	emitActivity("Computing media hash")
 	hash, err := computeMediaHash(ctx, task.Path)
 	if err != nil {
 		return err
@@ -3379,6 +3397,7 @@ func enrichTask(
 	item.FileHash = hash
 	item.FileHashKind = fileHashKindSHA256
 	now := time.Now().UTC().Format(time.RFC3339)
+	emitActivity("Saving enriched media details")
 	if err := updateScannedItem(ctx, dbConn, table, existing.RefID, item, now); err != nil {
 		return err
 	}
@@ -3387,6 +3406,7 @@ func enrichTask(
 		globalID = existing.GlobalID
 	}
 	if globalID > 0 {
+		emitActivity("Updating media file records")
 		if err := upsertMediaFileForMediaID(ctx, dbConn, globalID, item, true); err != nil {
 			return err
 		}
@@ -3395,10 +3415,12 @@ func enrichTask(
 		return nil
 	}
 	if options.ScanSidecarSubtitles && globalID > 0 {
+		emitActivity("Scanning sidecar subtitles")
 		if err := scanForSubtitles(ctx, dbConn, globalID, task.Path); err != nil {
 			log.Printf("scan subtitles for %s: %v", task.Path, err)
 		}
 	}
+	emitActivity("Saving embedded streams")
 	persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubtitles, embeddedAudio)
 	return nil
 }
@@ -3456,6 +3478,7 @@ func EnrichLibraryTasks(
 						Phase:  "enrichment",
 						Target: "file",
 						Path:   task.Path,
+						Detail: "Preparing media analysis",
 					})
 				}
 				if err := enrichTask(ctx, dbConn, root, mediaType, libraryID, task, options); err != nil {
