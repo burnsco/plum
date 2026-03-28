@@ -20,7 +20,8 @@ export type PosterGridItem = {
   metaLine?: string;
   posterPath?: string;
   posterUrl?: string;
-  imdbRating?: number;
+  ratingLabel?: string;
+  ratingValue?: number;
   progressPercent?: number;
   cardState?: PosterCardState;
   statusLabel?: string;
@@ -217,9 +218,11 @@ function PosterCardBody({ item }: { item: PosterGridItem }) {
       <div className="show-card-info">
         <div className="show-card-title">{item.title}</div>
         <div className="show-card-count">{item.subtitle}</div>
-        {(item.imdbRating || item.metaLine) && (
+        {(item.ratingValue || item.metaLine) && (
           <div className="show-card-meta">
-            {item.imdbRating ? <ImdbBadge rating={item.imdbRating} /> : null}
+            {item.ratingValue ? (
+              <RatingBadge label={item.ratingLabel ?? "Rating"} rating={item.ratingValue} />
+            ) : null}
             {item.metaLine ? <span className="show-card-meta__copy">{item.metaLine}</span> : null}
           </div>
         )}
@@ -228,10 +231,10 @@ function PosterCardBody({ item }: { item: PosterGridItem }) {
   );
 }
 
-function ImdbBadge({ rating }: { rating: number }) {
+function RatingBadge({ label, rating }: { label: string; rating: number }) {
   return (
     <span className="show-card-imdb">
-      <span className="show-card-imdb__mark">IMDb</span>
+      <span className="show-card-imdb__mark">{label}</span>
       <span>{rating.toFixed(1)}</span>
     </span>
   );

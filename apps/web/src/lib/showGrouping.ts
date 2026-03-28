@@ -40,6 +40,7 @@ export type ShowGroup = {
   posterUrl: string | undefined;
   backdropPath: string | undefined;
   backdropUrl: string | undefined;
+  voteAverage: number | undefined;
   unmatchedCount: number;
   localCount: number;
   episodes: MediaItem[];
@@ -71,6 +72,7 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
     const first = episodes[0];
     const posterEpisode = episodes.find((episode) => episode.show_poster_path || episode.poster_path);
     const backdropEpisode = episodes.find((episode) => episode.backdrop_path);
+    const ratingEpisode = episodes.find((episode) => (episode.vote_average ?? 0) > 0);
     groups.push({
       showKey,
       showTitle: getShowName(first.title),
@@ -78,6 +80,7 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       posterUrl: posterEpisode?.show_poster_url ?? posterEpisode?.poster_url,
       backdropPath: backdropEpisode?.backdrop_path,
       backdropUrl: backdropEpisode?.backdrop_url,
+      voteAverage: ratingEpisode?.vote_average,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
       localCount: episodes.filter((episode) => episode.match_status === "local").length,
       episodes,
