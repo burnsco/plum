@@ -3,7 +3,10 @@ package metadata
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -72,6 +75,18 @@ func (s *stubIMDbRatingProvider) GetIMDbRatingByID(_ context.Context, _ string) 
 	return s.rating, nil
 }
 
+type rewriteTransport struct {
+	base *url.URL
+}
+
+func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.URL.Scheme = t.base.Scheme
+	cloned.URL.Host = t.base.Host
+	cloned.Host = t.base.Host
+	return http.DefaultTransport.RoundTrip(cloned)
+}
+
 func TestIdentifyTV_ExplicitTMDBIDUsesEpisodeMetadata(t *testing.T) {
 	tmdb := &stubTVProvider{
 		name: "tmdb",
@@ -95,6 +110,84 @@ func TestIdentifyTV_ExplicitTMDBIDUsesEpisodeMetadata(t *testing.T) {
 	}
 	if len(tmdb.episodeCalls) != 1 || tmdb.episodeCalls[0] != "123" {
 		t.Fatalf("episode lookup calls = %#v", tmdb.episodeCalls)
+	}
+}
+
+func TestGetShowPosterCandidates_UsesEnrichedTVDBIDForFanart(t *testing.T) {
+	var fanartRequested bool
+	var tvdbRequested bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"token":"token"}}`)
+		case "/v4/series/123/episodes/default":
+			tvdbRequested = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"data": {
+					"series": {"id": 123, "name": "Show", "image": "/series.jpg", "firstAired": "2024-01-01"},
+					"episodes": [
+						{"id": 1, "name": "Pilot", "overview": "Pilot", "aired": "2024-01-01", "image": "/episode.jpg", "seasonNumber": 1, "number": 1}
+					]
+				}
+			}`)
+		case "/v3/tv/123":
+			fanartRequested = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"tvposter":[{"url":"https://fanart.example/poster.jpg"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	oldClient := providerHTTPClient
+	providerHTTPClient = &http.Client{Transport: &rewriteTransport{base: baseURL}}
+	t.Cleanup(func() {
+		providerHTTPClient = oldClient
+	})
+
+	p := &Pipeline{
+		seriesDetailsProvider: &stubSeriesDetailsProvider{
+			details: &SeriesDetails{TVDBID: "123"},
+		},
+		tvProviders: []TVProvider{&TVDBClient{APIKey: "tvdb"}},
+		fanart:      &FanartClient{APIKey: "fanart"},
+	}
+
+	candidates, err := p.GetShowPosterCandidates(context.Background(), "Show", 42, "")
+	if err != nil {
+		t.Fatalf("GetShowPosterCandidates returned error: %v", err)
+	}
+	if !fanartRequested {
+		t.Fatal("expected fanart lookup to run after TVDB ID enrichment")
+	}
+	if !tvdbRequested {
+		t.Fatal("expected TVDB lookup to run")
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d: %#v", len(candidates), candidates)
+	}
+	if candidates[0].Provider != "fanart" || candidates[1].Provider != "tvdb" {
+		t.Fatalf("unexpected candidate providers: %#v", candidates)
+	}
+}
+
+func TestTVDBSeasonPoster_EmptySeriesIDReturnsNoError(t *testing.T) {
+	client := &TVDBClient{APIKey: "tvdb"}
+
+	poster, err := client.seasonPoster(context.Background(), "Show", "", 1)
+	if err != nil {
+		t.Fatalf("seasonPoster returned error: %v", err)
+	}
+	if poster != "" {
+		t.Fatalf("expected empty poster, got %q", poster)
 	}
 }
 
