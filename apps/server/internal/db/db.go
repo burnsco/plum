@@ -2242,6 +2242,11 @@ func GetMediaByLibraryID(db *sql.DB, libraryID int) ([]MediaItem, error) {
 		}
 		return nil, err
 	}
+	if typ == LibraryTypeTV || typ == LibraryTypeAnime {
+		if err := ensureLibraryShowsAndSeasons(db, libraryID, typ); err != nil {
+			return nil, err
+		}
+	}
 	items, err := queryMediaByLibraryID(db, libraryID, typ)
 	if err != nil {
 		return nil, err
@@ -2399,7 +2404,67 @@ ORDER BY g.id`
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if table == "tv_episodes" || table == "anime_episodes" {
+		if err := hydrateEpisodeShowPosters(db, libraryID, kind, items); err != nil {
+			return nil, err
+		}
+	}
 	return attachDuplicateState(db, items)
+}
+
+func hydrateEpisodeShowPosters(db *sql.DB, libraryID int, kind string, items []MediaItem) error {
+	if len(items) == 0 || (kind != LibraryTypeTV && kind != LibraryTypeAnime) {
+		return nil
+	}
+	rows, err := db.Query(`SELECT COALESCE(tmdb_id, 0), COALESCE(title_key, ''), COALESCE(poster_path, '')
+FROM shows
+WHERE library_id = ? AND kind = ?`, libraryID, kind)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	postersByTMDBID := make(map[int]string)
+	postersByTitleKey := make(map[string]string)
+	for rows.Next() {
+		var tmdbID int
+		var titleKey string
+		var posterPath string
+		if err := rows.Scan(&tmdbID, &titleKey, &posterPath); err != nil {
+			return err
+		}
+		if posterPath == "" {
+			continue
+		}
+		if tmdbID > 0 {
+			postersByTMDBID[tmdbID] = posterPath
+		}
+		if titleKey != "" {
+			postersByTitleKey[titleKey] = posterPath
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range items {
+		if items[i].ShowPosterPath != "" {
+			continue
+		}
+		if items[i].TMDBID > 0 {
+			if posterPath := postersByTMDBID[items[i].TMDBID]; posterPath != "" {
+				items[i].ShowPosterPath = posterPath
+				continue
+			}
+		}
+		titleKey := normalizeShowKeyTitle(items[i].Title)
+		if titleKey == "" {
+			continue
+		}
+		if posterPath := postersByTitleKey[titleKey]; posterPath != "" {
+			items[i].ShowPosterPath = posterPath
+		}
+	}
+	return nil
 }
 
 func attachDuplicateState(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
