@@ -428,7 +428,11 @@ func buildSearchDocuments(db *sql.DB, libraryID int, libraryName, libraryType st
 			showMap[showKey] = agg
 		}
 		if agg.poster == "" {
-			agg.poster = item.PosterPath
+			if item.ShowPosterPath != "" {
+				agg.poster = item.ShowPosterPath
+			} else {
+				agg.poster = item.PosterPath
+			}
 		}
 		if agg.backdrop == "" {
 			agg.backdrop = item.BackdropPath
@@ -490,7 +494,7 @@ func buildSearchDocuments(db *sql.DB, libraryID int, libraryName, libraryType st
 			Normalized:  normalizeSearchText(agg.title),
 			Subtitle:    titleSubtitle(releaseYearFromDate(agg.release), fmt.Sprintf("%d episodes", agg.episodeCt)),
 			PosterPath:  agg.poster,
-			PosterURL:   "",
+			PosterURL:   ShowPosterURL(libraryID, showKey),
 			IMDbRating:  agg.imdb,
 			Href:        fmt.Sprintf("/library/%d/show/%s", libraryID, showKey),
 			Genres:      genres,
@@ -585,6 +589,12 @@ WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
 	}
 	details.Genres = titleGenreNames(genres)
 	details.Cast = cast
+	if strings.TrimSpace(details.PosterPath) != "" {
+		details.PosterURL = fmt.Sprintf("/api/media/%d/artwork/poster", details.MediaID)
+	}
+	if strings.TrimSpace(details.BackdropPath) != "" {
+		details.BackdropURL = fmt.Sprintf("/api/media/%d/artwork/backdrop", details.MediaID)
+	}
 	return &details, nil
 }
 
@@ -618,7 +628,7 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 		LibraryID:    libraryID,
 		ShowKey:      showKey,
 		Name:         first.Title,
-		PosterPath:   first.PosterPath,
+		PosterPath:   first.ShowPosterPath,
 		BackdropPath: first.BackdropPath,
 		FirstAirDate: first.ReleaseDate,
 		IMDbID:       first.IMDbID,
@@ -629,6 +639,9 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 	}
 	if title != "" {
 		details.Name = title
+	}
+	if details.PosterPath == "" {
+		details.PosterPath = first.PosterPath
 	}
 	if overview != "" {
 		details.Overview = overview
@@ -649,6 +662,9 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 	}
 	if imdbRating > 0 {
 		details.IMDbRating = imdbRating
+	}
+	if strings.TrimSpace(details.PosterPath) != "" {
+		details.PosterURL = ShowPosterURL(libraryID, showKey)
 	}
 	seasonSet := map[int]struct{}{}
 	for _, item := range filtered {

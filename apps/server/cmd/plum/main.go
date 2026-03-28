@@ -28,6 +28,7 @@ func main() {
 	tmdbKey := getEnv("TMDB_API_KEY", "")
 	tvdbKey := getEnv("TVDB_API_KEY", "")
 	omdbKey := getEnv("OMDB_API_KEY", "")
+	fanartKey := getEnv("FANART_API_KEY", "")
 	musicBrainzContact := getEnv("MUSICBRAINZ_CONTACT_URL", "")
 
 	if err := ensureDatabaseDir(conn); err != nil {
@@ -40,7 +41,7 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	pipeline := metadata.NewPipeline(tmdbKey, tvdbKey, omdbKey, musicBrainzContact)
+	pipeline := metadata.NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact)
 	pipeline.SetIMDbRatingProvider(&db.IMDbRatingStore{DB: sqlDB})
 	pipeline.SetProviderCache(db.NewMetadataProviderCacheStore(sqlDB))
 
@@ -128,6 +129,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	libHandler := &httpapi.LibraryHandler{
 		DB:          sqlDB,
 		Meta:        pipeline,
+		Artwork:     pipeline,
 		Movies:      pipeline,
 		Series:      pipeline,
 		SeriesQuery: pipeline,
@@ -141,6 +143,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	}
 	searchIndex.QueueAllLibraries(true)
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
+	metadataArtworkSettingsHandler := &httpapi.MetadataArtworkSettingsHandler{DB: sqlDB, Artwork: pipeline}
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -160,6 +163,8 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 			admin.Use(httpapi.RequireAdmin)
 			admin.Get("/api/settings/transcoding", transcodingSettingsHandler.Get)
 			admin.Put("/api/settings/transcoding", transcodingSettingsHandler.Put)
+			admin.Get("/api/settings/metadata-artwork", metadataArtworkSettingsHandler.Get)
+			admin.Put("/api/settings/metadata-artwork", metadataArtworkSettingsHandler.Put)
 		})
 
 		protected.Post("/api/libraries", libHandler.CreateLibrary)
@@ -176,7 +181,13 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Post("/api/libraries/{id}/identify", libHandler.IdentifyLibrary)
 		protected.Get("/api/libraries/{id}/media", libHandler.ListLibraryMedia)
 		protected.Get("/api/libraries/{id}/movies/{mediaId}", libHandler.GetLibraryMovieDetails)
+		protected.Get("/api/libraries/{id}/movies/{mediaId}/artwork/poster/candidates", libHandler.GetMoviePosterCandidates)
+		protected.Put("/api/libraries/{id}/movies/{mediaId}/artwork/poster", libHandler.SetMoviePosterSelection)
+		protected.Delete("/api/libraries/{id}/movies/{mediaId}/artwork/poster", libHandler.ResetMoviePosterSelection)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/details", libHandler.GetLibraryShowDetails)
+		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster/candidates", libHandler.GetShowPosterCandidates)
+		protected.Put("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.SetShowPosterSelection)
+		protected.Delete("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.ResetShowPosterSelection)
 		protected.Post("/api/libraries/{id}/shows/refresh", libHandler.RefreshShow)
 		protected.Post("/api/libraries/{id}/shows/identify", libHandler.IdentifyShow)
 		protected.Post("/api/libraries/{id}/shows/confirm", libHandler.ConfirmShow)
@@ -195,6 +206,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/subtitles/{id}", playbackHandler.StreamSubtitle)
 		protected.Get("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)
 		protected.Get("/api/media/{id}/artwork/{kind}", playbackHandler.ServeArtwork)
+		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster", playbackHandler.ServeShowArtwork)
 	})
 
 	r.Get("/ws", httpapi.ServeWebSocket(hub, playbackSessions, allowedOrigins))

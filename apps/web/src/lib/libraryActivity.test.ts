@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { getLibraryActivity } from "./libraryActivity";
 
 describe("getLibraryActivity", () => {
-  it("keeps showing finishing while enrichment is running", () => {
+  it("keeps showing analyzing while enrichment is running", () => {
     expect(
       getLibraryActivity({
         scanPhase: "completed",
         enriching: true,
       }),
-    ).toBe("finishing");
+    ).toBe("analyzing");
   });
 
-  it("hides finishing when identify has already failed", () => {
+  it("hides analyzing when identify has already failed", () => {
     expect(
       getLibraryActivity({
         scanPhase: "completed",

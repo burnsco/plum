@@ -80,6 +80,8 @@ export interface MediaItem {
   backdrop_path?: string;
   poster_url?: string;
   backdrop_url?: string;
+  show_poster_path?: string;
+  show_poster_url?: string;
   release_date?: string;
   vote_average?: number;
   imdb_id?: string;
@@ -129,6 +131,8 @@ export const MediaItemSchema = Schema.Struct({
   backdrop_path: Schema.optional(Schema.String),
   poster_url: Schema.optional(Schema.String),
   backdrop_url: Schema.optional(Schema.String),
+  show_poster_path: Schema.optional(Schema.String),
+  show_poster_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
   vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
@@ -1046,6 +1050,119 @@ export interface TranscodingSettingsResponse {
 export const TranscodingSettingsResponseSchema = Schema.Struct({
   settings: TranscodingSettingsSchema,
   warnings: Schema.Array(TranscodingSettingsWarningSchema),
+});
+
+export type MetadataArtworkProvider =
+  | "fanart"
+  | "tmdb"
+  | "tvdb"
+  | "omdb";
+
+export const MetadataArtworkProviderSchema = Schema.Literals([
+  "fanart",
+  "tmdb",
+  "tvdb",
+  "omdb",
+]);
+
+export interface MetadataArtworkProviderStatus {
+  provider: MetadataArtworkProvider;
+  enabled: boolean;
+  available: boolean;
+  reason?: string;
+}
+
+export const MetadataArtworkProviderStatusSchema = Schema.Struct({
+  provider: MetadataArtworkProviderSchema,
+  enabled: Schema.Boolean,
+  available: Schema.Boolean,
+  reason: Schema.optional(Schema.String),
+});
+
+export interface ShowMetadataArtworkFetchers {
+  fanart: boolean;
+  tmdb: boolean;
+  tvdb: boolean;
+}
+
+export const ShowMetadataArtworkFetchersSchema = Schema.Struct({
+  fanart: Schema.Boolean,
+  tmdb: Schema.Boolean,
+  tvdb: Schema.Boolean,
+});
+
+export interface EpisodeMetadataArtworkFetchers {
+  tmdb: boolean;
+  tvdb: boolean;
+  omdb: boolean;
+}
+
+export const EpisodeMetadataArtworkFetchersSchema = Schema.Struct({
+  tmdb: Schema.Boolean,
+  tvdb: Schema.Boolean,
+  omdb: Schema.Boolean,
+});
+
+export interface MetadataArtworkSettings {
+  movies: ShowMetadataArtworkFetchers;
+  shows: ShowMetadataArtworkFetchers;
+  seasons: ShowMetadataArtworkFetchers;
+  episodes: EpisodeMetadataArtworkFetchers;
+}
+
+export const MetadataArtworkSettingsSchema = Schema.Struct({
+  movies: ShowMetadataArtworkFetchersSchema,
+  shows: ShowMetadataArtworkFetchersSchema,
+  seasons: ShowMetadataArtworkFetchersSchema,
+  episodes: EpisodeMetadataArtworkFetchersSchema,
+});
+
+export interface MetadataArtworkSettingsResponse {
+  settings: MetadataArtworkSettings;
+  provider_availability: MetadataArtworkProviderStatus[];
+}
+
+export const MetadataArtworkSettingsResponseSchema = Schema.Struct({
+  settings: MetadataArtworkSettingsSchema,
+  provider_availability: Schema.Array(MetadataArtworkProviderStatusSchema),
+});
+
+export interface PosterCandidate {
+  id: string;
+  provider: MetadataArtworkProvider;
+  label: string;
+  image_url: string;
+  source_url: string;
+  selected: boolean;
+}
+
+export const PosterCandidateSchema = Schema.Struct({
+  id: Schema.String,
+  provider: MetadataArtworkProviderSchema,
+  label: Schema.String,
+  image_url: Schema.String,
+  source_url: Schema.String,
+  selected: Schema.Boolean,
+});
+
+export interface PosterCandidatesResponse {
+  candidates: PosterCandidate[];
+  provider_availability: MetadataArtworkProviderStatus[];
+  has_custom_selection: boolean;
+}
+
+export const PosterCandidatesResponseSchema = Schema.Struct({
+  candidates: Schema.Array(PosterCandidateSchema),
+  provider_availability: Schema.Array(MetadataArtworkProviderStatusSchema),
+  has_custom_selection: Schema.Boolean,
+});
+
+export interface SetPosterSelectionPayload {
+  source_url: string;
+}
+
+export const SetPosterSelectionPayloadSchema = Schema.Struct({
+  source_url: Schema.String,
 });
 
 export interface WelcomeEvent {

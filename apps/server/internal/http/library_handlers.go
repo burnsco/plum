@@ -23,6 +23,7 @@ import (
 type LibraryHandler struct {
 	DB          *sql.DB
 	Meta        metadata.Identifier
+	Artwork     metadata.MetadataArtworkProvider
 	Movies      metadata.MovieDetailsProvider
 	Series      metadata.SeriesDetailsProvider
 	SeriesQuery metadata.SeriesSearchProvider
@@ -1985,10 +1986,19 @@ func (h *LibraryHandler) identifyLibraryJob(
 			ProviderID:  member.ProviderID,
 		})
 	}
-	if err := updateMetadataWithRetry(h.DB, tbl, row.RefID, res.Title, res.Overview, res.PosterURL, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, row.Season, row.Episode, db.CanonicalMetadata{
+	seasonNumber := row.Season
+	if seasonNumber == 0 {
+		seasonNumber = info.Season
+	}
+	episodeNumber := row.Episode
+	if episodeNumber == 0 {
+		episodeNumber = info.Episode
+	}
+	posterPath := res.PosterURL
+	settings := loadMetadataArtworkSettings(h.DB)
+	canonical := db.CanonicalMetadata{
 		Title:        res.Title,
 		Overview:     res.Overview,
-		PosterPath:   res.PosterURL,
 		BackdropPath: res.BackdropURL,
 		ReleaseDate:  res.ReleaseDate,
 		IMDbID:       res.IMDbID,
@@ -1996,7 +2006,58 @@ func (h *LibraryHandler) identifyLibraryJob(
 		Genres:       res.Genres,
 		Cast:         cast,
 		Runtime:      res.Runtime,
-	}, false, false); err != nil {
+	}
+	if row.Kind == db.LibraryTypeMovie {
+		posterPath = automaticMoviePosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			tmdbID,
+			res.IMDbID,
+			res.PosterURL,
+			res.Provider,
+		)
+	} else if row.Kind == db.LibraryTypeTV || row.Kind == db.LibraryTypeAnime {
+		showTitle := showTitleFromEpisodeTitle(res.Title)
+		canonical.PosterPath = automaticShowPosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			showTitle,
+			tmdbID,
+			tvdbID,
+			res.PosterURL,
+			res.Provider,
+		)
+		canonical.SeasonPosterPath = automaticSeasonPosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			showTitle,
+			tmdbID,
+			tvdbID,
+			seasonNumber,
+			canonical.PosterPath,
+			"",
+		)
+		if canonical.SeasonPosterPath == "" {
+			canonical.SeasonPosterPath = canonical.PosterPath
+		}
+		posterPath = automaticEpisodePosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			showTitle,
+			tmdbID,
+			tvdbID,
+			res.IMDbID,
+			seasonNumber,
+			episodeNumber,
+			res.PosterURL,
+			res.Provider,
+		)
+	}
+	if err := updateMetadataWithRetry(h.DB, tbl, row.RefID, res.Title, res.Overview, posterPath, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, seasonNumber, episodeNumber, canonical, false, false); err != nil {
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
 	h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
@@ -2091,6 +2152,7 @@ func (h *LibraryHandler) applySeriesToRefs(
 	table := db.MediaTableForKind(refs[0].Kind)
 	seriesID := strconv.Itoa(seriesTMDBID)
 	var canonical db.CanonicalMetadata
+	seriesTVDBID := ""
 	if h.Series != nil {
 		var details *metadata.SeriesDetails
 		var err error
@@ -2123,8 +2185,21 @@ func (h *LibraryHandler) applySeriesToRefs(
 				Cast:         cast,
 				Runtime:      details.Runtime,
 			}
+			seriesTVDBID = details.TVDBID
 		}
 	}
+	settings := loadMetadataArtworkSettings(h.DB)
+	showTitle := strings.TrimSpace(canonical.Title)
+	canonical.PosterPath = automaticShowPosterSource(
+		ctx,
+		h.Artwork,
+		settings,
+		showTitle,
+		seriesTMDBID,
+		seriesTVDBID,
+		canonical.PosterPath,
+		"tmdb",
+	)
 	updatedRefIDs := make([]int, 0, len(refs))
 	for _, ref := range refs {
 		var (
@@ -2139,11 +2214,45 @@ func (h *LibraryHandler) applySeriesToRefs(
 		if err != nil || ep == nil {
 			continue
 		}
+		if showTitle == "" {
+			showTitle = showTitleFromEpisodeTitle(ep.Title)
+		}
 		tvdbID := ""
 		if ep.Provider == "tvdb" {
 			tvdbID = ep.ExternalID
 		}
-		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, ep.PosterURL, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, canonical, metadataReviewNeeded, metadataConfirmed); err != nil {
+		if tvdbID == "" {
+			tvdbID = seriesTVDBID
+		}
+		episodeCanonical := canonical
+		episodeCanonical.SeasonPosterPath = automaticSeasonPosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			showTitle,
+			seriesTMDBID,
+			tvdbID,
+			ref.Season,
+			episodeCanonical.PosterPath,
+			"tmdb",
+		)
+		if episodeCanonical.SeasonPosterPath == "" {
+			episodeCanonical.SeasonPosterPath = episodeCanonical.PosterPath
+		}
+		episodePosterPath := automaticEpisodePosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			showTitle,
+			seriesTMDBID,
+			tvdbID,
+			ep.IMDbID,
+			ref.Season,
+			ref.Episode,
+			ep.PosterURL,
+			ep.Provider,
+		)
+		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, episodePosterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, episodeCanonical, metadataReviewNeeded, metadataConfirmed); err != nil {
 			continue
 		}
 		updatedRefIDs = append(updatedRefIDs, ref.RefID)

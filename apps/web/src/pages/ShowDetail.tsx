@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BASE_URL, type MediaItem } from "../api";
+import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
@@ -31,6 +32,7 @@ export function ShowDetail() {
   const { playEpisode } = usePlayer();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [posterPickerOpen, setPosterPickerOpen] = useState(false);
 
   const episodes = useMemo(() => {
     if (!showKey) return [];
@@ -106,7 +108,7 @@ export function ShowDetail() {
   const posterUrl = details?.poster_path
     ? resolvePosterUrl(details.poster_url, details.poster_path)
     : episodes[0]
-      ? resolvePosterUrl(episodes[0].poster_url, episodes[0].poster_path)
+      ? resolvePosterUrl(episodes[0].show_poster_url ?? episodes[0].poster_url, episodes[0].show_poster_path ?? episodes[0].poster_path)
       : "";
   const backdropUrl = details?.backdrop_path
     ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path)
@@ -128,7 +130,13 @@ export function ShowDetail() {
       )}
       <div className="show-detail-header">
         {posterUrl && (
-          <div className="show-detail-poster">
+          <div
+            className="show-detail-poster"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setPosterPickerOpen(true);
+            }}
+          >
             <img src={posterUrl} alt="" />
           </div>
         )}
@@ -153,6 +161,15 @@ export function ShowDetail() {
               ))}
             </div>
           ) : null}
+          <div>
+            <button
+              type="button"
+              className="rounded-[var(--radius-md)] border border-[var(--plum-border)] px-4 py-2 text-sm text-[var(--plum-text)] transition-colors hover:bg-[var(--plum-panel)]"
+              onClick={() => setPosterPickerOpen(true)}
+            >
+              Change poster…
+            </button>
+          </div>
         </div>
       </div>
       {details?.cast.length ? (
@@ -210,7 +227,11 @@ export function ShowDetail() {
                 <li key={ep.id} className="episode-row episode-row-detail">
                   <div className="episode-thumbnail-wrap">
                     <img
-                      src={`${BASE_URL}/api/media/${ep.id}/thumbnail`}
+                      src={
+                        resolvePosterUrl(ep.poster_url, ep.poster_path) ||
+                        ep.thumbnail_url ||
+                        `${BASE_URL}/api/media/${ep.id}/thumbnail`
+                      }
                       alt=""
                       className="episode-thumbnail"
                     />
@@ -268,6 +289,14 @@ export function ShowDetail() {
           </section>
         </div>
       )}
+      <PosterPickerDialog
+        open={posterPickerOpen}
+        onOpenChange={setPosterPickerOpen}
+        kind="show"
+        libraryId={libraryId}
+        showKey={showKey}
+        title={showTitle}
+      />
     </div>
   );
 }

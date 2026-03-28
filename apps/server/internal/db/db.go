@@ -140,6 +140,8 @@ type MediaItem struct {
 	BackdropPath              string               `json:"backdrop_path"`
 	PosterURL                 string               `json:"poster_url,omitempty"`
 	BackdropURL               string               `json:"backdrop_url,omitempty"`
+	ShowPosterPath            string               `json:"show_poster_path,omitempty"`
+	ShowPosterURL             string               `json:"show_poster_url,omitempty"`
 	ReleaseDate               string               `json:"release_date"`
 	VoteAverage               float64              `json:"vote_average"`
 	IMDbID                    string               `json:"imdb_id,omitempty"`
@@ -256,6 +258,10 @@ func InitDB(conn string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureMetadataArtworkSettingsDefaults(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
@@ -318,6 +324,7 @@ CREATE TABLE IF NOT EXISTS movies (
   tvdb_id TEXT,
   overview TEXT,
   poster_path TEXT,
+  poster_locked INTEGER NOT NULL DEFAULT 0,
   backdrop_path TEXT,
   release_date TEXT,
   vote_average REAL DEFAULT 0,
@@ -337,6 +344,7 @@ CREATE TABLE IF NOT EXISTS shows (
   title_key TEXT NOT NULL,
   overview TEXT,
   poster_path TEXT,
+  poster_locked INTEGER NOT NULL DEFAULT 0,
   backdrop_path TEXT,
   first_air_date TEXT,
   imdb_id TEXT,
@@ -1197,6 +1205,19 @@ var schemaMigrations = []schemaMigration{
 			return nil
 		},
 	},
+	{
+		version: 20,
+		name:    "metadata_artwork_settings_and_poster_locks",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if err := addColumnIfMissingTx(ctx, tx, "movies", "poster_locked", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+			if err := addColumnIfMissingTx(ctx, tx, "shows", "poster_locked", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+			return nil
+		},
+	},
 }
 
 func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
@@ -1802,6 +1823,21 @@ WHERE id = ?`,
 	if err != nil {
 		return err
 	}
+	var (
+		existingPosterPath string
+		posterLocked       int
+	)
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(poster_path, ''), COALESCE(poster_locked, 0) FROM `+table+` WHERE id = ?`,
+		refID,
+	).Scan(&existingPosterPath, &posterLocked); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if posterLocked != 0 {
+		posterPath = existingPosterPath
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET title = ?, match_status = ?, tmdb_id = ?, tvdb_id = ?, overview = ?, poster_path = ?, backdrop_path = ?, release_date = ?, vote_average = ?, imdb_id = ?, imdb_rating = ? WHERE id = ?`,
 		title, MatchStatusIdentified, tmdbID, nullStr(tvdbID), nullStr(overview), nullStr(posterPath), nullStr(backdropPath), nullStr(releaseDate), nullFloat64(voteAvg), nullStr(imdbID), nullFloat64(imdbRating), refID); err != nil {
 		_ = tx.Rollback()
@@ -2232,9 +2268,10 @@ JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
 	} else if table == "tv_episodes" || table == "anime_episodes" {
-		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path
+		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, '')
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+LEFT JOIN shows s ON s.id = m.show_id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
 	} else {
@@ -2261,6 +2298,7 @@ ORDER BY g.id`
 		m.Type = kind
 		m.LibraryID = libraryID
 		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
+		var showPosterPath sql.NullString
 		var voteAvg, imdbRating sql.NullFloat64
 		var tmdbID sql.NullInt64
 		var tvdbID sql.NullString
@@ -2283,7 +2321,7 @@ ORDER BY g.id`
 				m.PosterPath = musicPosterPath.String
 			}
 		} else if table == "tv_episodes" || table == "anime_episodes" {
-			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath)
+			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath)
 			m.TMDBID = int(tmdbID.Int64)
 			if tvdbID.Valid {
 				m.TVDBID = tvdbID.String
@@ -2317,6 +2355,9 @@ ORDER BY g.id`
 			}
 			if thumbnailPath.Valid {
 				m.ThumbnailPath = thumbnailPath.String
+			}
+			if showPosterPath.Valid {
+				m.ShowPosterPath = showPosterPath.String
 			}
 		} else {
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)
