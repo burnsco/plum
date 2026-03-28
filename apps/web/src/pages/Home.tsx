@@ -251,9 +251,6 @@ export function Home() {
       const progressEpisode = [...group.episodes]
         .filter((episode) => shouldShowProgress(episode))
         .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
-      const imdbRating = group.episodes.find(
-        (episode) => (episode.imdb_rating ?? 0) > 0,
-      )?.imdb_rating;
       const needsMetadataReview = group.episodes.some(
         (episode) => episode.metadata_review_needed === true,
       );
@@ -293,7 +290,8 @@ export function Home() {
             : undefined,
           posterPath: group.posterPath,
           posterUrl: group.posterUrl,
-          imdbRating,
+          ratingLabel: group.voteAverage ? "TMDB" : undefined,
+          ratingValue: group.voteAverage,
           progressPercent: progressEpisode?.progress_percent,
           cardState: needsMetadataReview
             ? "review-needed"
@@ -377,7 +375,8 @@ export function Home() {
           metaLine: formatRemainingTime(item.remaining_seconds),
           posterPath: item.poster_path,
           posterUrl: item.poster_url,
-          imdbRating: item.imdb_rating,
+          ratingLabel: item.imdb_rating ? "IMDb" : undefined,
+          ratingValue: item.imdb_rating,
           progressPercent: shouldShowProgress(item) ? item.progress_percent : undefined,
           cardState: showSearching ? "identifying" : showFailure ? "identify-failed" : "default",
           statusLabel: showSearching
