@@ -166,6 +166,7 @@ function mockDefaultAppApis() {
     audioIndex: payload?.audioIndex ?? -1,
     status: "starting",
     streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+    durationSeconds: 7200,
   }));
   vi.spyOn(api, "updatePlaybackSessionAudio").mockImplementation(async (sessionId, payload) => ({
     sessionId,
@@ -175,6 +176,7 @@ function mockDefaultAppApis() {
     audioIndex: payload.audioIndex,
     status: "starting",
     streamUrl: `/api/playback/sessions/${sessionId}/revisions/2/index.m3u8`,
+    durationSeconds: 7200,
   }));
   vi.spyOn(api, "closePlaybackSession").mockResolvedValue();
 }

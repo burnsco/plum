@@ -5,13 +5,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
 )
+
+const providerHTTPTimeout = 10 * time.Second
+
+var providerHTTPClient = &http.Client{Timeout: providerHTTPTimeout}
 
 // ProviderCacheKey identifies one cache entry for a provider request.
 type ProviderCacheKey struct {
@@ -80,17 +86,20 @@ func doCachedJSONRequest(
 
 	client := httpClient
 	if client == nil {
-		client = http.DefaultClient
+		client = providerHTTPClient
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, newProviderTransportError(provider, err)
 	}
 	defer resp.Body.Close()
 
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, newProviderStatusError(provider, resp.StatusCode, rawBody)
 	}
 	if cache != nil && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		_ = cache.Put(ctx, key, ProviderCacheEntry{
@@ -103,6 +112,27 @@ func doCachedJSONRequest(
 		}, now)
 	}
 	return &cachedHTTPResponse{Body: rawBody, StatusCode: resp.StatusCode}, nil
+}
+
+func newProviderTransportError(provider string, err error) error {
+	retryable := errors.Is(err, context.DeadlineExceeded)
+	if !retryable {
+		var netErr net.Error
+		retryable = errors.As(err, &netErr) && netErr.Timeout()
+	}
+	return &ProviderError{
+		Provider:  strings.ToLower(strings.TrimSpace(provider)),
+		Retryable: retryable,
+		Cause:     err,
+	}
+}
+
+func newProviderStatusError(provider string, statusCode int, _ []byte) error {
+	return &ProviderError{
+		Provider:   strings.ToLower(strings.TrimSpace(provider)),
+		StatusCode: statusCode,
+		Retryable:  statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError,
+	}
 }
 
 func providerCacheKey(provider, method, rawURL string, body []byte) (ProviderCacheKey, error) {

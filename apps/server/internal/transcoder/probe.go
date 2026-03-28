@@ -26,15 +26,16 @@ type playbackStreamProbe struct {
 }
 
 type playbackSourceProbe struct {
-	Path      string
-	Container string
-	BitRate   int64
-	Streams   []playbackStreamProbe
+	Path            string
+	Container       string
+	BitRate         int64
+	DurationSeconds int
+	Streams         []playbackStreamProbe
 }
 
 type playbackProbeCacheKey struct {
-	path       string
-	size       int64
+	path        string
+	size        int64
 	modUnixNano int64
 }
 
@@ -73,7 +74,7 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 		probeCtx,
 		"ffprobe",
 		"-v", "error",
-		"-show_entries", "format=format_name,bit_rate:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,bit_rate",
+		"-show_entries", "format=format_name,bit_rate,duration:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,bit_rate",
 		"-of", "json",
 		path,
 	)
@@ -86,6 +87,7 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 		Format struct {
 			FormatName string `json:"format_name"`
 			BitRate    string `json:"bit_rate"`
+			Duration   string `json:"duration"`
 		} `json:"format"`
 		Streams []struct {
 			Index     int    `json:"index"`
@@ -103,10 +105,11 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 	}
 
 	result := playbackSourceProbe{
-		Path:      path,
-		Container: normalizeContainerName(path, payload.Format.FormatName),
-		BitRate:   parseBitRate(payload.Format.BitRate),
-		Streams:   make([]playbackStreamProbe, 0, len(payload.Streams)),
+		Path:            path,
+		Container:       normalizeContainerName(path, payload.Format.FormatName),
+		BitRate:         parseBitRate(payload.Format.BitRate),
+		DurationSeconds: parseDurationSeconds(payload.Format.Duration),
+		Streams:         make([]playbackStreamProbe, 0, len(payload.Streams)),
 	}
 
 	for _, stream := range payload.Streams {
@@ -135,6 +138,14 @@ func parseBitRate(raw string) int64 {
 		return 0
 	}
 	return value
+}
+
+func parseDurationSeconds(raw string) int {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return int(value)
 }
 
 func normalizeContainerName(path string, formatName string) string {

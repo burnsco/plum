@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 	"plum/internal/transcoder"
 	"plum/internal/ws"
@@ -13,10 +14,12 @@ func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, al
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := UserFromContext(r.Context())
 		if user == nil {
+			logWebSocketHandshakeRejected(r, "unauthorized", 0)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		if !OriginAllowed(r, allowedOrigins) {
+			logWebSocketHandshakeRejected(r, "origin_not_allowed", user.ID)
 			http.Error(w, "origin not allowed", http.StatusForbidden)
 			return
 		}
@@ -43,6 +46,18 @@ func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, al
 	}
 }
 
+func logWebSocketHandshakeRejected(r *http.Request, reason string, userID int) {
+	log.Printf(
+		"ws handshake rejected reason=%s origin=%q remote=%q host=%q user_id=%d session_cookie=%t",
+		reason,
+		strings.TrimSpace(r.Header.Get("Origin")),
+		clientIP(r),
+		strings.TrimSpace(r.Host),
+		userID,
+		sessionIDFromRequest(r) != "",
+	)
+}
+
 func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, client *ws.Client, payload []byte) {
 	var command struct {
 		Action    string `json:"action"`
@@ -61,15 +76,16 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 		}
 		if state != nil {
 			payload, marshalErr := json.Marshal(map[string]any{
-				"type":       "playback_session_update",
-				"sessionId":  state.SessionID,
-				"delivery":   state.Delivery,
-				"mediaId":    state.MediaID,
-				"revision":   state.Revision,
-				"audioIndex": state.AudioIndex,
-				"status":     state.Status,
-				"streamUrl":  state.StreamURL,
-				"error":      state.Error,
+				"type":            "playback_session_update",
+				"sessionId":       state.SessionID,
+				"delivery":        state.Delivery,
+				"mediaId":         state.MediaID,
+				"revision":        state.Revision,
+				"audioIndex":      state.AudioIndex,
+				"status":          state.Status,
+				"streamUrl":       state.StreamURL,
+				"durationSeconds": state.DurationSeconds,
+				"error":           state.Error,
 			})
 			if marshalErr != nil {
 				log.Printf("attach playback session marshal replay session=%s client=%s user=%d error=%v", command.SessionID, client.ID(), client.User().ID, marshalErr)

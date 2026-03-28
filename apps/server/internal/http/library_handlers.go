@@ -644,9 +644,9 @@ type identifyResult struct {
 var (
 	identifyInitialTimeout   = 8 * time.Second
 	identifyRetryTimeout     = 45 * time.Second
-	identifyMovieWorkers     = 6
-	identifyMovieRateLimit   = 100 * time.Millisecond
-	identifyMovieRateBurst   = 6
+	identifyMovieWorkers     = 2
+	identifyMovieRateLimit   = 250 * time.Millisecond
+	identifyMovieRateBurst   = 2
 	identifyEpisodeWorkers   = 4
 	identifyEpisodeRateLimit = 100 * time.Millisecond
 	identifyEpisodeRateBurst = 4
@@ -744,6 +744,7 @@ type episodicIdentifyCache struct {
 type movieIdentifyCall struct {
 	done chan struct{}
 	res  *metadata.MatchResult
+	err  error
 }
 
 type movieIdentifyCache struct {
@@ -755,7 +756,7 @@ func newMovieIdentifyCache() *movieIdentifyCache {
 	return &movieIdentifyCache{calls: make(map[string]*movieIdentifyCall)}
 }
 
-func (c *movieIdentifyCache) lookupOrRun(key string, fn func() *metadata.MatchResult) *metadata.MatchResult {
+func (c *movieIdentifyCache) lookupOrRun(key string, fn func() (*metadata.MatchResult, error)) (*metadata.MatchResult, error) {
 	if c == nil || key == "" {
 		return fn()
 	}
@@ -764,21 +765,21 @@ func (c *movieIdentifyCache) lookupOrRun(key string, fn func() *metadata.MatchRe
 	if call, ok := c.calls[key]; ok {
 		c.mu.Unlock()
 		<-call.done
-		return call.res
+		return call.res, call.err
 	}
 	call := &movieIdentifyCall{done: make(chan struct{})}
 	c.calls[key] = call
 	c.mu.Unlock()
 
-	call.res = fn()
+	call.res, call.err = fn()
 	close(call.done)
 
 	c.mu.Lock()
-	if call.res == nil {
+	if call.res == nil || call.err != nil {
 		delete(c.calls, key)
 	}
 	c.mu.Unlock()
-	return call.res
+	return call.res, call.err
 }
 
 func newEpisodicIdentifyCache(handler *LibraryHandler) *episodicIdentifyCache {
@@ -997,6 +998,9 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 		if err != nil {
 			return identifyResult{}, err
 		}
+		if identified > 0 && h.SearchIndex != nil {
+			h.SearchIndex.Queue(libraryID, false)
+		}
 		return identifyResult{Identified: identified, Failed: failed}, nil
 	}
 
@@ -1036,11 +1040,11 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 	if len(rows) > 0 && rows[0].Kind == db.LibraryTypeMovie {
 		movieCache = newMovieIdentifyCache()
 	}
-	initialIdentified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, initialJobs, movieCache, true)
-	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, retryJobs, movieCache, true)
+	initialIdentified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, initialJobs, movieCache)
+	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, retryJobs, movieCache)
 	identified += initialIdentified + retryIdentified
 
-	fallbackIdentified, fallbackFailed := h.identifyShowFallbacks(ctx, libraryID, libraryPath, append(initialFailed, retryFailed...), nil, true)
+	fallbackIdentified, fallbackFailed := h.identifyShowFallbacks(ctx, libraryID, libraryPath, append(initialFailed, retryFailed...), nil, false)
 	identified += fallbackIdentified
 	failed += fallbackFailed
 	if len(refreshOnlyRows) > 0 {
@@ -1051,6 +1055,9 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 		identified += refreshIdentified
 	}
 
+	if identified > 0 && h.SearchIndex != nil {
+		h.SearchIndex.Queue(libraryID, false)
+	}
 	return identifyResult{Identified: identified, Failed: failed}, nil
 }
 
@@ -1103,10 +1110,10 @@ func (h *LibraryHandler) refreshMatchedRows(
 		jobs = append(jobs, identifyJob{row: row})
 	}
 	sortIdentifyJobs(jobs, libraryPath)
-	identified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, jobs, movieCache, true)
-	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, retryJobs, movieCache, true)
+	identified, retryJobs, initialFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, jobs, movieCache)
+	retryIdentified, _, retryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, retryJobs, movieCache)
 	identified += retryIdentified
-	refreshIdentified, _ := h.identifyShowFallbacks(ctx, libraryID, libraryPath, append(initialFailed, retryFailed...), nil, true)
+	refreshIdentified, _ := h.identifyShowFallbacks(ctx, libraryID, libraryPath, append(initialFailed, retryFailed...), nil, false)
 	return identified + refreshIdentified, nil
 }
 
@@ -1143,7 +1150,6 @@ func (h *LibraryHandler) runIdentifyJobs(
 	libraryPath string,
 	jobsToRun []identifyJob,
 	movieCache *movieIdentifyCache,
-	queueSearch bool,
 ) (identified int, retryJobs []identifyJob, failed []identifyJobResult) {
 	if len(jobsToRun) == 0 {
 		return 0, nil, nil
@@ -1174,7 +1180,7 @@ func (h *LibraryHandler) runIdentifyJobs(
 					if !ok {
 						return
 					}
-					results <- h.identifyLibraryJob(ctx, libraryID, job, libraryPath, rateLimiter, movieCache, queueSearch)
+					results <- h.identifyLibraryJob(ctx, libraryID, job, libraryPath, rateLimiter, movieCache)
 				}
 			}
 		}()
@@ -1435,18 +1441,15 @@ func (h *LibraryHandler) identifyEpisodesByGroup(
 		failedResults = append(failedResults, episodeIdentifyFailedResults(group)...)
 	}
 
-	residualIdentified, residualRetryJobs, residualInitialFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, residualJobs, nil, false)
+	residualIdentified, residualRetryJobs, residualInitialFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, residualJobs, nil)
 	identified += residualIdentified
-	residualRetryIdentified, _, residualRetryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, residualRetryJobs, nil, false)
+	residualRetryIdentified, _, residualRetryFailed := h.runIdentifyJobs(ctx, libraryID, libraryPath, residualRetryJobs, nil)
 	identified += residualRetryIdentified
 	failedResults = append(failedResults, residualInitialFailed...)
 	failedResults = append(failedResults, residualRetryFailed...)
 
 	fallbackIdentified, fallbackFailed := h.identifyShowFallbacks(ctx, libraryID, libraryPath, failedResults, cache, false)
 	identified += fallbackIdentified
-	if identified > 0 && h.SearchIndex != nil {
-		h.SearchIndex.Queue(libraryID, false)
-	}
 	return identifyResult{Identified: identified, Failed: fallbackFailed}, nil
 }
 
@@ -1807,6 +1810,32 @@ func movieIdentifyKey(info metadata.MediaInfo) string {
 	return title
 }
 
+func (h *LibraryHandler) identifyMovieResult(
+	ctx context.Context,
+	info metadata.MediaInfo,
+) (*metadata.MatchResult, error) {
+	if withError, ok := h.Meta.(metadata.MovieIdentifierWithError); ok {
+		return withError.IdentifyMovieResult(ctx, info)
+	}
+	return h.Meta.IdentifyMovie(ctx, info), nil
+}
+
+func logRetryableMovieIdentifyFailure(libraryID int, title string, err error) {
+	var providerErr *metadata.ProviderError
+	if errors.As(err, &providerErr) {
+		log.Printf(
+			"identify movie retryable failure library=%d provider=%s status=%d title=%q error=%v",
+			libraryID,
+			providerErr.Provider,
+			providerErr.StatusCode,
+			title,
+			err,
+		)
+		return
+	}
+	log.Printf("identify movie retryable failure library=%d title=%q error=%v", libraryID, title, err)
+}
+
 func updateMetadataWithRetry(
 	dbConn *sql.DB,
 	table string,
@@ -1864,7 +1893,6 @@ func (h *LibraryHandler) identifyLibraryJob(
 	libraryPath string,
 	rateLimiter <-chan struct{},
 	movieCache *movieIdentifyCache,
-	queueSearch bool,
 ) identifyJobResult {
 	h.identifyRun.setState(libraryID, job.row.Kind, job.row.Path, "identifying")
 	if h.ScanJobs != nil {
@@ -1891,7 +1919,10 @@ func (h *LibraryHandler) identifyLibraryJob(
 	itemCtx, cancel := context.WithTimeout(ctx, identifyTimeoutForAttempt(job.attempt))
 	defer cancel()
 
-	var res *metadata.MatchResult
+	var (
+		res      *metadata.MatchResult
+		movieErr error
+	)
 	switch row.Kind {
 	case db.LibraryTypeTV:
 		res = h.Meta.IdentifyTV(itemCtx, info)
@@ -1899,16 +1930,30 @@ func (h *LibraryHandler) identifyLibraryJob(
 		res = h.Meta.IdentifyAnime(itemCtx, info)
 	case db.LibraryTypeMovie:
 		if movieCache != nil {
-			res = movieCache.lookupOrRun(movieIdentifyKey(info), func() *metadata.MatchResult {
-				return h.Meta.IdentifyMovie(itemCtx, info)
+			res, movieErr = movieCache.lookupOrRun(movieIdentifyKey(info), func() (*metadata.MatchResult, error) {
+				return h.identifyMovieResult(itemCtx, info)
 			})
 		} else {
-			res = h.Meta.IdentifyMovie(itemCtx, info)
+			res, movieErr = h.identifyMovieResult(itemCtx, info)
 		}
 	default:
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
+	if row.Kind == db.LibraryTypeMovie && movieErr != nil {
+		if metadata.IsRetryableProviderError(movieErr) && job.attempt == 0 {
+			logRetryableMovieIdentifyFailure(libraryID, row.Title, movieErr)
+			h.identifyRun.setState(libraryID, row.Kind, row.Path, "queued")
+			return identifyJobResult{status: identifyJobRetry, job: job}
+		}
+		if metadata.IsRetryableProviderError(movieErr) {
+			logRetryableMovieIdentifyFailure(libraryID, row.Title, movieErr)
+		}
+		return identifyJobResult{status: identifyJobFailed, job: job}
+	}
 	if res == nil {
+		if row.Kind == db.LibraryTypeMovie {
+			return identifyJobResult{status: identifyJobFailed, job: job}
+		}
 		if job.attempt == 0 {
 			h.identifyRun.setState(libraryID, row.Kind, row.Path, "queued")
 			return identifyJobResult{status: identifyJobRetry, job: job}
@@ -1955,9 +2000,6 @@ func (h *LibraryHandler) identifyLibraryJob(
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
 	h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
-	if queueSearch && h.SearchIndex != nil {
-		h.SearchIndex.Queue(libraryID, false)
-	}
 	return identifyJobResult{status: identifyJobSucceeded, job: job}
 }
 

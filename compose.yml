@@ -53,7 +53,8 @@ services:
     env_file:
       - .env
     environment:
-      - VITE_BACKEND_URL=${VITE_BROWSER_BACKEND_URL:-}
+      # Browser-facing backend URL comes from .env via env_file. Leave it unset
+      # to enable Vite's `/api` and `/ws` proxy fallback mode.
       - BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL:-http://app:8080}
     volumes:
       - .:/app
