@@ -151,14 +151,36 @@ export function HorizontalScrollRail({
     viewport.addEventListener("scroll", scheduleUpdate, { passive: true });
     window.addEventListener("resize", scheduleUpdate);
 
-    const observer =
+    const contentObserver =
       typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleUpdate) : null;
-    observer?.observe(viewport);
+    const observeContent = () => {
+      if (!contentObserver) {
+        return;
+      }
+
+      contentObserver.disconnect();
+      contentObserver.observe(viewport);
+      Array.from(viewport.children).forEach((child) => {
+        contentObserver.observe(child);
+      });
+    };
+
+    observeContent();
+
+    const mutationObserver =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            observeContent();
+            scheduleUpdate();
+          })
+        : null;
+    mutationObserver?.observe(viewport, { childList: true });
 
     return () => {
       viewport.removeEventListener("scroll", scheduleUpdate);
       window.removeEventListener("resize", scheduleUpdate);
-      observer?.disconnect();
+      mutationObserver?.disconnect();
+      contentObserver?.disconnect();
       window.cancelAnimationFrame(frame);
     };
   }, []);
