@@ -1,34 +1,30 @@
 import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
 import type { PosterGridItem } from "@/components/types";
 import { Input } from "@/components/ui/input";
-import { EmptyState, InfoBadge, PageHeader, Surface } from "@/components/ui/page";
+import {
+  EmptyState,
+  InfoBadge,
+  PageHeader,
+  Surface,
+} from "@/components/ui/page";
 import { useLibrarySearch } from "@/queries";
-import { tmdbPosterUrl } from "@plum/shared";
 import { Search as SearchIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 
-function resolveSearchPoster(posterUrl?: string, posterPath?: string): string {
-  if (posterUrl) {
-    return posterUrl;
-  }
-  if (posterPath?.startsWith("http")) {
-    return posterPath;
-  }
-  return tmdbPosterUrl(posterPath, "w500");
-}
-
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q")?.trim() ?? "";
-  const selectedType = (searchParams.get("type") as "movie" | "show" | null) ?? "";
+  const selectedType =
+    (searchParams.get("type") as "movie" | "show" | null) ?? "";
   const selectedGenre = searchParams.get("genre") ?? "";
   const selectedLibraryId = searchParams.get("library_id");
   const libraryId = selectedLibraryId ? Number(selectedLibraryId) : null;
   const { data, error, isLoading } = useLibrarySearch(query, {
     enabled: query.length >= 2,
     libraryId,
-    type: selectedType === "movie" || selectedType === "show" ? selectedType : "",
+    type:
+      selectedType === "movie" || selectedType === "show" ? selectedType : "",
     genre: selectedGenre,
     limit: 36,
   });
@@ -62,7 +58,7 @@ export function SearchPage() {
           />
 
           <div className="relative max-w-2xl">
-            <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--nebula-muted)]" />
+            <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--plum-muted)]" />
             <Input
               type="search"
               value={query}
@@ -118,7 +114,7 @@ export function SearchPage() {
       ) : error ? (
         <SearchMessage title="Search is unavailable" copy={error.message} />
       ) : isLoading && !data ? (
-        <p className="text-sm text-[var(--nebula-muted)]">Searching library…</p>
+        <p className="text-sm text-[var(--plum-muted)]">Searching library…</p>
       ) : data && data.results.length === 0 ? (
         <SearchMessage
           title={`No results for "${query}"`}
@@ -128,8 +124,6 @@ export function SearchPage() {
         <LibraryPosterGrid
           items={
             data?.results.map((result) => {
-              const poster =
-                resolveSearchPoster(result.poster_url, result.poster_path) || undefined;
               const reason =
                 result.match_reason === "actor"
                   ? `Actor match${result.matched_actor ? `: ${result.matched_actor}` : ""}`
@@ -139,15 +133,20 @@ export function SearchPage() {
                 key: result.href,
                 title: result.title,
                 subtitle: result.subtitle ?? result.library_name,
-                posterUrl: poster,
+                posterPath: result.poster_path,
+                posterUrl: result.poster_url,
                 ratingValue: result.imdb_rating ?? undefined,
                 ratingLabel: result.imdb_rating ? "IMDb" : undefined,
-                metaLine: [result.subtitle ? result.library_name : null, reason, genres]
+                metaLine: [
+                  result.subtitle ? result.library_name : null,
+                  reason,
+                  genres,
+                ]
                   .filter(Boolean)
                   .join(" • "),
                 href: result.href,
                 topBadge: (
-                  <span className="rounded-full bg-[var(--nebula-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--nebula-accent)]">
+                  <span className="rounded-full bg-[var(--plum-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--plum-accent)]">
                     {result.kind}
                   </span>
                 ),
@@ -172,7 +171,10 @@ function FilterChip({
 }) {
   return (
     <button type="button" onClick={onClick}>
-      <InfoBadge active={active} className="transition-colors hover:text-[var(--nebula-text)]">
+      <InfoBadge
+        active={active}
+        className="transition-colors hover:text-[var(--plum-text)]"
+      >
         {label}
       </InfoBadge>
     </button>

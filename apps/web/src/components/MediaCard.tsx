@@ -1,28 +1,50 @@
-import { resolvePosterUrl } from "@plum/shared";
+import { resolvePosterUrls } from "@plum/shared";
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { PosterGridItem } from "./types";
 
-export function MediaCard({ item, className }: { item: PosterGridItem; className?: string }) {
-  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath);
+export function MediaCard({
+  item,
+  className,
+}: {
+  item: PosterGridItem;
+  className?: string;
+}) {
+  const posterUrls = resolvePosterUrls(item.posterUrl, item.posterPath);
+  const [posterIndex, setPosterIndex] = useState(0);
   const [posterErrored, setPosterErrored] = useState(false);
+  const posterUrl = posterUrls[posterIndex] ?? "";
   const cardState = item.cardState ?? "default";
   const progressPercent =
-    item.progressPercent != null ? Math.max(0, Math.min(100, item.progressPercent)) : 0;
+    item.progressPercent != null
+      ? Math.max(0, Math.min(100, item.progressPercent))
+      : 0;
+  const hasPosterFallback = posterIndex < posterUrls.length - 1;
 
-  const showIdentifyingShell = cardState === "identifying" && (!posterUrl || posterErrored);
-  const showFailedShell = cardState === "identify-failed" && (!posterUrl || posterErrored);
-  const showPlaceholderPoster = cardState === "default" && (!posterUrl || posterErrored);
+  const showIdentifyingShell =
+    cardState === "identifying" && (!posterUrl || posterErrored);
+  const showFailedShell =
+    cardState === "identify-failed" && (!posterUrl || posterErrored);
+  const showPlaceholderPoster =
+    cardState === "default" && (!posterUrl || posterErrored);
 
   useEffect(() => {
+    setPosterIndex(0);
     setPosterErrored(false);
-  }, [posterUrl]);
+  }, [item.posterPath, item.posterUrl]);
 
   return (
-    <div className={`show-card ${className ?? ""}`} onContextMenu={item.onContextMenu}>
+    <div
+      className={`show-card ${className ?? ""}`}
+      onContextMenu={item.onContextMenu}
+    >
       {item.href ? (
-        <Link to={item.href} className="show-card-hit-area" aria-label={item.title} />
+        <Link
+          to={item.href}
+          className="show-card-hit-area"
+          aria-label={item.title}
+        />
       ) : item.onClick ? (
         <button
           type="button"
@@ -66,13 +88,25 @@ export function MediaCard({ item, className }: { item: PosterGridItem; className
           ) : showPlaceholderPoster ? (
             <img src="/placeholder-poster.svg" alt="" />
           ) : (
-            <img src={posterUrl} alt="" onError={() => setPosterErrored(true)} />
+            <img
+              src={posterUrl}
+              alt=""
+              onError={() => {
+                if (hasPosterFallback) {
+                  setPosterIndex((current) => current + 1);
+                  return;
+                }
+                setPosterErrored(true);
+              }}
+            />
           )}
 
           {cardState !== "default" && (
             <div className={`show-card-status show-card-status--${cardState}`}>
               {item.statusLabel && (
-                <span className="show-card-status-label">{item.statusLabel}</span>
+                <span className="show-card-status-label">
+                  {item.statusLabel}
+                </span>
               )}
               {item.statusActionLabel && item.onStatusAction && (
                 <button
@@ -99,7 +133,10 @@ export function MediaCard({ item, className }: { item: PosterGridItem; className
 
           {progressPercent > 0 && progressPercent < 95 && (
             <div className="show-card-progress" aria-hidden="true">
-              <div className="show-card-progress__value" style={{ width: `${progressPercent}%` }} />
+              <div
+                className="show-card-progress__value"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
           )}
         </div>
@@ -111,11 +148,15 @@ export function MediaCard({ item, className }: { item: PosterGridItem; className
             <div className="show-card-meta">
               {item.ratingValue ? (
                 <span className="show-card-imdb">
-                  <span className="show-card-imdb__mark">{item.ratingLabel ?? "Rating"}</span>
+                  <span className="show-card-imdb__mark">
+                    {item.ratingLabel ?? "Rating"}
+                  </span>
                   <span>{item.ratingValue.toFixed(1)}</span>
                 </span>
               ) : null}
-              {item.metaLine ? <span className="show-card-meta__copy">{item.metaLine}</span> : null}
+              {item.metaLine ? (
+                <span className="show-card-meta__copy">{item.metaLine}</span>
+              ) : null}
             </div>
           )}
         </div>

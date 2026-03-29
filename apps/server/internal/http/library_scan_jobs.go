@@ -88,27 +88,28 @@ type LibraryScanManager struct {
 	hub  *ws.Hub
 	meta metadata.Identifier
 
-	mu             sync.Mutex
-	jobs           map[int]libraryScanStatus
-	types          map[int]string
-	paths          map[int]string
-	owners         map[int]int
-	subpaths       map[int][]string
-	activities     map[int]libraryScanActivity
-	reruns         map[int]scanStartRequest
-	debounceReady  map[int]bool
-	debounceTimers map[int]*time.Timer
-	activityTimers map[int]*time.Timer
-	retryTimers    map[int]*time.Timer
-	enrichCancels  map[int]context.CancelFunc
-	watcherStops   map[int]context.CancelFunc
-	schedulerStops map[int]context.CancelFunc
-	enrichSem      chan struct{}
-	identifySem    chan struct{}
-	handler        *LibraryHandler
-	lastFlushed    map[int]libraryScanFlushState
-	lastActivityAt map[int]time.Time
-	activeScanID   int
+	mu                sync.Mutex
+	jobs              map[int]libraryScanStatus
+	types             map[int]string
+	paths             map[int]string
+	owners            map[int]int
+	subpaths          map[int][]string
+	activities        map[int]libraryScanActivity
+	reruns            map[int]scanStartRequest
+	identifyAfterScan map[int]bool
+	debounceReady     map[int]bool
+	debounceTimers    map[int]*time.Timer
+	activityTimers    map[int]*time.Timer
+	retryTimers       map[int]*time.Timer
+	enrichCancels     map[int]context.CancelFunc
+	watcherStops      map[int]context.CancelFunc
+	schedulerStops    map[int]context.CancelFunc
+	enrichSem         chan struct{}
+	identifySem       chan struct{}
+	handler           *LibraryHandler
+	lastFlushed       map[int]libraryScanFlushState
+	lastActivityAt    map[int]time.Time
+	activeScanID      int
 }
 
 type libraryScanFlushState struct {
@@ -141,27 +142,28 @@ func cloneLibraryScanActivity(activity libraryScanActivity) *libraryScanActivity
 
 func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub) *LibraryScanManager {
 	return &LibraryScanManager{
-		db:             sqlDB,
-		hub:            hub,
-		meta:           meta,
-		jobs:           make(map[int]libraryScanStatus),
-		types:          make(map[int]string),
-		paths:          make(map[int]string),
-		owners:         make(map[int]int),
-		subpaths:       make(map[int][]string),
-		activities:     make(map[int]libraryScanActivity),
-		reruns:         make(map[int]scanStartRequest),
-		debounceReady:  make(map[int]bool),
-		debounceTimers: make(map[int]*time.Timer),
-		activityTimers: make(map[int]*time.Timer),
-		retryTimers:    make(map[int]*time.Timer),
-		enrichCancels:  make(map[int]context.CancelFunc),
-		watcherStops:   make(map[int]context.CancelFunc),
-		schedulerStops: make(map[int]context.CancelFunc),
-		enrichSem:      make(chan struct{}, 1),
-		identifySem:    make(chan struct{}, 1),
-		lastFlushed:    make(map[int]libraryScanFlushState),
-		lastActivityAt: make(map[int]time.Time),
+		db:                sqlDB,
+		hub:               hub,
+		meta:              meta,
+		jobs:              make(map[int]libraryScanStatus),
+		types:             make(map[int]string),
+		paths:             make(map[int]string),
+		owners:            make(map[int]int),
+		subpaths:          make(map[int][]string),
+		activities:        make(map[int]libraryScanActivity),
+		reruns:            make(map[int]scanStartRequest),
+		identifyAfterScan: make(map[int]bool),
+		debounceReady:     make(map[int]bool),
+		debounceTimers:    make(map[int]*time.Timer),
+		activityTimers:    make(map[int]*time.Timer),
+		retryTimers:       make(map[int]*time.Timer),
+		enrichCancels:     make(map[int]context.CancelFunc),
+		watcherStops:      make(map[int]context.CancelFunc),
+		schedulerStops:    make(map[int]context.CancelFunc),
+		enrichSem:         make(chan struct{}, 1),
+		identifySem:       make(chan struct{}, 1),
+		lastFlushed:       make(map[int]libraryScanFlushState),
+		lastActivityAt:    make(map[int]time.Time),
 	}
 }
 
@@ -183,20 +185,22 @@ func (m *LibraryScanManager) Recover() error {
 
 	var (
 		identifiesToResume []int
+		resumedReasons     []string
 	)
 
 	m.mu.Lock()
+	recoveredAt := time.Now().UTC().Format(time.RFC3339)
 	for _, persisted := range statuses {
 		status := persistedLibraryStatusToRuntime(persisted)
 		m.jobs[status.LibraryID] = status
 		m.types[status.LibraryID] = persisted.Type
 		m.paths[status.LibraryID] = persisted.Path
 		delete(m.lastFlushed, status.LibraryID)
+		delete(m.identifyAfterScan, status.LibraryID)
 
 		switch {
 		case status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning:
-			status.Phase = libraryScanPhaseQueued
-			status.Enriching = false
+			status = normalizeRecoveredScanStatus(status, recoveredAt)
 			if status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying {
 				status.IdentifyPhase = libraryIdentifyPhaseIdle
 				status.Identified = 0
@@ -204,19 +208,33 @@ func (m *LibraryScanManager) Recover() error {
 			}
 			m.jobs[status.LibraryID] = status
 			m.setActivityStageLocked(status.LibraryID, "queued", true, true)
+			delete(m.lastActivityAt, status.LibraryID)
 			m.debounceReady[status.LibraryID] = true
+			m.identifyAfterScan[status.LibraryID] = persisted.Type != db.LibraryTypeMusic && status.IdentifyRequested
+			resumedReasons = append(resumedReasons, fmt.Sprintf("recover library=%d reason=queued-scan", status.LibraryID))
 		case status.Enriching:
-			status.Enriching = false
-			status.Phase = libraryScanPhaseQueued
-			status.FinishedAt = ""
+			identifyWasActive := status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying
+			status = normalizeRecoveredScanStatus(status, recoveredAt)
+			if identifyWasActive {
+				status.IdentifyPhase = libraryIdentifyPhaseIdle
+				status.Identified = 0
+				status.IdentifyFailed = 0
+			}
 			m.jobs[status.LibraryID] = status
 			m.setActivityStageLocked(status.LibraryID, "queued", true, true)
+			delete(m.lastActivityAt, status.LibraryID)
 			m.debounceReady[status.LibraryID] = true
+			m.identifyAfterScan[status.LibraryID] = persisted.Type != db.LibraryTypeMusic && identifyWasActive
+			resumedReasons = append(resumedReasons, fmt.Sprintf("recover library=%d reason=enrichment-recovery", status.LibraryID))
+		default:
+			m.finalizeActivityLocked(status.LibraryID, status)
 		}
-		if status.IdentifyRequested &&
-			(status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying) &&
+		if (status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying) &&
 			status.Phase == libraryScanPhaseCompleted {
 			identifiesToResume = append(identifiesToResume, status.LibraryID)
+			m.setActivityStageLocked(status.LibraryID, "identify", true, true)
+			delete(m.lastActivityAt, status.LibraryID)
+			resumedReasons = append(resumedReasons, fmt.Sprintf("recover library=%d reason=identify-recovery", status.LibraryID))
 		}
 		if status.NextRetryAt != "" && status.RetryCount < status.MaxRetries {
 			retryAt, parseErr := time.Parse(time.RFC3339, status.NextRetryAt)
@@ -255,6 +273,9 @@ func (m *LibraryScanManager) Recover() error {
 	m.flushAllStatuses(true)
 	m.scheduleNext()
 
+	for _, reason := range resumedReasons {
+		log.Print(reason)
+	}
 	for _, libraryID := range identifiesToResume {
 		m.startIdentify(libraryID)
 	}
@@ -283,6 +304,9 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 		m.reruns[libraryID] = request
 		status.IdentifyRequested = status.IdentifyRequested || identify
 		m.jobs[libraryID] = status
+		if identify && libraryType != db.LibraryTypeMusic {
+			m.identifyAfterScan[libraryID] = true
+		}
 		result := m.statusLocked(libraryID)
 		m.mu.Unlock()
 		m.flushAllStatuses(true)
@@ -295,6 +319,9 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 		m.types[libraryID] = libraryType
 		m.paths[libraryID] = path
 		m.subpaths[libraryID] = mergeScanSubpaths(m.subpaths[libraryID], normalizedSubpaths)
+		if identify && libraryType != db.LibraryTypeMusic {
+			m.identifyAfterScan[libraryID] = true
+		}
 		m.setActivityStageLocked(libraryID, "queued", true, true)
 		m.debounceReady[libraryID] = false
 		m.scheduleDebounceLocked(libraryID)
@@ -322,6 +349,7 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 	m.types[libraryID] = libraryType
 	m.paths[libraryID] = path
 	m.subpaths[libraryID] = normalizedSubpaths
+	m.identifyAfterScan[libraryID] = identify && libraryType != db.LibraryTypeMusic
 	m.setActivityStageLocked(libraryID, "queued", true, true)
 	m.debounceReady[libraryID] = false
 	delete(m.lastFlushed, libraryID)
@@ -346,6 +374,16 @@ func (m *LibraryScanManager) clearRetryStateLocked(libraryID int, status *librar
 		timer.Stop()
 		delete(m.retryTimers, libraryID)
 	}
+}
+
+func normalizeRecoveredScanStatus(status libraryScanStatus, recoveredAt string) libraryScanStatus {
+	status.Phase = libraryScanPhaseQueued
+	status.Enriching = false
+	status.QueuedAt = recoveredAt
+	status.StartedAt = recoveredAt
+	status.FinishedAt = ""
+	status.Error = ""
+	return status
 }
 
 func mergeScanStartRequest(current, incoming scanStartRequest) scanStartRequest {
@@ -685,7 +723,7 @@ func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, librar
 		return
 	}
 	m.finish(libraryID, libraryScanPhaseCompleted, delta.Result, "")
-	if status.IdentifyRequested && libraryType != db.LibraryTypeMusic {
+	if current := m.status(libraryID); current.Phase == libraryScanPhaseCompleted && m.consumeIdentifyAfterScan(libraryID) {
 		m.startIdentify(libraryID)
 	}
 	m.startEnrichment(libraryID, libraryType, path, subpaths, delta.TouchedFiles, status.IdentifyRequested)
@@ -838,6 +876,7 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 		status.Skipped = 0
 		m.jobs[libraryID] = status
 		m.subpaths[libraryID] = rerun.subpaths
+		m.identifyAfterScan[libraryID] = rerun.identify && m.types[libraryID] != db.LibraryTypeMusic
 		m.setActivityStageLocked(libraryID, "queued", true, true)
 		m.debounceReady[libraryID] = false
 		m.scheduleDebounceLocked(libraryID)
@@ -929,6 +968,16 @@ func (m *LibraryScanManager) canIdentifyLibrary(libraryType string) bool {
 	}
 	_, ok := m.meta.(metadata.MusicIdentifier)
 	return ok
+}
+
+func (m *LibraryScanManager) consumeIdentifyAfterScan(libraryID int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.identifyAfterScan[libraryID] {
+		return false
+	}
+	delete(m.identifyAfterScan, libraryID)
+	return true
 }
 
 func (m *LibraryScanManager) finishEnrichment(libraryID int) {

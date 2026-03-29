@@ -452,20 +452,20 @@ export function Home() {
   return (
     <>
       {loadingLibs ? (
-        <p className="text-sm text-[var(--nebula-muted)]">Loading libraries…</p>
+        <p className="text-sm text-[var(--plum-muted)]">Loading libraries…</p>
       ) : loadLibsError ? (
-        <p className="text-sm text-[var(--nebula-muted)]">
+        <p className="text-sm text-[var(--plum-muted)]">
           Failed to load libraries: {loadLibsError.message}{" "}
           <button
             type="button"
-            className="text-[var(--nebula-accent)] hover:underline"
+            className="text-[var(--plum-accent)] hover:underline"
             onClick={() => void refetchLibraries()}
           >
             Retry
           </button>
         </p>
       ) : libraries.length === 0 ? (
-        <p className="text-sm text-[var(--nebula-muted)]">
+        <p className="text-sm text-[var(--plum-muted)]">
           No libraries yet. Add one in Settings or onboarding.
         </p>
       ) : (
@@ -473,20 +473,20 @@ export function Home() {
           {selectedLib && (
             <div className="flex min-h-0 flex-1 flex-col">
               {selectedLoading ? (
-                <p className="text-sm text-[var(--nebula-muted)]">Loading…</p>
+                <p className="text-sm text-[var(--plum-muted)]">Loading…</p>
               ) : selectedError ? (
-                <p className="text-sm text-[var(--nebula-muted)]">
+                <p className="text-sm text-[var(--plum-muted)]">
                   {selectedError.message}{" "}
                   <button
                     type="button"
-                    className="text-[var(--nebula-accent)] hover:underline"
+                    className="text-[var(--plum-accent)] hover:underline"
                     onClick={() => void refetchLibraryMedia()}
                   >
                     Retry
                   </button>
                 </p>
               ) : selectedLibraryActivity != null && selectedItems.length === 0 ? (
-                <p className="text-sm text-[var(--nebula-muted)]">
+                <p className="text-sm text-[var(--plum-muted)]">
                   {selectedLibraryActivity === "importing"
                     ? "Importing library…"
                     : selectedLibraryActivity === "analyzing"
@@ -503,11 +503,11 @@ export function Home() {
                   )}
                 </p>
               ) : selectedLibraryScanWarning ? (
-                <p className="text-sm text-[var(--nebula-muted)]">{selectedLibraryScanWarning}</p>
+                <p className="text-sm text-[var(--plum-muted)]">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
-                <p className="text-sm text-[var(--nebula-muted)]">No media in this library yet.</p>
+                <p className="text-sm text-[var(--plum-muted)]">No media in this library yet.</p>
               ) : showIdentifyPlaceholder ? (
-                <p className="text-sm text-[var(--nebula-muted)]">
+                <p className="text-sm text-[var(--plum-muted)]">
                   {selectedLibraryIdentifyPhase === "queued"
                     ? "Queued for identify…"
                     : "Identifying library…"}
@@ -524,14 +524,14 @@ export function Home() {
                   ref={contextMenuRef}
                   role="menu"
                   aria-label={contextMenu.kind === "show" ? "Show actions" : "Movie actions"}
-                  className="fixed z-50 min-w-[10rem] rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)] py-1 text-[var(--nebula-text)] shadow-lg"
+                  className="fixed z-50 min-w-[10rem] rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] py-1 text-[var(--plum-text)] shadow-lg"
                   style={{ left: contextMenu.x, top: contextMenu.y }}
                 >
                   {contextMenu.kind === "show" ? (
                     <>
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                         onClick={() => {
                           setPosterPicker({
                             kind: "show",
@@ -546,7 +546,7 @@ export function Home() {
                       </button>
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                         onClick={() => {
                           refreshShowMutation.mutate(
                             {
@@ -562,7 +562,7 @@ export function Home() {
                       </button>
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                         onClick={() => {
                           navigate(
                             `/library/${selectedLibraryId}/show/${encodeURIComponent(contextMenu.group.showKey)}`,
@@ -574,7 +574,7 @@ export function Home() {
                       </button>
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                         onClick={() => {
                           setIdentifyGroup(contextMenu.group);
                           closeContextMenu();
@@ -587,7 +587,7 @@ export function Home() {
                     <>
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                         onClick={() => {
                           setPosterPicker({
                             kind: "movie",
@@ -603,7 +603,7 @@ export function Home() {
                       {contextMenu.canRetryIdentify ? (
                         <button
                           type="button"
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                           onClick={() => {
                             queueLibraryIdentify(selectedLibraryId, {
                               prioritize: true,
@@ -617,7 +617,7 @@ export function Home() {
                       ) : null}
                       <button
                         type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--nebula-bg)]"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
                         onClick={() => {
                           navigate(`/library/${selectedLibraryId}/movie/${contextMenu.movieId}`);
                           closeContextMenu();

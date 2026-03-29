@@ -7,27 +7,27 @@
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-xl: 1.25rem;
-  --color-nebula-bg: #07111f;
-  --color-nebula-panel: rgba(12, 21, 36, 0.9);
-  --color-nebula-panel-alt: rgba(17, 29, 47, 0.82);
-  --color-nebula-accent: #38bdf8;
-  --color-nebula-accent-soft: rgba(56, 189, 248, 0.14);
-  --color-nebula-text: #e5edf7;
-  --color-nebula-muted: #91a0b8;
-  --color-nebula-border: rgba(148, 163, 184, 0.18);
-  --color-nebula-ring: rgba(56, 189, 248, 0.32);
+  --color-plum-bg: #201236;
+  --color-plum-panel: rgba(42, 24, 70, 0.9);
+  --color-plum-panel-alt: rgba(48, 28, 80, 0.82);
+  --color-plum-accent: #a855f7;
+  --color-plum-accent-soft: rgba(168, 85, 247, 0.14);
+  --color-plum-text: #f3e8ff;
+  --color-plum-muted: #d8b4fe;
+  --color-plum-border: rgba(216, 180, 254, 0.18);
+  --color-plum-ring: rgba(168, 85, 247, 0.32);
 }
 
 :root {
-  --nebula-bg: #07111f;
-  --nebula-panel: rgba(12, 21, 36, 0.9);
-  --nebula-panel-alt: rgba(17, 29, 47, 0.82);
-  --nebula-accent: #38bdf8;
-  --nebula-accent-soft: rgba(56, 189, 248, 0.14);
-  --nebula-text: #e5edf7;
-  --nebula-muted: #91a0b8;
-  --nebula-border: rgba(148, 163, 184, 0.18);
-  --nebula-ring: rgba(56, 189, 248, 0.32);
+  --plum-bg: #201236;
+  --plum-panel: rgba(42, 24, 70, 0.9);
+  --plum-panel-alt: rgba(48, 28, 80, 0.82);
+  --plum-accent: #a855f7;
+  --plum-accent-soft: rgba(168, 85, 247, 0.14);
+  --plum-text: #f3e8ff;
+  --plum-muted: #d8b4fe;
+  --plum-border: rgba(216, 180, 254, 0.18);
+  --plum-ring: rgba(168, 85, 247, 0.32);
   --page-max-width: 96rem;
 }
 
@@ -41,11 +41,11 @@
     margin: 0;
     min-height: 100vh;
     background:
-      radial-gradient(circle at top left, rgba(56, 189, 248, 0.08) 0%, transparent 32%),
-      radial-gradient(circle at top right, rgba(15, 23, 42, 0.45) 0%, transparent 38%),
-      linear-gradient(180deg, rgba(10, 18, 31, 0.96) 0%, rgba(7, 17, 31, 1) 100%),
-      var(--nebula-bg);
-    color: var(--nebula-text);
+      radial-gradient(circle at top left, rgba(168, 85, 247, 0.08) 0%, transparent 32%),
+      radial-gradient(circle at top right, rgba(25, 12, 45, 0.45) 0%, transparent 38%),
+      linear-gradient(180deg, rgba(38, 20, 64, 0.96) 0%, rgba(32, 18, 54, 1) 100%),
+      var(--plum-bg);
+    color: var(--plum-text);
     background-attachment: fixed;
   }
   * {
@@ -56,7 +56,7 @@
     min-height: 100vh;
   }
   ::selection {
-    background: rgba(56, 189, 248, 0.24);
-    color: var(--nebula-text);
+    background: rgba(168, 85, 247, 0.24);
+    color: var(--plum-text);
   }
 }

@@ -27,10 +27,10 @@ export function Sidebar() {
     "flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 text-sm font-medium transition-colors";
 
   return (
-    <aside className="hidden w-72 shrink-0 border-r border-[var(--nebula-border)] bg-[color-mix(in_srgb,var(--nebula-panel)_72%,black_28%)]/88 backdrop-blur-xl md:flex md:flex-col">
+    <aside className="hidden w-72 shrink-0 border-r border-[var(--plum-border)] bg-[color-mix(in_srgb,var(--plum-panel)_72%,black_28%)]/88 backdrop-blur-xl md:flex md:flex-col">
       <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-5" aria-label="Libraries">
         <div className="space-y-1">
-          <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--nebula-muted)]">
+          <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--plum-muted)]">
             Browse
           </div>
         <Link
@@ -38,8 +38,8 @@ export function Sidebar() {
           className={cn(
             navItemClass,
             isHomeRoute
-              ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
-              : "border-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)] hover:text-[var(--nebula-text)]",
+              ? "border-[color-mix(in_srgb,var(--plum-accent)_28%,var(--plum-border))] bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
+              : "border-transparent text-[var(--plum-muted)] hover:border-[var(--plum-border)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
           )}
         >
           <Home className="size-4 shrink-0" />
@@ -50,8 +50,8 @@ export function Sidebar() {
           className={cn(
             navItemClass,
             isDiscoverRoute
-              ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
-              : "border-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)] hover:text-[var(--nebula-text)]",
+              ? "border-[color-mix(in_srgb,var(--plum-accent)_28%,var(--plum-border))] bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
+              : "border-transparent text-[var(--plum-muted)] hover:border-[var(--plum-border)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
           )}
         >
           <Compass className="size-4 shrink-0" />
@@ -59,11 +59,11 @@ export function Sidebar() {
         </Link>
         </div>
         <div className="space-y-1">
-        <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--nebula-muted)]">
+        <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--plum-muted)]">
           Libraries
         </div>
         {isLoading ? (
-          <div className="px-2 py-2 text-sm text-[var(--nebula-muted)] italic">Loading libraries…</div>
+          <div className="px-2 py-2 text-sm text-[var(--plum-muted)] italic">Loading libraries…</div>
         ) : (
           libraries.map((lib) => {
             const isActive = activeId === lib.id;
@@ -86,10 +86,10 @@ export function Sidebar() {
                 className={cn(
                   navItemClass,
                   isActive
-                    ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
-                    : "border-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)] hover:text-[var(--nebula-text)]",
+                    ? "border-[color-mix(in_srgb,var(--plum-accent)_28%,var(--plum-border))] bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
+                    : "border-transparent text-[var(--plum-muted)] hover:border-[var(--plum-border)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
                   isBusy &&
-                    "border-[color-mix(in_srgb,var(--nebula-accent)_20%,var(--nebula-border))]",
+                    "border-[color-mix(in_srgb,var(--plum-accent)_20%,var(--plum-border))]",
                 )}
               >
                 <LibraryIcon lib={lib} />
@@ -104,14 +104,14 @@ export function Sidebar() {
                       className="relative flex size-2.5 items-center justify-center"
                     >
                       {showActivePulse && !isFailed && (
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--nebula-accent)] opacity-45" />
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
                       )}
                       <span
                         className={cn(
                           "relative size-2 rounded-full",
                           isFailed
                             ? "bg-rose-400"
-                            : "bg-[var(--nebula-accent)] shadow-[0_0_10px_var(--nebula-accent)]",
+                            : "bg-[var(--plum-accent)] shadow-[0_0_10px_var(--plum-accent)]",
                         )}
                       />
                     </span>

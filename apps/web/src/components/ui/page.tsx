@@ -19,22 +19,22 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "flex flex-col gap-4 border-b border-[var(--nebula-border)]/80 pb-4 md:flex-row md:items-end md:justify-between",
+        "flex flex-col gap-4 border-b border-[var(--plum-border)]/80 pb-4 md:flex-row md:items-end md:justify-between",
         className,
       )}
     >
       <div className="min-w-0 space-y-2">
-        <h1 className="text-[1.875rem] font-semibold tracking-[-0.03em] text-[var(--nebula-text)]">
+        <h1 className="text-[1.875rem] font-semibold tracking-[-0.03em] text-[var(--plum-text)]">
           {title}
         </h1>
         {description ? (
-          <p className="max-w-3xl text-sm leading-6 text-[var(--nebula-muted)]">{description}</p>
+          <p className="max-w-3xl text-sm leading-6 text-[var(--plum-muted)]">{description}</p>
         ) : null}
       </div>
 
       {(meta || actions) && (
         <div className="flex shrink-0 flex-col items-start gap-3 md:items-end">
-          {meta ? <div className="text-sm text-[var(--nebula-muted)]">{meta}</div> : null}
+          {meta ? <div className="text-sm text-[var(--plum-muted)]">{meta}</div> : null}
           {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
         </div>
       )}
@@ -54,7 +54,7 @@ export function Surface({
   return (
     <Comp
       className={cn(
-        "rounded-[var(--radius-xl)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/92 p-5 shadow-[0_18px_40px_rgba(3,8,20,0.14)]",
+        "rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/92 p-5 shadow-[0_18px_40px_rgba(3,8,20,0.14)]",
         className,
       )}
     >
@@ -77,13 +77,13 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-xl)] border border-dashed border-[var(--nebula-border)] bg-[var(--nebula-panel)]/55 p-8",
+        "rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/55 p-8",
         className,
       )}
     >
       <div className="max-w-2xl space-y-2">
-        <h2 className="text-lg font-semibold text-[var(--nebula-text)]">{title}</h2>
-        <p className="text-sm leading-6 text-[var(--nebula-muted)]">{copy}</p>
+        <h2 className="text-lg font-semibold text-[var(--plum-text)]">{title}</h2>
+        <p className="text-sm leading-6 text-[var(--plum-muted)]">{copy}</p>
         {action ? <div className="pt-2">{action}</div> : null}
       </div>
     </div>
@@ -104,8 +104,8 @@ export function InfoBadge({
       className={cn(
         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]",
         active
-          ? "border-[var(--nebula-accent)]/35 bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
-          : "border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/80 text-[var(--nebula-muted)]",
+          ? "border-[var(--plum-accent)]/35 bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
+          : "border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/80 text-[var(--plum-muted)]",
         className,
       )}
     >

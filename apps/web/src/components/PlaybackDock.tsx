@@ -14,7 +14,7 @@ import {
   externalSubtitleUrl,
   mediaStreamUrl,
   resolveBackdropUrl,
-  resolvePosterUrl,
+  resolvePosterUrls,
 } from "@plum/shared";
 import {
   Expand,
@@ -126,7 +126,9 @@ function TrackMenu({
           className={`subtitle-menu__item${selectedKey === "off" ? " is-selected" : ""}`}
           onClick={() => onSelect("off")}
         >
-          <span className="subtitle-menu__check">{selectedKey === "off" ? "✓" : ""}</span>
+          <span className="subtitle-menu__check">
+            {selectedKey === "off" ? "✓" : ""}
+          </span>
           <span>{offLabel}</span>
         </button>
       )}
@@ -139,7 +141,9 @@ function TrackMenu({
           className={`subtitle-menu__item${selectedKey === option.key ? " is-selected" : ""}`}
           onClick={() => onSelect(option.key)}
         >
-          <span className="subtitle-menu__check">{selectedKey === option.key ? "✓" : ""}</span>
+          <span className="subtitle-menu__check">
+            {selectedKey === option.key ? "✓" : ""}
+          </span>
           <span>{option.label}</span>
         </button>
       ))}
@@ -263,13 +267,16 @@ export function PlaybackDock() {
     duration: 0,
     isPlaying: false,
   });
-  const [subtitleAppearance, setSubtitleAppearance] = useState<SubtitleAppearance>(() =>
-    readStoredSubtitleAppearance(),
-  );
+  const [subtitleAppearance, setSubtitleAppearance] =
+    useState<SubtitleAppearance>(() => readStoredSubtitleAppearance());
   const [playerControlsAppearance, setPlayerControlsAppearance] =
-    useState<PlayerControlsAppearance>(() => readStoredPlayerControlsAppearance());
+    useState<PlayerControlsAppearance>(() =>
+      readStoredPlayerControlsAppearance(),
+    );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
-  const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
+  const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<
+    LoadedSubtitleTrack[]
+  >([]);
   const [failedSubtitleKeys, setFailedSubtitleKeys] = useState<string[]>([]);
   const [selectedAudioKey, setSelectedAudioKey] = useState("");
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
@@ -280,7 +287,8 @@ export function PlaybackDock() {
   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
-  const [pendingBrowserFullscreen, setPendingBrowserFullscreen] = useState(false);
+  const [pendingBrowserFullscreen, setPendingBrowserFullscreen] =
+    useState(false);
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null);
   const subtitleBtnRef = useRef<HTMLButtonElement | null>(null);
   const audioMenuRef = useRef<HTMLDivElement | null>(null);
@@ -288,8 +296,14 @@ export function PlaybackDock() {
   const playerSettingsMenuRef = useRef<HTMLDivElement | null>(null);
   const playerSettingsBtnRef = useRef<HTMLButtonElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const requestedAudioTrackRef = useRef<{ mediaId: number; key: string } | null>(null);
-  const dispatchedAudioTrackRef = useRef<{ mediaId: number; key: string } | null>(null);
+  const requestedAudioTrackRef = useRef<{
+    mediaId: number;
+    key: string;
+  } | null>(null);
+  const dispatchedAudioTrackRef = useRef<{
+    mediaId: number;
+    key: string;
+  } | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(0);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -297,12 +311,15 @@ export function PlaybackDock() {
   const resumePlaybackAfterReloadRef = useRef(false);
   const previousVideoSourceUrlRef = useRef("");
   const [hlsStatusMessage, setHlsStatusMessage] = useState("");
+  const [posterIndex, setPosterIndex] = useState(0);
   const mediaRecoveryAttemptsRef = useRef(0);
   const networkRecoveryAttemptsRef = useRef(0);
   const initialBufferGapHandledRef = useRef(false);
   const manualSubtitleTrackRef = useRef<TextTrack | null>(null);
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
-  const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(
+    new Map(),
+  );
   const lastVideoProgressRef = useRef<VideoProgressSnapshot | null>(null);
   const {
     activeItem,
@@ -349,7 +366,9 @@ export function PlaybackDock() {
     [videoSourceUrl],
   );
   const activeLibrary = useMemo(
-    () => libraries.find((library) => library.id === activeItem?.library_id) ?? null,
+    () =>
+      libraries.find((library) => library.id === activeItem?.library_id) ??
+      null,
     [activeItem?.library_id, libraries],
   );
   const libraryPlaybackPreferences = useMemo(
@@ -359,6 +378,10 @@ export function PlaybackDock() {
       ),
     [activeItem, activeLibrary],
   );
+
+  useEffect(() => {
+    setPosterIndex(0);
+  }, [activeItem?.id, activeItem?.poster_path, activeItem?.poster_url]);
 
   useEffect(() => {
     const previousUrl = previousVideoSourceUrlRef.current;
@@ -395,16 +418,25 @@ export function PlaybackDock() {
     const embedded =
       activeItem.embeddedSubtitles?.map((subtitle, index) => ({
         key: `emb-${subtitle.streamIndex}`,
-        label: subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`,
+        label:
+          subtitle.title ||
+          subtitle.language ||
+          `Embedded subtitle ${index + 1}`,
         src: embeddedSubtitleUrl(BASE_URL, activeItem.id, subtitle.streamIndex),
         srcLang: subtitle.language || "und",
       })) ?? [];
     return [...external, ...embedded];
   }, [activeItem, isVideo]);
 
-  const failedSubtitleKeySet = useMemo(() => new Set(failedSubtitleKeys), [failedSubtitleKeys]);
+  const failedSubtitleKeySet = useMemo(
+    () => new Set(failedSubtitleKeys),
+    [failedSubtitleKeys],
+  );
   const subtitleTrackOptions = useMemo(
-    () => subtitleTrackRequests.filter((track) => !failedSubtitleKeySet.has(track.key)),
+    () =>
+      subtitleTrackRequests.filter(
+        (track) => !failedSubtitleKeySet.has(track.key),
+      ),
     [failedSubtitleKeySet, subtitleTrackRequests],
   );
   const ensureSubtitleTrackLoaded = useCallback(
@@ -413,7 +445,9 @@ export function PlaybackDock() {
       if (loadedSubtitleTracks.some((track) => track.key === trackKey)) return;
       if (failedSubtitleKeySet.has(trackKey)) return;
       if (subtitleLoadControllersRef.current.has(trackKey)) return;
-      const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
+      const track = subtitleTrackRequests.find(
+        (candidate) => candidate.key === trackKey,
+      );
       if (!track) return;
 
       const controller = new AbortController();
@@ -451,12 +485,19 @@ export function PlaybackDock() {
         setLoadedSubtitleTracks((current) =>
           current.filter((candidate) => candidate.key !== track.key),
         );
-        setSelectedSubtitleKey((current) => (current === track.key ? "off" : current));
+        setSelectedSubtitleKey((current) =>
+          current === track.key ? "off" : current,
+        );
       } finally {
         subtitleLoadControllersRef.current.delete(trackKey);
       }
     },
-    [activeItem?.id, failedSubtitleKeySet, loadedSubtitleTracks, subtitleTrackRequests],
+    [
+      activeItem?.id,
+      failedSubtitleKeySet,
+      loadedSubtitleTracks,
+      subtitleTrackRequests,
+    ],
   );
 
   useEffect(() => {
@@ -469,7 +510,11 @@ export function PlaybackDock() {
     return (
       activeItem.embeddedAudioTracks?.map((track, index) => ({
         key: `aud-${track.streamIndex}`,
-        label: formatTrackLabel(track.title, track.language, `Audio ${index + 1}`),
+        label: formatTrackLabel(
+          track.title,
+          track.language,
+          `Audio ${index + 1}`,
+        ),
         streamIndex: track.streamIndex,
         language: track.language,
       })) ?? []
@@ -482,13 +527,14 @@ export function PlaybackDock() {
   );
 
   const selectedAudioLabel =
-    (selectedAudioIndex >= 0 ? audioTracks[selectedAudioIndex]?.label : audioTracks[0]?.label) ||
-    "Audio";
+    (selectedAudioIndex >= 0
+      ? audioTracks[selectedAudioIndex]?.label
+      : audioTracks[0]?.label) || "Audio";
   const videoSubtitleStyle = useMemo(
     () =>
       ({
-        "--nebula-subtitle-color": subtitleAppearance.color,
-        "--nebula-subtitle-size": subtitleFontSizeValue(subtitleAppearance.size),
+        "--plum-subtitle-color": subtitleAppearance.color,
+        "--plum-subtitle-size": subtitleFontSizeValue(subtitleAppearance.size),
       }) as CSSProperties,
     [subtitleAppearance.color, subtitleAppearance.size],
   );
@@ -500,9 +546,13 @@ export function PlaybackDock() {
         return;
       }
       const elementDuration =
-        Number.isFinite(element.duration) && element.duration > 0 ? element.duration : 0;
+        Number.isFinite(element.duration) && element.duration > 0
+          ? element.duration
+          : 0;
       setPlaybackState({
-        currentTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
+        currentTime: Number.isFinite(element.currentTime)
+          ? element.currentTime
+          : 0,
         duration: isVideo
           ? resolvedVideoDuration(
               playbackDurationSeconds,
@@ -529,27 +579,30 @@ export function PlaybackDock() {
     setSubtitleReadyVersion((value) => value + 1);
   }, []);
 
-  const maybeRecoverInitialBufferGap = useCallback((video: HTMLVideoElement | null): boolean => {
-    if (!video || initialBufferGapHandledRef.current) {
-      return false;
-    }
+  const maybeRecoverInitialBufferGap = useCallback(
+    (video: HTMLVideoElement | null): boolean => {
+      if (!video || initialBufferGapHandledRef.current) {
+        return false;
+      }
 
-    if ((Number.isFinite(video.currentTime) ? video.currentTime : 0) > 1) {
-      initialBufferGapHandledRef.current = true;
-      return false;
-    }
+      if ((Number.isFinite(video.currentTime) ? video.currentTime : 0) > 1) {
+        initialBufferGapHandledRef.current = true;
+        return false;
+      }
 
-    if (bufferedRangeStartsNearZero(video)) {
-      initialBufferGapHandledRef.current = true;
-      return false;
-    }
+      if (bufferedRangeStartsNearZero(video)) {
+        initialBufferGapHandledRef.current = true;
+        return false;
+      }
 
-    const nudged = nudgeVideoIntoBufferedRange(video);
-    if (nudged || video.buffered.length > 0) {
-      initialBufferGapHandledRef.current = true;
-    }
-    return nudged;
-  }, []);
+      const nudged = nudgeVideoIntoBufferedRange(video);
+      if (nudged || video.buffered.length > 0) {
+        initialBufferGapHandledRef.current = true;
+      }
+      return nudged;
+    },
+    [],
+  );
 
   const captureVideoProgressSnapshot = useCallback(
     (element?: HTMLVideoElement | null): VideoProgressSnapshot | null => {
@@ -559,7 +612,9 @@ export function PlaybackDock() {
       const fallbackDuration =
         fallback?.mediaId === activeItem.id ? fallback.durationSeconds : 0;
       const fallbackPosition =
-        fallback?.mediaId === activeItem.id ? fallback.positionSeconds : playbackState.currentTime;
+        fallback?.mediaId === activeItem.id
+          ? fallback.positionSeconds
+          : playbackState.currentTime;
       const duration = resolvedVideoDuration(
         playbackDurationSeconds,
         activeItem.duration,
@@ -567,9 +622,13 @@ export function PlaybackDock() {
       );
       if (!Number.isFinite(duration) || duration <= 0) return null;
       const rawPosition =
-        candidate && Number.isFinite(candidate.currentTime) ? candidate.currentTime : fallbackPosition;
+        candidate && Number.isFinite(candidate.currentTime)
+          ? candidate.currentTime
+          : fallbackPosition;
       const positionSeconds = Math.max(0, Math.min(rawPosition, duration));
-      const ended = candidate?.ended ?? (fallback?.mediaId === activeItem.id ? fallback.ended : false);
+      const ended =
+        candidate?.ended ??
+        (fallback?.mediaId === activeItem.id ? fallback.ended : false);
       return {
         mediaId: activeItem.id,
         positionSeconds,
@@ -577,7 +636,9 @@ export function PlaybackDock() {
         shouldResumePlayback:
           candidate != null
             ? !candidate.paused && !candidate.ended
-            : (fallback?.mediaId === activeItem.id ? fallback.shouldResumePlayback : false),
+            : fallback?.mediaId === activeItem.id
+              ? fallback.shouldResumePlayback
+              : false,
         ended,
       };
     },
@@ -603,7 +664,11 @@ export function PlaybackDock() {
   }, [captureVideoProgressSnapshot]);
 
   const persistPlaybackProgress = useCallback(
-    async (options?: { force?: boolean; completed?: boolean; snapshot?: VideoProgressSnapshot | null }) => {
+    async (options?: {
+      force?: boolean;
+      completed?: boolean;
+      snapshot?: VideoProgressSnapshot | null;
+    }) => {
       if (!isVideo || !activeItem) return;
       const snapshot =
         options?.snapshot && options.snapshot.mediaId === activeItem.id
@@ -632,7 +697,9 @@ export function PlaybackDock() {
         completed,
       };
       if (activeItem.library_id != null) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.library(activeItem.library_id) });
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.library(activeItem.library_id),
+        });
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
     },
@@ -669,11 +736,12 @@ export function PlaybackDock() {
         resumeAppliedRef.current = activeItem.id;
         return;
       }
-      const maxResumeTime = resolvedVideoDuration(
-        playbackDurationSeconds,
-        activeItem.duration,
-        element.duration,
-      ) - 1;
+      const maxResumeTime =
+        resolvedVideoDuration(
+          playbackDurationSeconds,
+          activeItem.duration,
+          element.duration,
+        ) - 1;
       element.currentTime = Math.max(0, Math.min(resumeAt, maxResumeTime));
       resumeAppliedRef.current = activeItem.id;
     },
@@ -684,18 +752,26 @@ export function PlaybackDock() {
     (element: HTMLVideoElement) => {
       if (!isVideo || !activeItem) return;
       if (initialProgressPersistedRef.current === activeItem.id) return;
-      if (!Number.isFinite(element.currentTime) || element.currentTime <= 0) return;
+      if (!Number.isFinite(element.currentTime) || element.currentTime <= 0)
+        return;
       initialProgressPersistedRef.current = activeItem.id;
       const snapshot = captureVideoProgressSnapshot(element);
       void persistPlaybackProgress({ force: true, snapshot });
     },
-    [activeItem, captureVideoProgressSnapshot, isVideo, persistPlaybackProgress],
+    [
+      activeItem,
+      captureVideoProgressSnapshot,
+      isVideo,
+      persistPlaybackProgress,
+    ],
   );
 
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     if (videoRef.current !== element) {
       if (videoRef.current && !element) {
-        const snapshot = captureVideoProgressSnapshotRef.current(videoRef.current);
+        const snapshot = captureVideoProgressSnapshotRef.current(
+          videoRef.current,
+        );
         if (snapshot) {
           lastVideoProgressRef.current = snapshot;
           seekToAfterReloadRef.current = snapshot.positionSeconds;
@@ -786,10 +862,16 @@ export function PlaybackDock() {
 
   useEffect(() => {
     if (!isVideo) return;
-    const nextDuration = resolvedVideoDuration(playbackDurationSeconds, activeItemDuration, 0);
+    const nextDuration = resolvedVideoDuration(
+      playbackDurationSeconds,
+      activeItemDuration,
+      0,
+    );
     if (nextDuration <= 0) return;
     setPlaybackState((current) =>
-      current.duration === nextDuration ? current : { ...current, duration: nextDuration },
+      current.duration === nextDuration
+        ? current
+        : { ...current, duration: nextDuration },
     );
   }, [activeItemDuration, isVideo, playbackDurationSeconds]);
 
@@ -826,7 +908,9 @@ export function PlaybackDock() {
   useEffect(
     () =>
       subscribeToPlayerControlsAppearance((preference) => {
-        setPlayerControlsAppearance((current) => (current === preference ? current : preference));
+        setPlayerControlsAppearance((current) =>
+          current === preference ? current : preference,
+        );
       }),
     [],
   );
@@ -843,7 +927,10 @@ export function PlaybackDock() {
       ),
     );
     setSelectedAudioKey(
-      getPreferredAudioKey(audioTracks, libraryPlaybackPreferences.preferredAudioLanguage),
+      getPreferredAudioKey(
+        audioTracks,
+        libraryPlaybackPreferences.preferredAudioLanguage,
+      ),
     );
     defaultTrackSelectionAppliedRef.current = activeItem.id;
   }, [
@@ -891,7 +978,11 @@ export function PlaybackDock() {
     }
 
     let track = manualSubtitleTrackRef.current;
-    if (manualSubtitleVideoRef.current !== video || track == null || !hasTextTrack(video, track)) {
+    if (
+      manualSubtitleVideoRef.current !== video ||
+      track == null ||
+      !hasTextTrack(video, track)
+    ) {
       try {
         track = video.addTextTrack("subtitles", "Plum subtitles", "und");
       } catch {
@@ -912,7 +1003,9 @@ export function PlaybackDock() {
     }
 
     const selectedTrack =
-      loadedSubtitleTracks.find((candidate) => candidate.key === selectedSubtitleKey) ?? null;
+      loadedSubtitleTracks.find(
+        (candidate) => candidate.key === selectedSubtitleKey,
+      ) ?? null;
     if (!selectedTrack) {
       track.mode = "disabled";
       return;
@@ -933,7 +1026,11 @@ export function PlaybackDock() {
         manualSubtitleTrackRef.current.mode = "disabled";
       }
     };
-  }, [applyManagedSubtitleTrack, subtitleAttachmentVersion, subtitleReadyVersion]);
+  }, [
+    applyManagedSubtitleTrack,
+    subtitleAttachmentVersion,
+    subtitleReadyVersion,
+  ]);
 
   const syncBrowserAudioTrackSelection = useCallback(() => {
     const browserAudioTracks = getBrowserAudioTracks(videoRef.current);
@@ -950,7 +1047,9 @@ export function PlaybackDock() {
       (_, index) => index,
     ).find((index) => browserAudioTracks[index]?.enabled);
     const activeIndex =
-      selectedAudioIndex >= 0 ? selectedAudioIndex : Math.max(0, detectedIndex ?? 0);
+      selectedAudioIndex >= 0
+        ? selectedAudioIndex
+        : Math.max(0, detectedIndex ?? 0);
 
     for (let i = 0; i < browserAudioTracks.length; i += 1) {
       const audioTrack = browserAudioTracks[i];
@@ -965,7 +1064,11 @@ export function PlaybackDock() {
       const track = audioTracks.find((candidate) => candidate.key === key);
       if (!track) return;
       const previousRequest = dispatchedAudioTrackRef.current;
-      if (previousRequest?.mediaId === activeItem.id && previousRequest.key === key) return;
+      if (
+        previousRequest?.mediaId === activeItem.id &&
+        previousRequest.key === key
+      )
+        return;
       dispatchedAudioTrackRef.current = { mediaId: activeItem.id, key };
       void changeAudioTrack(track.streamIndex);
     },
@@ -1018,7 +1121,10 @@ export function PlaybackDock() {
     const hls = new Hls({
       enableWorker: true,
       backBufferLength: 90,
-      startPosition: seekToAfterReloadRef.current !== null ? seekToAfterReloadRef.current : -1,
+      startPosition:
+        seekToAfterReloadRef.current !== null
+          ? seekToAfterReloadRef.current
+          : -1,
       xhrSetup: (xhr) => {
         xhr.withCredentials = true;
       },
@@ -1034,7 +1140,8 @@ export function PlaybackDock() {
       const formattedError = formatHlsErrorMessage(data);
       const isRecoverableGapError =
         !data.fatal &&
-        (data.details === "bufferStalledError" || data.details === "bufferSeekOverHole");
+        (data.details === "bufferStalledError" ||
+          data.details === "bufferSeekOverHole");
       if (!isRecoverableGapError) {
         console.error("[PlaybackDock] HLS error", {
           mediaId: activeItemId,
@@ -1057,14 +1164,20 @@ export function PlaybackDock() {
         return;
       }
 
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveryAttemptsRef.current < 2) {
+      if (
+        data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+        networkRecoveryAttemptsRef.current < 2
+      ) {
         networkRecoveryAttemptsRef.current += 1;
         setHlsStatusMessage("Reconnecting stream...");
         hls.startLoad();
         return;
       }
 
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveryAttemptsRef.current < 2) {
+      if (
+        data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+        mediaRecoveryAttemptsRef.current < 2
+      ) {
         mediaRecoveryAttemptsRef.current += 1;
         setHlsStatusMessage("Recovering playback...");
         hls.recoverMediaError();
@@ -1114,14 +1227,17 @@ export function PlaybackDock() {
   }, [audioMenuOpen, playerSettingsOpen, subtitleMenuOpen]);
 
   const syncBrowserFullscreenState = useCallback(() => {
-    setBrowserFullscreenActive(document.fullscreenElement === playerRootRef.current);
+    setBrowserFullscreenActive(
+      document.fullscreenElement === playerRootRef.current,
+    );
   }, []);
 
   useEffect(() => {
     syncBrowserFullscreenState();
     const handleFullscreenChange = () => syncBrowserFullscreenState();
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [syncBrowserFullscreenState]);
 
   const toggleBrowserFullscreen = useCallback(async () => {
@@ -1242,16 +1358,27 @@ export function PlaybackDock() {
     return null;
   }
 
-  const posterUrl = resolvePosterUrl(activeItem.poster_url, activeItem.poster_path, "w500");
+  const posterUrls = resolvePosterUrls(
+    activeItem.poster_url,
+    activeItem.poster_path,
+    "w500",
+  );
+  const posterUrl = posterUrls[posterIndex] ?? "";
   const backdropUrl = resolveBackdropUrl(
     activeItem.backdrop_url,
     activeItem.backdrop_path,
     "w780",
   );
   const progressMax =
-    playbackState.duration > 0 ? playbackState.duration : Math.max(playbackDurationSeconds, 0);
+    playbackState.duration > 0
+      ? playbackState.duration
+      : Math.max(playbackDurationSeconds, 0);
   const repeatLabel =
-    repeatMode === "one" ? "Repeat track" : repeatMode === "all" ? "Repeat queue" : "Repeat off";
+    repeatMode === "one"
+      ? "Repeat track"
+      : repeatMode === "all"
+        ? "Repeat queue"
+        : "Repeat off";
   const showDefaultControls = isVideo && playerControlsAppearance === "default";
   const playButtonLabel = playbackState.isPlaying ? "Pause" : "Play";
   const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
@@ -1318,7 +1445,9 @@ export function PlaybackDock() {
           crossOrigin="use-credentials"
           autoPlay
           playsInline
-          onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
+          onLoadedMetadata={(event) =>
+            handleVideoLoadedMetadata(event.currentTarget)
+          }
           onCanPlay={(event) => {
             maybeRecoverInitialBufferGap(event.currentTarget);
             syncPlaybackState(event.currentTarget);
@@ -1353,11 +1482,17 @@ export function PlaybackDock() {
           }}
           onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
           onError={() => {
-            setHlsStatusMessage("Stream error: browser media element failed to load playback");
+            setHlsStatusMessage(
+              "Stream error: browser media element failed to load playback",
+            );
           }}
           onEnded={(event) => {
             const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-            void persistPlaybackProgress({ force: true, completed: true, snapshot });
+            void persistPlaybackProgress({
+              force: true,
+              completed: true,
+              snapshot,
+            });
           }}
         ></video>
 
@@ -1412,7 +1547,9 @@ export function PlaybackDock() {
                 type="button"
                 className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                 onClick={togglePlayPause}
-                aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
+                aria-label={
+                  playbackState.isPlaying ? "Pause playback" : "Play playback"
+                }
               >
                 {playbackState.isPlaying ? (
                   <Pause className="size-5" />
@@ -1422,7 +1559,8 @@ export function PlaybackDock() {
                 {showDefaultControls && <span>{playButtonLabel}</span>}
               </button>
               <span className="fullscreen-player__time">
-                {formatClock(playbackState.currentTime)} / {formatClock(progressMax)}
+                {formatClock(playbackState.currentTime)} /{" "}
+                {formatClock(progressMax)}
               </span>
             </div>
 
@@ -1486,7 +1624,9 @@ export function PlaybackDock() {
                       ariaLabel="Select audio track"
                       onSelect={(key) => {
                         requestedAudioTrackRef.current =
-                          activeItem != null ? { mediaId: activeItem.id, key } : null;
+                          activeItem != null
+                            ? { mediaId: activeItem.id, key }
+                            : null;
                         setSelectedAudioKey(key);
                         setAudioMenuOpen(false);
                       }}
@@ -1557,13 +1697,21 @@ export function PlaybackDock() {
                   void toggleBrowserFullscreen();
                 }}
                 aria-label={
-                  browserFullscreenActive ? "Exit true fullscreen" : "Enter true fullscreen"
+                  browserFullscreenActive
+                    ? "Exit true fullscreen"
+                    : "Enter true fullscreen"
                 }
-                title={browserFullscreenActive ? "Exit true fullscreen" : "Enter true fullscreen"}
+                title={
+                  browserFullscreenActive
+                    ? "Exit true fullscreen"
+                    : "Enter true fullscreen"
+                }
               >
                 <span className="player-fullscreen-icon" aria-hidden="true" />
                 {showDefaultControls && (
-                  <span>{browserFullscreenActive ? "Window" : "Fullscreen"}</span>
+                  <span>
+                    {browserFullscreenActive ? "Window" : "Fullscreen"}
+                  </span>
                 )}
               </button>
 
@@ -1605,7 +1753,9 @@ export function PlaybackDock() {
             {isVideo && (
               <>
                 <span className="status-dot" data-connected={wsConnected} />
-                <span className="playback-dock__status-copy">{videoStatusMessage}</span>
+                <span className="playback-dock__status-copy">
+                  {videoStatusMessage}
+                </span>
               </>
             )}
           </div>
@@ -1637,7 +1787,18 @@ export function PlaybackDock() {
           <div className="playback-dock__summary">
             <div className="playback-dock__artwork">
               {posterUrl ? (
-                <img src={posterUrl} alt="" />
+                <img
+                  src={posterUrl}
+                  alt=""
+                  onError={() => {
+                    setPosterIndex((current) => {
+                      if (current >= posterUrls.length - 1) {
+                        return current;
+                      }
+                      return current + 1;
+                    });
+                  }}
+                />
               ) : (
                 <img src="/placeholder-poster.svg" alt="" />
               )}
@@ -1651,7 +1812,8 @@ export function PlaybackDock() {
               <h2 className="playback-dock__title">{activeItem.title}</h2>
               {isMusic && (
                 <div className="playback-dock__subcopy">
-                  {activeItem.album_artist && activeItem.album_artist !== activeItem.artist
+                  {activeItem.album_artist &&
+                  activeItem.album_artist !== activeItem.artist
                     ? `Album artist: ${activeItem.album_artist}`
                     : activeItem.release_year
                       ? `Released ${activeItem.release_year}`
@@ -1707,7 +1869,9 @@ export function PlaybackDock() {
                     aria-label={`Audio track: ${selectedAudioLabel}`}
                   >
                     <Volume2 className="size-4" />
-                    {showDefaultControls ? <span>{selectedAudioLabel}</span> : null}
+                    {showDefaultControls ? (
+                      <span>{selectedAudioLabel}</span>
+                    ) : null}
                   </button>
                   {audioMenuOpen && (
                     <TrackMenu
@@ -1718,7 +1882,9 @@ export function PlaybackDock() {
                       ariaLabel="Select audio track"
                       onSelect={(key) => {
                         requestedAudioTrackRef.current =
-                          activeItem != null ? { mediaId: activeItem.id, key } : null;
+                          activeItem != null
+                            ? { mediaId: activeItem.id, key }
+                            : null;
                         setSelectedAudioKey(key);
                         setAudioMenuOpen(false);
                       }}
@@ -1778,7 +1944,9 @@ export function PlaybackDock() {
                 crossOrigin="use-credentials"
                 autoPlay
                 playsInline
-                onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
+                onLoadedMetadata={(event) =>
+                  handleVideoLoadedMetadata(event.currentTarget)
+                }
                 onCanPlay={(event) => {
                   maybeRecoverInitialBufferGap(event.currentTarget);
                   syncPlaybackState(event.currentTarget);
@@ -1804,22 +1972,32 @@ export function PlaybackDock() {
                 }}
                 onPause={(event) => {
                   syncPlaybackState(event.currentTarget);
-                  const snapshot = captureVideoProgressSnapshot(event.currentTarget);
+                  const snapshot = captureVideoProgressSnapshot(
+                    event.currentTarget,
+                  );
                   void persistPlaybackProgress({ force: true, snapshot });
                 }}
                 onSeeked={(event) => {
                   syncPlaybackState(event.currentTarget);
                   syncVideoProgressSnapshot(event.currentTarget);
                 }}
-                onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
+                onVolumeChange={(event) =>
+                  syncPlaybackState(event.currentTarget)
+                }
                 onError={() => {
                   setHlsStatusMessage(
                     "Stream error: browser media element failed to load playback",
                   );
                 }}
                 onEnded={(event) => {
-                  const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-                  void persistPlaybackProgress({ force: true, completed: true, snapshot });
+                  const snapshot = captureVideoProgressSnapshot(
+                    event.currentTarget,
+                  );
+                  void persistPlaybackProgress({
+                    force: true,
+                    completed: true,
+                    snapshot,
+                  });
                 }}
               ></video>
               <button
@@ -1835,7 +2013,9 @@ export function PlaybackDock() {
               >
                 <span className="player-fullscreen-icon" aria-hidden="true" />
               </button>
-              <span className="playback-dock__surface-hint">Click video to expand</span>
+              <span className="playback-dock__surface-hint">
+                Click video to expand
+              </span>
             </div>
           )}
 
@@ -1846,7 +2026,9 @@ export function PlaybackDock() {
               className="playback-dock__audio"
               src={mediaStreamUrl(BASE_URL, activeItem.id)}
               autoPlay
-              onLoadedMetadata={(event) => syncPlaybackState(event.currentTarget)}
+              onLoadedMetadata={(event) =>
+                syncPlaybackState(event.currentTarget)
+              }
               onTimeUpdate={(event) => syncPlaybackState(event.currentTarget)}
               onPlay={(event) => syncPlaybackState(event.currentTarget)}
               onPause={(event) => syncPlaybackState(event.currentTarget)}
@@ -1890,9 +2072,15 @@ export function PlaybackDock() {
               type="button"
               className={`playback-dock__play-button${showDefaultControls ? " playback-dock__play-button--labeled" : ""}`}
               onClick={togglePlayPause}
-              aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
+              aria-label={
+                playbackState.isPlaying ? "Pause playback" : "Play playback"
+              }
             >
-              {playbackState.isPlaying ? <Pause className="size-5" /> : <Play className="size-5" />}
+              {playbackState.isPlaying ? (
+                <Pause className="size-5" />
+              ) : (
+                <Play className="size-5" />
+              )}
               {showDefaultControls && <span>{playButtonLabel}</span>}
             </button>
 
@@ -1915,7 +2103,11 @@ export function PlaybackDock() {
                 >
                   <Repeat className="size-4" />
                   <span className="playback-dock__repeat-copy">
-                    {repeatMode === "one" ? "1" : repeatMode === "all" ? "all" : "off"}
+                    {repeatMode === "one"
+                      ? "1"
+                      : repeatMode === "all"
+                        ? "all"
+                        : "off"}
                   </span>
                 </button>
               </>
@@ -1923,7 +2115,9 @@ export function PlaybackDock() {
           </div>
 
           <div className="playback-dock__timeline">
-            <span className="playback-dock__time">{formatClock(playbackState.currentTime)}</span>
+            <span className="playback-dock__time">
+              {formatClock(playbackState.currentTime)}
+            </span>
             <input
               type="range"
               className="playback-dock__slider"
@@ -1934,7 +2128,9 @@ export function PlaybackDock() {
               value={Math.min(playbackState.currentTime, progressMax || 0)}
               onChange={(event) => seekTo(Number(event.target.value))}
             />
-            <span className="playback-dock__time">{formatClock(progressMax)}</span>
+            <span className="playback-dock__time">
+              {formatClock(progressMax)}
+            </span>
           </div>
 
           <div className="playback-dock__volume">

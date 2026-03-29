@@ -42,7 +42,7 @@ export function DiscoverDetail() {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--nebula-muted)]">Loading discover title...</p>;
+    return <p className="text-sm text-[var(--plum-muted)]">Loading discover title...</p>;
   }
 
   if (isDiscoverConfigError(error)) {
@@ -87,7 +87,7 @@ export function DiscoverDetail() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
-      <section className="relative overflow-hidden rounded-[var(--radius-xl)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)] shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
+      <section className="relative overflow-hidden rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
         <div className="absolute inset-0">
           {backdropUrl ? (
             <img src={backdropUrl} alt="" className="h-full w-full object-cover opacity-24" />
@@ -124,7 +124,7 @@ export function DiscoverDetail() {
                   {discoverMediaLabel(details.media_type)}
                 </InfoBadge>
                 {(details.library_matches?.length ?? 0) > 0 ? (
-                  <InfoBadge active className="text-[var(--nebula-accent)]">
+                  <InfoBadge active className="text-[var(--plum-accent)]">
                     In Library
                   </InfoBadge>
                 ) : (
@@ -147,13 +147,13 @@ export function DiscoverDetail() {
             <div className="flex flex-wrap items-center gap-4 text-sm text-white/80">
               {details.vote_average ? (
                 <InfoBadge className="border-white/10 bg-white/8 text-white/80">
-                  <Star className="size-4 fill-current text-[var(--nebula-accent)]" />
+                  <Star className="size-4 fill-current text-[var(--plum-accent)]" />
                   TMDB {details.vote_average.toFixed(1)}
                 </InfoBadge>
               ) : null}
               {details.imdb_rating ? (
                 <InfoBadge className="border-white/10 bg-white/8 text-white/80">
-                  <Sparkles className="size-4 text-[var(--nebula-accent)]" />
+                  <Sparkles className="size-4 text-[var(--plum-accent)]" />
                   IMDb {details.imdb_rating.toFixed(1)}
                 </InfoBadge>
               ) : null}
@@ -202,9 +202,9 @@ export function DiscoverDetail() {
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <Surface className="p-6">
-          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Videos</h2>
+          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Videos</h2>
           {videos.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--nebula-muted)]">
+            <p className="mt-3 text-sm text-[var(--plum-muted)]">
               TMDB did not return any trailer or featurette links for this title.
             </p>
           ) : (
@@ -215,15 +215,15 @@ export function DiscoverDetail() {
                   href={video.href}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)] px-4 py-3 text-sm text-[var(--nebula-text)] transition-colors hover:border-[var(--nebula-accent-soft)]"
+                  className="flex items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-4 py-3 text-sm text-[var(--plum-text)] transition-colors hover:border-[var(--plum-accent-soft)]"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{video.name}</div>
-                    <div className="text-xs uppercase tracking-[0.14em] text-[var(--nebula-muted)]">
+                    <div className="text-xs uppercase tracking-[0.14em] text-[var(--plum-muted)]">
                       {video.site} • {video.type}
                     </div>
                   </div>
-                  <ExternalLink className="size-4 shrink-0 text-[var(--nebula-muted)]" />
+                  <ExternalLink className="size-4 shrink-0 text-[var(--plum-muted)]" />
                 </a>
               ))}
             </div>
@@ -231,10 +231,10 @@ export function DiscoverDetail() {
         </Surface>
 
         <Surface as="aside" className="p-6">
-          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">At a glance</h2>
+          <h2 className="text-lg font-semibold text-[var(--plum-text)]">At a glance</h2>
           <div className="mt-4 flex flex-wrap gap-2">
             {details.genres.map((genre) => (
-              <InfoBadge key={genre} className="text-[var(--nebula-text)]">
+              <InfoBadge key={genre} className="text-[var(--plum-text)]">
                 {genre}
               </InfoBadge>
             ))}
@@ -267,8 +267,8 @@ export function DiscoverDetail() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <dt className="text-[var(--nebula-muted)]">{label}</dt>
-      <dd className="text-right font-medium text-[var(--nebula-text)]">{value}</dd>
+      <dt className="text-[var(--plum-muted)]">{label}</dt>
+      <dd className="text-right font-medium text-[var(--plum-text)]">{value}</dd>
     </div>
   );
 }

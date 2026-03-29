@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2989,6 +2992,480 @@ func TestLibraryScanManager_RecoverResumesQueuedScan(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 imported row after recovery, got %d", count)
+	}
+}
+
+func TestLibraryScanManager_RecoverQueuedScanResetsTimestampsAndLogs(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "recover@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	root := t.TempDir()
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	oldQueuedAt := now.Add(-2 * time.Hour).Format(time.RFC3339)
+	if err := db.UpsertLibraryJobStatus(dbConn, db.LibraryJobStatus{
+		LibraryID:         libraryID,
+		Path:              root,
+		Type:              db.LibraryTypeTV,
+		Phase:             libraryScanPhaseQueued,
+		IdentifyPhase:     libraryIdentifyPhaseIdle,
+		IdentifyRequested: true,
+		QueuedAt:          oldQueuedAt,
+		StartedAt:         oldQueuedAt,
+		FinishedAt:        oldQueuedAt,
+		Error:             "stale error",
+	}); err != nil {
+		t.Fatalf("seed library job status: %v", err)
+	}
+
+	originalDiscovery := scanLibraryDiscovery
+	blockDiscovery := make(chan struct{})
+	var unblockDiscovery sync.Once
+	scanLibraryDiscovery = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		options db.ScanOptions,
+	) (db.ScanDelta, error) {
+		<-blockDiscovery
+		return db.ScanDelta{}, nil
+	}
+	t.Cleanup(func() {
+		scanLibraryDiscovery = originalDiscovery
+		unblockDiscovery.Do(func() {
+			close(blockDiscovery)
+		})
+	})
+
+	var logBuffer bytes.Buffer
+	originalWriter := log.Writer()
+	log.SetOutput(&logBuffer)
+	t.Cleanup(func() {
+		log.SetOutput(originalWriter)
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.Phase == libraryScanPhaseScanning {
+			if status.Error != "" {
+				t.Fatalf("expected recovered scan warning to clear, got %+v", status)
+			}
+			if status.QueuedAt == oldQueuedAt || status.StartedAt == oldQueuedAt {
+				t.Fatalf("expected recovered timestamps to refresh, got %+v", status)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected recovered scan to start, got %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !strings.Contains(logBuffer.String(), fmt.Sprintf("recover library=%d reason=queued-scan", libraryID)) {
+		t.Fatalf("expected recovery log, got %q", logBuffer.String())
+	}
+}
+
+func TestLibraryScanManager_RecoverEnrichmentReplayClearsEnrichingAndKeepsFailedIdentify(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "movies@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Contact",
+		"/movies/Contact (1997)/Contact.1997.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	if err := db.UpsertLibraryJobStatus(dbConn, db.LibraryJobStatus{
+		LibraryID:         libraryID,
+		Path:              "/movies",
+		Type:              db.LibraryTypeMovie,
+		Phase:             libraryScanPhaseCompleted,
+		Enriching:         true,
+		IdentifyPhase:     libraryIdentifyPhaseFailed,
+		IdentifyRequested: true,
+		IdentifyFailed:    1,
+		LastError:         "old identify failure",
+		StartedAt:         now.Add(-time.Hour).Format(time.RFC3339),
+		FinishedAt:        now.Add(-time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("seed library job status: %v", err)
+	}
+
+	originalDiscovery := scanLibraryDiscovery
+	originalEnrichment := enrichLibraryTasks
+	scanLibraryDiscovery = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		options db.ScanOptions,
+	) (db.ScanDelta, error) {
+		return db.ScanDelta{
+			Result: db.ScanResult{Updated: 1},
+			TouchedFiles: []db.EnrichmentTask{{
+				LibraryID: libraryID,
+				Kind:      mediaType,
+				Path:      filepath.Join(root, "Contact.1997.mkv"),
+			}},
+		}, nil
+	}
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		return nil
+	}
+	t.Cleanup(func() {
+		scanLibraryDiscovery = originalDiscovery
+		enrichLibraryTasks = originalEnrichment
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, &identifyStub{
+		movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+			return &metadata.MatchResult{Title: "Contact", Provider: "tmdb", ExternalID: "686"}, nil
+		},
+	}, nil)
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.Phase == libraryScanPhaseCompleted && !status.Enriching {
+			if status.IdentifyPhase != libraryIdentifyPhaseFailed {
+				t.Fatalf("expected failed identify state to be preserved, got %+v", status)
+			}
+			if status.IdentifyFailed != 1 {
+				t.Fatalf("identify failure count = %d, want 1", status.IdentifyFailed)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected recovered enrichment replay to settle, got %+v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestLibraryScanManager_RecoverEnrichmentReplayResetsActiveIdentifyUntilScanCompletes(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "resume-identify@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Contact",
+		"/movies/Contact (1997)/Contact.1997.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	if err := db.UpsertLibraryJobStatus(dbConn, db.LibraryJobStatus{
+		LibraryID:         libraryID,
+		Path:              "/movies",
+		Type:              db.LibraryTypeMovie,
+		Phase:             libraryScanPhaseCompleted,
+		Enriching:         true,
+		IdentifyPhase:     libraryIdentifyPhaseIdentifying,
+		IdentifyRequested: true,
+		StartedAt:         now.Add(-time.Hour).Format(time.RFC3339),
+		FinishedAt:        now.Add(-time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("seed library job status: %v", err)
+	}
+
+	originalDiscovery := scanLibraryDiscovery
+	blockDiscovery := make(chan struct{})
+	var unblockDiscovery sync.Once
+	scanLibraryDiscovery = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		options db.ScanOptions,
+	) (db.ScanDelta, error) {
+		<-blockDiscovery
+		return db.ScanDelta{
+			Result: db.ScanResult{Updated: 1},
+		}, nil
+	}
+	t.Cleanup(func() {
+		scanLibraryDiscovery = originalDiscovery
+		unblockDiscovery.Do(func() {
+			close(blockDiscovery)
+		})
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, &identifyStub{
+		movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+			return &metadata.MatchResult{Title: "Contact", Provider: "tmdb", ExternalID: "686"}, nil
+		},
+	}, nil)
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.Phase == libraryScanPhaseScanning {
+			if status.IdentifyPhase != libraryIdentifyPhaseIdle {
+				t.Fatalf("expected identify phase to reset while recovered scan reruns, got %+v", status)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected recovered enrichment replay to start scanning, got %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	unblockDiscovery.Do(func() {
+		close(blockDiscovery)
+	})
+
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.Phase == libraryScanPhaseCompleted && status.IdentifyPhase == libraryIdentifyPhaseCompleted {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected recovered enrichment replay to restart identify, got %+v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestLibraryScanManager_RecoverEnrichmentReplayPreservesMusicIdentify(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "music@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Music", db.LibraryTypeMusic, "/music", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if err := db.UpsertLibraryJobStatus(dbConn, db.LibraryJobStatus{
+		LibraryID:         libraryID,
+		Path:              "/music",
+		Type:              db.LibraryTypeMusic,
+		Phase:             libraryScanPhaseCompleted,
+		Enriching:         true,
+		IdentifyPhase:     libraryIdentifyPhaseIdle,
+		IdentifyRequested: true,
+		StartedAt:         now.Add(-time.Hour).Format(time.RFC3339),
+		FinishedAt:        now.Add(-time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("seed library job status: %v", err)
+	}
+
+	originalDiscovery := scanLibraryDiscovery
+	originalEnrichment := enrichLibraryTasks
+	usedMusicIdentifier := make(chan bool, 1)
+	scanLibraryDiscovery = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		options db.ScanOptions,
+	) (db.ScanDelta, error) {
+		return db.ScanDelta{
+			Result: db.ScanResult{Updated: 1},
+			TouchedFiles: []db.EnrichmentTask{{
+				LibraryID: libraryID,
+				Kind:      mediaType,
+				Path:      filepath.Join(root, "track.flac"),
+			}},
+		}, nil
+	}
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		select {
+		case usedMusicIdentifier <- options.MusicIdentifier != nil:
+		default:
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		scanLibraryDiscovery = originalDiscovery
+		enrichLibraryTasks = originalEnrichment
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, &identifyMusicStub{}, nil)
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	select {
+	case got := <-usedMusicIdentifier:
+		if !got {
+			t.Fatal("expected recovered music enrichment to use music identifier")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected recovered music enrichment to run")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.Phase == libraryScanPhaseCompleted && !status.Enriching {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected recovered music enrichment to complete, got %+v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestLibraryScanManager_RecoverResumesIdentifyWithoutIdentifyRequestedFlag(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "identify@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+		libraryID,
+		"Contact",
+		"/movies/Contact (1997)/Contact.1997.mkv",
+		0,
+		db.MatchStatusLocal,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	if err := db.UpsertLibraryJobStatus(dbConn, db.LibraryJobStatus{
+		LibraryID:         libraryID,
+		Path:              "/movies",
+		Type:              db.LibraryTypeMovie,
+		Phase:             libraryScanPhaseCompleted,
+		IdentifyPhase:     libraryIdentifyPhaseQueued,
+		IdentifyRequested: false,
+		StartedAt:         now.Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("seed library job status: %v", err)
+	}
+
+	var logBuffer bytes.Buffer
+	originalWriter := log.Writer()
+	log.SetOutput(io.MultiWriter(originalWriter, &logBuffer))
+	t.Cleanup(func() {
+		log.SetOutput(originalWriter)
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, &identifyStub{
+		movieResult: func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+			if info.Title != "contact" || info.Year != 1997 {
+				t.Fatalf("unexpected identify info: %+v", info)
+			}
+			return &metadata.MatchResult{
+				Title:      "Contact",
+				Provider:   "tmdb",
+				ExternalID: "686",
+			}, nil
+		},
+	}, nil)
+	scanJobs.handler = &LibraryHandler{
+		DB:       dbConn,
+		Meta:     scanJobs.meta,
+		ScanJobs: scanJobs,
+	}
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.IdentifyPhase == libraryIdentifyPhaseCompleted {
+			if status.Identified != 1 {
+				t.Fatalf("identified = %d, want 1", status.Identified)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("identify did not recover: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !strings.Contains(logBuffer.String(), fmt.Sprintf("recover library=%d reason=identify-recovery", libraryID)) {
+		t.Fatalf("expected identify recovery log, got %q", logBuffer.String())
 	}
 }
 

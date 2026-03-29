@@ -3,11 +3,20 @@ import { Link, useParams } from "react-router-dom";
 import { BASE_URL, type MediaItem } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { Button } from "../components/ui/button";
-import { EmptyState, HorizontalScrollRail, InfoBadge, Surface } from "../components/ui/page";
+import {
+  EmptyState,
+  HorizontalScrollRail,
+  InfoBadge,
+  Surface,
+} from "../components/ui/page";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
-import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
+import {
+  resolveBackdropUrl,
+  resolvePosterUrl,
+  resolvePosterUrls,
+} from "@plum/shared";
 import { useLibraryMedia, useShowDetails } from "../queries";
 
 function formatDuration(seconds: number): string {
@@ -20,7 +29,8 @@ function formatDuration(seconds: number): string {
 function seasonEpisodeLabel(item: MediaItem): string {
   const s = item.season ?? 0;
   const e = item.episode ?? 0;
-  if (s > 0 || e > 0) return `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`;
+  if (s > 0 || e > 0)
+    return `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`;
   return "";
 }
 
@@ -29,12 +39,19 @@ export function ShowDetail() {
   const libraryId = libraryIdParam ? parseInt(libraryIdParam, 10) : null;
   const showKey = showKeyEncoded ? decodeURIComponent(showKeyEncoded) : null;
 
-  const { data: items = [], isLoading: loading, error } = useLibraryMedia(libraryId);
+  const {
+    data: items = [],
+    isLoading: loading,
+    error,
+  } = useLibraryMedia(libraryId);
   const { data: details } = useShowDetails(libraryId, showKey);
   const { playEpisode } = usePlayer();
-  const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
+  const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(
+    null,
+  );
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
+  const [posterIndex, setPosterIndex] = useState(0);
 
   const episodes = useMemo(() => {
     if (!showKey) return [];
@@ -59,7 +76,12 @@ export function ShowDetail() {
   const activeSeasonEpisodes =
     activeSeason == null ? [] : (episodesBySeason.map.get(activeSeason) ?? []);
   const activeSeasonLabel =
-    activeSeason == null ? "" : activeSeason === 0 ? "Specials" : `Season ${activeSeason}`;
+    activeSeason == null
+      ? ""
+      : activeSeason === 0
+        ? "Specials"
+        : `Season ${activeSeason}`;
+  const firstEpisode = episodes[0];
 
   const showTitle =
     details?.name ??
@@ -81,6 +103,19 @@ export function ShowDetail() {
         : episodesBySeason.seasons[0],
     );
   }, [episodesBySeason.seasons]);
+
+  useEffect(() => {
+    setPosterIndex(0);
+  }, [
+    libraryId,
+    showKey,
+    details?.poster_path,
+    details?.poster_url,
+    firstEpisode?.show_poster_path,
+    firstEpisode?.show_poster_url,
+    firstEpisode?.poster_path,
+    firstEpisode?.poster_url,
+  ]);
 
   if (libraryId == null || showKey == null) {
     return (
@@ -107,21 +142,32 @@ export function ShowDetail() {
     );
   }
 
-  const posterUrl = details?.poster_path
-    ? resolvePosterUrl(details.poster_url, details.poster_path)
-    : episodes[0]
-      ? resolvePosterUrl(episodes[0].show_poster_url ?? episodes[0].poster_url, episodes[0].show_poster_path ?? episodes[0].poster_path)
-      : "";
+  const posterSources =
+    details?.poster_path || details?.poster_url
+      ? resolvePosterUrls(details.poster_url, details.poster_path)
+      : firstEpisode
+        ? resolvePosterUrls(
+            firstEpisode.show_poster_url ?? firstEpisode.poster_url,
+            firstEpisode.show_poster_path ?? firstEpisode.poster_path,
+          )
+        : [];
+  const posterUrl = posterSources[posterIndex] ?? "";
   const backdropUrl = details?.backdrop_path
     ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path)
-    : episodes[0]
-      ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path)
+    : firstEpisode
+      ? resolveBackdropUrl(
+          firstEpisode.backdrop_url,
+          firstEpisode.backdrop_path,
+        )
       : "";
 
   return (
     <div className="show-detail">
       <nav className="show-detail-nav">
-        <Link to={libraryId ? `/library/${libraryId}` : "/"} className="link-button">
+        <Link
+          to={libraryId ? `/library/${libraryId}` : "/"}
+          className="link-button"
+        >
           ← Back to library
         </Link>
       </nav>
@@ -139,7 +185,18 @@ export function ShowDetail() {
               setPosterPickerOpen(true);
             }}
           >
-            <img src={posterUrl} alt="" />
+            <img
+              src={posterUrl}
+              alt=""
+              onError={() => {
+                setPosterIndex((current) => {
+                  if (current >= posterSources.length - 1) {
+                    return current;
+                  }
+                  return current + 1;
+                });
+              }}
+            />
           </div>
         )}
         <div className="show-detail-meta">
@@ -160,14 +217,16 @@ export function ShowDetail() {
           {details?.genres.length ? (
             <div className="flex flex-wrap gap-2">
               {details.genres.map((genre) => (
-                <InfoBadge key={genre}>
-                  {genre}
-                </InfoBadge>
+                <InfoBadge key={genre}>{genre}</InfoBadge>
               ))}
             </div>
           ) : null}
           <div>
-            <Button type="button" variant="outline" onClick={() => setPosterPickerOpen(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPosterPickerOpen(true)}
+            >
               Change poster…
             </Button>
           </div>
@@ -175,16 +234,22 @@ export function ShowDetail() {
       </div>
       {details?.cast.length ? (
         <Surface>
-          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Cast</h2>
+          <h2 className="text-lg font-semibold text-[var(--plum-text)]">
+            Cast
+          </h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {details.cast.map((member) => (
               <div
                 key={`${member.name}-${member.character ?? ""}`}
-                className="rounded-[var(--radius-lg)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/92 p-3"
+                className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/92 p-3"
               >
-                <div className="text-sm font-semibold text-[var(--nebula-text)]">{member.name}</div>
+                <div className="text-sm font-semibold text-[var(--plum-text)]">
+                  {member.name}
+                </div>
                 {member.character ? (
-                  <div className="text-xs text-[var(--nebula-muted)]">{member.character}</div>
+                  <div className="text-xs text-[var(--plum-muted)]">
+                    {member.character}
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -204,7 +269,8 @@ export function ShowDetail() {
             contentClassName="show-detail-season-picker px-12 pb-0.5"
           >
             {episodesBySeason.seasons.map((seasonNum) => {
-              const label = seasonNum === 0 ? "Specials" : `Season ${seasonNum}`;
+              const label =
+                seasonNum === 0 ? "Specials" : `Season ${seasonNum}`;
               const count = episodesBySeason.map.get(seasonNum)?.length ?? 0;
               const isActive = activeSeason === seasonNum;
               return (
@@ -217,7 +283,9 @@ export function ShowDetail() {
                   onClick={() => setSelectedSeason(seasonNum)}
                 >
                   <span>{label}</span>
-                  <span className="show-detail-season-pill__count">{count}</span>
+                  <span className="show-detail-season-pill__count">
+                    {count}
+                  </span>
                 </button>
               );
             })}
@@ -227,7 +295,8 @@ export function ShowDetail() {
             <h2 className="show-detail-season-title">
               {activeSeasonLabel}
               <span className="show-detail-season-count">
-                {activeSeasonEpisodes.length} episode{activeSeasonEpisodes.length !== 1 ? "s" : ""}
+                {activeSeasonEpisodes.length} episode
+                {activeSeasonEpisodes.length !== 1 ? "s" : ""}
               </span>
             </h2>
             <ul className="episodes-list show-detail-episodes">
@@ -252,14 +321,24 @@ export function ShowDetail() {
                       {ep.title}
                     </span>
                     {ep.match_status && ep.match_status !== "identified" && (
-                      <span className="episode-release-date">{ep.match_status}</span>
+                      <span className="episode-release-date">
+                        {ep.match_status}
+                      </span>
                     )}
-                    {ep.release_date && <span className="episode-release-date">{ep.release_date}</span>}
+                    {ep.release_date && (
+                      <span className="episode-release-date">
+                        {ep.release_date}
+                      </span>
+                    )}
                     {ep.overview && (
                       <button
                         type="button"
                         className="episode-overview-toggle"
-                        onClick={() => setExpandedEpisodeId((id) => (id === ep.id ? null : ep.id))}
+                        onClick={() =>
+                          setExpandedEpisodeId((id) =>
+                            id === ep.id ? null : ep.id,
+                          )
+                        }
                       >
                         {expandedEpisodeId === ep.id ? "Hide" : "Show"} summary
                       </button>
@@ -275,16 +354,22 @@ export function ShowDetail() {
                             style={{ width: `${ep.progress_percent ?? 0}%` }}
                           />
                         </div>
-                        <span className="text-xs text-[var(--nebula-muted)]">
+                        <span className="text-xs text-[var(--plum-muted)]">
                           {formatRemainingTime(ep.remaining_seconds)}
                         </span>
                       </div>
                     )}
                   </div>
                   {ep.duration > 0 && (
-                    <span className="episode-duration">{formatDuration(ep.duration)}</span>
+                    <span className="episode-duration">
+                      {formatDuration(ep.duration)}
+                    </span>
                   )}
-                  <Button type="button" size="sm" onClick={() => playEpisode(ep)}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => playEpisode(ep)}
+                  >
                     Play
                   </Button>
                 </li>

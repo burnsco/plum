@@ -124,12 +124,12 @@ export function IdentifyShowDialog({
         )}
         <div className="max-h-[60vh] overflow-y-auto space-y-2">
           {results.length === 0 && !loading && query.trim() && !error && (
-            <p className="text-sm text-(--nebula-muted)">No results.</p>
+            <p className="text-sm text-(--plum-muted)">No results.</p>
           )}
           {results.map((r) => (
             <div
               key={r.ExternalID}
-              className="flex items-center gap-3 rounded-md border border-(--nebula-border) p-2 bg-(--nebula-panel)"
+              className="flex items-center gap-3 rounded-md border border-(--plum-border) p-2 bg-(--plum-panel)"
             >
               <img
                 src={r.PosterURL || "/placeholder-poster.svg"}
@@ -138,7 +138,7 @@ export function IdentifyShowDialog({
               />
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{r.Title}</div>
-                {year(r) && <div className="text-sm text-(--nebula-muted)">{year(r)}</div>}
+                {year(r) && <div className="text-sm text-(--plum-muted)">{year(r)}</div>}
               </div>
               <Button
                 type="button"

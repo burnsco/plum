@@ -53,7 +53,7 @@ export function TopBar() {
   }, [activeQuery, location.pathname, navigate, searchValue]);
 
   return (
-    <header className="sticky top-0 z-40 shrink-0 border-b border-[var(--nebula-border)] bg-[color-mix(in_srgb,var(--nebula-bg)_78%,black_22%)]/92 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 shrink-0 border-b border-[var(--plum-border)] bg-[var(--plum-bg)]">
       <div className="mx-auto flex w-full max-w-[var(--page-max-width)] flex-col gap-3 px-4 py-3 md:h-16 md:flex-row md:items-center md:gap-4 md:px-6 xl:px-8">
         <div className="flex items-center justify-between gap-3 md:justify-start">
           <Link
@@ -84,13 +84,13 @@ export function TopBar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 {user?.email && (
-                  <div className="truncate px-2 py-1.5 text-sm text-[var(--nebula-muted)]">
+                  <div className="truncate px-2 py-1.5 text-sm text-[var(--plum-muted)]">
                     {user.email}
                   </div>
                 )}
                 <DropdownMenuItem
                   onSelect={() => logout()}
-                  className="text-[var(--nebula-accent)] focus:text-[var(--nebula-accent)]"
+                  className="text-[var(--plum-accent)] focus:text-[var(--plum-accent)]"
                 >
                   Sign out
                 </DropdownMenuItem>
@@ -101,13 +101,13 @@ export function TopBar() {
 
         <div className="flex md:flex-1 md:justify-center">
           <div className="relative w-full max-w-xl">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--nebula-muted)]" />
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--plum-muted)]" />
             <Input
               type="search"
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search libraries, shows, and movies"
-              className="h-10 border-[var(--nebula-border)]/90 bg-[var(--nebula-panel-alt)]/85 pl-9"
+              className="h-10 border-[var(--plum-border)]/90 bg-[var(--plum-panel-alt)]/85 pl-9"
             />
           </div>
         </div>
@@ -152,13 +152,13 @@ export function TopBar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               {user?.email && (
-                <div className="truncate px-2 py-1.5 text-sm text-[var(--nebula-muted)]">
+                <div className="truncate px-2 py-1.5 text-sm text-[var(--plum-muted)]">
                   {user.email}
                 </div>
               )}
               <DropdownMenuItem
                 onSelect={() => logout()}
-                className="text-[var(--nebula-accent)] focus:text-[var(--nebula-accent)]"
+                className="text-[var(--plum-accent)] focus:text-[var(--plum-accent)]"
               >
                 Sign out
               </DropdownMenuItem>
@@ -185,8 +185,8 @@ function MobileNavLink({
       className={cn(
         "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
         active
-          ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
-          : "border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/80 text-[var(--nebula-muted)] hover:border-[color-mix(in_srgb,var(--nebula-accent)_20%,var(--nebula-border))] hover:text-[var(--nebula-text)]",
+          ? "border-[color-mix(in_srgb,var(--plum-accent)_28%,var(--plum-border))] bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
+          : "border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/80 text-[var(--plum-muted)] hover:border-[color-mix(in_srgb,var(--plum-accent)_20%,var(--plum-border))] hover:text-[var(--plum-text)]",
       )}
     >
       {children}

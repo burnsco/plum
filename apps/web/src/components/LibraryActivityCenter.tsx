@@ -109,24 +109,24 @@ function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
 
   return (
     <section
-      className="space-y-2 rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/90 p-3"
+      className="space-y-2 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/90 p-3"
       data-testid={`library-activity-status-${library.id}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[var(--nebula-text)]">
+          <div className="truncate text-sm font-semibold text-[var(--plum-text)]">
             {getLibraryTabLabel(library)}
           </div>
           {summary.detail ? (
-            <div className="mt-1 text-xs text-[var(--nebula-muted)]">{summary.detail}</div>
+            <div className="mt-1 text-xs text-[var(--plum-muted)]">{summary.detail}</div>
           ) : null}
           {summary.secondaryDetail ? (
-            <div className="mt-1 truncate text-xs text-[var(--nebula-muted)]/80">{summary.secondaryDetail}</div>
+            <div className="mt-1 truncate text-xs text-[var(--plum-muted)]/80">{summary.secondaryDetail}</div>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span
-            className="rounded-full bg-[var(--nebula-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--nebula-accent)]"
+            className="rounded-full bg-[var(--plum-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-accent)]"
           >
             {summary.label}
           </span>
@@ -184,14 +184,14 @@ export function LibraryActivityCenter() {
           className={cn(
             "relative",
             hasUpdates &&
-              "bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)] hover:bg-[var(--nebula-accent-soft)]/80 hover:text-[var(--nebula-accent)]",
+              "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)] hover:bg-[var(--plum-accent-soft)]/80 hover:text-[var(--plum-accent)]",
           )}
           data-testid="library-activity-trigger"
         >
           <Activity className="size-5" />
           {activeCount > 0 && (
             <span
-              className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-[var(--nebula-accent)] px-1.5 py-0.5 text-[10px] font-semibold text-white"
+              className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-[var(--plum-accent)] px-1.5 py-0.5 text-[10px] font-semibold text-white"
               data-testid="library-activity-badge"
             >
               {activeCount}
@@ -204,15 +204,15 @@ export function LibraryActivityCenter() {
         className="w-[23rem] max-w-[calc(100vw-1rem)] space-y-4 p-3 max-h-[70vh] overflow-y-auto"
       >
         <div className="space-y-1">
-          <div className="text-sm font-semibold text-[var(--nebula-text)]">Server activity</div>
-          <div className="text-xs text-[var(--nebula-muted)]">
+          <div className="text-sm font-semibold text-[var(--plum-text)]">Server activity</div>
+          <div className="text-xs text-[var(--plum-muted)]">
             What Plum is doing now, and what just finished.
           </div>
         </div>
 
         {nowStatuses.length > 0 ? (
           <div className="space-y-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--nebula-muted)]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-muted)]">
               Now
             </div>
             <div className="space-y-2">
@@ -225,21 +225,21 @@ export function LibraryActivityCenter() {
 
         {recentItems.length > 0 ? (
           <div className="space-y-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--nebula-muted)]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-muted)]">
               Just finished
             </div>
             <div className="space-y-2">
               {recentItems.map(({ activity, library }) => (
                 <section
                   key={`${activity.libraryId}-${activity.finishedAt}-${activity.status}`}
-                  className="flex items-start justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/70 p-3"
+                  className="flex items-start justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/70 p-3"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[var(--nebula-text)]">
+                    <div className="truncate text-sm font-semibold text-[var(--plum-text)]">
                       {getLibraryTabLabel(library)}
                     </div>
                     {activity.detail ? (
-                      <div className="mt-1 text-xs text-[var(--nebula-muted)]">{activity.detail}</div>
+                      <div className="mt-1 text-xs text-[var(--plum-muted)]">{activity.detail}</div>
                     ) : null}
                   </div>
                   <span
@@ -259,7 +259,7 @@ export function LibraryActivityCenter() {
         ) : null}
 
         {nowStatuses.length === 0 && recentItems.length === 0 ? (
-          <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--nebula-border)] px-3 py-5 text-sm text-[var(--nebula-muted)]">
+          <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--plum-border)] px-3 py-5 text-sm text-[var(--plum-muted)]">
             Nothing is happening right now.
           </div>
         ) : null}

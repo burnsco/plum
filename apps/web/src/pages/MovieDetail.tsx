@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
+import { resolveBackdropUrl, resolvePosterUrls } from "@plum/shared";
 import type { MediaItem } from "@/api";
 import { PosterPickerDialog } from "@/components/PosterPickerDialog";
 import { Button } from "@/components/ui/button";
@@ -24,9 +24,18 @@ export function MovieDetail() {
   const { libraryId: libraryIdParam, mediaId: mediaIdParam } = useParams();
   const libraryId = libraryIdParam ? Number(libraryIdParam) : null;
   const mediaId = mediaIdParam ? Number(mediaIdParam) : null;
-  const { data: details, isLoading, error } = useMovieDetails(libraryId, mediaId);
+  const {
+    data: details,
+    isLoading,
+    error,
+  } = useMovieDetails(libraryId, mediaId);
   const { playMovie } = usePlayer();
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
+  const [posterIndex, setPosterIndex] = useState(0);
+
+  useEffect(() => {
+    setPosterIndex(0);
+  }, [mediaId, details?.poster_path, details?.poster_url]);
 
   if (libraryId == null || mediaId == null) {
     return (
@@ -39,15 +48,15 @@ export function MovieDetail() {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--nebula-muted)]">Loading movie…</p>;
+    return <p className="text-sm text-[var(--plum-muted)]">Loading movie…</p>;
   }
 
   if (error) {
-    return <p className="text-sm text-[var(--nebula-muted)]">{error.message}</p>;
+    return <p className="text-sm text-[var(--plum-muted)]">{error.message}</p>;
   }
 
   if (!details) {
-    return <p className="text-sm text-[var(--nebula-muted)]">Movie not found.</p>;
+    return <p className="text-sm text-[var(--plum-muted)]">Movie not found.</p>;
   }
 
   const movie: MediaItem = {
@@ -55,7 +64,8 @@ export function MovieDetail() {
     library_id: libraryId,
     title: details.title,
     path: "",
-    duration: details.runtime != null && details.runtime > 0 ? details.runtime * 60 : 0,
+    duration:
+      details.runtime != null && details.runtime > 0 ? details.runtime * 60 : 0,
     type: "movie",
     overview: details.overview,
     poster_path: details.poster_path,
@@ -66,8 +76,12 @@ export function MovieDetail() {
     imdb_id: details.imdb_id,
     imdb_rating: details.imdb_rating,
   };
-  const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path);
-  const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path);
+  const posterUrls = resolvePosterUrls(details.poster_url, details.poster_path);
+  const posterUrl = posterUrls[posterIndex] ?? "";
+  const backdropUrl = resolveBackdropUrl(
+    details.backdrop_url,
+    details.backdrop_path,
+  );
   const runtime = formatRuntime(details.runtime);
   const year = details.release_date?.split("-")[0] ?? "";
 
@@ -94,17 +108,30 @@ export function MovieDetail() {
               setPosterPickerOpen(true);
             }}
           >
-            <img src={posterUrl} alt="" />
+            <img
+              src={posterUrl}
+              alt=""
+              onError={() => {
+                setPosterIndex((current) => {
+                  if (current >= posterUrls.length - 1) {
+                    return current;
+                  }
+                  return current + 1;
+                });
+              }}
+            />
           </div>
         ) : null}
 
         <div className="show-detail-meta space-y-4">
           <div className="space-y-2">
             <h1 className="show-detail-title">{details.title}</h1>
-            <div className="flex flex-wrap gap-2 text-sm text-[var(--nebula-muted)]">
+            <div className="flex flex-wrap gap-2 text-sm text-[var(--plum-muted)]">
               {year ? <InfoBadge>{year}</InfoBadge> : null}
               {runtime ? <InfoBadge>{runtime}</InfoBadge> : null}
-              {details.imdb_rating ? <InfoBadge>IMDb {details.imdb_rating.toFixed(1)}</InfoBadge> : null}
+              {details.imdb_rating ? (
+                <InfoBadge>IMDb {details.imdb_rating.toFixed(1)}</InfoBadge>
+              ) : null}
             </div>
           </div>
 
@@ -115,9 +142,7 @@ export function MovieDetail() {
           {details.genres.length ? (
             <div className="flex flex-wrap gap-2">
               {details.genres.map((genre) => (
-                <InfoBadge key={genre}>
-                  {genre}
-                </InfoBadge>
+                <InfoBadge key={genre}>{genre}</InfoBadge>
               ))}
             </div>
           ) : null}
@@ -126,7 +151,11 @@ export function MovieDetail() {
             <Button type="button" onClick={() => playMovie(movie)}>
               Play
             </Button>
-            <Button type="button" variant="outline" onClick={() => setPosterPickerOpen(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPosterPickerOpen(true)}
+            >
               Change poster…
             </Button>
           </div>
@@ -134,19 +163,25 @@ export function MovieDetail() {
       </section>
 
       <Surface>
-        <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Cast</h2>
+        <h2 className="text-lg font-semibold text-[var(--plum-text)]">Cast</h2>
         {details.cast.length === 0 ? (
-          <p className="mt-3 text-sm text-[var(--nebula-muted)]">No cast metadata yet.</p>
+          <p className="mt-3 text-sm text-[var(--plum-muted)]">
+            No cast metadata yet.
+          </p>
         ) : (
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {details.cast.map((member) => (
               <div
                 key={`${member.name}-${member.character ?? ""}`}
-                className="rounded-[var(--radius-lg)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/92 p-3"
+                className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/92 p-3"
               >
-                <div className="text-sm font-semibold text-[var(--nebula-text)]">{member.name}</div>
+                <div className="text-sm font-semibold text-[var(--plum-text)]">
+                  {member.name}
+                </div>
                 {member.character ? (
-                  <div className="text-xs text-[var(--nebula-muted)]">{member.character}</div>
+                  <div className="text-xs text-[var(--plum-muted)]">
+                    {member.character}
+                  </div>
                 ) : null}
               </div>
             ))}

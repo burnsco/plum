@@ -4,21 +4,21 @@ import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-md)] text-sm font-medium transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--nebula-bg)] disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-md)] text-sm font-medium transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)] disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "border border-[var(--nebula-accent)] bg-[var(--nebula-accent)] text-slate-950 shadow-[0_10px_24px_rgba(56,189,248,0.16)] hover:bg-[#5cc8f8] hover:border-[#5cc8f8]",
+          "border border-[var(--plum-accent)] bg-[var(--plum-accent)] text-slate-950 shadow-[0_10px_24px_rgba(56,189,248,0.16)] hover:bg-[#5cc8f8] hover:border-[#5cc8f8]",
         outline:
-          "border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/80 text-[var(--nebula-text)] hover:bg-[var(--nebula-panel-alt)] hover:border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))]",
+          "border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:border-[color-mix(in_srgb,var(--plum-accent)_28%,var(--plum-border))]",
         secondary:
-          "border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/90 text-[var(--nebula-text)] hover:border-[color-mix(in_srgb,var(--nebula-accent)_18%,var(--nebula-border))] hover:bg-[color-mix(in_srgb,var(--nebula-panel-alt)_75%,white_5%)]",
+          "border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/90 text-[var(--plum-text)] hover:border-[color-mix(in_srgb,var(--plum-accent)_18%,var(--plum-border))] hover:bg-[color-mix(in_srgb,var(--plum-panel-alt)_75%,white_5%)]",
         ghost:
-          "text-[var(--nebula-muted)] hover:bg-[var(--nebula-panel-alt)]/70 hover:text-[var(--nebula-text)]",
-        link: "text-[var(--nebula-accent)] underline-offset-4 hover:underline",
+          "text-[var(--plum-muted)] hover:bg-[var(--plum-panel-alt)]/70 hover:text-[var(--plum-text)]",
+        link: "text-[var(--plum-accent)] underline-offset-4 hover:underline",
         icon:
-          "border border-transparent bg-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)]/70 hover:text-[var(--nebula-text)]",
+          "border border-transparent bg-transparent text-[var(--plum-muted)] hover:border-[var(--plum-border)] hover:bg-[var(--plum-panel-alt)]/70 hover:text-[var(--plum-text)]",
       },
       size: {
         default: "h-10 px-4 py-2",

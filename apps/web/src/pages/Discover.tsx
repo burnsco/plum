@@ -68,7 +68,7 @@ export function Discover() {
               placeholder="Search movies and TV shows"
               className="h-11"
             />
-            <p className="mt-2 text-xs text-[var(--nebula-muted)]">
+            <p className="mt-2 text-xs text-[var(--plum-muted)]">
               Search kicks in after 2 characters with a 300ms delay.
             </p>
           </div>
@@ -108,7 +108,7 @@ export function Discover() {
           results={searchResults}
         />
       ) : discoverLoading ? (
-        <p className="text-sm text-[var(--nebula-muted)]">Loading discover shelves...</p>
+        <p className="text-sm text-[var(--plum-muted)]">Loading discover shelves...</p>
       ) : (
         <DiscoverShelves discover={discover} />
       )}
@@ -131,8 +131,8 @@ function DiscoverShelves({ discover }: { discover: DiscoverResponse | undefined 
       {discover.shelves.map((shelf) => (
         <section key={shelf.id} className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold text-[var(--nebula-text)]">{shelf.title}</h2>
-            <span className="text-sm text-[var(--nebula-muted)]">
+            <h2 className="text-lg font-semibold text-[var(--plum-text)]">{shelf.title}</h2>
+            <span className="text-sm text-[var(--plum-muted)]">
               {shelf.items.length} title{shelf.items.length === 1 ? "" : "s"}
             </span>
           </div>
@@ -153,7 +153,7 @@ function DiscoverSearchResults({
   results: { movies: DiscoverItem[]; tv: DiscoverItem[] } | undefined;
 }) {
   if (loading && !results) {
-    return <p className="text-sm text-[var(--nebula-muted)]">Searching TMDB...</p>;
+    return <p className="text-sm text-[var(--plum-muted)]">Searching TMDB...</p>;
   }
 
   const movies = results?.movies ?? [];
@@ -172,16 +172,16 @@ function DiscoverSearchResults({
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Movies</h2>
-          <span className="text-sm text-[var(--nebula-muted)]">{movies.length} matches</span>
+          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Movies</h2>
+          <span className="text-sm text-[var(--plum-muted)]">{movies.length} matches</span>
         </div>
         <DiscoverGrid items={movies} emptyLabel="No movie matches." />
       </section>
 
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">TV Shows</h2>
-          <span className="text-sm text-[var(--nebula-muted)]">{tv.length} matches</span>
+          <h2 className="text-lg font-semibold text-[var(--plum-text)]">TV Shows</h2>
+          <span className="text-sm text-[var(--plum-muted)]">{tv.length} matches</span>
         </div>
         <DiscoverGrid items={tv} emptyLabel="No TV matches." />
       </section>
@@ -245,7 +245,7 @@ function DiscoverCard({ item, rail = false }: { item: DiscoverItem; rail?: boole
   };
 
   const wrapperClass = `flex ${rail ? "w-44 shrink-0" : "w-full"}`;
-  const cardClass = `flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/96 transition-colors duration-200`;
+  const cardClass = `flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/96 transition-colors duration-200`;
 
   return (
     <div className={`group ${wrapperClass}`}>
