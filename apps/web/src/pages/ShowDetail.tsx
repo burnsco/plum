@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BASE_URL, type MediaItem } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
+import { Button } from "../components/ui/button";
+import { EmptyState, HorizontalScrollRail, InfoBadge, Surface } from "../components/ui/page";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
@@ -143,58 +145,64 @@ export function ShowDetail() {
         <div className="show-detail-meta">
           <h1 className="show-detail-title">{showTitle}</h1>
           {showImdbRating ? (
-            <p className="show-detail-date">IMDb {showImdbRating.toFixed(1)}</p>
+            <div className="mt-3">
+              <InfoBadge>IMDb {showImdbRating.toFixed(1)}</InfoBadge>
+            </div>
           ) : null}
-          {details?.first_air_date && <p className="show-detail-date">{details.first_air_date}</p>}
+          {details?.first_air_date && (
+            <div className="mt-2">
+              <InfoBadge>{details.first_air_date}</InfoBadge>
+            </div>
+          )}
           {details?.overview && (
             <p className="show-detail-overview">{details.overview}</p>
           )}
           {details?.genres.length ? (
             <div className="flex flex-wrap gap-2">
               {details.genres.map((genre) => (
-                <span
-                  key={genre}
-                  className="rounded-full border border-[var(--plum-border)] px-3 py-1 text-xs uppercase tracking-[0.12em] text-[var(--plum-muted)]"
-                >
+                <InfoBadge key={genre}>
                   {genre}
-                </span>
+                </InfoBadge>
               ))}
             </div>
           ) : null}
           <div>
-            <button
-              type="button"
-              className="rounded-[var(--radius-md)] border border-[var(--plum-border)] px-4 py-2 text-sm text-[var(--plum-text)] transition-colors hover:bg-[var(--plum-panel)]"
-              onClick={() => setPosterPickerOpen(true)}
-            >
+            <Button type="button" variant="outline" onClick={() => setPosterPickerOpen(true)}>
               Change poster…
-            </button>
+            </Button>
           </div>
         </div>
       </div>
       {details?.cast.length ? (
-        <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Cast</h2>
+        <Surface>
+          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Cast</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {details.cast.map((member) => (
               <div
                 key={`${member.name}-${member.character ?? ""}`}
-                className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] p-3"
+                className="rounded-[var(--radius-lg)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/92 p-3"
               >
-                <div className="text-sm font-semibold text-[var(--plum-text)]">{member.name}</div>
+                <div className="text-sm font-semibold text-[var(--nebula-text)]">{member.name}</div>
                 {member.character ? (
-                  <div className="text-xs text-[var(--plum-muted)]">{member.character}</div>
+                  <div className="text-xs text-[var(--nebula-muted)]">{member.character}</div>
                 ) : null}
               </div>
             ))}
           </div>
-        </section>
+        </Surface>
       ) : null}
       {episodes.length === 0 ? (
-        <p className="auth-muted">No episodes found for this show.</p>
+        <EmptyState
+          title="No episodes found"
+          copy="This show does not have any indexed episodes in the selected library yet."
+        />
       ) : (
         <div className="show-detail-seasons">
-          <div className="show-detail-season-picker" role="tablist" aria-label="Select season">
+          <HorizontalScrollRail
+            label="season selector"
+            className="w-full"
+            contentClassName="show-detail-season-picker px-12 pb-0.5"
+          >
             {episodesBySeason.seasons.map((seasonNum) => {
               const label = seasonNum === 0 ? "Specials" : `Season ${seasonNum}`;
               const count = episodesBySeason.map.get(seasonNum)?.length ?? 0;
@@ -213,7 +221,7 @@ export function ShowDetail() {
                 </button>
               );
             })}
-          </div>
+          </HorizontalScrollRail>
 
           <section className="show-detail-season">
             <h2 className="show-detail-season-title">
@@ -267,7 +275,7 @@ export function ShowDetail() {
                             style={{ width: `${ep.progress_percent ?? 0}%` }}
                           />
                         </div>
-                        <span className="text-xs text-[var(--plum-muted)]">
+                        <span className="text-xs text-[var(--nebula-muted)]">
                           {formatRemainingTime(ep.remaining_seconds)}
                         </span>
                       </div>
@@ -276,13 +284,9 @@ export function ShowDetail() {
                   {ep.duration > 0 && (
                     <span className="episode-duration">{formatDuration(ep.duration)}</span>
                   )}
-                  <button
-                    type="button"
-                    className="play-button small"
-                    onClick={() => playEpisode(ep)}
-                  >
+                  <Button type="button" size="sm" onClick={() => playEpisode(ep)}>
                     Play
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>

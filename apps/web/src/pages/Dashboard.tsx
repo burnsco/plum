@@ -1,5 +1,7 @@
 import type { HomeDashboard } from "@/api";
-import { LibraryPosterGrid, type PosterGridItem } from "@/components/LibraryPosterGrid";
+import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
+import type { PosterGridItem } from "@/components/types";
+import { EmptyState, PageHeader } from "@/components/ui/page";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
 import { useHomeDashboard } from "@/queries";
@@ -70,11 +72,16 @@ export function Dashboard() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
+      <PageHeader
+        title="Home"
+        description="Pick up where you left off and keep an eye on what was added most recently across your libraries."
+      />
+
       <section className="flex min-h-0 flex-1 flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Recent progress</h2>
+          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Recent progress</h2>
           {data?.continueWatching.length ? (
-            <span className="text-sm text-[var(--plum-muted)]">
+            <span className="text-sm text-[var(--nebula-muted)]">
               {data.continueWatching.length} active item
               {data.continueWatching.length === 1 ? "" : "s"}
             </span>
@@ -82,56 +89,58 @@ export function Dashboard() {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-[var(--plum-muted)]">Loading continue watching…</p>
+          <p className="text-sm text-[var(--nebula-muted)]">Loading continue watching…</p>
         ) : error ? (
-          <p className="text-sm text-[var(--plum-muted)]">
+          <p className="text-sm text-[var(--nebula-muted)]">
             Failed to load home: {error.message}{" "}
             <button
               type="button"
-              className="text-[var(--plum-accent)] hover:underline"
+              className="text-[var(--nebula-accent)] hover:underline"
               onClick={() => void refetch()}
             >
               Retry
             </button>
           </p>
         ) : continueWatchingCards.length === 0 ? (
-          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8 text-sm text-[var(--plum-muted)]">
-            Start a movie or episode and Plum will keep your spot here.
-          </div>
+          <EmptyState
+            title="Nothing in progress yet"
+            copy="Start a movie or episode and Plum will keep your place here."
+          />
         ) : (
-          <LibraryPosterGrid items={continueWatchingCards} />
+          <LibraryPosterGrid items={continueWatchingCards} aspectRatio="cinema" />
         )}
       </section>
 
       <section className="flex min-h-0 flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Recently added</h2>
+          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Recently added</h2>
           {data?.recentlyAdded?.length ? (
-            <span className="text-sm text-[var(--plum-muted)]">
+            <span className="text-sm text-[var(--nebula-muted)]">
               {data.recentlyAdded.length} new item{data.recentlyAdded.length === 1 ? "" : "s"}
             </span>
           ) : null}
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-[var(--plum-muted)]">Loading recently added…</p>
+          <p className="text-sm text-[var(--nebula-muted)]">Loading recently added…</p>
         ) : error ? (
-          <p className="text-sm text-[var(--plum-muted)]">
+          <p className="text-sm text-[var(--nebula-muted)]">
             Failed to load home: {error.message}{" "}
             <button
               type="button"
-              className="text-[var(--plum-accent)] hover:underline"
+              className="text-[var(--nebula-accent)] hover:underline"
               onClick={() => void refetch()}
             >
               Retry
             </button>
           </p>
         ) : recentlyAddedCards.length === 0 ? (
-          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8 text-sm text-[var(--plum-muted)]">
-            Scan your libraries and Plum will surface the newest additions here.
-          </div>
+          <EmptyState
+            title="No recent additions yet"
+            copy="Scan your libraries and Plum will surface the newest additions here."
+          />
         ) : (
-          <LibraryPosterGrid items={recentlyAddedCards} />
+          <LibraryPosterGrid items={recentlyAddedCards} aspectRatio="cinema" />
         )}
       </section>
     </div>

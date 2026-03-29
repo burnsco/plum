@@ -9,9 +9,9 @@ import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
 
 function LibraryIcon({ lib }: { lib: Library }) {
-  if (lib.type === "music") return <Music className="size-[18px] shrink-0 opacity-70" />;
-  if (lib.type === "movie") return <Film className="size-[18px] shrink-0 opacity-70" />;
-  return <Tv className="size-[18px] shrink-0 opacity-70" />;
+  if (lib.type === "music") return <Music className="size-4 shrink-0" />;
+  if (lib.type === "movie") return <Film className="size-4 shrink-0" />;
+  return <Tv className="size-4 shrink-0" />;
 }
 
 export function Sidebar() {
@@ -23,39 +23,47 @@ export function Sidebar() {
   const activeId = libraryId ? parseInt(libraryId, 10) : null;
   const isHomeRoute = location.pathname === "/";
   const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
+  const navItemClass =
+    "flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 text-sm font-medium transition-colors";
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--plum-border)] bg-[var(--plum-panel)]/60 overflow-y-auto">
-      <nav className="flex flex-col gap-0.5 p-3" aria-label="Libraries">
+    <aside className="hidden w-72 shrink-0 border-r border-[var(--nebula-border)] bg-[color-mix(in_srgb,var(--nebula-panel)_72%,black_28%)]/88 backdrop-blur-xl md:flex md:flex-col">
+      <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-5" aria-label="Libraries">
+        <div className="space-y-1">
+          <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--nebula-muted)]">
+            Browse
+          </div>
         <Link
           to="/"
           className={cn(
-            "mb-2 flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium transition-colors",
+            navItemClass,
             isHomeRoute
-              ? "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-              : "text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
+              ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
+              : "border-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)] hover:text-[var(--nebula-text)]",
           )}
         >
-          <Home className="size-[18px] shrink-0 opacity-70" />
+          <Home className="size-4 shrink-0" />
           <span className="truncate">Home</span>
         </Link>
         <Link
           to="/discover"
           className={cn(
-            "mb-2 flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium transition-colors",
+            navItemClass,
             isDiscoverRoute
-              ? "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-              : "text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
+              ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
+              : "border-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)] hover:text-[var(--nebula-text)]",
           )}
         >
-          <Compass className="size-[18px] shrink-0 opacity-70" />
+          <Compass className="size-4 shrink-0" />
           <span className="truncate">Discover</span>
         </Link>
-        <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-[var(--plum-muted)]">
+        </div>
+        <div className="space-y-1">
+        <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--nebula-muted)]">
           Libraries
         </div>
         {isLoading ? (
-          <div className="px-2 py-2 text-sm text-[var(--plum-muted)]">Loading…</div>
+          <div className="px-2 py-2 text-sm text-[var(--nebula-muted)] italic">Loading libraries…</div>
         ) : (
           libraries.map((lib) => {
             const isActive = activeId === lib.id;
@@ -76,12 +84,12 @@ export function Sidebar() {
                 key={lib.id}
                 to={`/library/${lib.id}`}
                 className={cn(
-                  "flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium transition-colors",
+                  navItemClass,
                   isActive
-                    ? "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-                    : "text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
+                    ? "border-[color-mix(in_srgb,var(--nebula-accent)_28%,var(--nebula-border))] bg-[var(--nebula-accent-soft)] text-[var(--nebula-accent)]"
+                    : "border-transparent text-[var(--nebula-muted)] hover:border-[var(--nebula-border)] hover:bg-[var(--nebula-panel-alt)] hover:text-[var(--nebula-text)]",
                   isBusy &&
-                    "shadow-[inset_0_0_0_1px_rgba(244,90,160,0.2),0_0_18px_rgba(244,90,160,0.14)]",
+                    "border-[color-mix(in_srgb,var(--nebula-accent)_20%,var(--nebula-border))]",
                 )}
               >
                 <LibraryIcon lib={lib} />
@@ -96,14 +104,14 @@ export function Sidebar() {
                       className="relative flex size-2.5 items-center justify-center"
                     >
                       {showActivePulse && !isFailed && (
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--nebula-accent)] opacity-45" />
                       )}
                       <span
                         className={cn(
                           "relative size-2 rounded-full",
                           isFailed
                             ? "bg-rose-400"
-                            : "bg-[var(--plum-accent)] shadow-[0_0_10px_var(--plum-accent)]",
+                            : "bg-[var(--nebula-accent)] shadow-[0_0_10px_var(--nebula-accent)]",
                         )}
                       />
                     </span>
@@ -113,6 +121,7 @@ export function Sidebar() {
             );
           })
         )}
+        </div>
       </nav>
     </aside>
   );

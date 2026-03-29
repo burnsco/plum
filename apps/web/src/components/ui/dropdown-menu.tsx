@@ -19,7 +19,7 @@ const DropdownMenuSubTrigger = forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-sm outline-none focus:bg-[var(--plum-panel)] data-[state=open]:bg-[var(--plum-panel)]",
+      "flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-sm outline-none focus:bg-[var(--nebula-panel)] data-[state=open]:bg-[var(--nebula-panel)]",
       inset && "pl-8",
       className,
     )}
@@ -38,7 +38,7 @@ const DropdownMenuSubContent = forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-50 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-1 text-[var(--plum-text)] shadow-lg data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:scale-100 transition-opacity duration-150",
+      "z-50 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[color-mix(in_srgb,var(--nebula-panel)_92%,black_8%)] p-1 text-[var(--nebula-text)] shadow-[0_18px_36px_rgba(0,0,0,0.34)] data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:scale-100 transition-opacity duration-150",
       className,
     )}
     {...props}
@@ -55,7 +55,7 @@ const DropdownMenuContent = forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-1 text-[var(--plum-text)] shadow-lg data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:scale-100 transition-opacity duration-150",
+        "z-50 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[color-mix(in_srgb,var(--nebula-panel)_92%,black_8%)] p-1 text-[var(--nebula-text)] shadow-[0_18px_36px_rgba(0,0,0,0.34)] data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:scale-100 transition-opacity duration-150",
         className,
       )}
       {...props}
@@ -73,7 +73,7 @@ const DropdownMenuItem = forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-sm outline-none transition-colors focus:bg-[var(--plum-panel-alt)] focus:text-[var(--plum-text)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-sm outline-none transition-colors focus:bg-[var(--nebula-panel-alt)] focus:text-[var(--nebula-text)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       inset && "pl-8",
       className,
     )}
@@ -89,7 +89,7 @@ const DropdownMenuCheckboxItem = forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-[var(--plum-panel-alt)] focus:text-[var(--plum-text)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-[var(--nebula-panel-alt)] focus:text-[var(--nebula-text)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     checked={checked}
@@ -112,7 +112,7 @@ const DropdownMenuRadioItem = forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-[var(--plum-panel-alt)] focus:text-[var(--plum-text)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-[var(--nebula-panel-alt)] focus:text-[var(--nebula-text)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     {...props}
@@ -136,7 +136,7 @@ const DropdownMenuLabel = forwardRef<
   <DropdownMenuPrimitive.Label
     ref={ref}
     className={cn(
-      "px-2 py-1.5 text-sm font-medium text-[var(--plum-muted)]",
+      "px-2 py-1.5 text-sm font-medium text-[var(--nebula-muted)]",
       inset && "pl-8",
       className,
     )}
@@ -151,7 +151,7 @@ const DropdownMenuSeparator = forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Separator
     ref={ref}
-    className={cn("-mx-1 my-1 h-px bg-[var(--plum-border)]", className)}
+    className={cn("-mx-1 my-1 h-px bg-[var(--nebula-border)]", className)}
     {...props}
   />
 ));
@@ -159,7 +159,7 @@ DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName;
 
 const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
   <span
-    className={cn("ml-auto text-xs tracking-widest text-[var(--plum-muted)]", className)}
+    className={cn("ml-auto text-xs tracking-widest text-[var(--nebula-muted)]", className)}
     {...props}
   />
 );
