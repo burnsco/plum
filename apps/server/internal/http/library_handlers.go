@@ -2368,8 +2368,12 @@ func (h *LibraryHandler) ScanLibrary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, path, typ, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	libraryID, ownerID, path, typ, ok := h.authorizeLibraryRequest(w, r, u.ID)
 	if !ok {
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -2416,8 +2420,12 @@ func (h *LibraryHandler) StartLibraryScan(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	libraryID, path, typ, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	libraryID, ownerID, path, typ, ok := h.authorizeLibraryRequest(w, r, u.ID)
 	if !ok {
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	subpaths, err := requestedScanSubpaths(r)
@@ -2450,7 +2458,7 @@ func (h *LibraryHandler) GetLibraryScanStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
 	if !ok {
 		return
 	}
@@ -2463,22 +2471,26 @@ func (h *LibraryHandler) authorizeLibraryRequest(
 	w http.ResponseWriter,
 	r *http.Request,
 	userID int,
-) (libraryID int, path string, typ string, ok bool) {
+) (libraryID int, ownerID int, path string, typ string, ok bool) {
 	idStr := chi.URLParam(r, "id")
-	var ownerID int
 	err := h.DB.QueryRow(
 		`SELECT id, user_id, path, type FROM libraries WHERE id = ?`,
 		idStr,
 	).Scan(&libraryID, &ownerID, &path, &typ)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
-		return 0, "", "", false
+		return 0, 0, "", "", false
 	}
-	if ownerID != userID {
+	allowed, accessErr := db.UserHasLibraryAccess(h.DB, userID, libraryID)
+	if accessErr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return 0, 0, "", "", false
+	}
+	if !allowed {
 		http.Error(w, "forbidden", http.StatusForbidden)
-		return 0, "", "", false
+		return 0, 0, "", "", false
 	}
-	return libraryID, path, typ, true
+	return libraryID, ownerID, path, typ, true
 }
 
 func (h *LibraryHandler) GetSeriesDetails(w http.ResponseWriter, r *http.Request) {
@@ -2798,7 +2810,7 @@ func (h *LibraryHandler) GetLibraryMovieDetails(w http.ResponseWriter, r *http.R
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
 	if !ok {
 		return
 	}
@@ -2826,7 +2838,7 @@ func (h *LibraryHandler) GetLibraryShowDetails(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
 	if !ok {
 		return
 	}

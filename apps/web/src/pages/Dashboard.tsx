@@ -1,5 +1,6 @@
 import type { HomeDashboard } from "@/api";
-import { LibraryPosterGrid, type PosterGridItem } from "@/components/LibraryPosterGrid";
+import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
+import type { PosterGridItem } from "@/components/types";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
 import { useHomeDashboard } from "@/queries";
