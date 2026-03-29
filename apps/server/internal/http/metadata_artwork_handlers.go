@@ -390,7 +390,7 @@ func (h *LibraryHandler) GetMoviePosterCandidates(w http.ResponseWriter, r *http
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
 	if !ok {
 		return
 	}
@@ -435,7 +435,7 @@ func (h *LibraryHandler) SetMoviePosterSelection(w http.ResponseWriter, r *http.
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
 	if !ok {
 		return
 	}
@@ -484,7 +484,7 @@ func (h *LibraryHandler) ResetMoviePosterSelection(w http.ResponseWriter, r *htt
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
 	if !ok {
 		return
 	}
@@ -531,7 +531,7 @@ func (h *LibraryHandler) GetShowPosterCandidates(w http.ResponseWriter, r *http.
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
 	if !ok {
 		return
 	}
@@ -573,7 +573,7 @@ func (h *LibraryHandler) SetShowPosterSelection(w http.ResponseWriter, r *http.R
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
 	if !ok {
 		return
 	}
@@ -619,7 +619,7 @@ func (h *LibraryHandler) ResetShowPosterSelection(w http.ResponseWriter, r *http
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	libraryID, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, user.ID)
 	if !ok {
 		return
 	}

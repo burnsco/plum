@@ -9,9 +9,9 @@ import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
 
 function LibraryIcon({ lib }: { lib: Library }) {
-  if (lib.type === "music") return <Music className="size-[18px] shrink-0 opacity-70" />;
-  if (lib.type === "movie") return <Film className="size-[18px] shrink-0 opacity-70" />;
-  return <Tv className="size-[18px] shrink-0 opacity-70" />;
+  if (lib.type === "music") return <Music className="size-4 shrink-0" />;
+  if (lib.type === "movie") return <Film className="size-4 shrink-0" />;
+  return <Tv className="size-4 shrink-0" />;
 }
 
 export function Sidebar() {
@@ -24,38 +24,44 @@ export function Sidebar() {
   const isHomeRoute = location.pathname === "/";
   const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
 
+  const navItemBase =
+    "relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer select-none";
+  const navItemActive =
+    "text-[var(--plum-text)] bg-[rgba(255,255,255,0.05)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-[var(--plum-accent)] before:content-['']";
+  const navItemInactive =
+    "text-[var(--plum-muted)] hover:text-[var(--plum-text)] hover:bg-[rgba(255,255,255,0.04)]";
+
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--plum-border)] bg-[var(--plum-panel)]/60 overflow-y-auto">
-      <nav className="flex flex-col gap-0.5 p-3" aria-label="Libraries">
+    <aside className="hidden w-60 shrink-0 border-r border-[rgba(255,255,255,0.06)] bg-[#0a0a0a] md:flex md:flex-col">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-4" aria-label="Libraries">
+        {/* Section: Browse */}
+        <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(255,255,255,0.3)]">
+          Browse
+        </div>
         <Link
           to="/"
-          className={cn(
-            "mb-2 flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium transition-colors",
-            isHomeRoute
-              ? "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-              : "text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
-          )}
+          className={cn(navItemBase, isHomeRoute ? navItemActive : navItemInactive)}
         >
-          <Home className="size-[18px] shrink-0 opacity-70" />
+          <Home className="size-4 shrink-0" />
           <span className="truncate">Home</span>
         </Link>
         <Link
           to="/discover"
-          className={cn(
-            "mb-2 flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium transition-colors",
-            isDiscoverRoute
-              ? "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-              : "text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
-          )}
+          className={cn(navItemBase, isDiscoverRoute ? navItemActive : navItemInactive)}
         >
-          <Compass className="size-[18px] shrink-0 opacity-70" />
+          <Compass className="size-4 shrink-0" />
           <span className="truncate">Discover</span>
         </Link>
-        <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-[var(--plum-muted)]">
+
+        {/* Divider */}
+        <div className="mx-4 my-3 h-px bg-[rgba(255,255,255,0.06)]" />
+
+        {/* Section: Libraries */}
+        <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(255,255,255,0.3)]">
           Libraries
         </div>
         {isLoading ? (
-          <div className="px-2 py-2 text-sm text-[var(--plum-muted)]">Loading…</div>
+          <div className="px-4 py-2 text-sm text-[var(--plum-muted)] italic">Loading…</div>
         ) : (
           libraries.map((lib) => {
             const isActive = activeId === lib.id;
@@ -75,14 +81,7 @@ export function Sidebar() {
               <Link
                 key={lib.id}
                 to={`/library/${lib.id}`}
-                className={cn(
-                  "flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-                    : "text-[var(--plum-text)] hover:bg-[var(--plum-panel-alt)] hover:text-[var(--plum-text)]",
-                  isBusy &&
-                    "shadow-[inset_0_0_0_1px_rgba(244,90,160,0.2),0_0_18px_rgba(244,90,160,0.14)]",
-                )}
+                className={cn(navItemBase, isActive ? navItemActive : navItemInactive)}
               >
                 <LibraryIcon lib={lib} />
                 <span className="min-w-0 truncate">{getLibraryTabLabel(lib)}</span>
@@ -92,9 +91,7 @@ export function Sidebar() {
                     data-testid={`library-identifying-${lib.id}`}
                     aria-hidden="true"
                   >
-                    <span
-                      className="relative flex size-2.5 items-center justify-center"
-                    >
+                    <span className="relative flex size-2.5 items-center justify-center">
                       {showActivePulse && !isFailed && (
                         <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
                       )}

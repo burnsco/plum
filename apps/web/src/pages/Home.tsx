@@ -9,7 +9,10 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 import type { Library } from "../api";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
-import { LibraryPosterGrid, type PosterGridItem } from "../components/LibraryPosterGrid";
+import type { PosterGridItem } from "../components/types";
+import { LibraryPosterGrid } from "../components/LibraryPosterGrid";
+import { LibraryViewControls } from "../components/LibraryViewControls";
+import { MediaDetailView, MediaTableView } from "../components/MediaListView";
 import { MusicLibraryView } from "../components/MusicLibraryView";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
@@ -19,6 +22,7 @@ import { getLibraryActivity } from "../lib/libraryActivity";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
+import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
 import { useConfirmShow, useLibraryMedia, useLibraries, useRefreshShow } from "../queries";
 
 const isTVOrAnime = (lib: Library) => lib.type === "tv" || lib.type === "anime";
@@ -139,6 +143,7 @@ export function Home() {
   const { playMovie, playMusicCollection, playShowGroup } = usePlayer();
   const { getLibraryPhase, queueLibraryIdentify } = useIdentifyQueue();
   const { getLibraryScanStatus } = useScanQueue();
+  const { cardWidth, setCardWidth, layoutMode, setLayoutMode } = useLibraryViewPrefs();
   const {
     data: libraries = [],
     isLoading: loadingLibs,
@@ -509,9 +514,55 @@ export function Home() {
                     : "Identifying library…"}
                 </p>
               ) : isTVOrAnime(selectedLib) ? (
-                <LibraryPosterGrid items={showCardState.visibleCards} />
+                <>
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <h2 className="text-base font-semibold text-[var(--plum-text)] truncate">
+                      {selectedLib.name}
+                    </h2>
+                    <LibraryViewControls
+                      cardWidth={cardWidth}
+                      onCardWidthChange={setCardWidth}
+                      layoutMode={layoutMode}
+                      onLayoutModeChange={setLayoutMode}
+                    />
+                  </div>
+                  {layoutMode === "grid" ? (
+                    <LibraryPosterGrid
+                      items={showCardState.visibleCards}
+                      aspectRatio="cinema"
+                      cardWidth={cardWidth}
+                    />
+                  ) : layoutMode === "detail" ? (
+                    <MediaDetailView items={showCardState.visibleCards} />
+                  ) : (
+                    <MediaTableView items={showCardState.visibleCards} />
+                  )}
+                </>
               ) : selectedLib.type === "movie" ? (
-                <LibraryPosterGrid items={movieCardState.visibleCards} />
+                <>
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <h2 className="text-base font-semibold text-[var(--plum-text)] truncate">
+                      {selectedLib.name}
+                    </h2>
+                    <LibraryViewControls
+                      cardWidth={cardWidth}
+                      onCardWidthChange={setCardWidth}
+                      layoutMode={layoutMode}
+                      onLayoutModeChange={setLayoutMode}
+                    />
+                  </div>
+                  {layoutMode === "grid" ? (
+                    <LibraryPosterGrid
+                      items={movieCardState.visibleCards}
+                      aspectRatio="cinema"
+                      cardWidth={cardWidth}
+                    />
+                  ) : layoutMode === "detail" ? (
+                    <MediaDetailView items={movieCardState.visibleCards} />
+                  ) : (
+                    <MediaTableView items={movieCardState.visibleCards} />
+                  )}
+                </>
               ) : (
                 <MusicLibraryView items={selectedItems} onPlayCollection={playMusicCollection} />
               )}

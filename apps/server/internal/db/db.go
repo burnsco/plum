@@ -1378,6 +1378,15 @@ func GetAllMediaForUser(db *sql.DB, userID int) ([]MediaItem, error) {
 	return attachSubtitlesBatch(db, items)
 }
 
+func UserHasLibraryAccess(db *sql.DB, userID, libraryID int) (bool, error) {
+	var ownerID int
+	err := db.QueryRow(`SELECT user_id FROM libraries WHERE id = ?`, libraryID).Scan(&ownerID)
+	if err != nil {
+		return false, err
+	}
+	return ownerID == userID, nil
+}
+
 // queryAllMediaByKind returns media from category tables joined with media_global.
 // If kind is "", queries all four categories and merges; otherwise only that kind.
 // If userID > 0, filters media to only those in libraries owned by that user.
