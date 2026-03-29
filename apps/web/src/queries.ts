@@ -6,6 +6,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import {
+  createUser,
   confirmShow,
   getDiscover,
   getDiscoverTitleDetails,
@@ -36,6 +37,7 @@ import {
   type Library,
   type MetadataArtworkSettings,
   type MetadataArtworkSettingsResponse,
+  type ManagedUser,
   type MediaItem,
   type PosterCandidatesResponse,
   type ScanLibraryResult,
@@ -52,6 +54,7 @@ import {
   updateLibraryPlaybackPreferences,
   updateMetadataArtworkSettings,
   updateTranscodingSettings,
+  listUsers,
 } from "./api";
 
 type LibrariesResult = Awaited<ReturnType<typeof listLibraries>>;
@@ -67,9 +70,14 @@ type ShowDetailsResult = Awaited<ReturnType<typeof getShowDetails>>;
 type ShowPosterCandidatesResult = Awaited<ReturnType<typeof getShowPosterCandidates>>;
 type SearchLibraryMediaResult = Awaited<ReturnType<typeof searchLibraryMedia>>;
 type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
+type UsersResult = Awaited<ReturnType<typeof listUsers>>;
 
 function cloneLibrary(library: LibrariesResult[number]): Library {
   return { ...library };
+}
+
+function cloneManagedUser(user: UsersResult[number]): ManagedUser {
+  return { ...user, libraryIds: [...user.libraryIds] };
 }
 
 function cloneMediaItem(item: LibraryMediaResult[number]): MediaItem {
@@ -240,6 +248,7 @@ export const queryKeys = {
     ["show-poster-candidates", libraryId, showKey] as const,
   showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
+  users: ["users"] as const,
 };
 
 const LIBRARIES_STALE_MS = 60 * 1000;
@@ -250,6 +259,15 @@ export function useLibraries(): UseQueryResult<Library[], Error> {
   return useQuery({
     queryKey: queryKeys.libraries,
     queryFn: async () => (await listLibraries()).map(cloneLibrary),
+    staleTime: LIBRARIES_STALE_MS,
+  });
+}
+
+export function useUsers(options?: { enabled?: boolean }): UseQueryResult<ManagedUser[], Error> {
+  return useQuery({
+    queryKey: queryKeys.users,
+    queryFn: async () => (await listUsers()).map(cloneManagedUser),
+    enabled: options?.enabled,
     staleTime: LIBRARIES_STALE_MS,
   });
 }
@@ -545,6 +563,25 @@ export function useUpdateMetadataArtworkSettings(): UseMutationResult<
       cloneMetadataArtworkSettingsResponse(await updateMetadataArtworkSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.metadataArtworkSettings, data);
+    },
+  });
+}
+
+export function useCreateUser(): UseMutationResult<
+  ManagedUser,
+  Error,
+  {
+    email: string;
+    password: string;
+    role: "admin" | "viewer";
+    libraryIds: readonly number[];
+  }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload) => cloneManagedUser(await createUser(payload)),
+    onSuccess: (data) => {
+      queryClient.setQueryData<ManagedUser[]>(queryKeys.users, (current = []) => [data, ...current]);
     },
   });
 }

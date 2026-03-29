@@ -22,8 +22,10 @@ import {
   type PlayerControlsAppearance,
 } from "@/lib/playbackPreferences";
 import {
+  useCreateUser,
   useMetadataArtworkSettings,
   useLibraries,
+  useUsers,
   useUpdateMetadataArtworkSettings,
   useTranscodingSettings,
   useUpdateLibraryPlaybackPreferences,
@@ -133,6 +135,13 @@ type LibraryPlaybackPreferencesForm = {
   scan_interval_minutes: number;
 };
 
+type CreateUserFormState = {
+  email: string;
+  password: string;
+  role: "admin" | "viewer";
+  libraryIds: number[];
+};
+
 function cloneLibraryPlaybackPreferences(library: Library): LibraryPlaybackPreferencesForm {
   const resolved = resolveLibraryPlaybackPreferences(library);
   return {
@@ -161,11 +170,13 @@ function libraryPreferencesEqual(
 
 export function Settings() {
   const { user } = useAuthState();
-  const isAdmin = user?.is_admin ?? false;
+  const isAdmin = user?.role === "admin" || user?.is_admin === true;
   const librariesQuery = useLibraries();
+  const usersQuery = useUsers({ enabled: isAdmin });
   const settingsQuery = useTranscodingSettings({ enabled: isAdmin });
   const metadataArtworkQuery = useMetadataArtworkSettings({ enabled: isAdmin });
   const updateLibraryPreferences = useUpdateLibraryPlaybackPreferences();
+  const createUser = useCreateUser();
   const updateSettings = useUpdateTranscodingSettings();
   const updateMetadataArtwork = useUpdateMetadataArtworkSettings();
   const [form, setForm] = useState<TranscodingSettingsShape | null>(null);
@@ -182,6 +193,13 @@ export function Settings() {
   const [dirty, setDirty] = useState(false);
   const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
   const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState<CreateUserFormState>({
+    email: "",
+    password: "",
+    role: "viewer",
+    libraryIds: [],
+  });
+  const [createUserMessage, setCreateUserMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsQuery.data || dirty) return;
@@ -275,6 +293,32 @@ export function Settings() {
       }));
     } finally {
       setSavingLibraryId(null);
+    }
+  };
+
+  const toggleCreateUserLibrary = (libraryId: number, checked: boolean) => {
+    setCreateUserForm((current) => ({
+      ...current,
+      libraryIds: checked
+        ? [...current.libraryIds, libraryId].toSorted((left, right) => left - right)
+        : current.libraryIds.filter((value) => value !== libraryId),
+    }));
+    setCreateUserMessage(null);
+  };
+
+  const handleCreateUser = async () => {
+    setCreateUserMessage(null);
+    try {
+      await createUser.mutateAsync(createUserForm);
+      setCreateUserForm({
+        email: "",
+        password: "",
+        role: "viewer",
+        libraryIds: [],
+      });
+      setCreateUserMessage("User created.");
+    } catch (error) {
+      setCreateUserMessage(error instanceof Error ? error.message : "Failed to create user.");
     }
   };
 
@@ -529,10 +573,149 @@ export function Settings() {
     </section>
   );
 
+  const userManagementSection = isAdmin ? (
+    <section className={settingsPanelClass}>
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Users</h1>
+        <p className="max-w-2xl text-sm text-[var(--plum-muted)]">
+          Create admin and viewer accounts, and choose which libraries each user can access.
+        </p>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <div className="rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
+          <h2 className="text-lg font-medium text-[var(--plum-text)]">Create user</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--plum-text)]" htmlFor="create-user-email">
+                Email
+              </label>
+              <Input
+                id="create-user-email"
+                value={createUserForm.email}
+                onChange={(event) =>
+                  setCreateUserForm((current) => ({ ...current, email: event.target.value }))
+                }
+                placeholder="viewer@example.com"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--plum-text)]" htmlFor="create-user-password">
+                Password
+              </label>
+              <Input
+                id="create-user-password"
+                type="password"
+                value={createUserForm.password}
+                onChange={(event) =>
+                  setCreateUserForm((current) => ({ ...current, password: event.target.value }))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <label className="mb-2 block text-sm font-medium text-[var(--plum-text)]" htmlFor="create-user-role">
+              Role
+            </label>
+            <select
+              id="create-user-role"
+              value={createUserForm.role}
+              onChange={(event) =>
+                setCreateUserForm((current) => ({
+                  ...current,
+                  role: event.target.value === "admin" ? "admin" : "viewer",
+                }))
+              }
+              className={settingsSelectClass}
+            >
+              <option value="viewer">Viewer</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          <div className="mt-5">
+            <h3 className="text-sm font-medium text-[var(--plum-text)]">Library visibility</h3>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {libraries.map((library) => (
+                <CheckboxCard
+                  key={`user-library-${library.id}`}
+                  checked={createUserForm.libraryIds.includes(library.id)}
+                  label={library.name}
+                  description={`Allow access to the ${library.type} library.`}
+                  onChange={(checked) => toggleCreateUserLibrary(library.id, checked)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <p
+              className={`text-sm ${
+                createUserMessage?.includes("created")
+                  ? "text-emerald-300"
+                  : createUserMessage
+                    ? "text-red-300"
+                    : "text-[var(--plum-muted)]"
+              }`}
+            >
+              {createUserMessage ?? "Passwords are set by the admin at creation time."}
+            </p>
+            <Button onClick={handleCreateUser} disabled={createUser.isPending}>
+              {createUser.isPending ? "Creating…" : "Create user"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
+          <h2 className="text-lg font-medium text-[var(--plum-text)]">Current users</h2>
+          {usersQuery.isLoading ? (
+            <p className="mt-4 text-sm text-[var(--plum-muted)]">Loading users…</p>
+          ) : usersQuery.isError ? (
+            <p className="mt-4 text-sm text-red-300">
+              {usersQuery.error.message || "Failed to load users."}
+            </p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {(usersQuery.data ?? []).map((managedUser) => {
+                const libraryNames = managedUser.libraryIds
+                  .map((libraryId) => libraries.find((library) => library.id === libraryId)?.name)
+                  .filter((value): value is string => value != null);
+                return (
+                  <article
+                    key={managedUser.id}
+                    className="rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/70 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-[var(--plum-text)]">
+                          {managedUser.email}
+                        </div>
+                        <div className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
+                          {managedUser.role}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs text-[var(--plum-muted)]">
+                      {libraryNames.length > 0
+                        ? `Libraries: ${libraryNames.join(", ")}`
+                        : "No library access assigned."}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  ) : null;
+
   if (!isAdmin) {
     return (
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         {playbackDefaultsSection}
+        {userManagementSection}
         <div className={settingsPanelClass}>
           <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-[var(--plum-muted)]">
@@ -547,6 +730,7 @@ export function Settings() {
     return (
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         {playbackDefaultsSection}
+        {userManagementSection}
         <div className={settingsPanelClass}>
           <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-red-300">
@@ -568,6 +752,7 @@ export function Settings() {
     return (
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         {playbackDefaultsSection}
+        {userManagementSection}
         <div className={settingsPanelClass}>
           <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-[var(--plum-muted)]">Loading server settings…</p>
@@ -690,6 +875,7 @@ export function Settings() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       {playbackDefaultsSection}
+      {userManagementSection}
 
       <section className={settingsPanelClass}>
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">

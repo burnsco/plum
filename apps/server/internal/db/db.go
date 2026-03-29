@@ -187,9 +187,15 @@ type User struct {
 	ID           int       `json:"id"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
 	IsAdmin      bool      `json:"is_admin"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+const (
+	UserRoleAdmin  = "admin"
+	UserRoleViewer = "viewer"
+)
 
 type Session struct {
 	ID        string    `json:"id"`
@@ -272,6 +278,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin', 'viewer')),
   is_admin INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL
 );
@@ -298,6 +305,14 @@ CREATE TABLE IF NOT EXISTS libraries (
   created_at DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_libraries_user_id ON libraries(user_id);
+
+CREATE TABLE IF NOT EXISTS user_library_access (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (user_id, library_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_library_access_library_id ON user_library_access(library_id);
 
 -- media_global maps API global id -> (kind, ref_id) for the category table.
 CREATE TABLE IF NOT EXISTS media_global (
@@ -1219,6 +1234,34 @@ var schemaMigrations = []schemaMigration{
 			return nil
 		},
 	},
+	{
+		version: 21,
+		name:    "user_roles_and_library_access",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if err := addColumnIfMissingTx(ctx, tx, "users", "role", "TEXT NOT NULL DEFAULT 'viewer'"); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET role = CASE WHEN is_admin = 1 THEN 'admin' ELSE 'viewer' END WHERE COALESCE(role, '') = '' OR role NOT IN ('admin', 'viewer')`); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS user_library_access (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (user_id, library_id)
+)`); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_user_library_access_library_id ON user_library_access(library_id)`); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO user_library_access (user_id, library_id, created_at)
+SELECT user_id, id, COALESCE(created_at, CURRENT_TIMESTAMP) FROM libraries`); err != nil {
+				return err
+			}
+			return nil
+		},
+	},
 }
 
 func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
@@ -1367,6 +1410,151 @@ func columnExistsTx(ctx context.Context, tx *sql.Tx, table, column string) (bool
 	return false, rows.Err()
 }
 
+func NormalizeUserRole(role string) string {
+	switch strings.TrimSpace(strings.ToLower(role)) {
+	case UserRoleAdmin:
+		return UserRoleAdmin
+	default:
+		return UserRoleViewer
+	}
+}
+
+func IsAdminRole(role string) bool {
+	return NormalizeUserRole(role) == UserRoleAdmin
+}
+
+func ListAccessibleLibraryIDs(dbConn *sql.DB, userID int) ([]int, error) {
+	rows, err := dbConn.Query(`SELECT library_id FROM user_library_access WHERE user_id = ? ORDER BY library_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var libraryID int
+		if err := rows.Scan(&libraryID); err != nil {
+			return nil, err
+		}
+		ids = append(ids, libraryID)
+	}
+	return ids, rows.Err()
+}
+
+func UserHasLibraryAccess(dbConn *sql.DB, userID int, libraryID int) (bool, error) {
+	var exists int
+	err := dbConn.QueryRow(
+		`SELECT 1
+		   FROM libraries l
+		  WHERE l.id = ?
+		    AND (
+		      l.user_id = ?
+		      OR EXISTS (
+		        SELECT 1
+		          FROM user_library_access ula
+		         WHERE ula.library_id = l.id AND ula.user_id = ?
+		      )
+		    )`,
+		libraryID,
+		userID,
+		userID,
+	).Scan(&exists)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+type ManagedUser struct {
+	User
+	LibraryIDs []int `json:"libraryIds"`
+}
+
+func ListManagedUsers(dbConn *sql.DB) ([]ManagedUser, error) {
+	rows, err := dbConn.Query(`SELECT id, email, role, is_admin, created_at FROM users ORDER BY email`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := []ManagedUser{}
+	for rows.Next() {
+		var user ManagedUser
+		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.IsAdmin, &user.CreatedAt); err != nil {
+			return nil, err
+		}
+		user.Role = NormalizeUserRole(user.Role)
+		user.LibraryIDs = []int{}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for index := range users {
+		libraryIDs, err := ListAccessibleLibraryIDs(dbConn, users[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		users[index].LibraryIDs = libraryIDs
+	}
+	return users, nil
+}
+
+func CreateUserWithLibraries(ctx context.Context, dbConn *sql.DB, email string, passwordHash string, role string, libraryIDs []int, createdAt time.Time) (*ManagedUser, error) {
+	role = NormalizeUserRole(role)
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var userID int
+	err = tx.QueryRowContext(
+		ctx,
+		`INSERT INTO users (email, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		email,
+		passwordHash,
+		role,
+		IsAdminRole(role),
+		createdAt,
+	).Scan(&userID)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+
+	for _, libraryID := range libraryIDs {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT OR IGNORE INTO user_library_access (user_id, library_id, created_at) VALUES (?, ?, ?)`,
+			userID,
+			libraryID,
+			createdAt,
+		); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &ManagedUser{
+		User: User{
+			ID:        userID,
+			Email:     email,
+			Role:      role,
+			IsAdmin:   IsAdminRole(role),
+			CreatedAt: createdAt,
+		},
+		LibraryIDs: append([]int(nil), libraryIDs...),
+	}, nil
+}
+
 func GetAllMediaForUser(db *sql.DB, userID int) ([]MediaItem, error) {
 	items, err := queryAllMediaByKind(db, userID, "")
 	if err != nil {
@@ -1381,7 +1569,7 @@ func GetAllMediaForUser(db *sql.DB, userID int) ([]MediaItem, error) {
 
 // queryAllMediaByKind returns media from category tables joined with media_global.
 // If kind is "", queries all four categories and merges; otherwise only that kind.
-// If userID > 0, filters media to only those in libraries owned by that user.
+// If userID > 0, filters media to only those in libraries visible to that user.
 func queryAllMediaByKind(db *sql.DB, userID int, kind string) ([]MediaItem, error) {
 	kinds := []string{"movie", "tv", "anime", "music"}
 	if kind != "" {
@@ -1403,8 +1591,8 @@ func queryAllMediaByKind(db *sql.DB, userID int, kind string) ([]MediaItem, erro
 		}
 
 		if userID > 0 {
-			q += ` JOIN libraries l ON l.id = m.library_id AND l.user_id = ? `
-			args = append(args, userID)
+			q += ` JOIN libraries l ON l.id = m.library_id AND (l.user_id = ? OR EXISTS (SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?)) `
+			args = append(args, userID, userID)
 		}
 
 		q += ` ORDER BY g.id`

@@ -143,8 +143,8 @@ func buildFTSQuery(query string) string {
 
 func appendSearchDocumentFilters(clauses []string, args []interface{}, query SearchQuery, docAlias string) ([]string, []interface{}) {
 	if query.UserID > 0 {
-		clauses = append(clauses, "l.user_id = ?")
-		args = append(args, query.UserID)
+		clauses = append(clauses, "(l.user_id = ? OR EXISTS (SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?))")
+		args = append(args, query.UserID, query.UserID)
 	}
 	if query.LibraryID > 0 {
 		clauses = append(clauses, docAlias+`.library_id = ?`)
@@ -776,8 +776,8 @@ JOIN libraries l ON l.id = sd.library_id`
 	args := make([]interface{}, 0, 3)
 	clauses := make([]string, 0, 3)
 	if userID > 0 {
-		clauses = append(clauses, "l.user_id = ?")
-		args = append(args, userID)
+		clauses = append(clauses, "(l.user_id = ? OR EXISTS (SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?))")
+		args = append(args, userID, userID)
 	}
 	if libraryID > 0 {
 		clauses = append(clauses, "sd.library_id = ?")

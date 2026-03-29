@@ -2,6 +2,7 @@ import type {
   AttachPlaybackSessionCommand,
   ClientPlaybackCapabilities,
   CreateLibraryPayload,
+  CreateUserPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
   MovieDetails,
@@ -22,6 +23,7 @@ import type {
   Library,
   LibraryScanActivity,
   LibraryScanActivityEntry,
+  LibraryScanFailure,
   LibraryScanStatus,
   LibraryType,
   MetadataArtworkProvider,
@@ -55,12 +57,15 @@ import type {
   UpdatePlaybackSessionAudioPayload,
   UpdateLibraryPlaybackPreferencesPayload,
   UpdateMediaProgressPayload,
+  ManagedUser,
   User,
+  UserRole,
   VaapiDecodeCodec,
 } from "@plum/contracts";
 import {
   AttachPlaybackSessionCommandSchema,
   CreateLibraryPayloadSchema,
+  CreateUserPayloadSchema,
   CredentialsPayloadSchema,
   CreatePlaybackSessionPayloadSchema,
   MovieDetailsSchema,
@@ -93,6 +98,7 @@ import {
   UpdatePlaybackSessionAudioPayloadSchema,
   UpdateLibraryPlaybackPreferencesPayloadSchema,
   UpdateMediaProgressPayloadSchema,
+  ManagedUserSchema,
   UserSchema,
 } from "@plum/contracts";
 import { Data, Effect, Option, Schema, Schedule } from "effect";
@@ -102,6 +108,7 @@ export type {
   AttachPlaybackSessionCommand,
   ClientPlaybackCapabilities,
   CreateLibraryPayload,
+  CreateUserPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
   MovieDetails,
@@ -122,6 +129,7 @@ export type {
   Library,
   LibraryScanActivity,
   LibraryScanActivityEntry,
+  LibraryScanFailure,
   LibraryScanStatus,
   LibraryType,
   MatchStatus,
@@ -146,7 +154,9 @@ export type {
   UpdatePlaybackSessionAudioPayload,
   UpdateLibraryPlaybackPreferencesPayload,
   UpdateMediaProgressPayload,
+  ManagedUser,
   User,
+  UserRole,
   VaapiDecodeCodec,
   EpisodeMetadataArtworkFetchers,
   MetadataArtworkProvider,
@@ -601,6 +611,30 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
               ? failHttpEffect(response, "GET", url, ({ status }) => `Me: ${status}`)
               : null,
       }),
+    listUsers: () =>
+      jsonRequestEffect({
+        path: "/api/users",
+        schema: Schema.Array(ManagedUserSchema),
+        errorMessage: ({ status, body }) => body || `Users: ${status}`,
+      }),
+    createUser: (payload: CreateUserPayload) =>
+      decodeSchemaEffect(
+        CreateUserPayloadSchema,
+        payload,
+        "POST",
+        "/api/users",
+        "Invalid create user payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "POST",
+            path: "/api/users",
+            schema: ManagedUserSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Create user: ${status}`,
+          }),
+        ),
+      ),
     createLibrary: (payload: CreateLibraryPayload) =>
       decodeSchemaEffect(
         CreateLibraryPayloadSchema,
@@ -1023,6 +1057,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     login: (payload: CredentialsPayload) => run(effects.login(payload)),
     logout: () => run(effects.logout()),
     getMe: () => run(effects.getMe()),
+    listUsers: () => run(effects.listUsers()),
+    createUser: (payload: CreateUserPayload) => run(effects.createUser(payload)),
     createLibrary: (payload: CreateLibraryPayload) => run(effects.createLibrary(payload)),
     listLibraries: () => run(effects.listLibraries()),
     updateLibraryPlaybackPreferences: (

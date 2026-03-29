@@ -392,16 +392,48 @@ export const CredentialsPayloadSchema = Schema.Struct({
   password: Schema.String,
 });
 
+export type UserRole = "admin" | "viewer";
+
+export const UserRoleSchema = Schema.Literals(["admin", "viewer"]);
+
 export interface User {
   id: number;
   email: string;
+  role: UserRole;
   is_admin: boolean;
 }
 
 export const UserSchema = Schema.Struct({
   id: Schema.Number,
   email: Schema.String,
+  role: UserRoleSchema,
   is_admin: Schema.Boolean,
+});
+
+export interface CreateUserPayload {
+  email: string;
+  password: string;
+  role: UserRole;
+  libraryIds: readonly number[];
+}
+
+export const CreateUserPayloadSchema = Schema.Struct({
+  email: Schema.String,
+  password: Schema.String,
+  role: UserRoleSchema,
+  libraryIds: Schema.Array(Schema.Number),
+});
+
+export interface ManagedUser extends User {
+  libraryIds: readonly number[];
+}
+
+export const ManagedUserSchema = Schema.Struct({
+  id: Schema.Number,
+  email: Schema.String,
+  role: UserRoleSchema,
+  is_admin: Schema.Boolean,
+  libraryIds: Schema.Array(Schema.Number),
 });
 
 export interface SetupStatus {
@@ -475,6 +507,22 @@ export type LibraryScanActivityTarget = "directory" | "file" | "library";
 
 export const LibraryScanActivityTargetSchema = Schema.Literals(["directory", "file", "library"]);
 
+export interface LibraryScanFailure {
+  phase: LibraryScanActivityPhase;
+  target: LibraryScanActivityTarget;
+  relativePath: string;
+  error: string;
+  at: string;
+}
+
+export const LibraryScanFailureSchema = Schema.Struct({
+  phase: LibraryScanActivityPhaseSchema,
+  target: LibraryScanActivityTargetSchema,
+  relativePath: Schema.String,
+  error: Schema.String,
+  at: Schema.String,
+});
+
 export interface LibraryScanActivityEntry {
   phase: LibraryScanActivityPhase;
   target: LibraryScanActivityTarget;
@@ -495,12 +543,14 @@ export interface LibraryScanActivity {
   stage: LibraryScanActivityStage;
   current?: LibraryScanActivityEntry;
   recent: readonly LibraryScanActivityEntry[];
+  failure?: LibraryScanFailure;
 }
 
 export const LibraryScanActivitySchema = Schema.Struct({
   stage: LibraryScanActivityStageSchema,
   current: Schema.optional(LibraryScanActivityEntrySchema),
   recent: Schema.Array(LibraryScanActivityEntrySchema),
+  failure: Schema.optional(LibraryScanFailureSchema),
 });
 
 export interface LibraryScanStatus {

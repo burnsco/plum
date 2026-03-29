@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"plum/internal/db"
+	"plum/internal/logging"
 	"plum/internal/metadata"
 )
 
@@ -46,6 +47,10 @@ func newIdentifyRunTracker() *identifyRunTracker {
 
 func identifyRowKey(kind, path string) string {
 	return kind + ":" + path
+}
+
+func userCanManageLibraries(user *db.User) bool {
+	return user != nil && (user.IsAdmin || db.IsAdminRole(user.Role))
 }
 
 func (t *identifyRunTracker) startLibrary(libraryID int, rows []db.IdentificationRow) {
@@ -311,6 +316,10 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !userCanManageLibraries(u) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var payload createLibraryRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -338,6 +347,7 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 		payload.ScanIntervalMinutes,
 	)
 	err := retryCreateLibraryInsert(
+		r.Context(),
 		h.DB,
 		u.ID,
 		payload,
@@ -352,12 +362,25 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("create library: %v", err)
+		logging.Event("libraries", "create_failed", logging.Fields{
+			"user_id": u.ID,
+			"name":    payload.Name,
+			"type":    payload.Type,
+			"path":    payload.Path,
+			"error":   err.Error(),
+		})
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if h.ScanJobs != nil {
 		h.ScanJobs.ConfigureLibraryAutomation(libID, payload.Path, payload.Type, watcherEnabled, watcherMode, scanIntervalMinutes)
 	}
+	logging.Event("libraries", "created", logging.Fields{
+		"user_id":    u.ID,
+		"library_id": libID,
+		"type":       payload.Type,
+		"path":       payload.Path,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(libraryResponse{
@@ -376,6 +399,7 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 func retryCreateLibraryInsert(
+	ctx context.Context,
 	dbConn *sql.DB,
 	userID int,
 	payload createLibraryRequest,
@@ -390,7 +414,13 @@ func retryCreateLibraryInsert(
 ) error {
 	var err error
 	for attempt := 0; attempt < 4; attempt++ {
-		err = dbConn.QueryRow(
+		tx, beginErr := dbConn.BeginTx(ctx, nil)
+		if beginErr != nil {
+			return beginErr
+		}
+
+		err = tx.QueryRowContext(
+			ctx,
 			`INSERT INTO libraries (
 				user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
 				subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, created_at
@@ -398,12 +428,14 @@ func retryCreateLibraryInsert(
 			userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, watcherEnabled, watcherMode, scanIntervalMinutes, now,
 		).Scan(libID)
 		if isMissingColumnError(err, "preferred_audio_language") {
-			err = dbConn.QueryRow(
+			err = tx.QueryRowContext(
+				ctx,
 				`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
 				userID, payload.Name, payload.Type, payload.Path, now,
 			).Scan(libID)
 		} else if isMissingColumnError(err, "watcher_enabled") {
-			err = dbConn.QueryRow(
+			err = tx.QueryRowContext(
+				ctx,
 				`INSERT INTO libraries (
 					user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
 					subtitles_enabled_by_default, created_at
@@ -411,8 +443,28 @@ func retryCreateLibraryInsert(
 				userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, now,
 			).Scan(libID)
 		}
+		if err == nil {
+			_, err = tx.ExecContext(
+				ctx,
+				`INSERT OR IGNORE INTO user_library_access (user_id, library_id, created_at) VALUES (?, ?, ?)`,
+				userID,
+				*libID,
+				now,
+			)
+		}
+		if err == nil {
+			err = tx.Commit()
+			if err == nil {
+				return nil
+			}
+		} else {
+			_ = tx.Rollback()
+		}
 		if err == nil || !isSQLiteBusyError(err) {
 			return err
+		}
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			return rollbackErr
 		}
 		time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
 	}
@@ -427,25 +479,38 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(
-		`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language,
-		        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes
-		   FROM libraries WHERE user_id = ? ORDER BY id`,
-		u.ID,
+		`SELECT l.id, l.name, l.type, l.path, l.user_id, l.preferred_audio_language, l.preferred_subtitle_language,
+		        l.subtitles_enabled_by_default, l.watcher_enabled, l.watcher_mode, l.scan_interval_minutes
+		   FROM libraries l
+		  WHERE l.user_id = ? OR EXISTS (
+		        SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?
+		      )
+		  ORDER BY l.id`,
+		u.ID, u.ID,
 	)
 	legacyColumns := false
 	legacyAutomationColumns := false
 	if err != nil && isMissingColumnError(err, "preferred_audio_language") {
 		legacyColumns = true
 		rows, err = h.DB.Query(
-			`SELECT id, name, type, path, user_id FROM libraries WHERE user_id = ? ORDER BY id`,
-			u.ID,
+			`SELECT l.id, l.name, l.type, l.path, l.user_id
+			   FROM libraries l
+			  WHERE l.user_id = ? OR EXISTS (
+			        SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?
+			      )
+			  ORDER BY l.id`,
+			u.ID, u.ID,
 		)
 	} else if err != nil && isMissingColumnError(err, "watcher_enabled") {
 		legacyAutomationColumns = true
 		rows, err = h.DB.Query(
-			`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default
-			   FROM libraries WHERE user_id = ? ORDER BY id`,
-			u.ID,
+			`SELECT l.id, l.name, l.type, l.path, l.user_id, l.preferred_audio_language, l.preferred_subtitle_language, l.subtitles_enabled_by_default
+			   FROM libraries l
+			  WHERE l.user_id = ? OR EXISTS (
+			        SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?
+			      )
+			  ORDER BY l.id`,
+			u.ID, u.ID,
 		)
 	}
 	if err != nil {
@@ -528,6 +593,10 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !userCanManageLibraries(u) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	idStr := chi.URLParam(r, "id")
 	var payload updateLibraryPlaybackPreferencesRequest
@@ -565,7 +634,12 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if ownerID != u.ID {
+	allowed, accessErr := db.UserHasLibraryAccess(h.DB, u.ID, libraryID)
+	if accessErr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -610,6 +684,11 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		}
 		if !isMissingColumnError(err, "preferred_audio_language") {
 			log.Printf("update library playback preferences: %v", err)
+			logging.Event("libraries", "update_preferences_failed", logging.Fields{
+				"user_id":    u.ID,
+				"library_id": libraryID,
+				"error":      err.Error(),
+			})
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -617,6 +696,11 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 	if h.ScanJobs != nil {
 		h.ScanJobs.ConfigureLibraryAutomation(libraryID, path, libraryType, watcherEnabled, watcherMode, scanIntervalMinutes)
 	}
+	logging.Event("libraries", "preferences_updated", logging.Fields{
+		"user_id":    u.ID,
+		"library_id": libraryID,
+		"type":       libraryType,
+	})
 
 encodeLibraryResponse:
 	w.Header().Set("Content-Type", "application/json")
@@ -2474,7 +2558,12 @@ func (h *LibraryHandler) authorizeLibraryRequest(
 		http.Error(w, "not found", http.StatusNotFound)
 		return 0, "", "", false
 	}
-	if ownerID != userID {
+	allowed, accessErr := db.UserHasLibraryAccess(h.DB, userID, libraryID)
+	if accessErr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return 0, "", "", false
+	}
+	if !allowed {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return 0, "", "", false
 	}

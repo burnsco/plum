@@ -90,3 +90,53 @@ func TestCreateSessionReturnsNotFoundWhenMediaFileIsMissing(t *testing.T) {
 		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
+
+func TestServeShowArtwork_ReturnsInternalErrorWhenAccessLookupFails(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, 1, ?) RETURNING id`,
+		"user@example.com",
+		"hash",
+		db.UserRoleAdmin,
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"Shows",
+		db.LibraryTypeTV,
+		"/shows",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`DROP TABLE user_library_access`); err != nil {
+		t.Fatalf("drop user_library_access: %v", err)
+	}
+
+	handler := &PlaybackHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodGet, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/test/artwork", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	rctx.URLParams.Add("showKey", "test")
+	req = req.WithContext(withUser(context.WithValue(req.Context(), chi.RouteCtxKey, rctx), &db.User{ID: userID, Role: db.UserRoleAdmin, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeShowArtwork(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}

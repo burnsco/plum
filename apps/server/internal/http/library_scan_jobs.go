@@ -8,10 +8,12 @@ import (
 	"log"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"plum/internal/db"
+	"plum/internal/logging"
 	"plum/internal/metadata"
 	"plum/internal/ws"
 )
@@ -73,6 +75,7 @@ type libraryScanActivity struct {
 	Stage   string                     `json:"stage"`
 	Current *libraryScanActivityEntry  `json:"current,omitempty"`
 	Recent  []libraryScanActivityEntry `json:"recent"`
+	Failure *libraryScanFailure        `json:"failure,omitempty"`
 }
 
 type libraryScanActivityEntry struct {
@@ -80,6 +83,14 @@ type libraryScanActivityEntry struct {
 	Target       string `json:"target"`
 	RelativePath string `json:"relativePath"`
 	Detail       string `json:"detail,omitempty"`
+	At           string `json:"at"`
+}
+
+type libraryScanFailure struct {
+	Phase        string `json:"phase"`
+	Target       string `json:"target"`
+	RelativePath string `json:"relativePath"`
+	Error        string `json:"error"`
 	At           string `json:"at"`
 }
 
@@ -132,6 +143,10 @@ func cloneLibraryScanActivity(activity libraryScanActivity) *libraryScanActivity
 	if activity.Current != nil {
 		current := *activity.Current
 		cloned.Current = &current
+	}
+	if activity.Failure != nil {
+		failure := *activity.Failure
+		cloned.Failure = &failure
 	}
 	cloned.Recent = append([]libraryScanActivityEntry(nil), activity.Recent...)
 	if cloned.Recent == nil {
@@ -377,9 +392,12 @@ func (m *LibraryScanManager) clearRetryStateLocked(libraryID int, status *librar
 }
 
 func normalizeRecoveredScanStatus(status libraryScanStatus, recoveredAt string) libraryScanStatus {
+	wasQueued := status.Phase == libraryScanPhaseQueued
 	status.Phase = libraryScanPhaseQueued
 	status.Enriching = false
-	status.QueuedAt = recoveredAt
+	if !wasQueued {
+		status.QueuedAt = recoveredAt
+	}
 	status.StartedAt = recoveredAt
 	status.FinishedAt = ""
 	status.Error = ""
@@ -433,6 +451,9 @@ func (m *LibraryScanManager) setActivityStageLocked(libraryID int, stage string,
 	if resetCurrent {
 		activity.Current = nil
 	}
+	if stage != "failed" {
+		activity.Failure = nil
+	}
 	if activity.Recent == nil {
 		activity.Recent = []libraryScanActivityEntry{}
 	}
@@ -461,6 +482,23 @@ func (m *LibraryScanManager) relativeActivityPathLocked(libraryID int, path stri
 		return ""
 	}
 	return relPath
+}
+
+func coalesceError(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target string, path string, detail string) {
@@ -496,6 +534,27 @@ func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target 
 	m.flushActivity(libraryID, false)
 }
 
+func (m *LibraryScanManager) captureFailureLocked(libraryID int, errText string) {
+	activity := m.activities[libraryID]
+	failure := &libraryScanFailure{
+		Phase:  "discovery",
+		Target: "library",
+		Error:  errText,
+		At:     time.Now().UTC().Format(time.RFC3339),
+	}
+	if activity.Current != nil {
+		failure.Phase = activity.Current.Phase
+		failure.Target = activity.Current.Target
+		failure.RelativePath = activity.Current.RelativePath
+		failure.At = activity.Current.At
+	}
+	activity.Stage = "failed"
+	activity.Failure = failure
+	activity.Current = nil
+	activity.Recent = []libraryScanActivityEntry{}
+	m.activities[libraryID] = activity
+}
+
 func (m *LibraryScanManager) RecordIdentifyActivity(libraryID int, path string) {
 	m.recordActivity(libraryID, "identify", "file", path, "")
 }
@@ -503,7 +562,7 @@ func (m *LibraryScanManager) RecordIdentifyActivity(libraryID int, path string) 
 func (m *LibraryScanManager) finalizeActivityLocked(libraryID int, status libraryScanStatus) {
 	identifyActive := status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying
 	if status.Phase == libraryScanPhaseFailed || (!identifyActive && status.IdentifyPhase == libraryIdentifyPhaseFailed) {
-		m.setActivityStageLocked(libraryID, "failed", true, true)
+		m.captureFailureLocked(libraryID, coalesceError(status.LastError, status.Error))
 		return
 	}
 	if status.Enriching || identifyActive || status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning {
@@ -758,6 +817,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 	m.jobs[libraryID] = status
 	m.setActivityStageLocked(libraryID, "identify", true, false)
 	m.mu.Unlock()
+	logging.Event("scan", "identify_queued", logging.Fields{"library_id": libraryID})
 	log.Printf("identify library=%d status=queued", libraryID)
 	m.flushStatus(libraryID, true)
 
@@ -777,6 +837,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		m.jobs[libraryID] = status
 		m.setActivityStageLocked(libraryID, "identify", true, false)
 		m.mu.Unlock()
+		logging.Event("scan", "identify_started", logging.Fields{"library_id": libraryID, "library_type": libraryType})
 		log.Printf("identify library=%d type=%s status=started", libraryID, libraryType)
 		m.flushStatus(libraryID, true)
 
@@ -799,9 +860,11 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		if err != nil {
 			status.IdentifyPhase = libraryIdentifyPhaseFailed
 			status.LastError = err.Error()
+			m.captureFailureLocked(libraryID, err.Error())
 		} else if result.Failed > 0 {
 			status.IdentifyPhase = libraryIdentifyPhaseFailed
 			status.LastError = fmt.Sprintf("%d item(s) could not be identified automatically", result.Failed)
+			m.captureFailureLocked(libraryID, status.LastError)
 		} else {
 			status.IdentifyPhase = libraryIdentifyPhaseCompleted
 			m.clearRetryStateLocked(libraryID, &status)
@@ -825,6 +888,14 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 			result.Failed,
 			time.Since(startedAt).Round(time.Millisecond),
 		)
+		logging.Event("scan", "identify_"+outcome, logging.Fields{
+			"library_id":   libraryID,
+			"library_type": libraryType,
+			"identified":   result.Identified,
+			"failed":       result.Failed,
+			"elapsed":      time.Since(startedAt).Round(time.Millisecond).String(),
+			"error":        coalesceError(errText(err), status.LastError),
+		})
 		m.flushStatus(libraryID, true)
 		if result.Identified == 0 {
 			if handler != nil && handler.SearchIndex != nil {
@@ -852,7 +923,7 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	if phase == libraryScanPhaseFailed {
 		status.Enriching = false
 		status.LastError = errText
-		m.setActivityStageLocked(libraryID, "failed", true, true)
+		m.captureFailureLocked(libraryID, errText)
 	} else {
 		m.clearRetryStateLocked(libraryID, &status)
 	}
@@ -886,7 +957,16 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	m.mu.Unlock()
 	m.flushAllStatuses(true)
 	if phase == libraryScanPhaseFailed {
+		logging.Event("scan", "scan_failed", logging.Fields{"library_id": libraryID, "error": errText})
 		_ = m.scheduleRetry(libraryID, false, errText)
+	} else if phase == libraryScanPhaseCompleted {
+		logging.Event("scan", "scan_completed", logging.Fields{
+			"library_id": libraryID,
+			"processed":  status.Processed,
+			"added":      status.Added,
+			"updated":    status.Updated,
+			"removed":    status.Removed,
+		})
 	}
 	if phase == libraryScanPhaseCompleted && !hasRerun && !status.IdentifyRequested {
 		if handler := m.handler; handler != nil && handler.SearchIndex != nil {
@@ -921,6 +1001,7 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 	m.setActivityStageLocked(libraryID, "enrichment", true, false)
 	m.mu.Unlock()
 	m.recordActivity(libraryID, "enrichment", "library", "", "Waiting for enrichment worker")
+	logging.Event("scan", "enrichment_queued", logging.Fields{"library_id": libraryID, "library_type": libraryType})
 	m.flushStatus(libraryID, true)
 
 	go func() {
@@ -1011,13 +1092,14 @@ func (m *LibraryScanManager) failEnrichment(libraryID int, errText string) {
 	status.LastError = errText
 	status.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	m.jobs[libraryID] = status
-	m.setActivityStageLocked(libraryID, "failed", true, true)
+	m.captureFailureLocked(libraryID, errText)
 	if cancel, ok := m.enrichCancels[libraryID]; ok {
 		cancel()
 		delete(m.enrichCancels, libraryID)
 	}
 	m.finalizeActivityLocked(libraryID, status)
 	m.mu.Unlock()
+	logging.Event("scan", "enrichment_failed", logging.Fields{"library_id": libraryID, "error": errText})
 	m.flushStatus(libraryID, true)
 	_ = m.scheduleRetry(libraryID, false, errText)
 }

@@ -34,6 +34,7 @@ vi.mock("@plum/shared", async () => {
 const defaultUser = {
   id: 1,
   email: "test@test.com",
+  role: "admin",
   is_admin: true,
 } satisfies api.User;
 
@@ -2056,6 +2057,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "createAdmin").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
+      role: "admin",
       is_admin: true,
     });
     vi.spyOn(api, "createLibrary").mockResolvedValue({
@@ -2140,6 +2142,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "createAdmin").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
+      role: "admin",
       is_admin: true,
     });
     vi.spyOn(api, "createLibrary").mockResolvedValue({
@@ -2227,6 +2230,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "createAdmin").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
+      role: "admin",
       is_admin: true,
     });
     vi.spyOn(api, "createLibrary")

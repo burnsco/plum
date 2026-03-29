@@ -27,6 +27,7 @@ export type RecentLibraryActivity = {
   status: "done" | "failed";
   summary: string;
   detail?: string;
+  secondaryDetail?: string;
   finishedAt: string;
 };
 
@@ -85,6 +86,15 @@ function sameActivity(statusA?: LibraryScanStatus["activity"], statusB?: Library
   if (statusA.stage !== statusB.stage || !sameActivityEntry(statusA.current, statusB.current)) {
     return false;
   }
+  if (
+    statusA.failure?.phase !== statusB.failure?.phase ||
+    statusA.failure?.target !== statusB.failure?.target ||
+    statusA.failure?.relativePath !== statusB.failure?.relativePath ||
+    statusA.failure?.error !== statusB.failure?.error ||
+    statusA.failure?.at !== statusB.failure?.at
+  ) {
+    return false;
+  }
   if (statusA.recent.length !== statusB.recent.length) return false;
   return statusA.recent.every((entry, index) => sameActivityEntry(entry, statusB.recent[index]));
 }
@@ -138,11 +148,25 @@ function buildRecentLibraryActivity(
     return null;
   }
   if (next.phase === "failed" || next.identifyPhase === "failed") {
+    const failure = next.activity?.failure;
+    const label =
+      failure?.phase === "identify"
+        ? "Identify failed"
+        : failure?.phase === "enrichment"
+          ? "Analysis failed"
+          : "Import failed";
+    const failurePath =
+      failure?.target === "directory"
+        ? failure.relativePath
+          ? `${failure.relativePath}/`
+          : "Library root/"
+        : (failure?.relativePath ?? "");
     return {
       libraryId: next.libraryId,
       status: "failed",
-      summary: "Failed",
-      detail: next.lastError || next.error || undefined,
+      summary: label,
+      detail: failure?.error || next.lastError || next.error || undefined,
+      secondaryDetail: failurePath || undefined,
       finishedAt: next.finishedAt || new Date().toISOString(),
     };
   }

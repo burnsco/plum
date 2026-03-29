@@ -59,6 +59,15 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	allowed, err := db.UserHasLibraryAccess(h.DB, user.ID, media.LibraryID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var payload struct {
 		AudioIndex         int                                   `json:"audioIndex"`
@@ -186,13 +195,18 @@ func (h *PlaybackHandler) ServeShowArtwork(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	var ownerID int
-	if err := h.DB.QueryRow(`SELECT user_id FROM libraries WHERE id = ?`, libraryID).Scan(&ownerID); err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	allowed, err := db.UserHasLibraryAccess(h.DB, user.ID, libraryID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if ownerID != user.ID {
+	if !allowed {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var exists int
+	if err := h.DB.QueryRow(`SELECT 1 FROM libraries WHERE id = ?`, libraryID).Scan(&exists); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	showKey := chi.URLParam(r, "showKey")

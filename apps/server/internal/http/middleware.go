@@ -149,13 +149,15 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 
 			var u db.User
 			err = dbConn.QueryRow(
-				`SELECT id, email, is_admin, created_at FROM users WHERE id = ?`,
+				`SELECT id, email, role, is_admin, created_at FROM users WHERE id = ?`,
 				userID,
-			).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt)
+			).Scan(&u.ID, &u.Email, &u.Role, &u.IsAdmin, &u.CreatedAt)
 			if err != nil {
 				next.ServeHTTP(w, r)
 				return
 			}
+			u.Role = db.NormalizeUserRole(u.Role)
+			u.IsAdmin = db.IsAdminRole(u.Role) || u.IsAdmin
 
 			ctx := withUser(r.Context(), &u)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -176,7 +178,7 @@ func RequireAuth(next http.Handler) http.Handler {
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := UserFromContext(r.Context())
-		if u == nil || !u.IsAdmin {
+		if u == nil || !(u.IsAdmin || db.IsAdminRole(u.Role)) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

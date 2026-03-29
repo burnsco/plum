@@ -165,6 +165,8 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 			admin.Put("/api/settings/transcoding", transcodingSettingsHandler.Put)
 			admin.Get("/api/settings/metadata-artwork", metadataArtworkSettingsHandler.Get)
 			admin.Put("/api/settings/metadata-artwork", metadataArtworkSettingsHandler.Put)
+			admin.Get("/api/users", authHandler.ListUsers)
+			admin.Post("/api/users", authHandler.CreateUser)
 		})
 
 		protected.Post("/api/libraries", libHandler.CreateLibrary)

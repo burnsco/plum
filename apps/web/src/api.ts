@@ -4,6 +4,7 @@ export type {
   AttachPlaybackSessionCommand,
   ClientPlaybackCapabilities,
   CreateLibraryPayload,
+  CreateUserPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
   MovieDetails,
@@ -24,6 +25,7 @@ export type {
   Library,
   LibraryScanActivity,
   LibraryScanActivityEntry,
+  LibraryScanFailure,
   LibraryScanStatus,
   LibraryType,
   MetadataArtworkProvider,
@@ -56,7 +58,9 @@ export type {
   UpdatePlaybackSessionAudioPayload,
   UpdateLibraryPlaybackPreferencesPayload,
   UpdateMediaProgressPayload,
+  ManagedUser,
   User,
+  UserRole,
   VaapiDecodeCodec,
 } from "@plum/shared";
 
@@ -70,9 +74,11 @@ const client = createPlumApiClient({
 export const {
   getSetupStatus,
   createAdmin,
+  createUser,
   login,
   logout,
   getMe,
+  listUsers,
   createLibrary,
   getLibraryScanStatus,
   listLibraries,

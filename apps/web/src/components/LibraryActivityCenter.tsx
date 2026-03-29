@@ -21,9 +21,11 @@ type ActivitySummary = {
 
 function isActiveStatus(status: LibraryScanStatus) {
   return (
+    status.phase === "failed" ||
     status.phase === "queued" ||
     status.phase === "scanning" ||
     status.enriching ||
+    status.identifyPhase === "failed" ||
     status.identifyPhase === "queued" ||
     status.identifyPhase === "identifying"
   );
@@ -52,6 +54,22 @@ function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
 
 function getActivityDetail(entry?: LibraryScanActivityEntry | null) {
   return entry?.detail?.trim() ?? "";
+}
+
+function getFailureLabel(status: LibraryScanStatus) {
+  const phase = status.activity?.failure?.phase;
+  if (phase === "identify") return "Identify failed";
+  if (phase === "enrichment") return "Analysis failed";
+  return "Import failed";
+}
+
+function getFailurePath(status: LibraryScanStatus) {
+  const failure = status.activity?.failure;
+  if (!failure) return "";
+  if (failure.target === "directory") {
+    return failure.relativePath ? `${failure.relativePath}/` : "Library root/";
+  }
+  return failure.relativePath || "";
 }
 
 function getNowSummary(status: LibraryScanStatus, library: Library): ActivitySummary {
@@ -105,6 +123,34 @@ function getNowSummary(status: LibraryScanStatus, library: Library): ActivitySum
 }
 
 function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
+  if (status.phase === "failed" || status.identifyPhase === "failed") {
+    return (
+      <section
+        className="space-y-2 rounded-[var(--radius-md)] border border-rose-500/30 bg-rose-500/10 p-3"
+        data-testid={`library-activity-status-${library.id}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-[var(--plum-text)]">
+              {getLibraryTabLabel(library)}
+            </div>
+            <div className="mt-1 text-xs text-rose-100">
+              {status.activity?.failure?.error || status.lastError || status.error || "Unknown failure"}
+            </div>
+            {getFailurePath(status) ? (
+              <div className="mt-1 truncate text-xs text-rose-100/80">{getFailurePath(status)}</div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <span className="rounded-full bg-rose-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-300">
+              {getFailureLabel(status)}
+            </span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   const summary = getNowSummary(status, library);
 
   return (
@@ -240,6 +286,11 @@ export function LibraryActivityCenter() {
                     </div>
                     {activity.detail ? (
                       <div className="mt-1 text-xs text-[var(--plum-muted)]">{activity.detail}</div>
+                    ) : null}
+                    {activity.secondaryDetail ? (
+                      <div className="mt-1 truncate text-xs text-[var(--plum-muted)]/80">
+                        {activity.secondaryDetail}
+                      </div>
                     ) : null}
                   </div>
                   <span

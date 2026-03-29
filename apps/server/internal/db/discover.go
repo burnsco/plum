@@ -80,13 +80,14 @@ func discoverMovieMatches(dbConn *sql.DB, userID int, tmdbIDs []int) (map[int][]
 		`SELECT COALESCE(m.tmdb_id, 0), l.id, l.name, l.type
 FROM movies m
 JOIN libraries l ON l.id = m.library_id
-WHERE l.user_id = ? AND COALESCE(m.missing_since, '') = '' AND COALESCE(m.tmdb_id, 0) IN (%s)
+WHERE (l.user_id = ? OR EXISTS (SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?))
+  AND COALESCE(m.missing_since, '') = '' AND COALESCE(m.tmdb_id, 0) IN (%s)
 GROUP BY COALESCE(m.tmdb_id, 0), l.id, l.name, l.type
 ORDER BY l.name, l.id`,
 		intPlaceholders(len(ids)),
 	)
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, userID)
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, userID, userID)
 	for _, id := range ids {
 		args = append(args, id)
 	}
@@ -136,8 +137,8 @@ func discoverTVMatches(dbConn *sql.DB, userID int, tmdbIDs []int) (map[int][]met
 		return rows.Err()
 	}
 
-	tvArgs := make([]any, 0, len(ids)+1)
-	tvArgs = append(tvArgs, userID)
+	tvArgs := make([]any, 0, len(ids)+2)
+	tvArgs = append(tvArgs, userID, userID)
 	for _, id := range ids {
 		tvArgs = append(tvArgs, id)
 	}
@@ -145,7 +146,8 @@ func discoverTVMatches(dbConn *sql.DB, userID int, tmdbIDs []int) (map[int][]met
 		`SELECT COALESCE(m.tmdb_id, 0), l.id, l.name, l.type
 FROM tv_episodes m
 JOIN libraries l ON l.id = m.library_id
-WHERE l.user_id = ? AND COALESCE(m.missing_since, '') = '' AND COALESCE(m.tmdb_id, 0) IN (%s)
+WHERE (l.user_id = ? OR EXISTS (SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?))
+  AND COALESCE(m.missing_since, '') = '' AND COALESCE(m.tmdb_id, 0) IN (%s)
 GROUP BY COALESCE(m.tmdb_id, 0), l.id, l.name, l.type
 ORDER BY l.name, l.id`,
 		intPlaceholders(len(ids)),
@@ -158,7 +160,8 @@ ORDER BY l.name, l.id`,
 		`SELECT COALESCE(m.tmdb_id, 0), l.id, l.name, l.type
 FROM anime_episodes m
 JOIN libraries l ON l.id = m.library_id
-WHERE l.user_id = ? AND COALESCE(m.missing_since, '') = '' AND COALESCE(m.tmdb_id, 0) IN (%s)
+WHERE (l.user_id = ? OR EXISTS (SELECT 1 FROM user_library_access ula WHERE ula.library_id = l.id AND ula.user_id = ?))
+  AND COALESCE(m.missing_since, '') = '' AND COALESCE(m.tmdb_id, 0) IN (%s)
 GROUP BY COALESCE(m.tmdb_id, 0), l.id, l.name, l.type
 ORDER BY l.name, l.id`,
 		intPlaceholders(len(ids)),

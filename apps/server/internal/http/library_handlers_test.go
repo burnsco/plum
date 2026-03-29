@@ -3068,8 +3068,11 @@ func TestLibraryScanManager_RecoverQueuedScanResetsTimestampsAndLogs(t *testing.
 			if status.Error != "" {
 				t.Fatalf("expected recovered scan warning to clear, got %+v", status)
 			}
-			if status.QueuedAt == oldQueuedAt || status.StartedAt == oldQueuedAt {
-				t.Fatalf("expected recovered timestamps to refresh, got %+v", status)
+			if status.QueuedAt != oldQueuedAt {
+				t.Fatalf("expected recovered queued scan to preserve original QueuedAt, got %+v", status)
+			}
+			if status.StartedAt == oldQueuedAt {
+				t.Fatalf("expected recovered StartedAt to refresh, got %+v", status)
 			}
 			break
 		}
@@ -3550,6 +3553,9 @@ func TestLibraryScanManager_RecoverPreservesFIFOOrder(t *testing.T) {
 		bigStatus := scanJobs.status(bigLibraryID)
 		smallStatus := scanJobs.status(smallLibraryID)
 		if (bigStatus.Phase == libraryScanPhaseScanning || bigStatus.Phase == libraryScanPhaseCompleted) && smallStatus.QueuePosition == 1 {
+			return
+		}
+		if bigStatus.Phase == libraryScanPhaseCompleted && smallStatus.Phase == libraryScanPhaseCompleted {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -4887,5 +4893,53 @@ func TestGetDiscover_DoesNotMatchTVShowsWithoutActiveEpisodes(t *testing.T) {
 	}
 	if len(payload.Shelves[0].Items[0].LibraryMatches) != 0 {
 		t.Fatalf("expected no library matches, got %+v", payload.Shelves[0].Items[0].LibraryMatches)
+	}
+}
+
+func TestCreateLibrary_RollsBackWhenAccessInsertFails(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, 1, ?) RETURNING id`,
+		"admin@example.com",
+		"hash",
+		db.UserRoleAdmin,
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := dbConn.Exec(`
+CREATE TRIGGER fail_user_library_access_insert
+BEFORE INSERT ON user_library_access
+BEGIN
+  SELECT RAISE(FAIL, 'access insert failed');
+END;
+`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries", strings.NewReader(`{"name":"Movies","type":"movie","path":"/movies"}`))
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: userID, Role: db.UserRoleAdmin, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.CreateLibrary(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var count int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM libraries`).Scan(&count); err != nil {
+		t.Fatalf("count libraries: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected library insert to roll back, found %d libraries", count)
 	}
 }

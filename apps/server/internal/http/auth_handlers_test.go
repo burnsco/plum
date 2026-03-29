@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -111,5 +112,85 @@ func TestAdminSetup_RateLimitsRepeatedAttempts(t *testing.T) {
 	handler.AdminSetup(secondRec, secondReq)
 	if secondRec.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected second admin setup attempt to be rate limited, got %d", secondRec.Code)
+	}
+}
+
+func TestCreateUser_RejectsLibrariesOutsideAdminScope(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	now := time.Now().UTC()
+	var adminID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, 1, ?) RETURNING id`,
+		"admin@example.com",
+		"hash",
+		db.UserRoleAdmin,
+		now,
+	).Scan(&adminID); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+	var ownerID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, 0, ?) RETURNING id`,
+		"owner@example.com",
+		"hash",
+		db.UserRoleViewer,
+		now,
+	).Scan(&ownerID); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+
+	var allowedLibraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		ownerID,
+		"Allowed",
+		db.LibraryTypeMovie,
+		"/allowed",
+		now,
+	).Scan(&allowedLibraryID); err != nil {
+		t.Fatalf("insert allowed library: %v", err)
+	}
+	var restrictedLibraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		ownerID,
+		"Restricted",
+		db.LibraryTypeTV,
+		"/restricted",
+		now,
+	).Scan(&restrictedLibraryID); err != nil {
+		t.Fatalf("insert restricted library: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO user_library_access (user_id, library_id, created_at) VALUES (?, ?, ?)`,
+		adminID,
+		allowedLibraryID,
+		now,
+	); err != nil {
+		t.Fatalf("grant allowed library access: %v", err)
+	}
+
+	handler := &AuthHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodPost, "/api/users", strings.NewReader(`{"email":"viewer@example.com","password":"strong-password","role":"viewer","libraryIds":[`+strconv.Itoa(allowedLibraryID)+`,`+strconv.Itoa(restrictedLibraryID)+`]}`))
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: adminID, Role: db.UserRoleAdmin, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.CreateUser(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var count int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM users WHERE email = ?`, "viewer@example.com").Scan(&count); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected user creation to be rejected, found %d users", count)
 	}
 }
