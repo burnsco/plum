@@ -487,8 +487,8 @@ export function PlaybackDock() {
   const videoSubtitleStyle = useMemo(
     () =>
       ({
-        "--plum-subtitle-color": subtitleAppearance.color,
-        "--plum-subtitle-size": subtitleFontSizeValue(subtitleAppearance.size),
+        "--nebula-subtitle-color": subtitleAppearance.color,
+        "--nebula-subtitle-size": subtitleFontSizeValue(subtitleAppearance.size),
       }) as CSSProperties,
     [subtitleAppearance.color, subtitleAppearance.size],
   );

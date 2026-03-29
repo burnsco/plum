@@ -31,6 +31,7 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
       >
         <LibraryPosterGrid
           compact
+          aspectRatio="square"
           items={albums.map((album) => ({
             key: album.key,
             title: album.title,
@@ -49,6 +50,7 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
       >
         <LibraryPosterGrid
           compact
+          aspectRatio="square"
           items={artists.map((artist) => ({
             key: artist.key,
             title: artist.name,

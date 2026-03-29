@@ -98,6 +98,13 @@ const episodeArtworkProviderOptions: Array<{
   { key: "omdb", label: "OMDb", description: "Use OMDb when an episode IMDb ID is known." },
 ];
 
+const settingsPanelClass =
+  "rounded-[var(--radius-xl)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/92 p-6 shadow-[0_18px_40px_rgba(3,8,20,0.14)]";
+const settingsInsetClass =
+  "rounded-[var(--radius-lg)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/65 p-5";
+const settingsSelectClass =
+  "flex h-10 w-full rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/88 px-3 py-2 text-sm text-[var(--nebula-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--nebula-bg)]";
+
 function cloneSettings(settings: TranscodingSettingsShape): TranscodingSettingsShape {
   return {
     ...settings,
@@ -272,20 +279,20 @@ export function Settings() {
   };
 
   const playbackDefaultsSection = (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+    <section className={settingsPanelClass}>
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Playback defaults</h1>
-        <p className="max-w-2xl text-sm text-[var(--plum-muted)]">
+        <h1 className="text-2xl font-semibold text-[var(--nebula-text)]">Playback defaults</h1>
+        <p className="max-w-2xl text-sm text-[var(--nebula-muted)]">
           Choose the default playback behavior and scan automation for each library. Anime
           libraries default to Japanese audio with English subtitles; TV and movie libraries default
           to English for both when available.
         </p>
       </div>
 
-      <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
+      <div className={settingsInsetClass}>
         <div className="flex flex-col gap-2">
-          <h2 className="text-lg font-medium text-[var(--plum-text)]">Player controls look</h2>
-          <p className="text-sm text-[var(--plum-muted)]">
+          <h2 className="text-lg font-medium text-[var(--nebula-text)]">Player controls look</h2>
+          <p className="text-sm text-[var(--nebula-muted)]">
             Pick the default video-player controls style for docked and fullscreen playback. The
             quick switch inside the player updates this same preference.
           </p>
@@ -300,19 +307,19 @@ export function Settings() {
                 type="button"
                 className={`rounded-[var(--radius-md)] border p-4 text-left transition-colors ${
                   isActive
-                    ? "border-[var(--plum-accent-soft)] bg-[color-mix(in_srgb,var(--plum-accent)_18%,transparent)] text-[var(--plum-text)]"
-                    : "border-[var(--plum-border)] bg-[var(--plum-panel)]/70 text-[var(--plum-text)] hover:border-[var(--plum-accent-soft)]"
+                    ? "border-[var(--nebula-accent-soft)] bg-[color-mix(in_srgb,var(--nebula-accent)_18%,transparent)] text-[var(--nebula-text)]"
+                    : "border-[var(--nebula-border)] bg-[var(--nebula-panel)]/70 text-[var(--nebula-text)] hover:border-[var(--nebula-accent-soft)]"
                 }`}
                 onClick={() => setPlayerControlsAppearance(option.value)}
                 aria-pressed={isActive}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm font-medium">{option.label}</span>
-                  <span className="text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
+                  <span className="text-xs uppercase tracking-[0.16em] text-[var(--nebula-muted)]">
                     {isActive ? "Active" : "Available"}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-[var(--plum-muted)]">{option.description}</p>
+                <p className="mt-2 text-sm text-[var(--nebula-muted)]">{option.description}</p>
               </button>
             );
           })}
@@ -320,13 +327,13 @@ export function Settings() {
       </div>
 
       {librariesQuery.isLoading ? (
-        <p className="mt-5 text-sm text-[var(--plum-muted)]">Loading libraries…</p>
+        <p className="mt-5 text-sm text-[var(--nebula-muted)]">Loading libraries…</p>
       ) : librariesQuery.isError ? (
         <p className="mt-5 text-sm text-red-300">
           {librariesQuery.error.message || "Failed to load libraries."}
         </p>
       ) : libraries.length === 0 ? (
-        <p className="mt-5 text-sm text-[var(--plum-muted)]">
+        <p className="mt-5 text-sm text-[var(--nebula-muted)]">
           Add a library to configure playback defaults and automation.
         </p>
       ) : (
@@ -341,12 +348,12 @@ export function Settings() {
             return (
               <article
                 key={library.id}
-                className="rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5"
+                className="rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/60 p-5"
               >
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <h2 className="text-lg font-medium text-[var(--plum-text)]">{library.name}</h2>
-                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
+                    <h2 className="text-lg font-medium text-[var(--nebula-text)]">{library.name}</h2>
+                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--nebula-muted)]">
                       {library.type}
                     </p>
                   </div>
@@ -362,7 +369,7 @@ export function Settings() {
                   <div className="mt-5 grid gap-4 md:grid-cols-3">
                     <div>
                       <label
-                        className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                        className="mb-2 block text-sm font-medium text-[var(--nebula-text)]"
                         htmlFor={`library-audio-${library.id}`}
                       >
                         Preferred audio
@@ -377,7 +384,7 @@ export function Settings() {
                             normalizeLanguagePreference(event.target.value),
                           )
                         }
-                        className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                        className={settingsSelectClass}
                       >
                         {languagePreferenceOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -389,7 +396,7 @@ export function Settings() {
 
                     <div>
                       <label
-                        className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                        className="mb-2 block text-sm font-medium text-[var(--nebula-text)]"
                         htmlFor={`library-subtitles-${library.id}`}
                       >
                         Preferred subtitles
@@ -404,7 +411,7 @@ export function Settings() {
                             normalizeLanguagePreference(event.target.value),
                           )
                         }
-                        className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                        className={settingsSelectClass}
                       >
                         {languagePreferenceOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -426,7 +433,7 @@ export function Settings() {
                     </div>
                   </div>
                 ) : (
-                  <p className="mt-5 text-sm text-[var(--plum-muted)]">
+                  <p className="mt-5 text-sm text-[var(--nebula-muted)]">
                     Music libraries skip playback language defaults, but still support automated
                     scan behavior below.
                   </p>
@@ -444,7 +451,7 @@ export function Settings() {
 
                   <div>
                     <label
-                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                      className="mb-2 block text-sm font-medium text-[var(--nebula-text)]"
                       htmlFor={`library-watcher-mode-${library.id}`}
                     >
                       Watcher mode
@@ -460,19 +467,19 @@ export function Settings() {
                           event.target.value === "poll" ? "poll" : "auto",
                         )
                       }
-                      className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                      className={`${settingsSelectClass} disabled:cursor-not-allowed disabled:opacity-60`}
                     >
                       <option value="auto">Auto</option>
                       <option value="poll">Poll</option>
                     </select>
-                    <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                    <p className="mt-2 text-xs text-[var(--nebula-muted)]">
                       Auto prefers native filesystem events and falls back to polling when needed.
                     </p>
                   </div>
 
                   <div>
                     <label
-                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                      className="mb-2 block text-sm font-medium text-[var(--nebula-text)]"
                       htmlFor={`library-scan-interval-${library.id}`}
                     >
                       Scheduled scan interval
@@ -491,7 +498,7 @@ export function Settings() {
                         )
                       }
                     />
-                    <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                    <p className="mt-2 text-xs text-[var(--nebula-muted)]">
                       Enter minutes between automatic scans. Use <code>0</code> to disable scheduled
                       scans.
                     </p>
@@ -505,8 +512,8 @@ export function Settings() {
                       : message
                         ? "text-red-300"
                         : isDirty
-                          ? "text-[var(--plum-muted)]"
-                          : "text-[var(--plum-muted)]"
+                          ? "text-[var(--nebula-muted)]"
+                          : "text-[var(--nebula-muted)]"
                   }`}
                 >
                   {message ??
@@ -524,11 +531,11 @@ export function Settings() {
 
   if (!isAdmin) {
     return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
         {playbackDefaultsSection}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
-          <p className="mt-2 text-sm text-[var(--plum-muted)]">
+        <div className={settingsPanelClass}>
+          <h2 className="text-xl font-semibold text-[var(--nebula-text)]">Server settings</h2>
+          <p className="mt-2 text-sm text-[var(--nebula-muted)]">
             Server transcoding and metadata artwork settings are only available to admin accounts.
           </p>
         </div>
@@ -538,10 +545,10 @@ export function Settings() {
 
   if (settingsQuery.isError || metadataArtworkQuery.isError) {
     return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
         {playbackDefaultsSection}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
+        <div className={settingsPanelClass}>
+          <h2 className="text-xl font-semibold text-[var(--nebula-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-red-300">
             {settingsQuery.error?.message ||
               metadataArtworkQuery.error?.message ||
@@ -559,11 +566,11 @@ export function Settings() {
     metadataArtworkForm == null
   ) {
     return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
         {playbackDefaultsSection}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
-          <p className="mt-2 text-sm text-[var(--plum-muted)]">Loading server settings…</p>
+        <div className={settingsPanelClass}>
+          <h2 className="text-xl font-semibold text-[var(--nebula-text)]">Server settings</h2>
+          <p className="mt-2 text-sm text-[var(--nebula-muted)]">Loading server settings…</p>
         </div>
       </div>
     );
@@ -681,14 +688,14 @@ export function Settings() {
   );
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6">
       {playbackDefaultsSection}
 
-      <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+      <section className={settingsPanelClass}>
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Metadata artwork</h1>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
+            <h1 className="text-2xl font-semibold text-[var(--nebula-text)]">Metadata artwork</h1>
+            <p className="mt-1 max-w-2xl text-sm text-[var(--nebula-muted)]">
               Control which image fetchers Plum uses for movies, shows, seasons, and episodes.
               Provider order is fixed; these toggles only enable or disable each step.
             </p>
@@ -701,9 +708,9 @@ export function Settings() {
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
         <div className="flex flex-col gap-6">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Movies</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-lg font-medium text-[var(--nebula-text)]">Movies</h2>
+            <p className="mt-1 text-sm text-[var(--nebula-muted)]">
               Automatic order: Fanart, then TMDB, then TVDB.
             </p>
             <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -727,9 +734,9 @@ export function Settings() {
             </div>
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Shows</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-lg font-medium text-[var(--nebula-text)]">Shows</h2>
+            <p className="mt-1 text-sm text-[var(--nebula-muted)]">
               Automatic order: Fanart, then TMDB, then TVDB.
             </p>
             <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -753,9 +760,9 @@ export function Settings() {
             </div>
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Seasons</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-lg font-medium text-[var(--nebula-text)]">Seasons</h2>
+            <p className="mt-1 text-sm text-[var(--nebula-muted)]">
               Automatic order: Fanart, then TMDB, then TVDB.
             </p>
             <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -779,9 +786,9 @@ export function Settings() {
             </div>
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Episodes</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-lg font-medium text-[var(--nebula-text)]">Episodes</h2>
+            <p className="mt-1 text-sm text-[var(--nebula-muted)]">
               Automatic order: TMDB, TVDB, then OMDb.
             </p>
             <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -807,8 +814,8 @@ export function Settings() {
         </div>
 
         <aside className="flex flex-col gap-4">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--nebula-muted)]">
               Provider status
             </h2>
             <ul className="mt-3 space-y-3">
@@ -818,7 +825,7 @@ export function Settings() {
                   className={`rounded-[var(--radius-md)] border p-3 text-sm ${
                     provider.available
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                      : "border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 text-[var(--plum-muted)]"
+                      : "border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/60 text-[var(--nebula-muted)]"
                   }`}
                 >
                   <div className="font-medium uppercase tracking-[0.12em]">{provider.provider}</div>
@@ -830,8 +837,8 @@ export function Settings() {
             </ul>
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--nebula-muted)]">
               Save status
             </h2>
             <p
@@ -840,7 +847,7 @@ export function Settings() {
                   ? "text-emerald-300"
                   : metadataArtworkSaveMessage
                     ? "text-red-300"
-                    : "text-[var(--plum-muted)]"
+                    : "text-[var(--nebula-muted)]"
               }`}
             >
               {metadataArtworkSaveMessage ??
@@ -852,11 +859,11 @@ export function Settings() {
         </aside>
       </section>
 
-      <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+      <section className={settingsPanelClass}>
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Transcoding</h1>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
+            <h1 className="text-2xl font-semibold text-[var(--nebula-text)]">Transcoding</h1>
+            <p className="mt-1 max-w-2xl text-sm text-[var(--nebula-muted)]">
               Configure server-wide VAAPI decode and hardware encode behavior for future transcode
               jobs.
             </p>
@@ -869,13 +876,13 @@ export function Settings() {
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
         <div className="flex flex-col gap-6">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+          <div className={settingsPanelClass}>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-medium text-[var(--plum-text)]">
+                <h2 className="text-lg font-medium text-[var(--nebula-text)]">
                   Video Acceleration API
                 </h2>
-                <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                <p className="mt-1 text-sm text-[var(--nebula-muted)]">
                   Enable VAAPI on the server and choose which source codecs are allowed to use it
                   for decode.
                 </p>
@@ -890,7 +897,7 @@ export function Settings() {
             <div className="mt-5 space-y-5">
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                  className="mb-2 block text-sm font-medium text-[var(--nebula-text)]"
                   htmlFor="vaapi-device"
                 >
                   VAAPI device
@@ -901,15 +908,15 @@ export function Settings() {
                   onChange={(event) => setField("vaapiDevicePath", event.target.value)}
                   placeholder="/dev/dri/renderD128"
                 />
-                <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                <p className="mt-2 text-xs text-[var(--nebula-muted)]">
                   Default render node for Intel/AMD VAAPI on Linux hosts.
                 </p>
               </div>
 
               <div>
                 <div className="mb-3">
-                  <h3 className="text-sm font-medium text-[var(--plum-text)]">Decode codecs</h3>
-                  <p className="mt-1 text-xs text-[var(--plum-muted)]">
+                  <h3 className="text-sm font-medium text-[var(--nebula-text)]">Decode codecs</h3>
+                  <p className="mt-1 text-xs text-[var(--nebula-muted)]">
                     Each codec can be enabled or disabled independently. Disabled codecs stay on
                     software decode.
                   </p>
@@ -929,11 +936,11 @@ export function Settings() {
             </div>
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+          <div className={settingsPanelClass}>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-medium text-[var(--plum-text)]">Hardware encoding</h2>
-                <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                <h2 className="text-lg font-medium text-[var(--nebula-text)]">Hardware encoding</h2>
+                <p className="mt-1 text-sm text-[var(--nebula-muted)]">
                   Use VAAPI encoders when possible, with automatic software fallback if the hardware
                   path fails.
                 </p>
@@ -948,10 +955,10 @@ export function Settings() {
             <div className="mt-5 space-y-5">
               <div>
                 <div className="mb-3">
-                  <h3 className="text-sm font-medium text-[var(--plum-text)]">
+                  <h3 className="text-sm font-medium text-[var(--nebula-text)]">
                     Allowed output formats
                   </h3>
-                  <p className="mt-1 text-xs text-[var(--plum-muted)]">
+                  <p className="mt-1 text-xs text-[var(--nebula-muted)]">
                     H.264 is enabled by default. HEVC and AV1 stay opt-in for compatibility and host
                     support reasons.
                   </p>
@@ -971,7 +978,7 @@ export function Settings() {
 
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                  className="mb-2 block text-sm font-medium text-[var(--nebula-text)]"
                   htmlFor="preferred-encode-format"
                 >
                   Preferred hardware encode format
@@ -985,7 +992,7 @@ export function Settings() {
                       event.target.value as HardwareEncodeFormat,
                     )
                   }
-                  className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                  className={settingsSelectClass}
                 >
                   {encodeFormatOptions.map((option) => (
                     <option
@@ -997,7 +1004,7 @@ export function Settings() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                <p className="mt-2 text-xs text-[var(--nebula-muted)]">
                   Plum will try this hardware output format first, then retry in software if enabled
                   below.
                 </p>
@@ -1014,12 +1021,12 @@ export function Settings() {
         </div>
 
         <aside className="flex flex-col gap-4">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--nebula-muted)]">
               Host warnings
             </h2>
             {warnings.length === 0 ? (
-              <p className="mt-3 text-sm text-[var(--plum-muted)]">
+              <p className="mt-3 text-sm text-[var(--nebula-muted)]">
                 No capability warnings reported for the current server configuration.
               </p>
             ) : (
@@ -1036,8 +1043,8 @@ export function Settings() {
             )}
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+          <div className={settingsPanelClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--nebula-muted)]">
               Save status
             </h2>
             <p
@@ -1046,7 +1053,7 @@ export function Settings() {
                   ? "text-emerald-300"
                   : saveMessage
                     ? "text-red-300"
-                    : "text-[var(--plum-muted)]"
+                    : "text-[var(--nebula-muted)]"
               }`}
             >
               {saveMessage ??
@@ -1071,17 +1078,17 @@ function Toggle({
   description?: string;
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-start gap-3 text-sm text-[var(--plum-text)]">
+    <label className="inline-flex cursor-pointer items-start gap-3 text-sm text-[var(--nebula-text)]">
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 size-4 rounded border-[var(--plum-border)] bg-[var(--plum-panel-alt)] accent-[var(--plum-accent)]"
+        className="mt-0.5 size-4 rounded border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)] accent-[var(--nebula-accent)]"
       />
       <span className="flex flex-col">
         <span>{label}</span>
         {description ? (
-          <span className="text-xs text-[var(--plum-muted)]">{description}</span>
+          <span className="text-xs text-[var(--nebula-muted)]">{description}</span>
         ) : null}
       </span>
     </label>
@@ -1103,10 +1110,10 @@ function CheckboxCard({
 }) {
   return (
     <label
-      className={`flex gap-3 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-3 transition-colors ${
+      className={`flex gap-3 rounded-[var(--radius-md)] border border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)]/60 p-3 transition-colors ${
         disabled
           ? "cursor-not-allowed opacity-70"
-          : "cursor-pointer hover:border-[var(--plum-accent-soft)]"
+          : "cursor-pointer hover:border-[var(--nebula-accent-soft)]"
       }`}
     >
       <input
@@ -1115,11 +1122,11 @@ function CheckboxCard({
         aria-label={label}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 size-4 rounded border-[var(--plum-border)] bg-[var(--plum-panel-alt)] accent-[var(--plum-accent)]"
+        className="mt-1 size-4 rounded border-[var(--nebula-border)] bg-[var(--nebula-panel-alt)] accent-[var(--nebula-accent)]"
       />
       <span className="flex min-w-0 flex-col">
-        <span className="text-sm font-medium text-[var(--plum-text)]">{label}</span>
-        <span className="text-xs text-[var(--plum-muted)]">{description}</span>
+        <span className="text-sm font-medium text-[var(--nebula-text)]">{label}</span>
+        <span className="text-xs text-[var(--nebula-muted)]">{description}</span>
       </span>
     </label>
   );

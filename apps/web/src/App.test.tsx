@@ -239,6 +239,8 @@ describe("App library and player wiring", () => {
     const movieCard = await screen.findByRole("link", { name: /^Die My Love$/i });
     expect(movieCard).toBeTruthy();
     expect(screen.getByText(/2025/)).toBeTruthy();
+    expect(movieCard.closest(".show-cards-grid")).toBeTruthy();
+    expect(movieCard.closest(".show-card")?.querySelector(".show-card-count")).toBeTruthy();
   });
 
   it("shows distinct sidebar status labels for importing and finishing libraries", async () => {
@@ -1626,6 +1628,40 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("link", { name: /^Movie Badge$/i })).toBeTruthy();
     expect(screen.getByText("IMDb")).toBeTruthy();
     expect(screen.getByText("8.3")).toBeTruthy();
+  });
+
+  it("keeps long movie metadata inside the shared card rows", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 99,
+        title: "A Very Long Movie Title That Should Still Use The Shared Landing Page Card Layout",
+        path: "/movies/A Very Long Movie Title That Should Still Use The Shared Landing Page Card Layout (2025)/movie.mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "identified",
+        imdb_rating: 8.3,
+        release_date: "2025-01-01",
+        remaining_seconds: 4210,
+      },
+    ]);
+
+    await renderApp("/library/2");
+
+    const movieCard = (
+      await screen.findByRole("link", {
+        name: /A Very Long Movie Title That Should Still Use The Shared Landing Page Card Layout/i,
+      })
+    ).closest(".show-card");
+
+    expect(movieCard).toBeTruthy();
+    expect(movieCard?.querySelector(".show-card-info")).toBeTruthy();
+    expect(movieCard?.querySelector(".show-card-count")).toHaveTextContent("2025");
+    expect(movieCard?.querySelector(".show-card-meta")).toBeTruthy();
+    expect(movieCard?.querySelector(".show-card-meta__copy")).toBeTruthy();
+    expect(movieCard?.querySelector(".show-card-imdb")).toBeTruthy();
   });
 
   it("keeps incomplete anime cards hidden until they have a review prompt or real match", async () => {

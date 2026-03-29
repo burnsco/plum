@@ -1,9 +1,12 @@
-import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { Search as SearchIcon, User } from "lucide-react";
-import { tmdbPosterUrl } from "@plum/shared";
+import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
+import type { PosterGridItem } from "@/components/types";
 import { Input } from "@/components/ui/input";
+import { EmptyState, InfoBadge, PageHeader, Surface } from "@/components/ui/page";
 import { useLibrarySearch } from "@/queries";
+import { tmdbPosterUrl } from "@plum/shared";
+import { Search as SearchIcon } from "lucide-react";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 
 function resolveSearchPoster(posterUrl?: string, posterPath?: string): string {
   if (posterUrl) {
@@ -49,22 +52,17 @@ export function SearchPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-5">
+      <Surface>
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Library Search</h1>
-              <p className="text-sm text-[var(--plum-muted)]">
-                Search local movie, TV, and anime libraries by title, actor, or genre.
-              </p>
-            </div>
-            {resultLabel ? (
-              <span className="text-sm text-[var(--plum-muted)]">{resultLabel}</span>
-            ) : null}
-          </div>
+          <PageHeader
+            className="border-b-0 pb-0"
+            title="Library Search"
+            description="Search local movie, TV, and anime libraries by title, actor, or genre."
+            meta={resultLabel || undefined}
+          />
 
           <div className="relative max-w-2xl">
-            <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--plum-muted)]" />
+            <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--nebula-muted)]" />
             <Input
               type="search"
               value={query}
@@ -110,7 +108,7 @@ export function SearchPage() {
             </div>
           ) : null}
         </div>
-      </section>
+      </Surface>
 
       {query.length < 2 ? (
         <SearchMessage
@@ -120,72 +118,44 @@ export function SearchPage() {
       ) : error ? (
         <SearchMessage title="Search is unavailable" copy={error.message} />
       ) : isLoading && !data ? (
-        <p className="text-sm text-[var(--plum-muted)]">Searching library…</p>
+        <p className="text-sm text-[var(--nebula-muted)]">Searching library…</p>
       ) : data && data.results.length === 0 ? (
         <SearchMessage
           title={`No results for "${query}"`}
           copy="Try a shorter title, a different actor name, or clear one of the active filters."
         />
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-          {data?.results.map((result) => (
-            <Link
-              key={result.href}
-              to={result.href}
-              className="group flex overflow-hidden rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] transition-transform duration-200 hover:-translate-y-1 hover:border-[var(--plum-accent-soft)]"
-            >
-              <div className="w-24 shrink-0 bg-[var(--plum-panel-alt)]">
-                <img
-                  src={resolveSearchPoster(result.poster_url, result.poster_path) || "/placeholder-poster.svg"}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[var(--plum-text)]">
-                      {result.title}
-                    </div>
-                    {result.subtitle ? (
-                      <div className="text-xs text-[var(--plum-muted)]">{result.subtitle}</div>
-                    ) : null}
-                  </div>
-                  <span className="rounded-full bg-[var(--plum-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--plum-accent)]">
+        <LibraryPosterGrid
+          items={
+            data?.results.map((result) => {
+              const poster =
+                resolveSearchPoster(result.poster_url, result.poster_path) || undefined;
+              const reason =
+                result.match_reason === "actor"
+                  ? `Actor match${result.matched_actor ? `: ${result.matched_actor}` : ""}`
+                  : "Title match";
+              const genres = result.genres?.slice(0, 3).join(", ");
+              const converted: PosterGridItem = {
+                key: result.href,
+                title: result.title,
+                subtitle: result.subtitle ?? result.library_name,
+                posterUrl: poster,
+                ratingValue: result.imdb_rating ?? undefined,
+                ratingLabel: result.imdb_rating ? "IMDb" : undefined,
+                metaLine: [result.subtitle ? result.library_name : null, reason, genres]
+                  .filter(Boolean)
+                  .join(" • "),
+                href: result.href,
+                topBadge: (
+                  <span className="rounded-full bg-[var(--nebula-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--nebula-accent)]">
                     {result.kind}
                   </span>
-                </div>
-
-                <div className="text-xs text-[var(--plum-muted)]">
-                  {result.library_name}
-                  {result.imdb_rating ? ` • IMDb ${result.imdb_rating.toFixed(1)}` : ""}
-                </div>
-
-                {result.match_reason === "actor" ? (
-                  <div className="inline-flex items-center gap-1 text-xs text-[var(--plum-muted)]">
-                    <User className="size-3.5" />
-                    <span>Actor match: {result.matched_actor}</span>
-                  </div>
-                ) : (
-                  <div className="text-xs text-[var(--plum-muted)]">Title match</div>
-                )}
-
-                {result.genres?.length ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {result.genres.slice(0, 3).map((genre) => (
-                      <span
-                        key={genre}
-                        className="rounded-full border border-[var(--plum-border)] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[var(--plum-muted)]"
-                      >
-                        {genre}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </Link>
-          ))}
-        </div>
+                ),
+              };
+              return converted;
+            }) ?? []
+          }
+        />
       )}
     </div>
   );
@@ -201,27 +171,14 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
-        active
-          ? "border-[var(--plum-accent)] bg-[var(--plum-accent-soft)] text-[var(--plum-accent)]"
-          : "border-[var(--plum-border)] text-[var(--plum-muted)] hover:border-[var(--plum-accent-soft)] hover:text-[var(--plum-text)]"
-      }`}
-    >
-      {label}
+    <button type="button" onClick={onClick}>
+      <InfoBadge active={active} className="transition-colors hover:text-[var(--nebula-text)]">
+        {label}
+      </InfoBadge>
     </button>
   );
 }
 
 function SearchMessage({ title, copy }: { title: string; copy: string }) {
-  return (
-    <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8">
-      <div className="max-w-xl space-y-2">
-        <h2 className="text-lg font-semibold text-[var(--plum-text)]">{title}</h2>
-        <p className="text-sm leading-6 text-[var(--plum-muted)]">{copy}</p>
-      </div>
-    </div>
-  );
+  return <EmptyState title={title} copy={copy} />;
 }

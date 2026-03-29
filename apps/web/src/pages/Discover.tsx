@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Sparkles, Star } from "lucide-react";
-import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverItem, DiscoverResponse } from "@/api";
+import MediaCard from "@/components/MediaCard";
+import type { PosterGridItem } from "@/components/types";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { EmptyState, HorizontalScrollRail, InfoBadge, PageHeader, Surface } from "@/components/ui/page";
 import { discoverMediaLabel, discoverYear } from "@/lib/discover";
 import { useDiscover, useDiscoverSearch } from "@/queries";
+import { tmdbPosterUrl } from "@plum/shared";
+import { Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 
 function isDiscoverConfigError(error: Error | null): boolean {
   return error?.message.includes("TMDB_API_KEY") ?? false;
@@ -45,21 +48,17 @@ export function Discover() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
-      <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[radial-gradient(circle_at_top_left,rgba(244,90,160,0.22),transparent_45%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(18,24,38,0.88))] p-6 text-white shadow-[0_20px_70px_rgba(9,12,20,0.28)]">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-white/75">
-              <Sparkles className="size-3.5" />
-              Discover
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight">Find something worth adding.</h1>
-              <p className="max-w-xl text-sm leading-6 text-white/75">
-                Browse live TMDB-powered shelves for movies and TV, then jump into rich title
-                details with Plum-aware library status.
-              </p>
-            </div>
-          </div>
+      <Surface className="bg-[linear-gradient(180deg,rgba(12,21,36,0.96),rgba(12,21,36,0.92))]">
+        <div className="flex flex-col gap-5">
+          <InfoBadge className="w-fit">
+            <Sparkles className="size-3.5" />
+            Discover
+          </InfoBadge>
+          <PageHeader
+            className="border-b-0 pb-0"
+            title="Find something worth adding"
+            description="Browse TMDB-powered shelves for movies and TV, then jump into title details with Plum-aware library status."
+          />
 
           <div className="w-full max-w-xl">
             <Input
@@ -67,14 +66,14 @@ export function Discover() {
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder="Search movies and TV shows"
-              className="h-11 border-white/10 bg-black/20 text-white placeholder:text-white/45"
+              className="h-11"
             />
-            <p className="mt-2 text-xs text-white/55">
+            <p className="mt-2 text-xs text-[var(--nebula-muted)]">
               Search kicks in after 2 characters with a 300ms delay.
             </p>
           </div>
         </div>
-      </section>
+      </Surface>
 
       {isConfigError ? (
         <DiscoverMessage
@@ -109,7 +108,7 @@ export function Discover() {
           results={searchResults}
         />
       ) : discoverLoading ? (
-        <p className="text-sm text-[var(--plum-muted)]">Loading discover shelves...</p>
+        <p className="text-sm text-[var(--nebula-muted)]">Loading discover shelves...</p>
       ) : (
         <DiscoverShelves discover={discover} />
       )}
@@ -132,8 +131,8 @@ function DiscoverShelves({ discover }: { discover: DiscoverResponse | undefined 
       {discover.shelves.map((shelf) => (
         <section key={shelf.id} className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold text-[var(--plum-text)]">{shelf.title}</h2>
-            <span className="text-sm text-[var(--plum-muted)]">
+            <h2 className="text-lg font-semibold text-[var(--nebula-text)]">{shelf.title}</h2>
+            <span className="text-sm text-[var(--nebula-muted)]">
               {shelf.items.length} title{shelf.items.length === 1 ? "" : "s"}
             </span>
           </div>
@@ -154,7 +153,7 @@ function DiscoverSearchResults({
   results: { movies: DiscoverItem[]; tv: DiscoverItem[] } | undefined;
 }) {
   if (loading && !results) {
-    return <p className="text-sm text-[var(--plum-muted)]">Searching TMDB...</p>;
+    return <p className="text-sm text-[var(--nebula-muted)]">Searching TMDB...</p>;
   }
 
   const movies = results?.movies ?? [];
@@ -173,16 +172,16 @@ function DiscoverSearchResults({
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Movies</h2>
-          <span className="text-sm text-[var(--plum-muted)]">{movies.length} matches</span>
+          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">Movies</h2>
+          <span className="text-sm text-[var(--nebula-muted)]">{movies.length} matches</span>
         </div>
         <DiscoverGrid items={movies} emptyLabel="No movie matches." />
       </section>
 
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">TV Shows</h2>
-          <span className="text-sm text-[var(--plum-muted)]">{tv.length} matches</span>
+          <h2 className="text-lg font-semibold text-[var(--nebula-text)]">TV Shows</h2>
+          <span className="text-sm text-[var(--nebula-muted)]">{tv.length} matches</span>
         </div>
         <DiscoverGrid items={tv} emptyLabel="No TV matches." />
       </section>
@@ -192,11 +191,7 @@ function DiscoverSearchResults({
 
 function DiscoverGrid({ items, emptyLabel }: { items: DiscoverItem[]; emptyLabel: string }) {
   if (items.length === 0) {
-    return (
-      <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-6 text-sm text-[var(--plum-muted)]">
-        {emptyLabel}
-      </div>
-    );
+    return <EmptyState title="No matches here" copy={emptyLabel} className="p-6" />;
   }
 
   return (
@@ -210,11 +205,15 @@ function DiscoverGrid({ items, emptyLabel }: { items: DiscoverItem[]; emptyLabel
 
 function DiscoverCardRail({ items }: { items: DiscoverItem[] }) {
   return (
-    <div className="flex gap-4 overflow-x-auto pb-2">
+    <HorizontalScrollRail
+      label="discover shelf"
+      className="w-full"
+      contentClassName="flex gap-4 overflow-x-auto px-12 pb-2"
+    >
       {items.map((item) => (
         <DiscoverCard key={`${item.media_type}-${item.tmdb_id}`} item={item} rail />
       ))}
-    </div>
+    </HorizontalScrollRail>
   );
 }
 
@@ -223,48 +222,35 @@ function DiscoverCard({ item, rail = false }: { item: DiscoverItem; rail?: boole
   const year = discoverYear(item);
   const inLibrary = (item.library_matches?.length ?? 0) > 0;
 
-  return (
-    <Link
-      to={`/discover/${item.media_type}/${item.tmdb_id}`}
-      className={`group flex ${rail ? "w-44 shrink-0" : "w-full"} flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] shadow-[0_14px_40px_rgba(8,12,24,0.12)] transition-transform duration-200 hover:-translate-y-1 hover:border-[var(--plum-accent-soft)] hover:bg-[var(--plum-panel-alt)]`}
-    >
-      <div className="relative aspect-[2/3] overflow-hidden bg-[var(--plum-panel-alt)]">
-        {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-          />
-        ) : (
-          <img src="/placeholder-poster.svg" alt="" className="h-full w-full object-cover" />
-        )}
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
-          <span className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white/75 backdrop-blur-sm">
-            {discoverMediaLabel(item.media_type)}
-          </span>
-          {inLibrary ? (
-            <span className="rounded-full bg-[var(--plum-accent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white shadow-[0_0_18px_rgba(244,90,160,0.35)]">
-              In Library
-            </span>
-          ) : null}
-        </div>
-      </div>
+  const converted: PosterGridItem = {
+    key: `${item.media_type}-${item.tmdb_id}`,
+    title: item.title,
+    subtitle: year || "Upcoming",
+    posterUrl,
+    ratingValue: item.vote_average ?? undefined,
+    ratingLabel: "Rating",
+    href: `/discover/${item.media_type}/${item.tmdb_id}`,
+    topBadge: (
+      <>
+        <InfoBadge className="bg-black/40 text-white/82 backdrop-blur-sm">
+          {discoverMediaLabel(item.media_type)}
+        </InfoBadge>
+        {inLibrary ? (
+          <InfoBadge className="border-[rgba(255,255,255,0.18)] bg-[rgba(4,10,20,0.82)] text-white shadow-[0_12px_28px_rgba(0,0,0,0.28)]">
+            In Library
+          </InfoBadge>
+        ) : null}
+      </>
+    ),
+  };
 
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="line-clamp-2 text-sm font-semibold text-[var(--plum-text)]">
-          {item.title}
-        </div>
-        <div className="flex items-center justify-between gap-3 text-xs text-[var(--plum-muted)]">
-          <span>{year || "Upcoming"}</span>
-          {item.vote_average ? (
-            <span className="inline-flex items-center gap-1">
-              <Star className="size-3 fill-current text-[var(--plum-accent)]" />
-              {item.vote_average.toFixed(1)}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </Link>
+  const wrapperClass = `flex ${rail ? "w-44 shrink-0" : "w-full"}`;
+  const cardClass = `flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--nebula-border)] bg-[var(--nebula-panel)]/96 transition-colors duration-200`;
+
+  return (
+    <div className={`group ${wrapperClass}`}>
+      <MediaCard item={converted} className={cardClass} />
+    </div>
   );
 }
 
@@ -280,20 +266,16 @@ function DiscoverMessage({
   onAction?: () => void;
 }) {
   return (
-    <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8">
-      <div className="max-w-xl space-y-2">
-        <h2 className="text-lg font-semibold text-[var(--plum-text)]">{title}</h2>
-        <p className="text-sm leading-6 text-[var(--plum-muted)]">{copy}</p>
-        {actionLabel && onAction ? (
-          <button
-            type="button"
-            className="mt-2 text-sm font-medium text-[var(--plum-accent)] hover:underline"
-            onClick={onAction}
-          >
+    <EmptyState
+      title={title}
+      copy={copy}
+      action={
+        actionLabel && onAction ? (
+          <Button type="button" variant="outline" onClick={onAction}>
             {actionLabel}
-          </button>
-        ) : null}
-      </div>
-    </div>
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
