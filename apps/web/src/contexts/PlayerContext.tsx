@@ -111,6 +111,7 @@ type PlayerContextValue = {
   muted: boolean;
   videoSourceUrl: string;
   playbackDurationSeconds: number;
+  videoAudioIndex: number;
   playMedia: (item: MediaItem) => void;
   playMovie: (item: MediaItem) => void;
   playEpisode: (item: MediaItem) => void;
@@ -185,6 +186,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ? videoSession.durationSeconds
           : Math.max(activeItem?.duration ?? 0, 0))
       : 0;
+  const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
 
   const sendPlaybackCommand = useCallback(
     (command: PlumWebSocketCommand) => {
@@ -333,6 +335,66 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const playVideoQueueIndex = useCallback(
+    (nextIndex: number, nextViewMode?: PlayerViewMode) => {
+      if (playbackSession?.activeMode !== "video" || playbackSession.queue.length === 0) return;
+      const clampedIndex = Math.max(0, Math.min(nextIndex, playbackSession.queue.length - 1));
+      const nextItem = playbackSession.queue[clampedIndex];
+      if (!nextItem) return;
+
+      pauseAllMediaElements();
+      setPlaybackSession((current) =>
+        current && current.activeMode === "video"
+          ? {
+              ...current,
+              isDockOpen: true,
+              viewMode: nextViewMode ?? current.viewMode,
+              queueIndex: clampedIndex,
+            }
+          : current,
+      );
+      closeVideoSession(videoSessionRef.current?.sessionId);
+      setVideoSession(null);
+      setMusicBaseQueue([]);
+      setLastEvent("");
+
+      const activeLibrary =
+        libraries.find((library) => library.id === nextItem.library_id) ?? null;
+      const preferredAudioLanguage =
+        activeItem?.embeddedAudioTracks?.find(
+          (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
+        )?.language ||
+        activeItem?.embeddedAudioTracks?.find(
+          (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
+        )?.title ||
+        resolveLibraryPlaybackPreferences(activeLibrary ?? { type: nextItem.type })
+          .preferredAudioLanguage;
+      createClientPlaybackSession(
+        nextItem,
+        preferredInitialAudioIndex(nextItem, preferredAudioLanguage),
+      )
+        .then((session) => {
+          if (!mountedRef.current) return;
+          applyPlaybackSession(session);
+        })
+        .catch((err) => {
+          console.error("[Player] createPlaybackSession failed", err);
+          setLastEvent(
+            `Error: ${err instanceof Error ? err.message : "Failed to start playback"}`,
+          );
+        });
+    },
+    [
+      applyPlaybackSession,
+      activeItem,
+      closeVideoSession,
+      createClientPlaybackSession,
+      libraries,
+      pauseAllMediaElements,
+      playbackSession,
+    ],
+  );
+
   const changeAudioTrack = useCallback(
     async (audioIndex: number) => {
       const session = videoSessionRef.current;
@@ -461,6 +523,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const playNextInQueue = useCallback(() => {
+    if (playbackSession?.activeMode === "video") {
+      if (playbackSession.queueIndex >= playbackSession.queue.length - 1) return;
+      playVideoQueueIndex(playbackSession.queueIndex + 1);
+      return;
+    }
     setPlaybackSession((current) => {
       if (
         !current ||
@@ -487,9 +554,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       return current;
     });
-  }, []);
+  }, [playVideoQueueIndex, playbackSession]);
 
   const playPreviousInQueue = useCallback(() => {
+    if (playbackSession?.activeMode === "video") {
+      if (playbackSession.queueIndex <= 0) return;
+      playVideoQueueIndex(playbackSession.queueIndex - 1);
+      return;
+    }
     setPlaybackSession((current) => {
       if (
         !current ||
@@ -515,7 +587,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       return current;
     });
-  }, []);
+  }, [playVideoQueueIndex, playbackSession]);
 
   const toggleShuffle = useCallback(() => {
     setPlaybackSession((current) => {
@@ -685,6 +757,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       muted,
       videoSourceUrl,
       playbackDurationSeconds,
+      videoAudioIndex,
       playMedia,
       playMovie,
       playEpisode,
@@ -720,6 +793,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       muted,
       videoSourceUrl,
       playbackDurationSeconds,
+      videoAudioIndex,
       playMedia,
       playMovie,
       playEpisode,

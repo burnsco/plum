@@ -20,6 +20,7 @@ export type ResolvedLibraryPlaybackPreferences = {
 export const subtitleAppearanceStorageKey = "plum:subtitle-appearance";
 export const playerControlsAppearanceStorageKey = "plum:player-controls-appearance";
 export const playerControlsAppearanceChangedEvent = "plum:player-controls-appearance-changed";
+export const videoAutoplayStorageKey = "plum:video-autoplay-next";
 
 export const defaultSubtitleAppearance: SubtitleAppearance = {
   size: "medium",
@@ -28,6 +29,7 @@ export const defaultSubtitleAppearance: SubtitleAppearance = {
 };
 
 export const defaultPlayerControlsAppearance: PlayerControlsAppearance = "default";
+export const defaultVideoAutoplayEnabled = true;
 
 export const subtitleSizeOptions: Array<{ value: SubtitleSize; label: string }> = [
   { value: "small", label: "Small" },
@@ -200,6 +202,18 @@ export function writeStoredPlayerControlsAppearance(preference: PlayerControlsAp
   window.dispatchEvent(new CustomEvent<PlayerControlsAppearance>(playerControlsAppearanceChangedEvent, {
     detail: preference,
   }));
+}
+
+export function readStoredVideoAutoplayEnabled(): boolean {
+  if (typeof window === "undefined") return defaultVideoAutoplayEnabled;
+  const stored = window.localStorage.getItem(videoAutoplayStorageKey);
+  if (stored == null) return defaultVideoAutoplayEnabled;
+  return stored !== "false";
+}
+
+export function writeStoredVideoAutoplayEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(videoAutoplayStorageKey, String(enabled));
 }
 
 export function subscribeToPlayerControlsAppearance(

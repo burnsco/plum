@@ -30,6 +30,7 @@ tmp/
 .idea/
 *.swp
 *.swo
+.codex
 
 # Docker
 .dockerignore

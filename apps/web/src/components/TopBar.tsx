@@ -1,19 +1,19 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useAuthActions, useAuthState } from "@/contexts/AuthContext";
-import { Button } from "@/components/ui/button";
 import { LibraryActivityCenter } from "@/components/LibraryActivityCenter";
-import { Input } from "@/components/ui/input";
-import { HorizontalScrollRail } from "@/components/ui/page";
-import { useLibraries } from "@/queries";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { HorizontalScrollRail } from "@/components/ui/page";
+import { useAuthActions, useAuthState } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { useLibraries } from "@/queries";
 import { Search, Settings, User } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 /** Plum logo icon — purple plum fruit on a dark button */
 function PlumLogoButton() {
@@ -40,17 +40,10 @@ function PlumLogoButton() {
         <ellipse cx="17.5" cy="19.5" rx="4" ry="3" fill="rgba(255,255,255,0.18)" />
 
         {/* Stem */}
-        <path
-          d="M21 12 C21 12, 22 9, 25 8 C24 10, 23 11, 21 12Z"
-          fill="#5a3e1b"
-        />
+        <path d="M21 12 C21 12, 22 9, 25 8 C24 10, 23 11, 21 12Z" fill="#5a3e1b" />
 
         {/* Leaf */}
-        <path
-          d="M21 12 C21 12, 24 10, 27 11 C25 13, 22 13, 21 12Z"
-          fill="#4ade80"
-          opacity="0.85"
-        />
+        <path d="M21 12 C21 12, 24 10, 27 11 C25 13, 22 13, 21 12Z" fill="#4ade80" opacity="0.85" />
 
         <defs>
           <radialGradient id="plumGrad" cx="38%" cy="35%" r="65%" gradientUnits="objectBoundingBox">
@@ -71,13 +64,14 @@ export function TopBar() {
   const location = useLocation();
   const { data: libraries = [] } = useLibraries();
   const activeQuery =
-    location.pathname === "/search" ? new URLSearchParams(location.search).get("q") ?? "" : "";
+    location.pathname === "/search" ? (new URLSearchParams(location.search).get("q") ?? "") : "";
   const [searchValue, setSearchValue] = useState(activeQuery);
   const activeLibraryId = location.pathname.startsWith("/library/")
     ? Number.parseInt(location.pathname.split("/")[2] ?? "", 10)
     : null;
   const isHomeRoute = location.pathname === "/";
-  const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
+  const isDiscoverRoute =
+    location.pathname === "/discover" || location.pathname.startsWith("/discover/");
 
   useEffect(() => {
     if (location.pathname === "/search") {
@@ -102,7 +96,7 @@ export function TopBar() {
   }, [activeQuery, location.pathname, navigate, searchValue]);
 
   return (
-    <header className="sticky top-0 z-40 shrink-0 border-b border-[rgba(255,255,255,0.06)] bg-[#0a0a0a]">
+    <header className="sticky top-0 z-40 shrink-0 border-b border-[rgba(181,123,255,0.1)] bg-[rgba(10,8,18,0.97)] shadow-[0_1px_0_rgba(181,123,255,0.06),0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl" style={{backdropFilter: "blur(24px) saturate(1.5)"}}>
       <div className="mx-auto flex w-full max-w-[var(--page-max-width)] flex-col gap-3 px-4 py-3 md:h-16 md:flex-row md:items-center md:gap-4 md:px-6 xl:px-8">
         <div className="flex items-center justify-between gap-3 md:justify-start">
           <PlumLogoButton />
@@ -145,7 +139,7 @@ export function TopBar() {
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search libraries, shows, and movies"
-              className="h-10 border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] pl-9 placeholder:text-[var(--plum-muted)] focus-visible:border-[rgba(255,255,255,0.16)] focus-visible:ring-0"
+              className="h-10 border-[rgba(181,123,255,0.12)] bg-[rgba(181,123,255,0.05)] pl-9 placeholder:text-[var(--plum-muted)] focus-visible:border-[rgba(181,123,255,0.32)] focus-visible:ring-0 focus-visible:shadow-[0_0_0_3px_rgba(139,92,246,0.15)]"
             />
           </div>
         </div>

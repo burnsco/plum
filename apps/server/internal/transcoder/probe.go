@@ -220,6 +220,15 @@ func (p playbackSourceProbe) selectedAudioStream(audioIndex int) (playbackStream
 	return playbackStreamProbe{}, false
 }
 
+func (p playbackSourceProbe) primaryAudioStream() (playbackStreamProbe, bool) {
+	for _, stream := range p.Streams {
+		if stream.CodecType == "audio" {
+			return stream, true
+		}
+	}
+	return playbackStreamProbe{}, false
+}
+
 func (p playbackSourceProbe) videoStreamInfo() videoStreamInfo {
 	stream, ok := p.primaryVideoStream()
 	if !ok {

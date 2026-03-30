@@ -43,6 +43,8 @@ export type ShowGroup = {
   voteAverage: number | undefined;
   unmatchedCount: number;
   localCount: number;
+  identifiedCount: number;
+  totalCount: number;
   episodes: MediaItem[];
 };
 
@@ -83,6 +85,8 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       voteAverage: ratingEpisode?.vote_average,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
       localCount: episodes.filter((episode) => episode.match_status === "local").length,
+      identifiedCount: episodes.filter((episode) => episode.match_status === "identified").length,
+      totalCount: episodes.length,
       episodes,
     });
   }

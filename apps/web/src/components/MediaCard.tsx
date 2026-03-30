@@ -2,6 +2,7 @@ import { resolvePosterUrl } from "@plum/shared";
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { BASE_URL } from "../api";
 import type { PosterGridItem } from "./types";
 
 export function MediaCard({
@@ -11,7 +12,7 @@ export function MediaCard({
   item: PosterGridItem;
   className?: string;
 }) {
-  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath);
+  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
   const [posterErrored, setPosterErrored] = useState(false);
   const cardState = item.cardState ?? "default";
   const progressPercent =

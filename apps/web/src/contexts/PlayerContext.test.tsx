@@ -126,6 +126,35 @@ const movie: MediaItem = {
   type: "movie",
 };
 
+const episodeOne: MediaItem = {
+  id: 201,
+  title: "Episode One",
+  path: "/shows/Example/Season 1/Episode One.mkv",
+  duration: 1800,
+  type: "tv",
+  season: 1,
+  episode: 1,
+  embeddedAudioTracks: [
+    { streamIndex: 1, language: "eng", title: "English" },
+    { streamIndex: 2, language: "jpn", title: "Japanese" },
+  ],
+};
+
+const episodeTwo: MediaItem = {
+  id: 202,
+  title: "Episode Two",
+  path: "/shows/Example/Season 1/Episode Two.mkv",
+  duration: 1800,
+  type: "tv",
+  season: 1,
+  episode: 2,
+  library_id: 7,
+  embeddedAudioTracks: [
+    { streamIndex: 3, language: "eng", title: "English" },
+    { streamIndex: 5, language: "jpn", title: "Japanese" },
+  ],
+};
+
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
@@ -146,6 +175,30 @@ function PlayerHarness() {
       <div data-testid="active-media-id">{activeItem?.id ?? ""}</div>
       <div data-testid="last-event">{lastEvent}</div>
       <div data-testid="video-source-url">{videoSourceUrl}</div>
+    </div>
+  );
+}
+
+function VideoQueueHarness() {
+  const {
+    activeItem,
+    playShowGroup,
+    playNextInQueue,
+    playPreviousInQueue,
+  } = usePlayer();
+
+  return (
+    <div>
+      <button type="button" onClick={() => playShowGroup([episodeTwo, episodeOne], episodeTwo)}>
+        Play Show
+      </button>
+      <button type="button" onClick={() => playNextInQueue()}>
+        Next
+      </button>
+      <button type="button" onClick={() => playPreviousInQueue()}>
+        Previous
+      </button>
+      <div data-testid="queue-media-id">{activeItem?.id ?? ""}</div>
     </div>
   );
 }
@@ -390,6 +443,158 @@ describe("PlayerContext playback session updates", () => {
         }),
       );
       expect(api.closePlaybackSession).toHaveBeenCalledWith("session-99");
+    });
+  });
+
+  it("plays a show queue from the requested episode after sorting episodes", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId) => ({
+      sessionId: `session-${mediaId}`,
+      delivery: "transcode",
+      mediaId,
+      revision: 1,
+      audioIndex: -1,
+      status: "starting",
+      streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+      durationSeconds: 1800,
+    }));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WsProvider>
+          <PlayerProvider>
+            <VideoQueueHarness />
+          </PlayerProvider>
+        </WsProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Show" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("queue-media-id")).toHaveTextContent("202");
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(
+        202,
+        expect.objectContaining({ clientCapabilities: expect.any(Object) }),
+      );
+    });
+  });
+
+  it("moves queued video forward and backward without wrapping", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId) => ({
+      sessionId: `session-${mediaId}`,
+      delivery: "transcode",
+      mediaId,
+      revision: 1,
+      audioIndex: -1,
+      status: "starting",
+      streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+      durationSeconds: 1800,
+    }));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WsProvider>
+          <PlayerProvider>
+            <VideoQueueHarness />
+          </PlayerProvider>
+        </WsProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Show" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("queue-media-id")).toHaveTextContent("202");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("queue-media-id")).toHaveTextContent("202");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("queue-media-id")).toHaveTextContent("201");
+      expect(api.createPlaybackSession).toHaveBeenLastCalledWith(
+        201,
+        expect.objectContaining({ clientCapabilities: expect.any(Object) }),
+      );
+    });
+  });
+
+  it("keeps the active audio language when moving between queued episodes", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 7,
+        name: "Anime",
+        type: "anime",
+        path: "/anime",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: true,
+      },
+    ]);
+    vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId) => ({
+      sessionId: `session-${mediaId}`,
+      delivery: "transcode",
+      mediaId,
+      revision: 1,
+      audioIndex: mediaId === 202 ? 5 : 2,
+      status: "starting",
+      streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+      durationSeconds: 1800,
+    }));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WsProvider>
+          <PlayerProvider>
+            <VideoQueueHarness />
+          </PlayerProvider>
+        </WsProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Show" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("queue-media-id")).toHaveTextContent("202");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenLastCalledWith(
+        201,
+        expect.objectContaining({
+          audioIndex: 2,
+          clientCapabilities: expect.any(Object),
+        }),
+      );
     });
   });
 });

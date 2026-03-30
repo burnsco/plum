@@ -5,6 +5,7 @@ import * as api from "../api";
 import {
   playerControlsAppearanceChangedEvent,
   playerControlsAppearanceStorageKey,
+  videoAutoplayStorageKey,
 } from "../lib/playbackPreferences";
 import { PlaybackDock } from "./PlaybackDock";
 
@@ -114,6 +115,16 @@ function setVideoDuration(video: HTMLVideoElement, duration: number) {
   });
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("PlaybackDock audio track selection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -160,6 +171,7 @@ describe("PlaybackDock audio track selection", () => {
       videoSourceUrl:
         "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
       playbackDurationSeconds: 120,
+      videoAudioIndex: -1,
       wsConnected: false,
       lastEvent: "",
       registerMediaElement: vi.fn(),
@@ -230,6 +242,27 @@ describe("PlaybackDock audio track selection", () => {
     expect(mockHlsInstances[1]?.loadSource).toHaveBeenCalledWith(
       "http://localhost:3000/api/playback/sessions/session-1/revisions/2/index.m3u8",
     );
+  });
+
+  it("shows a loading overlay before video playback is ready", async () => {
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    expect(
+      screen.getByRole("status", { name: "Preparing playback..." }),
+    ).toBeTruthy();
+
+    fireEvent.canPlay(video);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("status", { name: "Preparing playback..." }),
+      ).toBeNull();
+    });
   });
 
   it("persists initial playback progress before the periodic interval elapses", async () => {
@@ -461,7 +494,7 @@ describe("PlaybackDock audio track selection", () => {
 
     expect(hls.startLoad).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      expect(screen.getByText("Reconnecting stream...")).toBeTruthy();
+      expect(screen.getByRole("status", { name: "Reconnecting stream..." })).toBeTruthy();
     });
   });
 
@@ -487,7 +520,7 @@ describe("PlaybackDock audio track selection", () => {
 
     expect(hls.recoverMediaError).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      expect(screen.getByText("Recovering playback...")).toBeTruthy();
+      expect(screen.getByRole("status", { name: "Recovering playback..." })).toBeTruthy();
     });
   });
 
@@ -701,5 +734,345 @@ describe("PlaybackDock audio track selection", () => {
         );
       }
     }
+  });
+
+  it("keeps the subtitle picker visible when subtitle tracks exist", async () => {
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
+      },
+    });
+
+    renderDock();
+
+    expect(await screen.findByRole("button", { name: "Subtitles" })).toBeTruthy();
+  });
+
+  it("shows a loading overlay while a subtitle track is being fetched", async () => {
+    const subtitleRequest = createDeferred<Response>();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => subtitleRequest.promise);
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 7,
+        name: "Anime",
+        type: "anime",
+        path: "/anime",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: false,
+      },
+    ]);
+
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
+      },
+    });
+
+    try {
+      const { container } = renderDock();
+      const video = container.querySelector("video") as HTMLVideoElement | null;
+      expect(video).toBeTruthy();
+      if (!video) {
+        throw new Error("Expected a video element");
+      }
+
+      fireEvent.canPlay(video);
+
+      await waitFor(() => {
+        expect(screen.queryByRole("status", { name: "Preparing playback..." })).toBeNull();
+      });
+
+      fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
+      fireEvent.click(screen.getByRole("option", { name: /English/ }));
+
+      expect(screen.getByRole("status", { name: "Loading subtitles..." })).toBeTruthy();
+
+      subtitleRequest.resolve(
+        new Response("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello world\n", { status: 200 }),
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps a manual subtitle choice when queued video advances", async () => {
+    const queue = [
+      {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        id: 42,
+        subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
+      },
+      {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        id: 43,
+        subtitles: [{ id: 10, language: "eng", title: "English", format: "vtt" }],
+      },
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      return Promise.resolve(
+        new Response(
+          `WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n${url.includes("/10") ? "Episode two" : "Episode one"}\n`,
+          { status: 200 },
+        ),
+      );
+    });
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 7,
+        name: "Anime",
+        type: "anime",
+        path: "/anime",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: false,
+      },
+    ]);
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: queue[0],
+      queue,
+      queueIndex: 0,
+    });
+
+    try {
+      const { queryClient, rerender } = renderDock();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
+      fireEvent.click(screen.getByRole("option", { name: /English/ }));
+
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining("/api/subtitles/9"),
+          expect.any(Object),
+        );
+      });
+
+      mockUsePlayer.mockReturnValue({
+        ...mockUsePlayer.mock.results.at(-1)?.value,
+        activeItem: queue[1],
+        queue,
+        queueIndex: 1,
+      });
+
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <PlaybackDock />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining("/api/subtitles/10"),
+          expect.any(Object),
+        );
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("clears the subtitle loading overlay when subtitle loading fails", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 7,
+        name: "Anime",
+        type: "anime",
+        path: "/anime",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: false,
+      },
+    ]);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("nope", { status: 500 }));
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
+      },
+    });
+
+    try {
+      renderDock();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
+      fireEvent.click(screen.getByRole("option", { name: /English/ }));
+
+      expect(screen.getByRole("status", { name: "Loading subtitles..." })).toBeTruthy();
+
+      await waitFor(() => {
+        expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("syncs the selected audio menu state from the active playback audio index", async () => {
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      videoAudioIndex: 2,
+    });
+
+    renderDock();
+
+    const audioButton = await screen.findByRole("button", { name: /Audio track: Japanese/i });
+    expect(audioButton).toBeTruthy();
+  });
+
+  it("restarts the current video when Previous is pressed after the restart threshold", async () => {
+    const seekTo = vi.fn();
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      queue: [
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 41 },
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+      ],
+      queueIndex: 1,
+      seekTo,
+    });
+
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    setVideoCurrentTime(video, 12);
+    fireEvent.click(screen.getByRole("button", { name: "Previous episode" }));
+
+    expect(seekTo).toHaveBeenCalledWith(0);
+  });
+
+  it("goes to the previous queue item when Previous is pressed near the start", async () => {
+    const playPreviousInQueue = vi.fn();
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      queue: [
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 41 },
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+      ],
+      queueIndex: 1,
+      playPreviousInQueue,
+    });
+
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    setVideoCurrentTime(video, 2);
+    fireEvent.click(screen.getByRole("button", { name: "Previous episode" }));
+
+    expect(playPreviousInQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("advances to the next queue item from the dock controls", async () => {
+    const playNextInQueue = vi.fn();
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      queue: [
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+      ],
+      queueIndex: 0,
+      playNextInQueue,
+    });
+
+    renderDock();
+    fireEvent.click(screen.getByRole("button", { name: "Next episode" }));
+
+    expect(playNextInQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("advances on video end when autoplay next is enabled", async () => {
+    const playNextInQueue = vi.fn();
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      queue: [
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+      ],
+      queueIndex: 0,
+      playNextInQueue,
+    });
+
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    fireEvent.ended(video);
+
+    await waitFor(() => {
+      expect(playNextInQueue).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not advance on video end when autoplay next is disabled", async () => {
+    const playNextInQueue = vi.fn();
+    window.localStorage.setItem(videoAutoplayStorageKey, "false");
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      queue: [
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+      ],
+      queueIndex: 0,
+      playNextInQueue,
+    });
+
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    fireEvent.ended(video);
+
+    await waitFor(() => {
+      expect(playNextInQueue).not.toHaveBeenCalled();
+    });
+  });
+
+  it("persists the autoplay next preference when toggled", async () => {
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      queue: [
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+      ],
+      queueIndex: 0,
+    });
+
+    renderDock();
+    fireEvent.click(screen.getByRole("button", { name: "Autoplay next episode" }));
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(videoAutoplayStorageKey)).toBe("false");
+    });
   });
 });
