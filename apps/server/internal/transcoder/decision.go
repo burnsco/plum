@@ -40,6 +40,7 @@ func decidePlayback(mediaID int, probe playbackSourceProbe, capabilities ClientP
 
 	video, hasVideo := probe.primaryVideoStream()
 	audio, hasAudio := probe.selectedAudioStream(audioIndex)
+	primaryAudio, hasPrimaryAudio := probe.primaryAudioStream()
 
 	videoCodec := ""
 	audioCodec := ""
@@ -62,7 +63,9 @@ func decidePlayback(mediaID int, probe playbackSourceProbe, capabilities ClientP
 		AudioCodec: audioCodec,
 	}
 
-	if containerSupported && videoSupported && audioSupported {
+	alternateAudioSelection := audioIndex >= 0 && hasAudio && hasPrimaryAudio && audio.Index != primaryAudio.Index
+
+	if containerSupported && videoSupported && audioSupported && !alternateAudioSelection {
 		decision.Delivery = "direct"
 		return decision
 	}

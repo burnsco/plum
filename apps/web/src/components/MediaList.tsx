@@ -1,4 +1,4 @@
-import type { MediaItem } from "../api";
+import { BASE_URL, type MediaItem } from "../api";
 import { resolvePosterUrl } from "@plum/shared";
 
 interface Props {
@@ -30,7 +30,7 @@ export function MediaList({ items, onSelect, onTranscode }: Props) {
         >
           <div className="media-poster">
             <img
-              src={resolvePosterUrl(m.poster_url, m.poster_path) || "/placeholder-poster.svg"}
+              src={resolvePosterUrl(m.poster_url, m.poster_path, "w200", BASE_URL) || "/placeholder-poster.svg"}
               alt={m.title}
             />
             <div className="media-type-overlay">{m.type}</div>

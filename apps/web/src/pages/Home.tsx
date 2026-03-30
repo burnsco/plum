@@ -93,7 +93,9 @@ function isMovieIncomplete(item: {
   tmdb_id?: number;
   tvdb_id?: string;
 }) {
-  return isExplicitlyUnmatched(item.match_status);
+  const hasIdentity = Boolean(item.tmdb_id && item.tmdb_id > 0) || Boolean(item.tvdb_id);
+  const isIdentified = item.match_status === "identified" || hasIdentity;
+  return !isIdentified && isExplicitlyUnmatched(item.match_status);
 }
 
 function isMovieTerminalFailure(

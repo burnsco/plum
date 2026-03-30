@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type RefObject,
+  type SyntheticEvent,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
@@ -36,6 +37,8 @@ import { usePlayer } from "../contexts/PlayerContext";
 import {
   readStoredSubtitleAppearance,
   readStoredPlayerControlsAppearance,
+  readStoredVideoAutoplayEnabled,
+  languageMatchesPreference,
   resolveLibraryPlaybackPreferences,
   subscribeToPlayerControlsAppearance,
   subtitleFontSizeValue,
@@ -44,6 +47,7 @@ import {
   playerControlsAppearanceOptions,
   writeStoredSubtitleAppearance,
   writeStoredPlayerControlsAppearance,
+  writeStoredVideoAutoplayEnabled,
   type PlayerControlsAppearance,
   type SubtitleAppearance,
 } from "../lib/playbackPreferences";
@@ -91,7 +95,17 @@ type VideoProgressSnapshot = {
   ended: boolean;
 };
 
+type QueuedSubtitlePreference =
+  | { kind: "off" }
+  | {
+      kind: "track";
+      label: string;
+      language: string;
+    };
+
 const CONTROLS_HIDE_DELAY = 3000;
+const SUBTITLE_LOAD_TIMEOUT_MS = 15_000;
+const VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS = 5;
 
 /* ── Track popover menu (shared between docked & fullscreen) ── */
 function TrackMenu({
@@ -151,14 +165,18 @@ function PlayerSettingsMenu({
   menuRef,
   preferences,
   controlsAppearance,
+  videoAutoplayEnabled,
   onChange,
   onControlsAppearanceChange,
+  onVideoAutoplayChange,
 }: {
   menuRef: RefObject<HTMLDivElement | null>;
   preferences: SubtitleAppearance;
   controlsAppearance: PlayerControlsAppearance;
+  videoAutoplayEnabled: boolean;
   onChange: (value: SubtitleAppearance) => void;
   onControlsAppearanceChange: (value: PlayerControlsAppearance) => void;
+  onVideoAutoplayChange: (enabled: boolean) => void;
 }) {
   return (
     <div
@@ -240,6 +258,35 @@ function PlayerSettingsMenu({
           ))}
         </div>
       </div>
+
+      <label className="player-settings-menu__field">
+        <span>Autoplay next</span>
+        <input
+          type="checkbox"
+          checked={videoAutoplayEnabled}
+          onChange={(event) => onVideoAutoplayChange(event.target.checked)}
+        />
+      </label>
+    </div>
+  );
+}
+
+function PlayerLoadingOverlay({
+  label,
+  fullscreen = false,
+}: {
+  label: string;
+  fullscreen?: boolean;
+}) {
+  return (
+    <div
+      className={`player-loading-overlay${fullscreen ? " player-loading-overlay--fullscreen" : ""}`}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <div className="player-loading-overlay__spinner" aria-hidden="true" />
+      <span className="player-loading-overlay__label">{label}</span>
     </div>
   );
 }
@@ -268,6 +315,9 @@ export function PlaybackDock() {
   );
   const [playerControlsAppearance, setPlayerControlsAppearance] =
     useState<PlayerControlsAppearance>(() => readStoredPlayerControlsAppearance());
+  const [videoAutoplayEnabled, setVideoAutoplayEnabled] = useState<boolean>(() =>
+    readStoredVideoAutoplayEnabled(),
+  );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
   const [failedSubtitleKeys, setFailedSubtitleKeys] = useState<string[]>([]);
@@ -281,6 +331,8 @@ export function PlaybackDock() {
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
   const [pendingBrowserFullscreen, setPendingBrowserFullscreen] = useState(false);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [pendingSubtitleKey, setPendingSubtitleKey] = useState<string | null>(null);
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null);
   const subtitleBtnRef = useRef<HTMLButtonElement | null>(null);
   const audioMenuRef = useRef<HTMLDivElement | null>(null);
@@ -304,6 +356,7 @@ export function PlaybackDock() {
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
   const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const lastVideoProgressRef = useRef<VideoProgressSnapshot | null>(null);
+  const queuedSubtitlePreferenceRef = useRef<QueuedSubtitlePreference | null>(null);
   const {
     activeItem,
     activeMode,
@@ -317,6 +370,7 @@ export function PlaybackDock() {
     muted,
     videoSourceUrl,
     playbackDurationSeconds,
+    videoAudioIndex,
     wsConnected,
     lastEvent,
     registerMediaElement,
@@ -340,14 +394,32 @@ export function PlaybackDock() {
   const isFullscreen = isVideo && viewMode === "fullscreen";
   const activeItemId = activeItem?.id ?? null;
   const activeItemDuration = activeItem?.duration ?? 0;
+  const hasNextQueueItem = queueIndex < queue.length - 1;
+  const hasVideoQueueNavigation = isVideo && queue.length > 1;
   const videoStatusMessage =
     hlsStatusMessage ||
     lastEvent ||
     (wsConnected ? "Waiting for transcode updates" : "WebSocket disconnected");
+  const playerLoadingLabel = pendingSubtitleKey
+    ? "Loading subtitles..."
+    : hlsStatusMessage && !hlsStatusMessage.startsWith("Stream error:")
+      ? hlsStatusMessage
+      : lastEvent && !lastEvent.startsWith("Error:")
+        ? lastEvent
+        : "Preparing playback...";
+  const showPlayerLoadingOverlay =
+    isVideo &&
+    (isVideoLoading ||
+      pendingSubtitleKey !== null ||
+      (hlsStatusMessage !== "" && !hlsStatusMessage.startsWith("Stream error:")));
   const videoSourceIsHls = useMemo(
     () => /\.m3u8(?:$|\?)/i.test(videoSourceUrl),
     [videoSourceUrl],
   );
+
+  useEffect(() => {
+    setIsVideoLoading(isVideo && activeItemId != null);
+  }, [activeItemId, isVideo]);
   const activeLibrary = useMemo(
     () => libraries.find((library) => library.id === activeItem?.library_id) ?? null,
     [activeItem?.library_id, libraries],
@@ -365,6 +437,7 @@ export function PlaybackDock() {
     previousVideoSourceUrlRef.current = videoSourceUrl;
     const sourceChanged = previousUrl !== videoSourceUrl;
     if (sourceChanged) {
+      setIsVideoLoading(true);
       setHlsStatusMessage("");
       mediaRecoveryAttemptsRef.current = 0;
       networkRecoveryAttemptsRef.current = 0;
@@ -407,6 +480,39 @@ export function PlaybackDock() {
     () => subtitleTrackRequests.filter((track) => !failedSubtitleKeySet.has(track.key)),
     [failedSubtitleKeySet, subtitleTrackRequests],
   );
+  const rememberQueuedSubtitlePreference = useCallback(
+    (key: string) => {
+      if (key === "off") {
+        queuedSubtitlePreferenceRef.current = { kind: "off" };
+        return;
+      }
+      const track = subtitleTrackRequests.find((candidate) => candidate.key === key);
+      if (!track) {
+        queuedSubtitlePreferenceRef.current = null;
+        return;
+      }
+      queuedSubtitlePreferenceRef.current = {
+        kind: "track",
+        label: track.label,
+        language: track.srcLang,
+      };
+    },
+    [subtitleTrackRequests],
+  );
+  const resolveQueuedSubtitleKey = useCallback(() => {
+    const preference = queuedSubtitlePreferenceRef.current;
+    if (!preference) return null;
+    if (preference.kind === "off") return "off";
+    const match =
+      subtitleTrackOptions.find(
+        (track) =>
+          languageMatchesPreference(track.srcLang, preference.language) ||
+          languageMatchesPreference(track.label, preference.language),
+      ) ??
+      subtitleTrackOptions.find((track) => track.label === preference.label) ??
+      null;
+    return match?.key ?? null;
+  }, [subtitleTrackOptions]);
   const ensureSubtitleTrackLoaded = useCallback(
     async (trackKey: string) => {
       if (trackKey === "off") return;
@@ -418,6 +524,14 @@ export function PlaybackDock() {
 
       const controller = new AbortController();
       subtitleLoadControllersRef.current.set(trackKey, controller);
+      let timedOut = false;
+      const timeoutId =
+        typeof window === "undefined"
+          ? null
+          : window.setTimeout(() => {
+              timedOut = true;
+              controller.abort();
+            }, SUBTITLE_LOAD_TIMEOUT_MS);
 
       try {
         const response = await fetch(track.src, {
@@ -434,16 +548,20 @@ export function PlaybackDock() {
             : [...current, { ...track, body }],
         );
       } catch (error) {
+        let loadError: unknown = error;
         if (
           (error instanceof DOMException && error.name === "AbortError") ||
           controller.signal.aborted
         ) {
-          return;
+          if (!timedOut) {
+            return;
+          }
+          loadError = new Error("Subtitle request timed out");
         }
         console.error("[PlaybackDock] Subtitle load failed", {
           mediaId: activeItem?.id ?? null,
           source: track.src,
-          error,
+          error: loadError,
         });
         setFailedSubtitleKeys((current) =>
           current.includes(track.key) ? current : [...current, track.key],
@@ -453,6 +571,9 @@ export function PlaybackDock() {
         );
         setSelectedSubtitleKey((current) => (current === track.key ? "off" : current));
       } finally {
+        if (timeoutId != null) {
+          window.clearTimeout(timeoutId);
+        }
         subtitleLoadControllersRef.current.delete(trackKey);
       }
     },
@@ -460,9 +581,45 @@ export function PlaybackDock() {
   );
 
   useEffect(() => {
+    queuedSubtitlePreferenceRef.current = null;
+  }, [queue]);
+
+  useEffect(() => {
     if (selectedSubtitleKey === "off") return;
+    if (!loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
+      setPendingSubtitleKey(selectedSubtitleKey);
+    }
     void ensureSubtitleTrackLoaded(selectedSubtitleKey);
-  }, [ensureSubtitleTrackLoaded, selectedSubtitleKey]);
+  }, [ensureSubtitleTrackLoaded, loadedSubtitleTracks, selectedSubtitleKey]);
+
+  useEffect(() => {
+    if (selectedSubtitleKey === "off") {
+      setPendingSubtitleKey(null);
+      return;
+    }
+    if (loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
+      setPendingSubtitleKey((current) => (current === selectedSubtitleKey ? null : current));
+    }
+  }, [loadedSubtitleTracks, selectedSubtitleKey]);
+
+  useEffect(() => {
+    if (pendingSubtitleKey == null) return;
+    if (
+      selectedSubtitleKey === "off" ||
+      selectedSubtitleKey !== pendingSubtitleKey ||
+      failedSubtitleKeySet.has(pendingSubtitleKey) ||
+      loadedSubtitleTracks.some((track) => track.key === pendingSubtitleKey) ||
+      !subtitleTrackRequests.some((track) => track.key === pendingSubtitleKey)
+    ) {
+      setPendingSubtitleKey(null);
+    }
+  }, [
+    failedSubtitleKeySet,
+    loadedSubtitleTracks,
+    pendingSubtitleKey,
+    selectedSubtitleKey,
+    subtitleTrackRequests,
+  ]);
 
   const audioTracks = useMemo<AudioTrackOption[]>(() => {
     if (!isVideo || !activeItem) return [];
@@ -743,6 +900,7 @@ export function PlaybackDock() {
       syncPlaybackState(element);
       setAudioTrackVersion((value) => value + 1);
       markSubtitleReady();
+      setIsVideoLoading(false);
     },
     [applyResumePosition, markSubtitleReady, syncPlaybackState],
   );
@@ -782,7 +940,9 @@ export function PlaybackDock() {
     setSubtitleMenuOpen(false);
     setAudioMenuOpen(false);
     setPlayerSettingsOpen(false);
-  }, [activeItemDuration, activeItemId]);
+    setIsVideoLoading(isVideo);
+    setPendingSubtitleKey(null);
+  }, [activeItemDuration, activeItemId, isVideo]);
 
   useEffect(() => {
     if (!isVideo) return;
@@ -823,6 +983,10 @@ export function PlaybackDock() {
     writeStoredPlayerControlsAppearance(playerControlsAppearance);
   }, [playerControlsAppearance]);
 
+  useEffect(() => {
+    writeStoredVideoAutoplayEnabled(videoAutoplayEnabled);
+  }, [videoAutoplayEnabled]);
+
   useEffect(
     () =>
       subscribeToPlayerControlsAppearance((preference) => {
@@ -835,12 +999,14 @@ export function PlaybackDock() {
     if (!isVideo || !activeItem) return;
     if (defaultTrackSelectionAppliedRef.current === activeItem.id) return;
     if (activeItem.library_id != null && !librariesFetched) return;
+    const queuedSubtitleKey = resolveQueuedSubtitleKey();
     setSelectedSubtitleKey(
-      getPreferredSubtitleKey(
-        subtitleTrackOptions,
-        libraryPlaybackPreferences.preferredSubtitleLanguage,
-        libraryPlaybackPreferences.subtitlesEnabledByDefault,
-      ),
+      queuedSubtitleKey ??
+        getPreferredSubtitleKey(
+          subtitleTrackOptions,
+          libraryPlaybackPreferences.preferredSubtitleLanguage,
+          libraryPlaybackPreferences.subtitlesEnabledByDefault,
+        ),
     );
     setSelectedAudioKey(
       getPreferredAudioKey(audioTracks, libraryPlaybackPreferences.preferredAudioLanguage),
@@ -854,6 +1020,7 @@ export function PlaybackDock() {
     libraryPlaybackPreferences.preferredAudioLanguage,
     libraryPlaybackPreferences.preferredSubtitleLanguage,
     libraryPlaybackPreferences.subtitlesEnabledByDefault,
+    resolveQueuedSubtitleKey,
     subtitleTrackOptions,
   ]);
 
@@ -994,6 +1161,20 @@ export function PlaybackDock() {
     syncBrowserAudioTrackSelection,
     videoSourceUrl,
   ]);
+
+  useEffect(() => {
+    if (!isVideo || !activeItem || videoAudioIndex < 0) return;
+    const sessionAudioKey =
+      audioTracks.find((track) => track.streamIndex === videoAudioIndex)?.key ?? "";
+    if (!sessionAudioKey) return;
+    setSelectedAudioKey((current) => (current === sessionAudioKey ? current : sessionAudioKey));
+    if (
+      requestedAudioTrackRef.current?.mediaId === activeItem.id &&
+      requestedAudioTrackRef.current.key === sessionAudioKey
+    ) {
+      requestedAudioTrackRef.current = null;
+    }
+  }, [activeItem, audioTracks, isVideo, videoAudioIndex]);
 
   useEffect(() => {
     if (hlsRef.current != null) {
@@ -1238,15 +1419,42 @@ export function PlaybackDock() {
     volume,
   ]);
 
+  const handleVideoPrevious = useCallback(() => {
+    const currentTime = videoRef.current?.currentTime ?? playbackState.currentTime;
+    if (currentTime > VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS) {
+      seekTo(0);
+      return;
+    }
+    playPreviousInQueue();
+  }, [playPreviousInQueue, playbackState.currentTime, seekTo]);
+
+  const handleVideoEnded = useCallback(
+    (event: SyntheticEvent<HTMLVideoElement>) => {
+      const snapshot = captureVideoProgressSnapshot(event.currentTarget);
+      void persistPlaybackProgress({ force: true, completed: true, snapshot });
+      if (videoAutoplayEnabled && hasNextQueueItem) {
+        playNextInQueue();
+      }
+    },
+    [
+      captureVideoProgressSnapshot,
+      hasNextQueueItem,
+      persistPlaybackProgress,
+      playNextInQueue,
+      videoAutoplayEnabled,
+    ],
+  );
+
   if (!activeItem || !isDockOpen || !activeMode) {
     return null;
   }
 
-  const posterUrl = resolvePosterUrl(activeItem.poster_url, activeItem.poster_path, "w500");
+  const posterUrl = resolvePosterUrl(activeItem.poster_url, activeItem.poster_path, "w500", BASE_URL);
   const backdropUrl = resolveBackdropUrl(
     activeItem.backdrop_url,
     activeItem.backdrop_path,
     "w780",
+    BASE_URL,
   );
   const progressMax =
     playbackState.duration > 0 ? playbackState.duration : Math.max(playbackDurationSeconds, 0);
@@ -1255,6 +1463,7 @@ export function PlaybackDock() {
   const showDefaultControls = isVideo && playerControlsAppearance === "default";
   const playButtonLabel = playbackState.isPlaying ? "Pause" : "Play";
   const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
+  const autoplayButtonLabel = videoAutoplayEnabled ? "Disable autoplay next" : "Enable autoplay next";
   const handleOpenFullscreen = () => {
     const snapshot = primeVideoHandoff();
     if (snapshot && (snapshot.positionSeconds > 0 || snapshot.ended)) {
@@ -1289,6 +1498,7 @@ export function PlaybackDock() {
         }}
         className={`fullscreen-player fullscreen-player--controls-${playerControlsAppearance}${controlsVisible ? "" : " fullscreen-player--hidden"}`}
         aria-label="Fullscreen video player"
+        aria-busy={showPlayerLoadingOverlay}
         role="button"
         tabIndex={0}
         onMouseMove={handleFullscreenMouseMove}
@@ -1318,12 +1528,14 @@ export function PlaybackDock() {
           crossOrigin="use-credentials"
           autoPlay
           playsInline
+          onLoadStart={() => setIsVideoLoading(true)}
           onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
           onCanPlay={(event) => {
             maybeRecoverInitialBufferGap(event.currentTarget);
             syncPlaybackState(event.currentTarget);
             syncVideoProgressSnapshot(event.currentTarget);
             markSubtitleReady();
+            setIsVideoLoading(false);
           }}
           onTimeUpdate={(event) => {
             if (event.currentTarget.currentTime > 1) {
@@ -1337,15 +1549,22 @@ export function PlaybackDock() {
             if (event.currentTarget.currentTime > 1) {
               initialBufferGapHandledRef.current = true;
             }
+            setIsVideoLoading(false);
             setHlsStatusMessage("");
             syncPlaybackState(event.currentTarget);
             syncVideoProgressSnapshot(event.currentTarget);
             persistInitialPlaybackProgress(event.currentTarget);
           }}
+          onPlaying={() => setIsVideoLoading(false)}
           onPause={(event) => {
             syncPlaybackState(event.currentTarget);
             const snapshot = captureVideoProgressSnapshot(event.currentTarget);
             void persistPlaybackProgress({ force: true, snapshot });
+          }}
+          onWaiting={(event) => {
+            if (!event.currentTarget.ended) {
+              setIsVideoLoading(true);
+            }
           }}
           onSeeked={(event) => {
             syncPlaybackState(event.currentTarget);
@@ -1353,13 +1572,17 @@ export function PlaybackDock() {
           }}
           onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
           onError={() => {
+            setIsVideoLoading(false);
             setHlsStatusMessage("Stream error: browser media element failed to load playback");
           }}
           onEnded={(event) => {
-            const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-            void persistPlaybackProgress({ force: true, completed: true, snapshot });
+            setIsVideoLoading(false);
+            handleVideoEnded(event);
           }}
         ></video>
+        {showPlayerLoadingOverlay && (
+          <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />
+        )}
 
         {/* Top title bar */}
         <div className="fullscreen-player__top-bar">
@@ -1428,7 +1651,7 @@ export function PlaybackDock() {
 
             {/* Right: subtitles + settings + volume + fullscreen + exit */}
             <div className="fullscreen-player__controls-right">
-              {subtitleTrackOptions.length > 0 && (
+              {subtitleTrackRequests.length > 0 && (
                 <div className="fullscreen-player__subtitle-wrap">
                   <button
                     ref={subtitleBtnRef}
@@ -1453,6 +1676,7 @@ export function PlaybackDock() {
                       ariaLabel="Select subtitle track"
                       offLabel="Off"
                       onSelect={(key) => {
+                        rememberQueuedSubtitlePreference(key);
                         setSelectedSubtitleKey(key);
                         setSubtitleMenuOpen(false);
                       }}
@@ -1517,11 +1741,52 @@ export function PlaybackDock() {
                       menuRef={playerSettingsMenuRef}
                       preferences={subtitleAppearance}
                       controlsAppearance={playerControlsAppearance}
+                      videoAutoplayEnabled={videoAutoplayEnabled}
                       onChange={setSubtitleAppearance}
                       onControlsAppearanceChange={setPlayerControlsAppearance}
+                      onVideoAutoplayChange={setVideoAutoplayEnabled}
                     />
                   )}
                 </div>
+              )}
+
+              {hasVideoQueueNavigation && (
+                <>
+                  <button
+                    type="button"
+                    className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    onClick={handleVideoPrevious}
+                    aria-label="Previous episode"
+                    title="Previous episode"
+                  >
+                    <SkipBack className="size-5" />
+                    {showDefaultControls && <span>Previous</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    onClick={playNextInQueue}
+                    aria-label="Next episode"
+                    title="Next episode"
+                    disabled={!hasNextQueueItem}
+                  >
+                    <SkipForward className="size-5" />
+                    {showDefaultControls && <span>Next</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`fullscreen-player__ctrl-btn${videoAutoplayEnabled ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    onClick={() => setVideoAutoplayEnabled((value) => !value)}
+                    aria-label="Autoplay next episode"
+                    title={autoplayButtonLabel}
+                    aria-pressed={videoAutoplayEnabled}
+                  >
+                    <Repeat className="size-5" />
+                    {showDefaultControls && <span>Autoplay</span>}
+                  </button>
+                </>
               )}
 
               <div className="fullscreen-player__volume-group">
@@ -1592,6 +1857,7 @@ export function PlaybackDock() {
       }}
       className={`playback-dock playback-dock--${activeMode} playback-dock--${viewMode} playback-dock--controls-${playerControlsAppearance}`}
       aria-label={isMusic ? "Music player" : "Playback dock"}
+      aria-busy={showPlayerLoadingOverlay}
     >
       {isVideo && backdropUrl && (
         <div className="playback-dock__backdrop" aria-hidden="true">
@@ -1661,7 +1927,7 @@ export function PlaybackDock() {
               {isVideo && activeItem.overview && (
                 <p className="playback-dock__overview">{activeItem.overview}</p>
               )}
-              {isVideo && subtitleTrackOptions.length > 0 && (
+              {isVideo && subtitleTrackRequests.length > 0 && (
                 <div className="playback-dock__subtitle-picker">
                   <button
                     ref={subtitleBtnRef}
@@ -1686,6 +1952,7 @@ export function PlaybackDock() {
                       ariaLabel="Select subtitle track"
                       offLabel="Off"
                       onSelect={(key) => {
+                        rememberQueuedSubtitlePreference(key);
                         setSelectedSubtitleKey(key);
                         setSubtitleMenuOpen(false);
                       }}
@@ -1747,8 +2014,10 @@ export function PlaybackDock() {
                       menuRef={playerSettingsMenuRef}
                       preferences={subtitleAppearance}
                       controlsAppearance={playerControlsAppearance}
+                      videoAutoplayEnabled={videoAutoplayEnabled}
                       onChange={setSubtitleAppearance}
                       onControlsAppearanceChange={setPlayerControlsAppearance}
+                      onVideoAutoplayChange={setVideoAutoplayEnabled}
                     />
                   )}
                 </div>
@@ -1761,6 +2030,7 @@ export function PlaybackDock() {
               className="playback-dock__surface"
               onClick={handleOpenFullscreen}
               aria-label={`Open fullscreen player for ${activeItem.title}`}
+              aria-busy={showPlayerLoadingOverlay}
               role="button"
               tabIndex={0}
               onKeyDown={(event) => {
@@ -1778,12 +2048,14 @@ export function PlaybackDock() {
                 crossOrigin="use-credentials"
                 autoPlay
                 playsInline
+                onLoadStart={() => setIsVideoLoading(true)}
                 onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
                 onCanPlay={(event) => {
                   maybeRecoverInitialBufferGap(event.currentTarget);
                   syncPlaybackState(event.currentTarget);
                   syncVideoProgressSnapshot(event.currentTarget);
                   markSubtitleReady();
+                  setIsVideoLoading(false);
                 }}
                 onTimeUpdate={(event) => {
                   if (event.currentTarget.currentTime > 1) {
@@ -1797,15 +2069,22 @@ export function PlaybackDock() {
                   if (event.currentTarget.currentTime > 1) {
                     initialBufferGapHandledRef.current = true;
                   }
+                  setIsVideoLoading(false);
                   setHlsStatusMessage("");
                   syncPlaybackState(event.currentTarget);
                   syncVideoProgressSnapshot(event.currentTarget);
                   persistInitialPlaybackProgress(event.currentTarget);
                 }}
+                onPlaying={() => setIsVideoLoading(false)}
                 onPause={(event) => {
                   syncPlaybackState(event.currentTarget);
                   const snapshot = captureVideoProgressSnapshot(event.currentTarget);
                   void persistPlaybackProgress({ force: true, snapshot });
+                }}
+                onWaiting={(event) => {
+                  if (!event.currentTarget.ended) {
+                    setIsVideoLoading(true);
+                  }
                 }}
                 onSeeked={(event) => {
                   syncPlaybackState(event.currentTarget);
@@ -1813,15 +2092,17 @@ export function PlaybackDock() {
                 }}
                 onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
                 onError={() => {
+                  setIsVideoLoading(false);
                   setHlsStatusMessage(
                     "Stream error: browser media element failed to load playback",
                   );
                 }}
                 onEnded={(event) => {
-                  const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-                  void persistPlaybackProgress({ force: true, completed: true, snapshot });
+                  setIsVideoLoading(false);
+                  handleVideoEnded(event);
                 }}
               ></video>
+              {showPlayerLoadingOverlay && <PlayerLoadingOverlay label={playerLoadingLabel} />}
               <button
                 type="button"
                 className={`playback-dock__true-fullscreen-btn${browserFullscreenActive ? " is-active" : ""}`}
@@ -1886,6 +2167,19 @@ export function PlaybackDock() {
               </>
             )}
 
+            {hasVideoQueueNavigation && (
+              <>
+                <button
+                  type="button"
+                  className="playback-dock__icon-button"
+                  onClick={handleVideoPrevious}
+                  aria-label="Previous episode"
+                >
+                  <SkipBack className="size-4" />
+                </button>
+              </>
+            )}
+
             <button
               type="button"
               className={`playback-dock__play-button${showDefaultControls ? " playback-dock__play-button--labeled" : ""}`}
@@ -1917,6 +2211,30 @@ export function PlaybackDock() {
                   <span className="playback-dock__repeat-copy">
                     {repeatMode === "one" ? "1" : repeatMode === "all" ? "all" : "off"}
                   </span>
+                </button>
+              </>
+            )}
+
+            {hasVideoQueueNavigation && (
+              <>
+                <button
+                  type="button"
+                  className="playback-dock__icon-button"
+                  onClick={playNextInQueue}
+                  aria-label="Next episode"
+                  disabled={!hasNextQueueItem}
+                >
+                  <SkipForward className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  className={`playback-dock__icon-button${videoAutoplayEnabled ? " is-active" : ""}`}
+                  onClick={() => setVideoAutoplayEnabled((value) => !value)}
+                  aria-label="Autoplay next episode"
+                  title={autoplayButtonLabel}
+                  aria-pressed={videoAutoplayEnabled}
+                >
+                  <Repeat className="size-4" />
                 </button>
               </>
             )}

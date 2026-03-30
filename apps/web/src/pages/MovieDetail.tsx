@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
-import type { MediaItem } from "@/api";
+import { BASE_URL, type MediaItem } from "@/api";
 import { PosterPickerDialog } from "@/components/PosterPickerDialog";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useMovieDetails } from "@/queries";
@@ -64,8 +64,8 @@ export function MovieDetail() {
     imdb_id: details.imdb_id,
     imdb_rating: details.imdb_rating,
   };
-  const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path);
-  const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path);
+  const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path, "w200", BASE_URL);
+  const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w500", BASE_URL);
   const runtime = formatRuntime(details.runtime);
   const year = details.release_date?.split("-")[0] ?? "";
 

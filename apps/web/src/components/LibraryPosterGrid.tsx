@@ -32,7 +32,12 @@ function getAspectRatioValue(ratio: PosterAspectRatio = "poster"): number {
   }
 }
 
-export function LibraryPosterGrid({ items, compact = false, aspectRatio = "poster", cardWidth: externalCardWidth }: Props) {
+export function LibraryPosterGrid({
+  items,
+  compact = false,
+  aspectRatio = "poster",
+  cardWidth: externalCardWidth,
+}: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { scrollElement, width, scrollMargin } = useVirtualContainerMetrics(rootRef);
   const baseCardWidth = compact ? COMPACT_CARD_WIDTH : DEFAULT_CARD_WIDTH;
@@ -66,7 +71,7 @@ export function LibraryPosterGrid({ items, compact = false, aspectRatio = "poste
         className={`show-cards-grid${compact ? " show-cards-grid--compact" : ""}`}
         style={
           {
-            "--poster-ratio": getAspectRatioValue(aspectRatio),
+            "--poster-ratio": String(ratioValue),
             "--poster-card-width": `${cardWidth}px`,
             "--poster-grid-gap": `${gap}px`,
           } as CSSProperties
@@ -86,7 +91,7 @@ export function LibraryPosterGrid({ items, compact = false, aspectRatio = "poste
       style={
         {
           "--poster-columns": String(columns),
-          "--poster-ratio": getAspectRatioValue(aspectRatio),
+          "--poster-ratio": String(ratioValue),
           "--poster-card-width": `${cardWidth}px`,
           "--poster-grid-gap": `${gap}px`,
         } as CSSProperties

@@ -29,7 +29,7 @@ export function ShowDetail() {
 
   const { data: items = [], isLoading: loading, error } = useLibraryMedia(libraryId);
   const { data: details } = useShowDetails(libraryId, showKey);
-  const { playEpisode } = usePlayer();
+  const { playShowGroup } = usePlayer();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
@@ -106,14 +106,19 @@ export function ShowDetail() {
   }
 
   const posterUrl = details?.poster_path
-    ? resolvePosterUrl(details.poster_url, details.poster_path)
+    ? resolvePosterUrl(details.poster_url, details.poster_path, "w200", BASE_URL)
     : episodes[0]
-      ? resolvePosterUrl(episodes[0].show_poster_url ?? episodes[0].poster_url, episodes[0].show_poster_path ?? episodes[0].poster_path)
+      ? resolvePosterUrl(
+          episodes[0].show_poster_url ?? episodes[0].poster_url,
+          episodes[0].show_poster_path ?? episodes[0].poster_path,
+          "w200",
+          BASE_URL,
+        )
       : "";
   const backdropUrl = details?.backdrop_path
-    ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path)
+    ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w500", BASE_URL)
     : episodes[0]
-      ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path)
+      ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path, "w500", BASE_URL)
       : "";
 
   return (
@@ -228,7 +233,7 @@ export function ShowDetail() {
                   <div className="episode-thumbnail-wrap">
                     <img
                       src={
-                        resolvePosterUrl(ep.poster_url, ep.poster_path) ||
+                        resolvePosterUrl(ep.poster_url, ep.poster_path, "w200", BASE_URL) ||
                         ep.thumbnail_url ||
                         `${BASE_URL}/api/media/${ep.id}/thumbnail`
                       }
@@ -279,7 +284,7 @@ export function ShowDetail() {
                   <button
                     type="button"
                     className="play-button small"
-                    onClick={() => playEpisode(ep)}
+                    onClick={() => playShowGroup(episodes, ep)}
                   >
                     Play
                   </button>

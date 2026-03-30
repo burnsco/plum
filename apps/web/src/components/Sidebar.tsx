@@ -25,17 +25,17 @@ export function Sidebar() {
   const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
 
   const navItemBase =
-    "relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer select-none";
+    "relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 transition-all cursor-pointer select-none";
   const navItemActive =
-    "text-[var(--plum-text)] bg-[rgba(255,255,255,0.05)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-[var(--plum-accent)] before:content-['']";
+    "text-[var(--plum-text)] bg-[rgba(181,123,255,0.1)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-[var(--plum-accent)] before:content-[''] shadow-[0_0_20px_rgba(139,92,246,0.08)]";
   const navItemInactive =
-    "text-[var(--plum-muted)] hover:text-[var(--plum-text)] hover:bg-[rgba(255,255,255,0.04)]";
+    "text-[var(--plum-muted)] hover:text-[var(--plum-text)] hover:bg-[rgba(181,123,255,0.06)]";
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-[rgba(255,255,255,0.06)] bg-[#0a0a0a] md:flex md:flex-col">
+    <aside className="hidden w-60 shrink-0 border-r border-[rgba(181,123,255,0.1)] bg-[rgba(10,8,18,0.98)] md:flex md:flex-col" style={{boxShadow: "inset -1px 0 0 rgba(181,123,255,0.06)", backdropFilter: "blur(16px)"}}>
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-4" aria-label="Libraries">
         {/* Section: Browse */}
-        <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(255,255,255,0.3)]">
+        <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(181,123,255,0.45)]">
           Browse
         </div>
         <Link
@@ -54,10 +54,10 @@ export function Sidebar() {
         </Link>
 
         {/* Divider */}
-        <div className="mx-4 my-3 h-px bg-[rgba(255,255,255,0.06)]" />
+        <div className="mx-4 my-3 h-px bg-[rgba(181,123,255,0.1)]" />
 
         {/* Section: Libraries */}
-        <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(255,255,255,0.3)]">
+        <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(181,123,255,0.45)]">
           Libraries
         </div>
         {isLoading ? (

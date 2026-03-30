@@ -1,21 +1,43 @@
 import { resolvePosterUrl } from "@plum/shared";
 import { Play, Star } from "lucide-react";
 import { Link } from "react-router-dom";
+import { BASE_URL } from "@/api";
 import { cn } from "@/lib/utils";
 import type { PosterGridItem } from "./types";
 
+function RowHitArea({ item }: { item: PosterGridItem }) {
+  if (item.href) {
+    return <Link to={item.href} className="absolute inset-0 z-10" aria-label={item.title} />;
+  }
+
+  if (item.onClick) {
+    return (
+      <button
+        type="button"
+        className="absolute inset-0 z-10 cursor-pointer"
+        aria-label={item.title}
+        onClick={item.onClick}
+      />
+    );
+  }
+
+  return null;
+}
+
 /** Detail view: horizontal card with poster on left, metadata on right */
 function DetailCard({ item }: { item: PosterGridItem }) {
-  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath);
+  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
 
-  const content = (
+  return (
     <div
       className={cn(
-        "group flex gap-4 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[rgba(18,18,18,0.96)] p-3 transition-all hover:border-[rgba(255,255,255,0.12)] hover:bg-[rgba(24,24,24,0.98)]",
+        "group relative flex gap-4 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[rgba(18,18,18,0.96)] p-3 transition-all hover:border-[rgba(255,255,255,0.12)] hover:bg-[rgba(24,24,24,0.98)]",
         item.href || item.onClick ? "cursor-pointer" : "",
       )}
       onContextMenu={item.onContextMenu}
     >
+      <RowHitArea item={item} />
+
       {/* Poster thumbnail */}
       <div className="relative aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-[var(--radius-md)] bg-[rgba(255,255,255,0.05)]">
         {posterUrl ? (
@@ -38,7 +60,7 @@ function DetailCard({ item }: { item: PosterGridItem }) {
               e.stopPropagation();
               item.onPlay?.();
             }}
-            className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100"
+            className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100"
           >
             <Play className="size-5 fill-white text-white" />
           </button>
@@ -72,21 +94,25 @@ function DetailCard({ item }: { item: PosterGridItem }) {
         {item.statusLabel && (
           <div className="text-xs text-[var(--plum-muted)] italic">{item.statusLabel}</div>
         )}
+        {item.statusActionLabel && item.onStatusAction && (
+          <div className="pt-1">
+            <button
+              type="button"
+              disabled={item.statusActionDisabled}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.onStatusAction?.();
+              }}
+              className="relative z-20 inline-flex items-center rounded-full border border-[var(--plum-border)] px-3 py-1 text-[11px] font-medium text-[var(--plum-text)] transition-colors hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {item.statusActionLabel}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
-
-  if (item.href) {
-    return <Link to={item.href} className="block">{content}</Link>;
-  }
-  if (item.onClick) {
-    return (
-      <button type="button" className="block w-full text-left" onClick={item.onClick}>
-        {content}
-      </button>
-    );
-  }
-  return content;
 }
 
 /** Table row — compact single-line row, poster as small thumbnail */
@@ -97,16 +123,18 @@ function TableRow({
   item: PosterGridItem;
   index: number;
 }) {
-  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath);
+  const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
 
-  const row = (
+  return (
     <div
       className={cn(
-        "group grid items-center gap-3 border-b border-[var(--plum-border)] py-2.5 px-1 transition-colors hover:bg-[rgba(255,255,255,0.03)]",
+        "group relative grid items-center gap-3 border-b border-[var(--plum-border)] px-1 py-2.5 transition-colors hover:bg-[rgba(255,255,255,0.03)]",
         "grid-cols-[auto_2rem_minmax(0,1fr)_auto_auto]",
       )}
       onContextMenu={item.onContextMenu}
     >
+      <RowHitArea item={item} />
+
       {/* Index */}
       <div className="w-6 text-right text-xs text-[var(--plum-muted)] tabular-nums">
         {index + 1}
@@ -129,6 +157,11 @@ function TableRow({
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-[var(--plum-text)]">{item.title}</div>
         <div className="truncate text-xs text-[var(--plum-muted)]">{item.subtitle}</div>
+        {item.statusLabel ? (
+          <div className="truncate text-[11px] italic text-[var(--plum-muted)]">
+            {item.statusLabel}
+          </div>
+        ) : null}
       </div>
 
       {/* Rating */}
@@ -142,36 +175,41 @@ function TableRow({
       )}
 
       {/* Play button */}
-      {item.onPlay ? (
-        <button
-          type="button"
-          aria-label={`Play ${item.title}`}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            item.onPlay?.();
-          }}
-          className="flex size-7 items-center justify-center rounded-full border border-transparent text-[var(--plum-muted)] opacity-0 transition-all hover:border-[var(--plum-border)] hover:text-[var(--plum-text)] group-hover:opacity-100"
-        >
-          <Play className="size-3.5 fill-current" />
-        </button>
-      ) : (
-        <div />
-      )}
+      <div className="relative z-20 flex items-center justify-end gap-1">
+        {item.statusActionLabel && item.onStatusAction ? (
+          <button
+            type="button"
+            disabled={item.statusActionDisabled}
+            aria-label={item.statusActionLabel}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              item.onStatusAction?.();
+            }}
+            className="inline-flex h-7 items-center rounded-full border border-[var(--plum-border)] px-2.5 text-[11px] font-medium text-[var(--plum-text)] transition-colors hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {item.statusActionLabel}
+          </button>
+        ) : null}
+        {item.onPlay ? (
+          <button
+            type="button"
+            aria-label={`Play ${item.title}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              item.onPlay?.();
+            }}
+            className="flex size-7 items-center justify-center rounded-full border border-transparent text-[var(--plum-muted)] opacity-0 transition-all hover:border-[var(--plum-border)] hover:text-[var(--plum-text)] group-hover:opacity-100"
+          >
+            <Play className="size-3.5 fill-current" />
+          </button>
+        ) : (
+          <div />
+        )}
+      </div>
     </div>
   );
-
-  if (item.href) {
-    return <Link to={item.href} className="block">{row}</Link>;
-  }
-  if (item.onClick) {
-    return (
-      <button type="button" className="block w-full text-left" onClick={item.onClick}>
-        {row}
-      </button>
-    );
-  }
-  return row;
 }
 
 /** Detail view: 2-column grid of horizontal detail cards */
