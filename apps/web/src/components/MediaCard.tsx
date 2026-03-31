@@ -102,7 +102,7 @@ export function MediaCard({
 
           {item.topBadge ? (
             <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
-              {item.topBadge}
+              <div className="flex flex-wrap items-start gap-2">{item.topBadge}</div>
             </div>
           ) : null}
 
@@ -116,17 +116,19 @@ export function MediaCard({
         <div className="show-card-info">
           <div className="show-card-title">{item.title}</div>
           <div className="show-card-count">{item.subtitle}</div>
-          {(item.ratingValue || item.metaLine) && (
-            <div className="show-card-meta">
-              {item.ratingValue ? (
-                <span className="show-card-imdb">
-                  <span className="show-card-imdb__mark">{item.ratingLabel ?? "Rating"}</span>
-                  <span>{item.ratingValue.toFixed(1)}</span>
-                </span>
-              ) : null}
-              {item.metaLine ? <span className="show-card-meta__copy">{item.metaLine}</span> : null}
-            </div>
-          )}
+          <div className="show-card-meta">
+            {item.ratingValue ? (
+              <span className="show-card-imdb">
+                <span className="show-card-imdb__mark">{item.ratingLabel ?? "Rating"}</span>
+                <span>{item.ratingValue.toFixed(1)}</span>
+              </span>
+            ) : (
+              <span className="show-card-meta__copy show-card-meta__copy--empty" aria-hidden="true">
+                &nbsp;
+              </span>
+            )}
+            {item.metaLine ? <span className="show-card-meta__copy">{item.metaLine}</span> : null}
+          </div>
         </div>
       </div>
     </div>

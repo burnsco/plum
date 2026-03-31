@@ -59,11 +59,47 @@ type VideoSessionState = {
   error: string;
 };
 
+type PlaybackSessionSource =
+  | {
+      delivery: "direct";
+      mediaId: number;
+      audioIndex?: number;
+      status: ApiPlaybackSession["status"];
+      streamUrl: string;
+      durationSeconds: number;
+      error?: string;
+    }
+  | {
+      delivery: "remux" | "transcode";
+      sessionId: string;
+      mediaId: number;
+      revision: number;
+      audioIndex: number;
+      status: ApiPlaybackSession["status"];
+      streamUrl: string;
+      durationSeconds: number;
+      error?: string;
+    };
+
+function mergePlaybackTracks(
+  item: MediaItem,
+  session: ApiPlaybackSession,
+): MediaItem {
+  return {
+    ...item,
+    subtitles: session.subtitles?.map((subtitle) => ({ ...subtitle })) ?? item.subtitles,
+    embeddedSubtitles:
+      session.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })) ?? item.embeddedSubtitles,
+    embeddedAudioTracks:
+      session.embeddedAudioTracks?.map((track) => ({ ...track })) ?? item.embeddedAudioTracks,
+  };
+}
+
 function resolvePlaybackStreamUrl(streamUrl: string): string {
   return buildBackendUrl(BASE_URL, streamUrl);
 }
 
-function toVideoSessionState(session: ApiPlaybackSession): VideoSessionState {
+function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState {
   if (session.delivery === "direct") {
     return {
       delivery: session.delivery,
@@ -204,9 +240,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [sendPlaybackCommand],
   );
 
-  const applyPlaybackSession = useCallback((session: ApiPlaybackSession) => {
+  const applyPlaybackSession = useCallback((session: PlaybackSessionSource) => {
     const nextSession = toVideoSessionState(session);
     setVideoSession(nextSession);
+    setPlaybackSession((current) => {
+      if (current == null || current.activeMode !== "video") {
+        return current;
+      }
+      const activeQueueItem = current.queue[current.queueIndex];
+      if (!activeQueueItem || activeQueueItem.id !== session.mediaId) {
+        return current;
+      }
+      const nextQueue = [...current.queue];
+      nextQueue[current.queueIndex] = mergePlaybackTracks(activeQueueItem, session);
+      return {
+        ...current,
+        queue: nextQueue,
+      };
+    });
     setLastEvent(playbackStatusMessage(nextSession.status));
   }, []);
 

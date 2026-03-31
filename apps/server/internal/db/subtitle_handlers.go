@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // HandleStreamSubtitle looks up a subtitle and serves it as VTT.
@@ -58,11 +59,27 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	if err != nil {
 		return err
 	}
+	startedAt := time.Now()
 	out, err := convertSubtitleToVTT(r.Context(), []string{"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...)
 	if err != nil {
-		log.Printf("stream embedded subtitle failed media=%d stream=%d source=%q error=%v", mediaID, streamIndex, sourcePath, err)
+		log.Printf(
+			"stream embedded subtitle failed media=%d stream=%d source=%q duration=%s error=%v",
+			mediaID,
+			streamIndex,
+			sourcePath,
+			time.Since(startedAt).Round(time.Millisecond),
+			err,
+		)
 		return err
 	}
+	log.Printf(
+		"stream embedded subtitle served media=%d stream=%d source=%q duration=%s bytes=%d",
+		mediaID,
+		streamIndex,
+		sourcePath,
+		time.Since(startedAt).Round(time.Millisecond),
+		len(out),
+	)
 	w.Header().Set("Content-Type", "text/vtt")
 	if _, err := w.Write(out); err != nil {
 		return err

@@ -573,6 +573,7 @@ CREATE INDEX IF NOT EXISTS idx_imdb_ratings_votes ON imdb_ratings(votes DESC);
 CREATE TABLE IF NOT EXISTS library_job_status (
   library_id INTEGER PRIMARY KEY REFERENCES libraries(id) ON DELETE CASCADE,
   phase TEXT NOT NULL,
+  enrichment_phase TEXT NOT NULL DEFAULT 'idle',
   enriching INTEGER NOT NULL DEFAULT 0,
   identify_phase TEXT NOT NULL DEFAULT 'idle',
   identified INTEGER NOT NULL DEFAULT 0,
@@ -764,6 +765,7 @@ var schemaMigrations = []schemaMigration{
 				def  string
 			}{
 				{name: "enriching", def: "INTEGER NOT NULL DEFAULT 0"},
+				{name: "enrichment_phase", def: "TEXT NOT NULL DEFAULT 'idle'"},
 				{name: "identify_phase", def: "TEXT NOT NULL DEFAULT 'idle'"},
 				{name: "identified", def: "INTEGER NOT NULL DEFAULT 0"},
 				{name: "identify_failed", def: "INTEGER NOT NULL DEFAULT 0"},
@@ -1213,6 +1215,26 @@ var schemaMigrations = []schemaMigration{
 				return err
 			}
 			if err := addColumnIfMissingTx(ctx, tx, "shows", "poster_locked", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+			return nil
+		},
+	},
+	{
+		version: 21,
+		name:    "library_job_enrichment_phase",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if err := addColumnIfMissingTx(ctx, tx, "library_job_status", "enrichment_phase", "TEXT NOT NULL DEFAULT 'idle'"); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(
+				ctx,
+				`UPDATE library_job_status
+				SET enrichment_phase = CASE
+					WHEN COALESCE(enriching, 0) != 0 THEN 'running'
+					ELSE 'idle'
+				END`,
+			); err != nil {
 				return err
 			}
 			return nil
@@ -1997,6 +2019,57 @@ func attachSubtitlesBatch(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
 		}
 	}
 	return items, nil
+}
+
+func EnsurePlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaItem) error {
+	if item == nil || item.ID <= 0 || item.Type == LibraryTypeMusic {
+		return nil
+	}
+
+	path := strings.TrimSpace(item.Path)
+	if path == "" {
+		return nil
+	}
+
+	needSidecarSubtitles := len(item.Subtitles) == 0
+	needEmbeddedSubtitles := len(item.EmbeddedSubtitles) == 0
+	needEmbeddedAudio := len(item.EmbeddedAudioTracks) == 0
+	if !needSidecarSubtitles && !needEmbeddedSubtitles && !needEmbeddedAudio {
+		return nil
+	}
+
+	if needSidecarSubtitles {
+		if err := scanForSubtitles(ctx, db, item.ID, path); err != nil {
+			log.Printf("ensure playback subtitles media=%d path=%q error=%v", item.ID, path, err)
+		}
+	}
+
+	if needEmbeddedSubtitles || needEmbeddedAudio {
+		probed, err := readVideoMetadata(ctx, path)
+		if err != nil {
+			log.Printf("ensure playback embedded tracks media=%d path=%q error=%v", item.ID, path, err)
+		} else {
+			embeddedSubtitles := item.EmbeddedSubtitles
+			if needEmbeddedSubtitles {
+				embeddedSubtitles = probed.EmbeddedSubtitles
+			}
+			embeddedAudioTracks := item.EmbeddedAudioTracks
+			if needEmbeddedAudio {
+				embeddedAudioTracks = probed.EmbeddedAudioTracks
+			}
+			persistEmbeddedStreams(ctx, db, item.ID, embeddedSubtitles, embeddedAudioTracks)
+		}
+	}
+
+	refreshed, err := GetMediaByID(db, item.ID)
+	if err != nil {
+		return err
+	}
+	if refreshed == nil {
+		return nil
+	}
+	*item = *refreshed
+	return nil
 }
 
 func getSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Subtitle, error) {

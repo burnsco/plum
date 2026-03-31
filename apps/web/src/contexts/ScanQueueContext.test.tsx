@@ -109,6 +109,7 @@ describe("ScanQueueContext websocket updates", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 1,
       phase: "idle",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "idle",
       identified: 0,
@@ -155,6 +156,7 @@ describe("ScanQueueContext websocket updates", () => {
           scan: {
             libraryId: 1,
             phase: "scanning",
+            enrichmentPhase: "idle",
             enriching: false,
             identifyPhase: "idle",
             identified: 0,

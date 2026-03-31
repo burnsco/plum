@@ -34,6 +34,10 @@ const (
 	libraryScanPhaseCompleted = "completed"
 	libraryScanPhaseFailed    = "failed"
 
+	libraryEnrichmentPhaseIdle    = "idle"
+	libraryEnrichmentPhaseQueued  = "queued"
+	libraryEnrichmentPhaseRunning = "running"
+
 	libraryIdentifyPhaseIdle        = "idle"
 	libraryIdentifyPhaseQueued      = "queued"
 	libraryIdentifyPhaseIdentifying = "identifying"
@@ -44,6 +48,7 @@ const (
 type libraryScanStatus struct {
 	LibraryID         int                  `json:"libraryId"`
 	Phase             string               `json:"phase"`
+	EnrichmentPhase   string               `json:"enrichmentPhase"`
 	Enriching         bool                 `json:"enriching"`
 	IdentifyPhase     string               `json:"identifyPhase"`
 	Identified        int                  `json:"identified"`
@@ -125,6 +130,25 @@ type scanStartRequest struct {
 	subpaths []string
 }
 
+type recoveredEnrichmentRun struct {
+	libraryID         int
+	path              string
+	libraryType       string
+	identifyRequested bool
+}
+
+func normalizeEnrichmentPhase(phase string, enriching bool) string {
+	switch phase {
+	case libraryEnrichmentPhaseIdle, libraryEnrichmentPhaseQueued, libraryEnrichmentPhaseRunning:
+		return phase
+	default:
+		if enriching {
+			return libraryEnrichmentPhaseRunning
+		}
+		return libraryEnrichmentPhaseIdle
+	}
+}
+
 func cloneLibraryScanActivity(activity libraryScanActivity) *libraryScanActivity {
 	cloned := activity
 	if activity.Current != nil {
@@ -181,7 +205,8 @@ func (m *LibraryScanManager) Recover() error {
 	}
 
 	var (
-		identifiesToResume []int
+		identifiesToResume  []int
+		enrichmentsToResume []recoveredEnrichmentRun
 	)
 
 	m.mu.Lock()
@@ -195,6 +220,7 @@ func (m *LibraryScanManager) Recover() error {
 		switch {
 		case status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning:
 			status.Phase = libraryScanPhaseQueued
+			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
 			if status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying {
 				status.IdentifyPhase = libraryIdentifyPhaseIdle
@@ -204,8 +230,22 @@ func (m *LibraryScanManager) Recover() error {
 			m.jobs[status.LibraryID] = status
 			m.setActivityStageLocked(status.LibraryID, "queued", true, true)
 			m.debounceReady[status.LibraryID] = true
-		case status.Enriching:
+		case status.Phase == libraryScanPhaseCompleted &&
+			(status.Enriching ||
+				status.EnrichmentPhase == libraryEnrichmentPhaseQueued ||
+				status.EnrichmentPhase == libraryEnrichmentPhaseRunning):
+			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
+			m.jobs[status.LibraryID] = status
+			enrichmentsToResume = append(enrichmentsToResume, recoveredEnrichmentRun{
+				libraryID:         status.LibraryID,
+				path:              persisted.Path,
+				libraryType:       persisted.Type,
+				identifyRequested: status.IdentifyRequested,
+			})
+		case status.Enriching || status.EnrichmentPhase == libraryEnrichmentPhaseQueued || status.EnrichmentPhase == libraryEnrichmentPhaseRunning:
+			status.Enriching = false
+			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Phase = libraryScanPhaseQueued
 			status.FinishedAt = ""
 			m.jobs[status.LibraryID] = status
@@ -257,11 +297,46 @@ func (m *LibraryScanManager) Recover() error {
 	for _, libraryID := range identifiesToResume {
 		m.startIdentify(libraryID)
 	}
+	for _, enrichment := range enrichmentsToResume {
+		m.resumeRecoveredEnrichment(
+			enrichment.libraryID,
+			enrichment.path,
+			enrichment.libraryType,
+			enrichment.identifyRequested,
+		)
+	}
 	for _, cfg := range automationConfigs {
 		m.ConfigureLibraryAutomation(cfg.LibraryID, cfg.Path, cfg.Type, cfg.WatcherEnabled, cfg.WatcherMode, cfg.ScanIntervalMinutes)
 	}
 
 	return nil
+}
+
+func (m *LibraryScanManager) resumeRecoveredEnrichment(
+	libraryID int,
+	path string,
+	libraryType string,
+	identifyRequested bool,
+) {
+	tasks, err := db.ListLibraryEnrichmentTasks(context.Background(), m.db, libraryID, libraryType)
+	if err != nil {
+		log.Printf("recover enrichment library=%d type=%s: %v", libraryID, libraryType, err)
+		return
+	}
+	if len(tasks) == 0 {
+		m.mu.Lock()
+		status, ok := m.jobs[libraryID]
+		if ok {
+			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
+			status.Enriching = false
+			m.jobs[libraryID] = status
+			m.finalizeActivityLocked(libraryID, status)
+		}
+		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
+		return
+	}
+	m.startEnrichment(libraryID, libraryType, path, nil, tasks, identifyRequested)
 }
 
 func (m *LibraryScanManager) start(libraryID int, path, libraryType string, identify bool, subpaths []string) libraryScanStatus {
@@ -310,6 +385,7 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 	status = libraryScanStatus{
 		LibraryID:         libraryID,
 		Phase:             libraryScanPhaseQueued,
+		EnrichmentPhase:   libraryEnrichmentPhaseIdle,
 		IdentifyPhase:     libraryIdentifyPhaseIdle,
 		IdentifyRequested: identify,
 		QueuedAt:          now,
@@ -461,12 +537,13 @@ func (m *LibraryScanManager) RecordIdentifyActivity(libraryID int, path string) 
 }
 
 func (m *LibraryScanManager) finalizeActivityLocked(libraryID int, status libraryScanStatus) {
+	status.EnrichmentPhase = normalizeEnrichmentPhase(status.EnrichmentPhase, status.Enriching)
 	identifyActive := status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying
 	if status.Phase == libraryScanPhaseFailed || (!identifyActive && status.IdentifyPhase == libraryIdentifyPhaseFailed) {
 		m.setActivityStageLocked(libraryID, "failed", true, true)
 		return
 	}
-	if status.Enriching || identifyActive || status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning {
+	if status.EnrichmentPhase != libraryEnrichmentPhaseIdle || identifyActive || status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning {
 		return
 	}
 	m.clearActivityLocked(libraryID)
@@ -547,6 +624,7 @@ func (m *LibraryScanManager) scanSubpaths(libraryID int) []string {
 
 func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 	if status, ok := m.jobs[libraryID]; ok {
+		status.EnrichmentPhase = normalizeEnrichmentPhase(status.EnrichmentPhase, status.Enriching)
 		if status.MaxRetries <= 0 {
 			status.MaxRetries = 3
 		}
@@ -560,13 +638,14 @@ func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 		return status
 	}
 	return libraryScanStatus{
-		LibraryID:      libraryID,
-		Phase:          libraryScanPhaseIdle,
-		Enriching:      false,
-		IdentifyPhase:  libraryIdentifyPhaseIdle,
-		EstimatedItems: 0,
-		MaxRetries:     3,
-		QueuePosition:  0,
+		LibraryID:       libraryID,
+		Phase:           libraryScanPhaseIdle,
+		EnrichmentPhase: libraryEnrichmentPhaseIdle,
+		Enriching:       false,
+		IdentifyPhase:   libraryIdentifyPhaseIdle,
+		EstimatedItems:  0,
+		MaxRetries:      3,
+		QueuePosition:   0,
 	}
 }
 
@@ -810,6 +889,7 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 	status.Error = errText
 	status.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	if phase == libraryScanPhaseFailed {
+		status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 		status.Enriching = false
 		status.LastError = errText
 		m.setActivityStageLocked(libraryID, "failed", true, true)
@@ -860,6 +940,9 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
 		if ok {
+			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
+			status.Enriching = false
+			m.jobs[libraryID] = status
 			m.finalizeActivityLocked(libraryID, status)
 		}
 		m.mu.Unlock()
@@ -874,7 +957,8 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		cancel()
 		return
 	}
-	status.Enriching = true
+	status.EnrichmentPhase = libraryEnrichmentPhaseQueued
+	status.Enriching = false
 	m.jobs[libraryID] = status
 	m.enrichCancels[libraryID] = cancel
 	m.setActivityStageLocked(libraryID, "enrichment", true, false)
@@ -889,6 +973,18 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 			return
 		}
 		defer func() { <-m.enrichSem }()
+
+		m.mu.Lock()
+		status, ok := m.jobs[libraryID]
+		if !ok {
+			m.mu.Unlock()
+			return
+		}
+		status.EnrichmentPhase = libraryEnrichmentPhaseRunning
+		status.Enriching = true
+		m.jobs[libraryID] = status
+		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
 
 		options := db.ScanOptions{
 			ProbeMedia:             true,
@@ -935,6 +1031,7 @@ func (m *LibraryScanManager) finishEnrichment(libraryID int) {
 		m.mu.Unlock()
 		return
 	}
+	status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 	status.Enriching = false
 	m.jobs[libraryID] = status
 	if cancel, ok := m.enrichCancels[libraryID]; ok {
@@ -954,6 +1051,7 @@ func (m *LibraryScanManager) failEnrichment(libraryID int, errText string) {
 		return
 	}
 	status.Phase = libraryScanPhaseFailed
+	status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 	status.Enriching = false
 	status.Error = errText
 	status.LastError = errText
@@ -1017,11 +1115,13 @@ func (m *LibraryScanManager) flushStatus(libraryID int, force bool) {
 }
 
 func runtimeLibraryStatusToPersistent(status libraryScanStatus, path, libraryType string) db.LibraryJobStatus {
+	status.EnrichmentPhase = normalizeEnrichmentPhase(status.EnrichmentPhase, status.Enriching)
 	return db.LibraryJobStatus{
 		LibraryID:         status.LibraryID,
 		Path:              path,
 		Type:              libraryType,
 		Phase:             status.Phase,
+		EnrichmentPhase:   status.EnrichmentPhase,
 		Enriching:         status.Enriching,
 		IdentifyPhase:     status.IdentifyPhase,
 		Identified:        status.Identified,
@@ -1054,6 +1154,7 @@ func persistedLibraryStatusToRuntime(status db.LibraryJobStatus) libraryScanStat
 	return libraryScanStatus{
 		LibraryID:         status.LibraryID,
 		Phase:             status.Phase,
+		EnrichmentPhase:   normalizeEnrichmentPhase(status.EnrichmentPhase, status.Enriching),
 		Enriching:         status.Enriching,
 		IdentifyPhase:     status.IdentifyPhase,
 		Identified:        status.Identified,

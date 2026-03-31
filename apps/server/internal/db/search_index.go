@@ -12,20 +12,23 @@ import (
 )
 
 type LibraryMovieDetails struct {
-	MediaID      int               `json:"media_id"`
-	LibraryID    int               `json:"library_id"`
-	Title        string            `json:"title"`
-	Overview     string            `json:"overview"`
-	PosterPath   string            `json:"poster_path,omitempty"`
-	PosterURL    string            `json:"poster_url,omitempty"`
-	BackdropPath string            `json:"backdrop_path,omitempty"`
-	BackdropURL  string            `json:"backdrop_url,omitempty"`
-	ReleaseDate  string            `json:"release_date,omitempty"`
-	IMDbID       string            `json:"imdb_id,omitempty"`
-	IMDbRating   float64           `json:"imdb_rating,omitempty"`
-	Runtime      int               `json:"runtime,omitempty"`
-	Genres       []string          `json:"genres"`
-	Cast         []TitleCastMember `json:"cast"`
+	MediaID             int                  `json:"media_id"`
+	LibraryID           int                  `json:"library_id"`
+	Title               string               `json:"title"`
+	Overview            string               `json:"overview"`
+	PosterPath          string               `json:"poster_path,omitempty"`
+	PosterURL           string               `json:"poster_url,omitempty"`
+	BackdropPath        string               `json:"backdrop_path,omitempty"`
+	BackdropURL         string               `json:"backdrop_url,omitempty"`
+	ReleaseDate         string               `json:"release_date,omitempty"`
+	IMDbID              string               `json:"imdb_id,omitempty"`
+	IMDbRating          float64              `json:"imdb_rating,omitempty"`
+	Runtime             int                  `json:"runtime,omitempty"`
+	Subtitles           []Subtitle           `json:"subtitles,omitempty"`
+	EmbeddedSubtitles   []EmbeddedSubtitle   `json:"embeddedSubtitles,omitempty"`
+	EmbeddedAudioTracks []EmbeddedAudioTrack `json:"embeddedAudioTracks,omitempty"`
+	Genres              []string             `json:"genres"`
+	Cast                []TitleCastMember    `json:"cast"`
 }
 
 type LibraryShowDetails struct {
@@ -594,6 +597,15 @@ WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
 	}
 	if strings.TrimSpace(details.BackdropPath) != "" {
 		details.BackdropURL = fmt.Sprintf("/api/media/%d/artwork/backdrop", details.MediaID)
+	}
+	item, err := GetMediaByID(db, details.MediaID)
+	if err != nil {
+		return nil, err
+	}
+	if item != nil {
+		details.Subtitles = item.Subtitles
+		details.EmbeddedSubtitles = item.EmbeddedSubtitles
+		details.EmbeddedAudioTracks = item.EmbeddedAudioTracks
 	}
 	return &details, nil
 }

@@ -6,15 +6,27 @@ describe("getLibraryActivity", () => {
     expect(
       getLibraryActivity({
         scanPhase: "completed",
+        enrichmentPhase: "running",
         enriching: true,
       }),
     ).toBe("analyzing");
+  });
+
+  it("shows queued analyzer work separately from active analysis", () => {
+    expect(
+      getLibraryActivity({
+        scanPhase: "completed",
+        enrichmentPhase: "queued",
+        enriching: false,
+      }),
+    ).toBe("analyze-queued");
   });
 
   it("hides analyzing when identify has already failed", () => {
     expect(
       getLibraryActivity({
         scanPhase: "completed",
+        enrichmentPhase: "running",
         enriching: true,
         identifyPhase: "failed",
       }),

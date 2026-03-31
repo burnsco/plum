@@ -379,6 +379,66 @@ func TestHandleStreamEmbeddedSubtitle_ReturnsNotFoundForMissingStream(t *testing
 	}
 }
 
+func TestHandleStreamEmbeddedSubtitle_ServesConvertedVTT(t *testing.T) {
+	dbConn := newTestDB(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "Episode 1.mkv")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	ffmpegDir := t.TempDir()
+	ffmpegPath := filepath.Join(ffmpegDir, "ffmpeg")
+	ffmpegScript := "#!/bin/sh\nprintf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:02.000\\nHello world\\n'"
+	if err := os.WriteFile(ffmpegPath, []byte(ffmpegScript), 0o755); err != nil {
+		t.Fatalf("write ffmpeg shim: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", ffmpegDir+string(os.PathListSeparator)+originalPath); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("PATH", originalPath)
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV 3", "tv", root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Embedded Stream - S01E01", sourcePath, 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`,
+		mediaID, 7, "en", "English"); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d", mediaID, 7), nil)
+	if err := HandleStreamEmbeddedSubtitle(rec, req, dbConn, mediaID, 7); err != nil {
+		t.Fatalf("HandleStreamEmbeddedSubtitle: %v", err)
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "text/vtt" {
+		t.Fatalf("expected text/vtt content type, got %q", contentType)
+	}
+	if body := rec.Body.String(); body != "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello world\n" {
+		t.Fatalf("unexpected embedded subtitle body: %q", body)
+	}
+}
+
 func TestListIdentifiableByLibrary_SkipsConfirmedEpisodes(t *testing.T) {
 	dbConn := newTestDB(t)
 	tvLibID := getLibraryID(t, dbConn, "tv")
