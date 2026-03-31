@@ -1127,7 +1127,7 @@ func (h *LibraryHandler) identifyEpisodeRowsWithRefresh(
 	refreshOnlyRows []db.EpisodeIdentifyRow,
 ) (identified int, failed int, err error) {
 	if len(trackedRows) > 0 {
-		trackedResult, trackErr := h.identifyEpisodesByGroup(ctx, libraryID, libraryPath, libraryType, trackedRows)
+		trackedResult, trackErr := h.identifyEpisodesByGroup(ctx, libraryID, libraryPath, trackedRows)
 		if trackErr != nil {
 			return 0, 0, trackErr
 		}
@@ -1135,7 +1135,7 @@ func (h *LibraryHandler) identifyEpisodeRowsWithRefresh(
 		failed += trackedResult.Failed
 	}
 	if len(refreshOnlyRows) > 0 {
-		refreshResult, refreshErr := h.identifyEpisodesByGroup(ctx, libraryID, libraryPath, libraryType, refreshOnlyRows)
+		refreshResult, refreshErr := h.identifyEpisodesByGroup(ctx, libraryID, libraryPath, refreshOnlyRows)
 		if refreshErr != nil {
 			log.Printf("identify refresh-only episode rows failed library=%d type=%s error=%v", libraryID, libraryType, refreshErr)
 		} else {
@@ -1422,7 +1422,6 @@ func (h *LibraryHandler) identifyEpisodesByGroup(
 	ctx context.Context,
 	libraryID int,
 	libraryPath string,
-	libraryType string,
 	rows []db.EpisodeIdentifyRow,
 ) (identifyResult, error) {
 	groups, residualJobs := buildEpisodeIdentifyGroups(rows, libraryPath)
