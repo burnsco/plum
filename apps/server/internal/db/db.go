@@ -2068,7 +2068,9 @@ func EnsurePlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIte
 	if refreshed == nil {
 		return nil
 	}
+	resolvedPath := item.Path
 	*item = *refreshed
+	item.Path = resolvedPath
 	return nil
 }
 
