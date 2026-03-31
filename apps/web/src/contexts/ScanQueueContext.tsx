@@ -14,6 +14,7 @@ import {
   startLibraryScan,
   type LibraryScanStatus,
 } from "../api";
+import { getEnrichmentPhase } from "../lib/libraryActivity";
 import { queryKeys, useLibraries } from "../queries";
 import { useWs } from "./WsContext";
 
@@ -51,10 +52,12 @@ function isActiveScan(phase?: string) {
 }
 
 function isLibraryProcessing(status?: LibraryScanStatus) {
+  const enrichmentPhase = getEnrichmentPhase(status ?? {});
   return (
     status != null &&
     (isActiveScan(status.phase) ||
-      status.enriching ||
+      enrichmentPhase === "queued" ||
+      enrichmentPhase === "running" ||
       status.identifyPhase === "queued" ||
       status.identifyPhase === "identifying")
   );
@@ -92,6 +95,7 @@ function sameScanStatus(previous?: LibraryScanStatus, next?: LibraryScanStatus) 
   if (previous == null || next == null) return false;
   return (
     previous.phase === next.phase &&
+    previous.enrichmentPhase === next.enrichmentPhase &&
     previous.enriching === next.enriching &&
     previous.identifyPhase === next.identifyPhase &&
     previous.identified === next.identified &&
@@ -123,6 +127,7 @@ function isSuccessfulLibraryCompletion(status?: LibraryScanStatus) {
     status != null &&
     status.phase === "completed" &&
     !status.enriching &&
+    getEnrichmentPhase(status) === "idle" &&
     status.identifyPhase !== "queued" &&
     status.identifyPhase !== "identifying" &&
     status.identifyPhase !== "failed"
@@ -183,6 +188,7 @@ function hasMeaningfulStatusChange(previous: LibraryScanStatus | undefined, next
   if (previous == null) return true;
   return (
     previous.phase !== next.phase ||
+    previous.enrichmentPhase !== next.enrichmentPhase ||
     previous.enriching !== next.enriching ||
     previous.identifyPhase !== next.identifyPhase ||
     previous.identified !== next.identified ||

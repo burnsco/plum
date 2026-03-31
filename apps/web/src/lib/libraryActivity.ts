@@ -1,15 +1,31 @@
 export type LibraryActivity =
   | "importing"
+  | "analyze-queued"
   | "analyzing"
   | "identify-queued"
   | "identifying";
 
+export function getEnrichmentPhase(options: {
+  enrichmentPhase?: string;
+  enriching?: boolean;
+}): "idle" | "queued" | "running" {
+  if (options.enrichmentPhase === "queued" || options.enrichmentPhase === "running") {
+    return options.enrichmentPhase;
+  }
+  if (options.enriching) {
+    return "running";
+  }
+  return "idle";
+}
+
 export function getLibraryActivity(options: {
   scanPhase?: string;
+  enrichmentPhase?: string;
   enriching?: boolean;
   identifyPhase?: string;
   localIdentifyPhase?: string;
 }): LibraryActivity | undefined {
+  const enrichmentPhase = getEnrichmentPhase(options);
   const backendIdentifying = options.identifyPhase === "identifying";
   const backendIdentifyQueued = options.identifyPhase === "queued";
   const localIdentifying =
@@ -29,7 +45,10 @@ export function getLibraryActivity(options: {
   if (options.scanPhase === "queued" || options.scanPhase === "scanning") {
     return "importing";
   }
-  if (options.scanPhase === "completed" && options.enriching) {
+  if (options.scanPhase === "completed" && enrichmentPhase === "queued") {
+    return "analyze-queued";
+  }
+  if (options.scanPhase === "completed" && enrichmentPhase === "running") {
     return "analyzing";
   }
   return undefined;
@@ -39,6 +58,8 @@ export function getLibraryActivityLabel(activity: LibraryActivity | undefined): 
   switch (activity) {
     case "importing":
       return "Importing";
+    case "analyze-queued":
+      return "Waiting for analyzer";
     case "analyzing":
       return "Analyzing media";
     case "identify-queued":

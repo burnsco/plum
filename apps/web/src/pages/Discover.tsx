@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Sparkles, Star } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverItem, DiscoverResponse } from "@/api";
+import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
+import MediaCard from "@/components/MediaCard";
 import { Input } from "@/components/ui/input";
+import type { PosterGridItem } from "@/components/types";
 import { discoverMediaLabel, discoverYear } from "@/lib/discover";
 import { useDiscover, useDiscoverSearch } from "@/queries";
 
@@ -200,11 +202,11 @@ function DiscoverGrid({ items, emptyLabel }: { items: DiscoverItem[]; emptyLabel
   }
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">
-      {items.map((item) => (
-        <DiscoverCard key={`${item.media_type}-${item.tmdb_id}`} item={item} />
-      ))}
-    </div>
+    <LibraryPosterGrid
+      items={items.map(mapDiscoverItemToPosterGridItem)}
+      aspectRatio="poster"
+      cardWidth={170}
+    />
   );
 }
 
@@ -212,60 +214,41 @@ function DiscoverCardRail({ items }: { items: DiscoverItem[] }) {
   return (
     <div className="flex gap-4 overflow-x-auto pb-2">
       {items.map((item) => (
-        <DiscoverCard key={`${item.media_type}-${item.tmdb_id}`} item={item} rail />
+        <div key={`${item.media_type}-${item.tmdb_id}`} className="w-44 shrink-0">
+          <MediaCard item={mapDiscoverItemToPosterGridItem(item)} />
+        </div>
       ))}
     </div>
   );
 }
 
-function DiscoverCard({ item, rail = false }: { item: DiscoverItem; rail?: boolean }) {
-  const posterUrl = tmdbPosterUrl(item.poster_path, "w500");
+function mapDiscoverItemToPosterGridItem(item: DiscoverItem): PosterGridItem {
   const year = discoverYear(item);
   const inLibrary = (item.library_matches?.length ?? 0) > 0;
+  const posterUrl = tmdbPosterUrl(item.poster_path, "w500");
 
-  return (
-    <Link
-      to={`/discover/${item.media_type}/${item.tmdb_id}`}
-      className={`group flex ${rail ? "w-44 shrink-0" : "w-full"} flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] shadow-[0_14px_40px_rgba(8,12,24,0.12)] transition-transform duration-200 hover:-translate-y-1 hover:border-[var(--plum-accent-soft)] hover:bg-[var(--plum-panel-alt)]`}
-    >
-      <div className="relative aspect-[2/3] overflow-hidden bg-[var(--plum-panel-alt)]">
-        {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-          />
-        ) : (
-          <img src="/placeholder-poster.svg" alt="" className="h-full w-full object-cover" />
-        )}
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
-          <span className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white/75 backdrop-blur-sm">
-            {discoverMediaLabel(item.media_type)}
+  return {
+    key: `${item.media_type}-${item.tmdb_id}`,
+    title: item.title,
+    subtitle: year || "Upcoming",
+    metaLine: item.overview ? item.overview : undefined,
+    posterUrl,
+    ratingLabel: "TMDB",
+    ratingValue: item.vote_average,
+    href: `/discover/${item.media_type}/${item.tmdb_id}`,
+    topBadge: (
+      <>
+        <span className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white/75 backdrop-blur-sm">
+          {discoverMediaLabel(item.media_type)}
+        </span>
+        {inLibrary ? (
+          <span className="rounded-full bg-[var(--plum-accent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white shadow-[0_0_18px_rgba(244,90,160,0.35)]">
+            In Library
           </span>
-          {inLibrary ? (
-            <span className="rounded-full bg-[var(--plum-accent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white shadow-[0_0_18px_rgba(244,90,160,0.35)]">
-              In Library
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="line-clamp-2 text-sm font-semibold text-[var(--plum-text)]">
-          {item.title}
-        </div>
-        <div className="flex items-center justify-between gap-3 text-xs text-[var(--plum-muted)]">
-          <span>{year || "Upcoming"}</span>
-          {item.vote_average ? (
-            <span className="inline-flex items-center gap-1">
-              <Star className="size-3 fill-current text-[var(--plum-accent)]" />
-              {item.vote_average.toFixed(1)}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </Link>
-  );
+        ) : null}
+      </>
+    ),
+  } satisfies PosterGridItem;
 }
 
 function DiscoverMessage({

@@ -49,6 +49,10 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	media.Path = sourcePath
+	if err := db.EnsurePlaybackTrackMetadata(r.Context(), h.DB, media); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	settings, err := db.GetTranscodingSettings(h.DB)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

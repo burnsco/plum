@@ -112,6 +112,7 @@ function mockDefaultAppApis() {
   vi.spyOn(api, "getLibraryScanStatus").mockImplementation(async (libraryId) => ({
     libraryId,
     phase: "idle",
+    enrichmentPhase: "idle",
     enriching: false,
     identifyPhase: "idle",
     identified: 0,
@@ -129,6 +130,7 @@ function mockDefaultAppApis() {
   vi.spyOn(api, "startLibraryScan").mockImplementation(async (libraryId) => ({
     libraryId,
     phase: "queued",
+    enrichmentPhase: "idle",
     enriching: false,
     identifyPhase: "idle",
     identified: 0,
@@ -249,6 +251,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockImplementation(async (libraryId) => ({
       libraryId,
       phase: libraryId === 1 ? "scanning" : "completed",
+      enrichmentPhase: libraryId === 3 ? "running" : "idle",
       enriching: libraryId === 3,
       identifyPhase: "idle",
       identified: 0,
@@ -281,6 +284,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 3,
       phase: "completed",
+      enrichmentPhase: "running",
       enriching: true,
       identifyPhase: "idle",
       identified: 0,
@@ -316,6 +320,11 @@ describe("App library and player wiring", () => {
       backdrop_path: "/backdrop.jpg",
       release_date: "2025-01-01",
       runtime: 120,
+      subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
+      embeddedAudioTracks: [
+        { streamIndex: 1, language: "eng", title: "English" },
+        { streamIndex: 2, language: "jpn", title: "Japanese" },
+      ],
       genres: ["Drama"],
       cast: [],
     });
@@ -339,6 +348,8 @@ describe("App library and player wiring", () => {
       );
     });
     expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Subtitles" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Audio track:/i })).toBeTruthy();
   });
 
   it("plays a movie from the poster overlay and opens the fullscreen overlay from the dock surface", async () => {
@@ -477,6 +488,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 1,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "identifying",
       identified: 1,
@@ -530,6 +542,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 2,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "identifying",
       identified: 0,
@@ -863,6 +876,7 @@ describe("App library and player wiring", () => {
       vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
         libraryId: 1,
         phase: "completed",
+        enrichmentPhase: "idle",
         enriching: false,
         identifyPhase: "identifying",
         identified: 0,
@@ -916,6 +930,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 1,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "failed",
       identified: 0,
@@ -960,6 +975,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 1,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "identifying",
       identified: 0,
@@ -1087,6 +1103,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 1,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "failed",
       identified: 0,
@@ -1263,6 +1280,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 2,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "failed",
       identified: 0,
@@ -1315,6 +1333,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 2,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "failed",
       identified: 0,
@@ -1403,6 +1422,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 2,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "failed",
       identified: 0,
@@ -1761,6 +1781,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "startLibraryScan").mockResolvedValue({
       libraryId: 10,
       phase: "queued",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "idle",
       identified: 0,
@@ -1835,6 +1856,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "startLibraryScan").mockResolvedValue({
       libraryId: 10,
       phase: "queued",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "idle",
       identified: 0,
@@ -1853,6 +1875,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
       libraryId: 10,
       phase: "completed",
+      enrichmentPhase: "running",
       enriching: true,
       identifyPhase: "idle",
       identified: 0,
@@ -1916,6 +1939,7 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "startLibraryScan").mockImplementation(async (libraryId) => ({
       libraryId,
       phase: "queued",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "idle",
       identified: 0,
@@ -2212,10 +2236,9 @@ describe("App library and player wiring", () => {
     await renderApp("/discover");
 
     expect(await screen.findByText("Trending Now")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /The Discoverable/i })).toHaveAttribute(
-      "href",
-      "/discover/movie/101",
-    );
+    const discoverCard = screen.getByRole("link", { name: /The Discoverable/i });
+    expect(discoverCard).toHaveAttribute("href", "/discover/movie/101");
+    expect(discoverCard.closest(".show-card")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Find something worth adding/i })).toBeTruthy();
   });
 
@@ -2278,10 +2301,9 @@ describe("App library and player wiring", () => {
     expect(screen.getByText("TV Shows")).toBeTruthy();
     expect(screen.queryByText("Trending Now")).not.toBeInTheDocument();
     expect(screen.getByText("In Library")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Library Movie/i })).toHaveAttribute(
-      "href",
-      "/discover/movie/202",
-    );
+    const libraryMovie = screen.getByRole("link", { name: /Library Movie/i });
+    expect(libraryMovie).toHaveAttribute("href", "/discover/movie/202");
+    expect(libraryMovie.closest(".show-card")).toBeTruthy();
   });
 
   it("renders discover title details with an open-in-library link", async () => {

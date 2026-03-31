@@ -4,6 +4,7 @@ import { type Library, type LibraryScanActivityEntry, type LibraryScanStatus } f
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
+import { getEnrichmentPhase } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
 import { useLibraries } from "@/queries";
@@ -14,10 +15,12 @@ type ActivityLibraryStatus = {
 };
 
 function isActiveStatus(status: LibraryScanStatus) {
+  const enrichmentPhase = getEnrichmentPhase(status);
   return (
     status.phase === "queued" ||
     status.phase === "scanning" ||
-    status.enriching ||
+    enrichmentPhase === "queued" ||
+    enrichmentPhase === "running" ||
     status.identifyPhase === "queued" ||
     status.identifyPhase === "identifying"
   );
@@ -26,10 +29,11 @@ function isActiveStatus(status: LibraryScanStatus) {
 function getStatusSortOrder(status: LibraryScanStatus) {
   if (status.phase === "scanning") return 0;
   if (status.phase === "queued") return 1;
-  if (status.enriching) return 2;
-  if (status.identifyPhase === "queued") return 3;
-  if (status.identifyPhase === "identifying") return 4;
-  return 5;
+  if (getEnrichmentPhase(status) === "running") return 2;
+  if (getEnrichmentPhase(status) === "queued") return 3;
+  if (status.identifyPhase === "queued") return 4;
+  if (status.identifyPhase === "identifying") return 5;
+  return 6;
 }
 
 function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
@@ -42,6 +46,7 @@ function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
 }
 
 function getNowSummary(status: LibraryScanStatus) {
+  const enrichmentPhase = getEnrichmentPhase(status);
   if (status.identifyPhase === "identifying") {
     return {
       label: "Identifying",
@@ -56,10 +61,16 @@ function getNowSummary(status: LibraryScanStatus) {
       detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
     };
   }
-  if (status.enriching) {
+  if (enrichmentPhase === "running") {
     return {
       label: "Analyzing media",
       detail: formatActivityPath(status.activity?.current),
+    };
+  }
+  if (enrichmentPhase === "queued") {
+    return {
+      label: "Waiting for analyzer",
+      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
     };
   }
   if (status.phase === "scanning") {
@@ -148,9 +159,10 @@ export function LibraryActivityCenter() {
           size="icon"
           aria-label="Server activity"
           className={cn(
-            "relative",
+            "relative transition-all duration-500",
             hasUpdates &&
               "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)] hover:bg-[var(--plum-accent-soft)]/80 hover:text-[var(--plum-accent)]",
+            activeCount > 0 && "animate-pulse shadow-[0_0_15px_var(--plum-accent-glow)] ring-1 ring-[var(--plum-accent-soft)]",
           )}
           data-testid="library-activity-trigger"
         >

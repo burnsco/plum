@@ -104,7 +104,7 @@ type QueuedSubtitlePreference =
     };
 
 const CONTROLS_HIDE_DELAY = 3000;
-const SUBTITLE_LOAD_TIMEOUT_MS = 15_000;
+const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
 const VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS = 5;
 
 /* ── Track popover menu (shared between docked & fullscreen) ── */
@@ -320,7 +320,7 @@ export function PlaybackDock() {
   );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
-  const [failedSubtitleKeys, setFailedSubtitleKeys] = useState<string[]>([]);
+  const [subtitleStatusMessage, setSubtitleStatusMessage] = useState("");
   const [selectedAudioKey, setSelectedAudioKey] = useState("");
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
   const [videoAttachmentVersion, setVideoAttachmentVersion] = useState(0);
@@ -355,8 +355,11 @@ export function PlaybackDock() {
   const manualSubtitleTrackRef = useRef<TextTrack | null>(null);
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
   const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const blockedSubtitleRetryKeysRef = useRef<Set<string>>(new Set());
   const lastVideoProgressRef = useRef<VideoProgressSnapshot | null>(null);
   const queuedSubtitlePreferenceRef = useRef<QueuedSubtitlePreference | null>(null);
+  const manualSubtitleSelectionRef = useRef<number | null>(null);
+  const manualAudioSelectionRef = useRef<number | null>(null);
   const {
     activeItem,
     activeMode,
@@ -398,6 +401,7 @@ export function PlaybackDock() {
   const hasVideoQueueNavigation = isVideo && queue.length > 1;
   const videoStatusMessage =
     hlsStatusMessage ||
+    subtitleStatusMessage ||
     lastEvent ||
     (wsConnected ? "Waiting for transcode updates" : "WebSocket disconnected");
   const playerLoadingLabel = pendingSubtitleKey
@@ -475,11 +479,7 @@ export function PlaybackDock() {
     return [...external, ...embedded];
   }, [activeItem, isVideo]);
 
-  const failedSubtitleKeySet = useMemo(() => new Set(failedSubtitleKeys), [failedSubtitleKeys]);
-  const subtitleTrackOptions = useMemo(
-    () => subtitleTrackRequests.filter((track) => !failedSubtitleKeySet.has(track.key)),
-    [failedSubtitleKeySet, subtitleTrackRequests],
-  );
+  const subtitleTrackOptions = subtitleTrackRequests;
   const rememberQueuedSubtitlePreference = useCallback(
     (key: string) => {
       if (key === "off") {
@@ -517,8 +517,8 @@ export function PlaybackDock() {
     async (trackKey: string) => {
       if (trackKey === "off") return;
       if (loadedSubtitleTracks.some((track) => track.key === trackKey)) return;
-      if (failedSubtitleKeySet.has(trackKey)) return;
       if (subtitleLoadControllersRef.current.has(trackKey)) return;
+      if (blockedSubtitleRetryKeysRef.current.has(trackKey)) return;
       const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
       if (!track) return;
 
@@ -534,6 +534,7 @@ export function PlaybackDock() {
             }, SUBTITLE_LOAD_TIMEOUT_MS);
 
       try {
+        setSubtitleStatusMessage("");
         const response = await fetch(track.src, {
           credentials: "include",
           signal: controller.signal,
@@ -547,6 +548,8 @@ export function PlaybackDock() {
             ? current
             : [...current, { ...track, body }],
         );
+        blockedSubtitleRetryKeysRef.current.delete(track.key);
+        setPendingSubtitleKey((current) => (current === track.key ? null : current));
       } catch (error) {
         let loadError: unknown = error;
         if (
@@ -563,13 +566,16 @@ export function PlaybackDock() {
           source: track.src,
           error: loadError,
         });
-        setFailedSubtitleKeys((current) =>
-          current.includes(track.key) ? current : [...current, track.key],
-        );
         setLoadedSubtitleTracks((current) =>
           current.filter((candidate) => candidate.key !== track.key),
         );
-        setSelectedSubtitleKey((current) => (current === track.key ? "off" : current));
+        blockedSubtitleRetryKeysRef.current.add(track.key);
+        setPendingSubtitleKey((current) => (current === track.key ? null : current));
+        setSubtitleStatusMessage(
+          loadError instanceof Error && loadError.message === "Subtitle request timed out"
+            ? "Subtitle load timed out. Try again."
+            : "Subtitle load failed. Try again.",
+        );
       } finally {
         if (timeoutId != null) {
           window.clearTimeout(timeoutId);
@@ -577,7 +583,7 @@ export function PlaybackDock() {
         subtitleLoadControllersRef.current.delete(trackKey);
       }
     },
-    [activeItem?.id, failedSubtitleKeySet, loadedSubtitleTracks, subtitleTrackRequests],
+    [activeItem?.id, loadedSubtitleTracks, subtitleTrackRequests],
   );
 
   useEffect(() => {
@@ -587,7 +593,9 @@ export function PlaybackDock() {
   useEffect(() => {
     if (selectedSubtitleKey === "off") return;
     if (!loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
-      setPendingSubtitleKey(selectedSubtitleKey);
+      setPendingSubtitleKey((current) =>
+        current === selectedSubtitleKey ? current : selectedSubtitleKey,
+      );
     }
     void ensureSubtitleTrackLoaded(selectedSubtitleKey);
   }, [ensureSubtitleTrackLoaded, loadedSubtitleTracks, selectedSubtitleKey]);
@@ -595,6 +603,7 @@ export function PlaybackDock() {
   useEffect(() => {
     if (selectedSubtitleKey === "off") {
       setPendingSubtitleKey(null);
+      setSubtitleStatusMessage("");
       return;
     }
     if (loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
@@ -607,14 +616,13 @@ export function PlaybackDock() {
     if (
       selectedSubtitleKey === "off" ||
       selectedSubtitleKey !== pendingSubtitleKey ||
-      failedSubtitleKeySet.has(pendingSubtitleKey) ||
       loadedSubtitleTracks.some((track) => track.key === pendingSubtitleKey) ||
+      !subtitleLoadControllersRef.current.has(pendingSubtitleKey) ||
       !subtitleTrackRequests.some((track) => track.key === pendingSubtitleKey)
     ) {
-      setPendingSubtitleKey(null);
+      setPendingSubtitleKey((current) => (current == null ? current : null));
     }
   }, [
-    failedSubtitleKeySet,
     loadedSubtitleTracks,
     pendingSubtitleKey,
     selectedSubtitleKey,
@@ -916,8 +924,9 @@ export function PlaybackDock() {
       controller.abort();
     }
     subtitleLoadControllersRef.current.clear();
+    blockedSubtitleRetryKeysRef.current.clear();
     setLoadedSubtitleTracks([]);
-    setFailedSubtitleKeys([]);
+    setSubtitleStatusMessage("");
     setSelectedAudioKey("");
     setAudioTrackVersion(0);
     setVideoAttachmentVersion(0);
@@ -926,6 +935,8 @@ export function PlaybackDock() {
     initialProgressPersistedRef.current = null;
     resumeAppliedRef.current = null;
     defaultTrackSelectionAppliedRef.current = null;
+    manualSubtitleSelectionRef.current = null;
+    manualAudioSelectionRef.current = null;
     lastVideoProgressRef.current = null;
     requestedAudioTrackRef.current =
       activeItemId != null ? { mediaId: activeItemId, key: "" } : null;
@@ -957,6 +968,8 @@ export function PlaybackDock() {
     if (!activeItem) {
       requestedAudioTrackRef.current = null;
       dispatchedAudioTrackRef.current = null;
+      manualSubtitleSelectionRef.current = null;
+      manualAudioSelectionRef.current = null;
       return;
     }
     if (requestedAudioTrackRef.current?.mediaId !== activeItem.id) {
@@ -999,18 +1012,36 @@ export function PlaybackDock() {
     if (!isVideo || !activeItem) return;
     if (defaultTrackSelectionAppliedRef.current === activeItem.id) return;
     if (activeItem.library_id != null && !librariesFetched) return;
+    if (
+      videoSourceUrl === "" &&
+      audioTracks.length === 0 &&
+      subtitleTrackOptions.length === 0 &&
+      videoAudioIndex < 0
+    ) {
+      return;
+    }
     const queuedSubtitleKey = resolveQueuedSubtitleKey();
-    setSelectedSubtitleKey(
+    const preferredSubtitleKey =
       queuedSubtitleKey ??
-        getPreferredSubtitleKey(
-          subtitleTrackOptions,
-          libraryPlaybackPreferences.preferredSubtitleLanguage,
-          libraryPlaybackPreferences.subtitlesEnabledByDefault,
-        ),
+      getPreferredSubtitleKey(
+        subtitleTrackOptions,
+        libraryPlaybackPreferences.preferredSubtitleLanguage,
+        libraryPlaybackPreferences.subtitlesEnabledByDefault,
+      );
+    const preferredAudioKey = getPreferredAudioKey(
+      audioTracks,
+      libraryPlaybackPreferences.preferredAudioLanguage,
     );
-    setSelectedAudioKey(
-      getPreferredAudioKey(audioTracks, libraryPlaybackPreferences.preferredAudioLanguage),
-    );
+    if (manualSubtitleSelectionRef.current !== activeItem.id) {
+      setSelectedSubtitleKey((current) =>
+        current === preferredSubtitleKey ? current : preferredSubtitleKey,
+      );
+    }
+    if (manualAudioSelectionRef.current !== activeItem.id) {
+      setSelectedAudioKey((current) =>
+        current === preferredAudioKey ? current : preferredAudioKey,
+      );
+    }
     defaultTrackSelectionAppliedRef.current = activeItem.id;
   }, [
     activeItem,
@@ -1022,6 +1053,8 @@ export function PlaybackDock() {
     libraryPlaybackPreferences.subtitlesEnabledByDefault,
     resolveQueuedSubtitleKey,
     subtitleTrackOptions,
+    videoAudioIndex,
+    videoSourceUrl,
   ]);
 
   useEffect(
@@ -1168,6 +1201,7 @@ export function PlaybackDock() {
       audioTracks.find((track) => track.streamIndex === videoAudioIndex)?.key ?? "";
     if (!sessionAudioKey) return;
     setSelectedAudioKey((current) => (current === sessionAudioKey ? current : sessionAudioKey));
+    dispatchedAudioTrackRef.current = { mediaId: activeItem.id, key: sessionAudioKey };
     if (
       requestedAudioTrackRef.current?.mediaId === activeItem.id &&
       requestedAudioTrackRef.current.key === sessionAudioKey
@@ -1175,6 +1209,46 @@ export function PlaybackDock() {
       requestedAudioTrackRef.current = null;
     }
   }, [activeItem, audioTracks, isVideo, videoAudioIndex]);
+
+  const selectSubtitleTrack = useCallback(
+    (key: string) => {
+      rememberQueuedSubtitlePreference(key);
+      setSubtitleStatusMessage("");
+      manualSubtitleSelectionRef.current = activeItem?.id ?? null;
+      if (key === "off") {
+        blockedSubtitleRetryKeysRef.current.clear();
+        setSelectedSubtitleKey("off");
+        setPendingSubtitleKey(null);
+        return;
+      }
+      blockedSubtitleRetryKeysRef.current.delete(key);
+      setLoadedSubtitleTracks((current) =>
+        current.filter((candidate) => candidate.key !== key),
+      );
+      setPendingSubtitleKey(key);
+      if (selectedSubtitleKey === key) {
+        void ensureSubtitleTrackLoaded(key);
+        return;
+      }
+      setSelectedSubtitleKey(key);
+    },
+    [
+      activeItem?.id,
+      ensureSubtitleTrackLoaded,
+      rememberQueuedSubtitlePreference,
+      selectedSubtitleKey,
+    ],
+  );
+
+  const selectAudioTrack = useCallback(
+    (key: string) => {
+      manualAudioSelectionRef.current = activeItem?.id ?? null;
+      requestedAudioTrackRef.current =
+        activeItem != null ? { mediaId: activeItem.id, key } : null;
+      setSelectedAudioKey((current) => (current === key ? current : key));
+    },
+    [activeItem],
+  );
 
   useEffect(() => {
     if (hlsRef.current != null) {
@@ -1676,8 +1750,7 @@ export function PlaybackDock() {
                       ariaLabel="Select subtitle track"
                       offLabel="Off"
                       onSelect={(key) => {
-                        rememberQueuedSubtitlePreference(key);
-                        setSelectedSubtitleKey(key);
+                        selectSubtitleTrack(key);
                         setSubtitleMenuOpen(false);
                       }}
                     />
@@ -1709,9 +1782,7 @@ export function PlaybackDock() {
                       selectedKey={selectedAudioKey}
                       ariaLabel="Select audio track"
                       onSelect={(key) => {
-                        requestedAudioTrackRef.current =
-                          activeItem != null ? { mediaId: activeItem.id, key } : null;
-                        setSelectedAudioKey(key);
+                        selectAudioTrack(key);
                         setAudioMenuOpen(false);
                       }}
                     />
@@ -1952,8 +2023,7 @@ export function PlaybackDock() {
                       ariaLabel="Select subtitle track"
                       offLabel="Off"
                       onSelect={(key) => {
-                        rememberQueuedSubtitlePreference(key);
-                        setSelectedSubtitleKey(key);
+                        selectSubtitleTrack(key);
                         setSubtitleMenuOpen(false);
                       }}
                     />
@@ -1984,9 +2054,7 @@ export function PlaybackDock() {
                       position="above"
                       ariaLabel="Select audio track"
                       onSelect={(key) => {
-                        requestedAudioTrackRef.current =
-                          activeItem != null ? { mediaId: activeItem.id, key } : null;
-                        setSelectedAudioKey(key);
+                        selectAudioTrack(key);
                         setAudioMenuOpen(false);
                       }}
                     />

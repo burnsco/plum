@@ -18,7 +18,7 @@ import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
 import { usePlayer } from "../contexts/PlayerContext";
 import { useScanQueue } from "../contexts/ScanQueueContext";
-import { getLibraryActivity } from "../lib/libraryActivity";
+import { getEnrichmentPhase, getLibraryActivity } from "../lib/libraryActivity";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
@@ -167,14 +167,17 @@ export function Home() {
   );
   const selectedLibraryActivity = getLibraryActivity({
     scanPhase: selectedLibraryScanStatus?.phase,
+    enrichmentPhase: selectedLibraryScanStatus?.enrichmentPhase,
     enriching: selectedLibraryScanStatus?.enriching === true,
     identifyPhase: selectedLibraryScanStatus?.identifyPhase,
     localIdentifyPhase: selectedLibraryIdentifyPhase,
   });
+  const selectedLibraryEnrichmentPhase = getEnrichmentPhase(selectedLibraryScanStatus ?? {});
   const isSelectedLibraryScanning =
     selectedLibraryScanStatus?.phase === "queued" ||
     selectedLibraryScanStatus?.phase === "scanning" ||
-    selectedLibraryScanStatus?.enriching === true ||
+    selectedLibraryEnrichmentPhase === "queued" ||
+    selectedLibraryEnrichmentPhase === "running" ||
     selectedLibraryScanStatus?.identifyPhase === "queued" ||
     selectedLibraryScanStatus?.identifyPhase === "identifying";
   const selectedLibraryPollInterval =
@@ -434,17 +437,19 @@ export function Home() {
       ? 0
       : isTVOrAnime(selectedLib)
         ? showCardState.deferredCount
-        : selectedLib.type === "movie"
-          ? movieCardState.deferredCount
-          : 0;
+        : movieCardState.deferredCount;
   const visibleCardCount =
     selectedLib == null || selectedLib.type === "music"
       ? 0
       : isTVOrAnime(selectedLib)
         ? showCardState.visibleCards.length
-        : selectedLib.type === "movie"
-          ? movieCardState.visibleCards.length
-          : 0;
+        : movieCardState.visibleCards.length;
+  const selectedLibraryCards =
+    selectedLib == null || selectedLib.type === "music"
+      ? []
+      : isTVOrAnime(selectedLib)
+        ? showCardState.visibleCards
+        : movieCardState.visibleCards;
   const showIdentifyPlaceholder =
     selectedLib != null &&
     selectedLib.type !== "music" &&
@@ -492,6 +497,8 @@ export function Home() {
                 <p className="text-sm text-[var(--plum-muted)]">
                   {selectedLibraryActivity === "importing"
                     ? "Importing library…"
+                    : selectedLibraryActivity === "analyze-queued"
+                      ? "Waiting for analyzer…"
                     : selectedLibraryActivity === "analyzing"
                       ? "Analyzing media…"
                       : selectedLibraryActivity === "identify-queued"
@@ -515,7 +522,7 @@ export function Home() {
                     ? "Queued for identify…"
                     : "Identifying library…"}
                 </p>
-              ) : isTVOrAnime(selectedLib) ? (
+              ) : selectedLib.type !== "music" ? (
                 <>
                   <div className="flex items-center justify-between gap-4 mb-4">
                     <h2 className="text-base font-semibold text-[var(--plum-text)] truncate">
@@ -530,39 +537,14 @@ export function Home() {
                   </div>
                   {layoutMode === "grid" ? (
                     <LibraryPosterGrid
-                      items={showCardState.visibleCards}
+                      items={selectedLibraryCards}
                       aspectRatio="cinema"
                       cardWidth={cardWidth}
                     />
                   ) : layoutMode === "detail" ? (
-                    <MediaDetailView items={showCardState.visibleCards} />
+                    <MediaDetailView items={selectedLibraryCards} />
                   ) : (
-                    <MediaTableView items={showCardState.visibleCards} />
-                  )}
-                </>
-              ) : selectedLib.type === "movie" ? (
-                <>
-                  <div className="flex items-center justify-between gap-4 mb-4">
-                    <h2 className="text-base font-semibold text-[var(--plum-text)] truncate">
-                      {selectedLib.name}
-                    </h2>
-                    <LibraryViewControls
-                      cardWidth={cardWidth}
-                      onCardWidthChange={setCardWidth}
-                      layoutMode={layoutMode}
-                      onLayoutModeChange={setLayoutMode}
-                    />
-                  </div>
-                  {layoutMode === "grid" ? (
-                    <LibraryPosterGrid
-                      items={movieCardState.visibleCards}
-                      aspectRatio="cinema"
-                      cardWidth={cardWidth}
-                    />
-                  ) : layoutMode === "detail" ? (
-                    <MediaDetailView items={movieCardState.visibleCards} />
-                  ) : (
-                    <MediaTableView items={movieCardState.visibleCards} />
+                    <MediaTableView items={selectedLibraryCards} />
                   )}
                 </>
               ) : (

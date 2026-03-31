@@ -203,6 +203,47 @@ function VideoQueueHarness() {
   );
 }
 
+function PlaybackTrackHydrationHarness() {
+  const { activeItem, playShowGroup } = usePlayer();
+  const bareEpisodeOne: MediaItem = {
+    id: 301,
+    title: "Hydration Episode One",
+    path: "/shows/Hydration/Season 1/Episode One.mkv",
+    duration: 1800,
+    type: "anime",
+    season: 1,
+    episode: 1,
+    library_id: 7,
+  };
+  const bareEpisodeTwo: MediaItem = {
+    id: 302,
+    title: "Hydration Episode Two",
+    path: "/shows/Hydration/Season 1/Episode Two.mkv",
+    duration: 1800,
+    type: "anime",
+    season: 1,
+    episode: 2,
+    library_id: 7,
+  };
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => playShowGroup([bareEpisodeTwo, bareEpisodeOne], bareEpisodeTwo)}
+      >
+        Play Bare Show
+      </button>
+      <div data-testid="hydrated-audio-count">
+        {activeItem?.embeddedAudioTracks?.length ?? 0}
+      </div>
+      <div data-testid="hydrated-subtitle-count">
+        {(activeItem?.embeddedSubtitles?.length ?? 0) + (activeItem?.subtitles?.length ?? 0)}
+      </div>
+    </div>
+  );
+}
+
 describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -595,6 +636,45 @@ describe("PlayerContext playback session updates", () => {
           clientCapabilities: expect.any(Object),
         }),
       );
+    });
+  });
+
+  it("hydrates episode track metadata from the playback session response", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId) => ({
+      sessionId: `session-${mediaId}`,
+      delivery: "transcode",
+      mediaId,
+      revision: 1,
+      audioIndex: 5,
+      status: "starting",
+      streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+      durationSeconds: 1800,
+      embeddedSubtitles: [{ streamIndex: 7, language: "eng", title: "English Signs" }],
+      embeddedAudioTracks: [{ streamIndex: 5, language: "jpn", title: "Japanese" }],
+    }));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WsProvider>
+          <PlayerProvider>
+            <PlaybackTrackHydrationHarness />
+          </PlayerProvider>
+        </WsProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Bare Show" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hydrated-audio-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("hydrated-subtitle-count")).toHaveTextContent("1");
     });
   });
 });
