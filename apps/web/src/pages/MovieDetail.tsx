@@ -63,6 +63,9 @@ export function MovieDetail() {
     release_date: details.release_date,
     imdb_id: details.imdb_id,
     imdb_rating: details.imdb_rating,
+    subtitles: details.subtitles,
+    embeddedSubtitles: details.embeddedSubtitles,
+    embeddedAudioTracks: details.embeddedAudioTracks,
   };
   const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path, "w200", BASE_URL);
   const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w500", BASE_URL);

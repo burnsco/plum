@@ -24,6 +24,7 @@ describe("LibraryActivityCenter", () => {
         {
           libraryId: 1,
           phase: "scanning",
+          enrichmentPhase: "idle",
           enriching: false,
           identifyPhase: "idle",
           identified: 0,
@@ -121,6 +122,7 @@ describe("LibraryActivityCenter", () => {
         {
           libraryId: 2,
           phase: "completed",
+          enrichmentPhase: "idle",
           enriching: false,
           identifyPhase: "queued",
           identified: 0,
@@ -169,6 +171,7 @@ describe("LibraryActivityCenter", () => {
         {
           libraryId: 4,
           phase: "completed",
+          enrichmentPhase: "idle",
           enriching: false,
           identifyPhase: "identifying",
           identified: 12,
@@ -224,5 +227,47 @@ describe("LibraryActivityCenter", () => {
     expect(screen.getByText("Failed")).toBeVisible();
     expect(screen.getByText("18 item(s) could not be identified automatically")).toBeVisible();
     expect(screen.queryByText("Identifying")).not.toBeInTheDocument();
+  });
+
+  it("shows queued enrichment as waiting work", async () => {
+    vi.mocked(useLibraries).mockReturnValue({
+      data: [{ id: 5, name: "Anime", type: "anime", path: "/anime", user_id: 1 }],
+    } as unknown as ReturnType<typeof useLibraries>);
+    vi.mocked(useScanQueue).mockReturnValue({
+      activeLibraryIds: [5],
+      activityScanStatuses: [
+        {
+          libraryId: 5,
+          phase: "completed",
+          enrichmentPhase: "queued",
+          enriching: false,
+          identifyPhase: "idle",
+          identified: 0,
+          identifyFailed: 0,
+          processed: 12,
+          added: 12,
+          updated: 0,
+          removed: 0,
+          unmatched: 0,
+          skipped: 0,
+          identifyRequested: false,
+          estimatedItems: 12,
+          queuePosition: 0,
+        },
+      ],
+      recentLibraryActivities: [],
+      scanStatuses: {},
+      getLibraryScanStatus: vi.fn(),
+      hasLibraryScanStatus: vi.fn(),
+      queueLibraryScan: vi.fn(),
+    });
+
+    render(<LibraryActivityCenter />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
+
+    const statusCard = await screen.findByTestId("library-activity-status-5");
+    expect(within(statusCard).getByText("Waiting for analyzer")).toBeVisible();
+    expect(within(statusCard).queryByText("Analyzing media")).not.toBeInTheDocument();
   });
 });

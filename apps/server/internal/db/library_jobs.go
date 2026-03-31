@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -10,6 +12,7 @@ type LibraryJobStatus struct {
 	Path              string
 	Type              string
 	Phase             string
+	EnrichmentPhase   string
 	Enriching         bool
 	IdentifyPhase     string
 	Identified        int
@@ -35,15 +38,24 @@ type LibraryJobStatus struct {
 
 func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 	now := time.Now().UTC().Format(time.RFC3339)
+	enrichmentPhase := status.EnrichmentPhase
+	if enrichmentPhase == "" {
+		if status.Enriching {
+			enrichmentPhase = "running"
+		} else {
+			enrichmentPhase = "idle"
+		}
+	}
 	_, err := dbConn.Exec(
 		`INSERT INTO library_job_status (
-			library_id, phase, enriching, identify_phase, identified, identify_failed,
+			library_id, phase, enrichment_phase, enriching, identify_phase, identified, identify_failed,
 			processed, added, updated, removed, unmatched, skipped,
 			identify_requested, queued_at, estimated_items, error, retry_count, max_retries,
 			next_retry_at, last_error, next_scheduled_at, started_at, finished_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(library_id) DO UPDATE SET
 			phase = excluded.phase,
+			enrichment_phase = excluded.enrichment_phase,
 			enriching = excluded.enriching,
 			identify_phase = excluded.identify_phase,
 			identified = excluded.identified,
@@ -68,6 +80,7 @@ func UpsertLibraryJobStatus(dbConn *sql.DB, status LibraryJobStatus) error {
 			updated_at = excluded.updated_at`,
 		status.LibraryID,
 		status.Phase,
+		enrichmentPhase,
 		boolToInt(status.Enriching),
 		status.IdentifyPhase,
 		status.Identified,
@@ -101,6 +114,7 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			l.path,
 			l.type,
 			s.phase,
+			COALESCE(s.enrichment_phase, CASE WHEN COALESCE(s.enriching, 0) != 0 THEN 'running' ELSE 'idle' END),
 			COALESCE(s.enriching, 0),
 			COALESCE(s.identify_phase, 'idle'),
 			COALESCE(s.identified, 0),
@@ -133,6 +147,7 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 	var out []LibraryJobStatus
 	for rows.Next() {
 		var status LibraryJobStatus
+		var enrichmentPhase string
 		var enriching int
 		var identifyRequested int
 		if err := rows.Scan(
@@ -140,6 +155,7 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 			&status.Path,
 			&status.Type,
 			&status.Phase,
+			&enrichmentPhase,
 			&enriching,
 			&status.IdentifyPhase,
 			&status.Identified,
@@ -164,11 +180,70 @@ func ListLibraryJobStatuses(dbConn *sql.DB) ([]LibraryJobStatus, error) {
 		); err != nil {
 			return nil, err
 		}
+		status.EnrichmentPhase = enrichmentPhase
 		status.Enriching = enriching != 0
 		status.IdentifyRequested = identifyRequested != 0
 		out = append(out, status)
 	}
 	return out, rows.Err()
+}
+
+func ListLibraryEnrichmentTasks(
+	ctx context.Context,
+	dbConn *sql.DB,
+	libraryID int,
+	libraryType string,
+) ([]EnrichmentTask, error) {
+	var table string
+	switch libraryType {
+	case LibraryTypeMovie:
+		table = "movies"
+	case LibraryTypeTV:
+		table = "tv_episodes"
+	case LibraryTypeAnime:
+		table = "anime_episodes"
+	case LibraryTypeMusic:
+		table = "music_tracks"
+	default:
+		return nil, fmt.Errorf("unsupported library type %q", libraryType)
+	}
+
+	rows, err := dbConn.QueryContext(
+		ctx,
+		fmt.Sprintf(
+			`SELECT t.id, COALESCE(g.id, 0), t.path
+			   FROM %s t
+			   LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = t.id
+			  WHERE t.library_id = ?
+			    AND COALESCE(t.missing_since, '') = ''
+			  ORDER BY t.id`,
+			table,
+		),
+		libraryType,
+		libraryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tasks := make([]EnrichmentTask, 0)
+	for rows.Next() {
+		var task EnrichmentTask
+		task.LibraryID = libraryID
+		task.Kind = libraryType
+		if err := rows.Scan(&task.RefID, &task.GlobalID, &task.Path); err != nil {
+			return nil, err
+		}
+		if task.Path == "" {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func boolToInt(value bool) int {

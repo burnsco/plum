@@ -128,6 +128,9 @@ function cloneMovieDetails(details: MovieDetailsResult): MovieDetails | null {
   }
   return {
     ...details,
+    subtitles: details.subtitles?.map((subtitle) => ({ ...subtitle })),
+    embeddedSubtitles: details.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
+    embeddedAudioTracks: details.embeddedAudioTracks?.map((track) => ({ ...track })),
     genres: [...details.genres],
     cast: details.cast.map((member) => ({ ...member })),
   };

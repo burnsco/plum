@@ -230,6 +230,9 @@ export interface DirectPlaybackSession {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  subtitles?: Subtitle[];
+  embeddedSubtitles?: EmbeddedSubtitle[];
+  embeddedAudioTracks?: EmbeddedAudioTrack[];
   error?: string;
 }
 
@@ -242,6 +245,9 @@ export interface HlsPlaybackSession {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  subtitles?: Subtitle[];
+  embeddedSubtitles?: EmbeddedSubtitle[];
+  embeddedAudioTracks?: EmbeddedAudioTrack[];
   error?: string;
 }
 
@@ -254,6 +260,9 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
+  embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
+  embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   error: Schema.optional(Schema.String),
 });
 
@@ -266,6 +275,9 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
+  embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
+  embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   error: Schema.optional(Schema.String),
 });
 
@@ -438,6 +450,10 @@ export const LibraryScanPhaseSchema = Schema.Literals([
   "failed",
 ]);
 
+export type LibraryEnrichmentPhase = "idle" | "queued" | "running";
+
+export const LibraryEnrichmentPhaseSchema = Schema.Literals(["idle", "queued", "running"]);
+
 export type LibraryIdentifyPhase = "idle" | "queued" | "identifying" | "completed" | "failed";
 
 export const LibraryIdentifyPhaseSchema = Schema.Literals([
@@ -504,6 +520,7 @@ export const LibraryScanActivitySchema = Schema.Struct({
 export interface LibraryScanStatus {
   libraryId: number;
   phase: LibraryScanPhase;
+  enrichmentPhase: LibraryEnrichmentPhase;
   enriching: boolean;
   identifyPhase: LibraryIdentifyPhase;
   identified: number;
@@ -532,6 +549,7 @@ export interface LibraryScanStatus {
 export const LibraryScanStatusSchema = Schema.Struct({
   libraryId: Schema.Number,
   phase: LibraryScanPhaseSchema,
+  enrichmentPhase: LibraryEnrichmentPhaseSchema,
   enriching: Schema.Boolean,
   identifyPhase: LibraryIdentifyPhaseSchema,
   identified: Schema.Number,
@@ -628,6 +646,9 @@ export interface MovieDetails {
   imdb_id?: string;
   imdb_rating?: number;
   runtime?: number;
+  subtitles?: Subtitle[];
+  embeddedSubtitles?: EmbeddedSubtitle[];
+  embeddedAudioTracks?: EmbeddedAudioTrack[];
   genres: string[];
   cast: CastMember[];
 }
@@ -645,6 +666,9 @@ export const MovieDetailsSchema = Schema.Struct({
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
   runtime: Schema.optional(Schema.Number),
+  subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
+  embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
+  embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   genres: Schema.Array(Schema.String),
   cast: Schema.Array(CastMemberSchema),
 });

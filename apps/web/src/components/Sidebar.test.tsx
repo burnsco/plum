@@ -35,6 +35,7 @@ describe("Sidebar", () => {
     const queuedStatus: LibraryScanStatus = {
       libraryId: 2,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "queued",
       identified: 0,
@@ -52,6 +53,7 @@ describe("Sidebar", () => {
     const activeStatus: LibraryScanStatus = {
       libraryId: 3,
       phase: "completed",
+      enrichmentPhase: "idle",
       enriching: false,
       identifyPhase: "identifying",
       identified: 0,

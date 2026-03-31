@@ -26,15 +26,18 @@ var previousRevisionCancelDelay = 20 * time.Second
 var playbackDisconnectGracePeriod = 10 * time.Second
 
 type PlaybackSessionState struct {
-	SessionID       string `json:"sessionId,omitempty"`
-	Delivery        string `json:"delivery"`
-	MediaID         int    `json:"mediaId"`
-	Revision        int    `json:"revision,omitempty"`
-	AudioIndex      int    `json:"audioIndex,omitempty"`
-	Status          string `json:"status"`
-	StreamURL       string `json:"streamUrl"`
-	DurationSeconds int    `json:"durationSeconds"`
-	Error           string `json:"error,omitempty"`
+	SessionID           string                  `json:"sessionId,omitempty"`
+	Delivery            string                  `json:"delivery"`
+	MediaID             int                     `json:"mediaId"`
+	Revision            int                     `json:"revision,omitempty"`
+	AudioIndex          int                     `json:"audioIndex,omitempty"`
+	Status              string                  `json:"status"`
+	StreamURL           string                  `json:"streamUrl"`
+	DurationSeconds     int                     `json:"durationSeconds"`
+	Subtitles           []db.Subtitle           `json:"subtitles,omitempty"`
+	EmbeddedSubtitles   []db.EmbeddedSubtitle   `json:"embeddedSubtitles,omitempty"`
+	EmbeddedAudioTracks []db.EmbeddedAudioTrack `json:"embeddedAudioTracks,omitempty"`
+	Error               string                  `json:"error,omitempty"`
 }
 
 type playbackRevision struct {
@@ -97,12 +100,15 @@ func (m *PlaybackSessionManager) Create(
 	decision := decidePlayback(media.ID, probe, capabilities, audioIndex)
 	if decision.Delivery == "direct" {
 		return PlaybackSessionState{
-			Delivery:        "direct",
-			MediaID:         media.ID,
-			AudioIndex:      audioIndex,
-			Status:          "ready",
-			StreamURL:       decision.StreamURL,
-			DurationSeconds: durationSeconds,
+			Delivery:            "direct",
+			MediaID:             media.ID,
+			AudioIndex:          audioIndex,
+			Status:              "ready",
+			StreamURL:           decision.StreamURL,
+			DurationSeconds:     durationSeconds,
+			Subtitles:           media.Subtitles,
+			EmbeddedSubtitles:   media.EmbeddedSubtitles,
+			EmbeddedAudioTracks: media.EmbeddedAudioTracks,
 		}, nil
 	}
 
@@ -165,12 +171,15 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 	if decision.Delivery == "direct" {
 		m.Close(sessionID)
 		return PlaybackSessionState{
-			Delivery:        "direct",
-			MediaID:         session.media.ID,
-			AudioIndex:      audioIndex,
-			Status:          "ready",
-			StreamURL:       decision.StreamURL,
-			DurationSeconds: durationSeconds,
+			Delivery:            "direct",
+			MediaID:             session.media.ID,
+			AudioIndex:          audioIndex,
+			Status:              "ready",
+			StreamURL:           decision.StreamURL,
+			DurationSeconds:     durationSeconds,
+			Subtitles:           session.media.Subtitles,
+			EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
+			EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
 		}, nil
 	}
 	return m.startRevision(session, settings, audioIndex, decision)
@@ -289,13 +298,16 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 	}
 	_ = os.RemoveAll(filepath.Join(m.root, sessionID))
 	m.broadcast(PlaybackSessionState{
-		SessionID:       sessionID,
-		Delivery:        delivery,
-		MediaID:         mediaID,
-		Revision:        activeRevision,
-		AudioIndex:      audioIndex,
-		Status:          "closed",
-		DurationSeconds: durationSeconds,
+		SessionID:           sessionID,
+		Delivery:            delivery,
+		MediaID:             mediaID,
+		Revision:            activeRevision,
+		AudioIndex:          audioIndex,
+		Status:              "closed",
+		DurationSeconds:     durationSeconds,
+		Subtitles:           session.media.Subtitles,
+		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
+		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
 	})
 }
 
@@ -318,15 +330,18 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			continue
 		}
 		return &PlaybackSessionState{
-			SessionID:       s.id,
-			Delivery:        revision.delivery,
-			MediaID:         s.media.ID,
-			Revision:        revision.number,
-			AudioIndex:      revision.audioIndex,
-			Status:          revision.status,
-			StreamURL:       revision.streamURL,
-			DurationSeconds: s.durationSeconds,
-			Error:           revision.err,
+			SessionID:           s.id,
+			Delivery:            revision.delivery,
+			MediaID:             s.media.ID,
+			Revision:            revision.number,
+			AudioIndex:          revision.audioIndex,
+			Status:              revision.status,
+			StreamURL:           revision.streamURL,
+			DurationSeconds:     s.durationSeconds,
+			Subtitles:           s.media.Subtitles,
+			EmbeddedSubtitles:   s.media.EmbeddedSubtitles,
+			EmbeddedAudioTracks: s.media.EmbeddedAudioTracks,
+			Error:               revision.err,
 		}
 	}
 	return nil
@@ -431,14 +446,17 @@ func (m *PlaybackSessionManager) startRevision(
 	go m.runRevision(ctx, session, revision, settings, decision)
 
 	return PlaybackSessionState{
-		SessionID:       session.id,
-		Delivery:        revision.delivery,
-		MediaID:         session.media.ID,
-		Revision:        revision.number,
-		AudioIndex:      audioIndex,
-		Status:          revision.status,
-		StreamURL:       revision.streamURL,
-		DurationSeconds: durationSeconds,
+		SessionID:           session.id,
+		Delivery:            revision.delivery,
+		MediaID:             session.media.ID,
+		Revision:            revision.number,
+		AudioIndex:          audioIndex,
+		Status:              revision.status,
+		StreamURL:           revision.streamURL,
+		DurationSeconds:     durationSeconds,
+		Subtitles:           session.media.Subtitles,
+		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
+		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
 	}, nil
 }
 
@@ -488,14 +506,17 @@ func (m *PlaybackSessionManager) runRevision(
 	session.mu.Unlock()
 	plans := buildPlaybackHLSPlans(session.media.Path, revision.dir, settings, probe, decision)
 	finalState := PlaybackSessionState{
-		SessionID:       session.id,
-		Delivery:        revision.delivery,
-		MediaID:         session.media.ID,
-		Revision:        revision.number,
-		AudioIndex:      revision.audioIndex,
-		Status:          "error",
-		StreamURL:       revision.streamURL,
-		DurationSeconds: durationSeconds,
+		SessionID:           session.id,
+		Delivery:            revision.delivery,
+		MediaID:             session.media.ID,
+		Revision:            revision.number,
+		AudioIndex:          revision.audioIndex,
+		Status:              "error",
+		StreamURL:           revision.streamURL,
+		DurationSeconds:     durationSeconds,
+		Subtitles:           session.media.Subtitles,
+		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
+		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
 	}
 
 	for index, plan := range plans {
@@ -636,14 +657,17 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 	session.mu.Unlock()
 
 	m.broadcast(PlaybackSessionState{
-		SessionID:       sessionID,
-		Delivery:        revision.delivery,
-		MediaID:         mediaID,
-		Revision:        revision.number,
-		AudioIndex:      audioIndex,
-		Status:          "ready",
-		StreamURL:       revision.streamURL,
-		DurationSeconds: durationSeconds,
+		SessionID:           sessionID,
+		Delivery:            revision.delivery,
+		MediaID:             mediaID,
+		Revision:            revision.number,
+		AudioIndex:          audioIndex,
+		Status:              "ready",
+		StreamURL:           revision.streamURL,
+		DurationSeconds:     durationSeconds,
+		Subtitles:           session.media.Subtitles,
+		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
+		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
 	})
 
 	if previousActive > 0 && previousActive != activeRevision {

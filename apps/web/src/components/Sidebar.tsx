@@ -69,6 +69,7 @@ export function Sidebar() {
             const scanStatus = getLibraryScanStatus(lib.id);
             const activity = getLibraryActivity({
               scanPhase: scanStatus?.phase,
+              enrichmentPhase: scanStatus?.enrichmentPhase,
               enriching: scanStatus?.enriching === true,
               identifyPhase: scanStatus?.identifyPhase,
               localIdentifyPhase: identifyPhase,

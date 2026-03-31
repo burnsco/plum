@@ -925,6 +925,63 @@ describe("PlaybackDock audio track selection", () => {
     }
   });
 
+  it("keeps a timed out subtitle selected and allows retrying the same track", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 7,
+        name: "Anime",
+        type: "anime",
+        path: "/anime",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: false,
+      },
+    ]);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("Subtitle request timed out"))
+      .mockResolvedValueOnce(
+        new Response("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello again\n", { status: 200 }),
+      );
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        embeddedSubtitles: [{ streamIndex: 7, language: "eng", title: "English Signs" }],
+      },
+    });
+
+    try {
+      renderDock();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
+      fireEvent.click(screen.getByRole("option", { name: /English Signs/i }));
+
+      expect(screen.getByRole("status", { name: "Loading subtitles..." })).toBeTruthy();
+
+      await waitFor(() => {
+        expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
+        expect(screen.getByText("Subtitle load timed out. Try again.")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Subtitles" }));
+      expect(
+        screen.getByRole("option", { name: /English Signs/i }),
+      ).toHaveAttribute("aria-selected", "true");
+      fireEvent.click(screen.getByRole("option", { name: /English Signs/i }));
+
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() => {
+        expect(screen.queryByText("Subtitle load timed out. Try again.")).toBeNull();
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("syncs the selected audio menu state from the active playback audio index", async () => {
     mockUsePlayer.mockReturnValue({
       ...mockUsePlayer.mock.results.at(-1)?.value,
@@ -935,6 +992,56 @@ describe("PlaybackDock audio track selection", () => {
 
     const audioButton = await screen.findByRole("button", { name: /Audio track: Japanese/i });
     expect(audioButton).toBeTruthy();
+  });
+
+  it("does not re-request the same audio switch after the session reports the new audio index", async () => {
+    const { container, queryClient, rerender } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    const browserAudioTracks = [{ enabled: true }, { enabled: false }];
+    Object.defineProperty(video, "audioTracks", {
+      configurable: true,
+      value: browserAudioTracks,
+    });
+
+    fireEvent.loadedMetadata(video);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Audio track:/i }));
+    fireEvent.click(screen.getByRole("option", { name: /Japanese/i }));
+
+    await waitFor(() => {
+      expect(mockChangeAudioTrack).toHaveBeenCalledTimes(1);
+      expect(mockChangeAudioTrack).toHaveBeenCalledWith(2);
+    });
+
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      videoAudioIndex: 2,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        embeddedAudioTracks: [
+          { streamIndex: 1, language: "eng", title: "English" },
+          { streamIndex: 2, language: "jpn", title: "Japanese" },
+        ],
+      },
+      videoSourceUrl:
+        "http://localhost:3000/api/playback/sessions/session-1/revisions/2/index.m3u8",
+    });
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <PlaybackDock />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Audio track: Japanese/i })).toBeTruthy();
+    });
+    expect(mockChangeAudioTrack).toHaveBeenCalledTimes(1);
   });
 
   it("restarts the current video when Previous is pressed after the restart threshold", async () => {
