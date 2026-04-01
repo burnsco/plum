@@ -6,6 +6,7 @@ apps/web/node_modules/
 apps/web/dist/
 apps/web/dist-ssr/
 apps/web/*.local
+apps/web/.vite/
 
 # Desktop
 apps/desktop/node_modules/

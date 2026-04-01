@@ -27,6 +27,8 @@ services:
       - ${PLUM_MEDIA_MOVIES_PATH:-./mordor/media/movies}:/movies:ro
       - ${PLUM_MEDIA_ANIME_PATH:-./mordor/media/anime-series}:/anime:ro
       - ${PLUM_MEDIA_MUSIC_PATH:-./mordor/media/music}:/music:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
     healthcheck:

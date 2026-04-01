@@ -1,0 +1,74 @@
+package httpapi
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"plum/internal/arr"
+	"plum/internal/db"
+)
+
+type MediaStackSettingsHandler struct {
+	DB  *sql.DB
+	Arr *arr.Service
+}
+
+func (h *MediaStackSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	settings, err := db.GetEffectiveMediaStackSettings(h.DB)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(settings)
+}
+
+func (h *MediaStackSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
+	var payload db.MediaStackSettings
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	settings, err := db.SaveMediaStackSettings(h.DB, payload)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, db.ErrMediaStackServiceIncomplete) ||
+			errors.Is(err, db.ErrMediaStackRootFolderRequired) ||
+			errors.Is(err, db.ErrMediaStackQualityProfileInvalid) {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if h.Arr != nil {
+		h.Arr.Invalidate()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(settings)
+}
+
+func (h *MediaStackSettingsHandler) Validate(w http.ResponseWriter, r *http.Request) {
+	var payload db.MediaStackSettings
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if h.Arr == nil {
+		http.Error(w, "media stack unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	result, err := h.Arr.Validate(r.Context(), payload)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}

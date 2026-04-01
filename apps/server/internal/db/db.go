@@ -112,6 +112,8 @@ type EmbeddedSubtitle struct {
 	StreamIndex int    `json:"streamIndex"`
 	Language    string `json:"language"`
 	Title       string `json:"title"`
+	Codec       string `json:"codec,omitempty"`
+	Supported   *bool  `json:"supported,omitempty"`
 }
 
 type EmbeddedAudioTrack struct {
@@ -180,6 +182,12 @@ type MediaItem struct {
 	FileModTime   string `json:"-"`
 	FileHash      string `json:"-"`
 	FileHashKind  string `json:"-"`
+}
+
+type PlaybackTrackMetadata struct {
+	Subtitles           []Subtitle           `json:"subtitles"`
+	EmbeddedSubtitles   []EmbeddedSubtitle   `json:"embeddedSubtitles"`
+	EmbeddedAudioTracks []EmbeddedAudioTrack `json:"embeddedAudioTracks"`
 }
 
 type User struct {
@@ -2022,56 +2030,79 @@ func attachSubtitlesBatch(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
 }
 
 func EnsurePlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaItem) error {
-	if item == nil || item.ID <= 0 || item.Type == LibraryTypeMusic {
-		return nil
+	_, err := RefreshPlaybackTrackMetadata(ctx, db, item)
+	return err
+}
+
+func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaItem) (PlaybackTrackMetadata, error) {
+	metadata := PlaybackTrackMetadata{
+		Subtitles:           []Subtitle{},
+		EmbeddedSubtitles:   []EmbeddedSubtitle{},
+		EmbeddedAudioTracks: []EmbeddedAudioTrack{},
+	}
+	if item == nil || item.ID <= 0 {
+		return metadata, nil
 	}
 
-	path := strings.TrimSpace(item.Path)
-	if path == "" {
-		return nil
-	}
-
-	needSidecarSubtitles := len(item.Subtitles) == 0
-	needEmbeddedSubtitles := len(item.EmbeddedSubtitles) == 0
-	needEmbeddedAudio := len(item.EmbeddedAudioTracks) == 0
-	if !needSidecarSubtitles && !needEmbeddedSubtitles && !needEmbeddedAudio {
-		return nil
-	}
-
-	if needSidecarSubtitles {
-		if err := scanForSubtitles(ctx, db, item.ID, path); err != nil {
-			log.Printf("ensure playback subtitles media=%d path=%q error=%v", item.ID, path, err)
-		}
-	}
-
-	if needEmbeddedSubtitles || needEmbeddedAudio {
-		probed, err := readVideoMetadata(ctx, path)
-		if err != nil {
-			log.Printf("ensure playback embedded tracks media=%d path=%q error=%v", item.ID, path, err)
-		} else {
-			embeddedSubtitles := item.EmbeddedSubtitles
-			if needEmbeddedSubtitles {
-				embeddedSubtitles = probed.EmbeddedSubtitles
-			}
-			embeddedAudioTracks := item.EmbeddedAudioTracks
-			if needEmbeddedAudio {
-				embeddedAudioTracks = probed.EmbeddedAudioTracks
-			}
-			persistEmbeddedStreams(ctx, db, item.ID, embeddedSubtitles, embeddedAudioTracks)
-		}
-	}
-
-	refreshed, err := GetMediaByID(db, item.ID)
+	sourcePath, err := ResolveMediaSourcePath(db, *item)
 	if err != nil {
-		return err
+		return metadata, err
 	}
-	if refreshed == nil {
-		return nil
+	item.Path = sourcePath
+
+	if item.Type == LibraryTypeMusic {
+		return metadata, nil
 	}
-	resolvedPath := item.Path
-	*item = *refreshed
-	item.Path = resolvedPath
-	return nil
+
+	if err := scanForSubtitles(ctx, db, item.ID, sourcePath); err != nil {
+		log.Printf("refresh playback sidecar subtitles media=%d path=%q error=%v", item.ID, sourcePath, err)
+	}
+
+	subtitles, err := getSubtitlesForMedia(db, item.ID)
+	if err != nil {
+		return metadata, err
+	}
+	if subtitles != nil {
+		metadata.Subtitles = subtitles
+	}
+
+	probed, err := readVideoMetadata(ctx, sourcePath)
+	if err != nil {
+		log.Printf("refresh playback embedded tracks media=%d path=%q error=%v", item.ID, sourcePath, err)
+		embeddedSubtitles, embeddedAudioTracks, getErr := getPersistedPlaybackTracks(db, item.ID)
+		if getErr != nil {
+			return metadata, getErr
+		}
+		metadata.EmbeddedSubtitles = embeddedSubtitles
+		metadata.EmbeddedAudioTracks = embeddedAudioTracks
+	} else {
+		persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks)
+		metadata.EmbeddedSubtitles = append(metadata.EmbeddedSubtitles, probed.EmbeddedSubtitles...)
+		metadata.EmbeddedAudioTracks = append(metadata.EmbeddedAudioTracks, probed.EmbeddedAudioTracks...)
+	}
+
+	item.Subtitles = append([]Subtitle{}, metadata.Subtitles...)
+	item.EmbeddedSubtitles = append([]EmbeddedSubtitle{}, metadata.EmbeddedSubtitles...)
+	item.EmbeddedAudioTracks = append([]EmbeddedAudioTrack{}, metadata.EmbeddedAudioTracks...)
+	return metadata, nil
+}
+
+func getPersistedPlaybackTracks(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, []EmbeddedAudioTrack, error) {
+	embeddedSubtitles, err := getEmbeddedSubtitlesForMedia(db, mediaID)
+	if err != nil {
+		return nil, nil, err
+	}
+	embeddedAudioTracks, err := getEmbeddedAudioTracksForMedia(db, mediaID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if embeddedSubtitles == nil {
+		embeddedSubtitles = []EmbeddedSubtitle{}
+	}
+	if embeddedAudioTracks == nil {
+		embeddedAudioTracks = []EmbeddedAudioTrack{}
+	}
+	return embeddedSubtitles, embeddedAudioTracks, nil
 }
 
 func getSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Subtitle, error) {
@@ -2703,7 +2734,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, "ffprobe",
 		"-v", "error",
-		"-show_entries", "format=duration:stream=index,codec_type:stream_tags=language,title",
+		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title",
 		"-of", "json",
 		path,
 	)
@@ -2719,6 +2750,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 		Streams []struct {
 			Index     int    `json:"index"`
 			CodecType string `json:"codec_type"`
+			CodecName string `json:"codec_name"`
 			Tags      struct {
 				Language string `json:"language"`
 				Title    string `json:"title"`
@@ -2747,10 +2779,13 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 		}
 		switch stream.CodecType {
 		case "subtitle":
+			supported := isSupportedEmbeddedSubtitleCodec(stream.CodecName)
 			result.EmbeddedSubtitles = append(result.EmbeddedSubtitles, EmbeddedSubtitle{
 				StreamIndex: stream.Index,
 				Language:    lang,
 				Title:       title,
+				Codec:       strings.TrimSpace(stream.CodecName),
+				Supported:   &supported,
 			})
 		case "audio":
 			result.EmbeddedAudioTracks = append(result.EmbeddedAudioTracks, EmbeddedAudioTrack{
@@ -2761,6 +2796,15 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 		}
 	}
 	return result, nil
+}
+
+func isSupportedEmbeddedSubtitleCodec(codec string) bool {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "ass", "ssa", "subrip", "srt", "webvtt", "text", "mov_text", "ttml", "tx3g":
+		return true
+	default:
+		return false
+	}
 }
 
 func probeEmbeddedSubtitles(ctx context.Context, path string) ([]EmbeddedSubtitle, error) {
@@ -2896,7 +2940,10 @@ func iterateLibraryFiles(
 	info, err := os.Stat(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("path not found: %q — when running in Docker, use the container path (e.g. /tv, /movies, /music), not the host path", root)
+			return fmt.Errorf(
+				"path not found: %q — use a path visible to the backend process. In Docker that usually means the container mount path (for example /tv, /movies, /anime, /music); in local dev it may be the host path from PLUM_MEDIA_*_PATH in .env",
+				root,
+			)
 		}
 		return fmt.Errorf("stat path: %w", err)
 	}

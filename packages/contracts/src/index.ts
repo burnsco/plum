@@ -41,12 +41,16 @@ export interface EmbeddedSubtitle {
   streamIndex: number;
   language: string;
   title: string;
+  codec?: string;
+  supported?: boolean;
 }
 
 export const EmbeddedSubtitleSchema = Schema.Struct({
   streamIndex: Schema.Number,
   language: Schema.String,
   title: Schema.String,
+  codec: Schema.optional(Schema.String),
+  supported: Schema.optional(Schema.Boolean),
 });
 
 export interface EmbeddedAudioTrack {
@@ -286,6 +290,18 @@ export const PlaybackSessionSchema = Schema.Union([
   HlsPlaybackSessionSchema,
 ]);
 
+export interface PlaybackTrackMetadata {
+  subtitles?: Subtitle[];
+  embeddedSubtitles?: EmbeddedSubtitle[];
+  embeddedAudioTracks?: EmbeddedAudioTrack[];
+}
+
+export const PlaybackTrackMetadataSchema = Schema.Struct({
+  subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
+  embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
+  embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+});
+
 export interface ContinueWatchingEntry {
   kind: "movie" | "show";
   media: MediaItem;
@@ -418,10 +434,22 @@ export const UserSchema = Schema.Struct({
 
 export interface SetupStatus {
   hasAdmin: boolean;
+  libraryDefaults: {
+    tv: string;
+    movie: string;
+    anime: string;
+    music: string;
+  };
 }
 
 export const SetupStatusSchema = Schema.Struct({
   hasAdmin: Schema.Boolean,
+  libraryDefaults: Schema.Struct({
+    tv: Schema.String,
+    movie: Schema.String,
+    anime: Schema.String,
+    music: Schema.String,
+  }),
 });
 
 export interface ScanLibraryResult {
@@ -815,6 +843,10 @@ export type DiscoverMediaType = "movie" | "tv";
 
 export const DiscoverMediaTypeSchema = Schema.Literals(["movie", "tv"]);
 
+export type MediaStackServiceKind = "radarr" | "sonarr-tv";
+
+export const MediaStackServiceKindSchema = Schema.Literals(["radarr", "sonarr-tv"]);
+
 export interface DiscoverLibraryMatch {
   library_id: number;
   library_name: string;
@@ -831,6 +863,29 @@ export const DiscoverLibraryMatchSchema = Schema.Struct({
   show_key: Schema.optional(Schema.String),
 });
 
+export type DiscoverAcquisitionState = "not_added" | "added" | "downloading" | "available";
+
+export const DiscoverAcquisitionStateSchema = Schema.Literals([
+  "not_added",
+  "added",
+  "downloading",
+  "available",
+]);
+
+export interface DiscoverAcquisition {
+  state: DiscoverAcquisitionState;
+  source?: MediaStackServiceKind;
+  can_add?: boolean;
+  is_configured?: boolean;
+}
+
+export const DiscoverAcquisitionSchema = Schema.Struct({
+  state: DiscoverAcquisitionStateSchema,
+  source: Schema.optional(MediaStackServiceKindSchema),
+  can_add: Schema.optional(Schema.Boolean),
+  is_configured: Schema.optional(Schema.Boolean),
+});
+
 export interface DiscoverItem {
   media_type: DiscoverMediaType;
   tmdb_id: number;
@@ -842,6 +897,7 @@ export interface DiscoverItem {
   first_air_date?: string;
   vote_average?: number;
   library_matches?: DiscoverLibraryMatch[];
+  acquisition?: DiscoverAcquisition;
 }
 
 export const DiscoverItemSchema = Schema.Struct({
@@ -855,6 +911,7 @@ export const DiscoverItemSchema = Schema.Struct({
   first_air_date: Schema.optional(Schema.String),
   vote_average: Schema.optional(Schema.Number),
   library_matches: Schema.optional(Schema.Array(DiscoverLibraryMatchSchema)),
+  acquisition: Schema.optional(DiscoverAcquisitionSchema),
 });
 
 export interface DiscoverShelf {
@@ -922,6 +979,7 @@ export interface DiscoverTitleDetails {
   number_of_episodes?: number;
   videos: DiscoverTitleVideo[];
   library_matches?: DiscoverLibraryMatch[];
+  acquisition?: DiscoverAcquisition;
 }
 
 export const DiscoverTitleDetailsSchema = Schema.Struct({
@@ -943,6 +1001,111 @@ export const DiscoverTitleDetailsSchema = Schema.Struct({
   number_of_episodes: Schema.optional(Schema.Number),
   videos: Schema.Array(DiscoverTitleVideoSchema),
   library_matches: Schema.optional(Schema.Array(DiscoverLibraryMatchSchema)),
+  acquisition: Schema.optional(DiscoverAcquisitionSchema),
+});
+
+export interface MediaStackServiceSettings {
+  baseUrl: string;
+  apiKey: string;
+  qualityProfileId: number;
+  rootFolderPath: string;
+  searchOnAdd: boolean;
+}
+
+export const MediaStackServiceSettingsSchema = Schema.Struct({
+  baseUrl: Schema.String,
+  apiKey: Schema.String,
+  qualityProfileId: Schema.Number,
+  rootFolderPath: Schema.String,
+  searchOnAdd: Schema.Boolean,
+});
+
+export interface MediaStackSettings {
+  radarr: MediaStackServiceSettings;
+  sonarrTv: MediaStackServiceSettings;
+}
+
+export const MediaStackSettingsSchema = Schema.Struct({
+  radarr: MediaStackServiceSettingsSchema,
+  sonarrTv: MediaStackServiceSettingsSchema,
+});
+
+export interface MediaStackRootFolderOption {
+  path: string;
+}
+
+export const MediaStackRootFolderOptionSchema = Schema.Struct({
+  path: Schema.String,
+});
+
+export interface MediaStackQualityProfileOption {
+  id: number;
+  name: string;
+}
+
+export const MediaStackQualityProfileOptionSchema = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+});
+
+export interface MediaStackServiceValidationResult {
+  configured: boolean;
+  reachable: boolean;
+  errorMessage?: string;
+  rootFolders: MediaStackRootFolderOption[];
+  qualityProfiles: MediaStackQualityProfileOption[];
+}
+
+export const MediaStackServiceValidationResultSchema = Schema.Struct({
+  configured: Schema.Boolean,
+  reachable: Schema.Boolean,
+  errorMessage: Schema.optional(Schema.String),
+  rootFolders: Schema.Array(MediaStackRootFolderOptionSchema),
+  qualityProfiles: Schema.Array(MediaStackQualityProfileOptionSchema),
+});
+
+export interface MediaStackValidationResult {
+  radarr: MediaStackServiceValidationResult;
+  sonarrTv: MediaStackServiceValidationResult;
+}
+
+export const MediaStackValidationResultSchema = Schema.Struct({
+  radarr: MediaStackServiceValidationResultSchema,
+  sonarrTv: MediaStackServiceValidationResultSchema,
+});
+
+export interface DownloadItem {
+  id: string;
+  title: string;
+  media_type: DiscoverMediaType;
+  source: MediaStackServiceKind;
+  status_text: string;
+  progress?: number;
+  size_left_bytes?: number;
+  eta_seconds?: number;
+  error_message?: string;
+}
+
+export const DownloadItemSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  media_type: DiscoverMediaTypeSchema,
+  source: MediaStackServiceKindSchema,
+  status_text: Schema.String,
+  progress: Schema.optional(Schema.Number),
+  size_left_bytes: Schema.optional(Schema.Number),
+  eta_seconds: Schema.optional(Schema.Number),
+  error_message: Schema.optional(Schema.String),
+});
+
+export interface DownloadsResponse {
+  configured: boolean;
+  items: DownloadItem[];
+}
+
+export const DownloadsResponseSchema = Schema.Struct({
+  configured: Schema.Boolean,
+  items: Schema.Array(DownloadItemSchema),
 });
 
 export interface ShowActionResult {

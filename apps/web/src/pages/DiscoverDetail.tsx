@@ -1,16 +1,19 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, Film, Sparkles, Star, Tv } from "lucide-react";
 import { tmdbBackdropUrl, tmdbPosterUrl } from "@plum/shared";
 import { Button } from "@/components/ui/button";
 import type { DiscoverMediaType } from "@/api";
+import { useAuthState } from "@/contexts/AuthContext";
 import {
+  discoverAcquisitionLabel,
+  discoverAcquisitionTone,
   discoverDetailMeta,
   discoverLibraryHref,
   discoverMediaLabel,
   discoverVideoUrl,
   firstDiscoverMatch,
 } from "@/lib/discover";
-import { useDiscoverTitleDetails } from "@/queries";
+import { useAddDiscoverTitle, useDiscoverTitleDetails } from "@/queries";
 
 function isDiscoverMediaType(value: string | undefined): value is DiscoverMediaType {
   return value === "movie" || value === "tv";
@@ -21,15 +24,19 @@ function isDiscoverConfigError(error: Error | null): boolean {
 }
 
 export function DiscoverDetail() {
+  const { user } = useAuthState();
+  const isAdmin = user?.is_admin ?? false;
+  const navigate = useNavigate();
   const { mediaType: mediaTypeParam, tmdbId: tmdbIdParam } = useParams();
   const mediaType = isDiscoverMediaType(mediaTypeParam) ? mediaTypeParam : null;
   const tmdbId = tmdbIdParam ? Number.parseInt(tmdbIdParam, 10) : null;
+  const addTitle = useAddDiscoverTitle();
   const {
     data: details,
     error,
     isLoading,
     refetch,
-  } = useDiscoverTitleDetails(mediaType, tmdbId);
+  } = useDiscoverTitleDetails(mediaType, tmdbId, { refetchInterval: 15_000 });
 
   if (mediaType == null || tmdbId == null || Number.isNaN(tmdbId) || tmdbId <= 0) {
     return (
@@ -83,6 +90,21 @@ export function DiscoverDetail() {
     .map((video) => ({ ...video, href: discoverVideoUrl(video) }))
     .filter((video) => video.href !== "")
     .slice(0, 6);
+  const addPending =
+    addTitle.isPending &&
+    addTitle.variables?.mediaType === details.media_type &&
+    addTitle.variables?.tmdbId === details.tmdb_id;
+  const needsSetup =
+    details.acquisition?.is_configured === false &&
+    details.acquisition?.state === "not_added" &&
+    isAdmin;
+  const actionLabel = needsSetup
+    ? "Open Media Stack Settings"
+    : discoverAcquisitionLabel(details.acquisition, addPending);
+  const actionTone = needsSetup
+    ? "default"
+    : discoverAcquisitionTone(details.acquisition, addPending);
+  const canAdd = details.acquisition?.can_add === true;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
@@ -166,14 +188,34 @@ export function DiscoverDetail() {
                   <Link to={discoverLibraryHref(primaryMatch)}>Open in Library</Link>
                 </Button>
               ) : (
-                <div className="rounded-[var(--radius-lg)] border border-dashed border-white/15 bg-white/6 px-4 py-3 text-sm text-white/75">
-                  Not in your server yet.
-                </div>
+                <Button
+                  variant={actionTone === "success" ? "secondary" : "default"}
+                  disabled={!needsSetup && (!canAdd || addPending)}
+                  onClick={() => {
+                    if (needsSetup) {
+                      navigate("/settings");
+                      return;
+                    }
+                    if (canAdd) {
+                      addTitle.mutate({ mediaType: details.media_type, tmdbId: details.tmdb_id });
+                    }
+                  }}
+                >
+                  {actionLabel}
+                </Button>
               )}
               <Button asChild variant="outline">
                 <Link to="/discover">Back to Discover</Link>
               </Button>
             </div>
+
+            {!primaryMatch && details.acquisition?.is_configured === false ? (
+              <p className="text-sm text-white/68">
+                {isAdmin
+                  ? "Configure Radarr and Sonarr TV in Settings to enable direct adds from Discover."
+                  : "Direct add is unavailable until an admin configures the media stack."}
+              </p>
+            ) : null}
 
             {(details.library_matches?.length ?? 0) > 0 ? (
               <div className="rounded-[var(--radius-lg)] border border-white/10 bg-black/20 p-4">

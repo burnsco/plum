@@ -59,6 +59,18 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	if err != nil {
 		return err
 	}
+	if subtitle, err := resolveEmbeddedSubtitleForPlayback(r.Context(), sourcePath, *item, streamIndex); err == nil {
+		if subtitle.Supported != nil && !*subtitle.Supported {
+			codec := subtitle.Codec
+			if codec == "" {
+				codec = "unknown"
+			}
+			return &StatusError{
+				Status:  http.StatusUnprocessableEntity,
+				Message: fmt.Sprintf("embedded subtitle codec %q is not supported for web playback", codec),
+			}
+		}
+	}
 	startedAt := time.Now()
 	out, err := convertSubtitleToVTT(r.Context(), []string{"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...)
 	if err != nil {
@@ -88,12 +100,26 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 }
 
 func hasEmbeddedSubtitleStream(item MediaItem, streamIndex int) bool {
-	for _, subtitle := range item.EmbeddedSubtitles {
-		if subtitle.StreamIndex == streamIndex {
-			return true
+	return findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex) != nil
+}
+
+func findEmbeddedSubtitleStream(subtitles []EmbeddedSubtitle, streamIndex int) *EmbeddedSubtitle {
+	for i := range subtitles {
+		if subtitles[i].StreamIndex == streamIndex {
+			return &subtitles[i]
 		}
 	}
-	return false
+	return nil
+}
+
+func resolveEmbeddedSubtitleForPlayback(ctx context.Context, sourcePath string, item MediaItem, streamIndex int) (*EmbeddedSubtitle, error) {
+	probed, err := readVideoMetadata(ctx, sourcePath)
+	if err == nil {
+		if subtitle := findEmbeddedSubtitleStream(probed.EmbeddedSubtitles, streamIndex); subtitle != nil {
+			return subtitle, nil
+		}
+	}
+	return findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex), err
 }
 
 func convertSubtitleToVTT(ctx context.Context, args ...string) ([]byte, error) {

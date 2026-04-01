@@ -16,6 +16,7 @@ import {
   type PlumWebSocketEvent,
 } from "@plum/shared";
 import { BASE_URL } from "../api";
+import { useAuthActions, useAuthState } from "./AuthContext";
 
 type WsContextValue = {
   wsConnected: boolean;
@@ -27,6 +28,9 @@ type WsContextValue = {
 const WsContext = createContext<WsContextValue | null>(null);
 
 export function WsProvider({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuthState();
+  const { refreshMe } = useAuthActions();
+  const userId = user?.id ?? null;
   const [wsConnected, setWsConnected] = useState(false);
   const [latestEvent, setLatestEvent] = useState<PlumWebSocketEvent | null>(
     null,
@@ -49,24 +53,60 @@ export function WsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
 
+    if (loading || userId == null) {
+      setWsConnected(false);
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = 0;
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = 0;
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      return () => {
+        mountedRef.current = false;
+      };
+    }
+
+    let cancelled = false;
+
     const connect = () => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || cancelled || wsRef.current != null) return;
+      let opened = false;
       const ws = new WebSocket(
         buildPlumWebSocketUrl(BASE_URL, window.location.origin),
       );
       wsRef.current = ws;
       ws.addEventListener("open", () => {
+        opened = true;
         if (mountedRef.current) {
           setWsConnected(true);
         }
       });
       ws.addEventListener("close", () => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || cancelled) return;
         if (wsRef.current === ws) {
           wsRef.current = null;
         }
         setWsConnected(false);
-        reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        const reconnect = () => {
+          if (!mountedRef.current || cancelled || wsRef.current != null) return;
+          reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        };
+
+        void refreshMe()
+          .then((nextUser) => {
+            if (nextUser == null) {
+              return;
+            }
+            reconnect();
+          })
+          .catch(() => {
+            if (!opened) {
+              return;
+            }
+            reconnect();
+          });
       });
       ws.addEventListener("message", (event) => {
         if (!mountedRef.current) return;
@@ -81,6 +121,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
 
     connectTimeoutRef.current = setTimeout(connect, 0);
     return () => {
+      cancelled = true;
       mountedRef.current = false;
       clearTimeout(connectTimeoutRef.current);
       connectTimeoutRef.current = 0;
@@ -91,7 +132,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
         wsRef.current = null;
       }
     };
-  }, []);
+  }, [loading, refreshMe, userId]);
 
   const value = useMemo<WsContextValue>(
     () => ({

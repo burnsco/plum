@@ -57,6 +57,16 @@ const defaultTranscodingSettings = {
   maxBitrate: "0",
 } satisfies api.TranscodingSettings;
 
+const defaultSetupStatus = {
+  hasAdmin: true,
+  libraryDefaults: {
+    tv: "/tv",
+    movie: "/movies",
+    anime: "/anime",
+    music: "/music",
+  },
+} satisfies api.SetupStatus;
+
 function mockAuthSession({
   hasAdmin = true,
   user = defaultUser,
@@ -107,7 +117,7 @@ function identifyLibraryIds() {
 }
 
 function mockDefaultAppApis() {
-  vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
+  vi.spyOn(api, "getSetupStatus").mockResolvedValue(defaultSetupStatus);
   vi.spyOn(api, "getMe").mockResolvedValue(defaultUser);
   vi.spyOn(api, "getLibraryScanStatus").mockImplementation(async (libraryId) => ({
     libraryId,
@@ -1765,7 +1775,7 @@ describe("App library and player wiring", () => {
 
   it("finishes onboarding after background identify starts without waiting for completion", async () => {
     mockAuthSession({ hasAdmin: false, user: null });
-    vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
+    vi.spyOn(api, "getSetupStatus").mockResolvedValue(defaultSetupStatus);
     vi.spyOn(api, "createAdmin").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
@@ -1840,7 +1850,7 @@ describe("App library and player wiring", () => {
 
   it("shows finishing state in onboarding import summaries", async () => {
     mockAuthSession({ hasAdmin: false, user: null });
-    vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
+    vi.spyOn(api, "getSetupStatus").mockResolvedValue(defaultSetupStatus);
     vi.spyOn(api, "createAdmin").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
@@ -1925,7 +1935,7 @@ describe("App library and player wiring", () => {
 
   it("auto-enters the app after adding default libraries while identify runs in the background", async () => {
     mockAuthSession({ hasAdmin: false, user: null });
-    vi.spyOn(api, "getSetupStatus").mockResolvedValue({ hasAdmin: true });
+    vi.spyOn(api, "getSetupStatus").mockResolvedValue(defaultSetupStatus);
     vi.spyOn(api, "createAdmin").mockResolvedValue({
       id: 1,
       email: "admin@example.com",

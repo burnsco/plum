@@ -10,6 +10,15 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+type StatusError struct {
+	Status  int
+	Message string
+}
+
+func (e *StatusError) Error() string {
+	return e.Message
+}
+
 func HandleListMediaForUser(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, userID int) {
 	items, err := GetAllMediaForUser(dbConn, userID)
 	if err != nil {

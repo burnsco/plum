@@ -1,6 +1,4 @@
-Good. Here’s the architecture I’d use for a **Jellyfin/Plex-style Android TV client** tied to your full-stack app.
-
-## High-level shape
+# High-level shape
 
 ```text
 Android TV App
@@ -35,22 +33,22 @@ For Android TV, Google’s current direction is: build the app as a normal Andro
 
 I’d use:
 
-* **Kotlin**
-* **Android Studio**
-* **Jetpack Compose**
-* **Compose for TV**
-* **Media3 / ExoPlayer**
-* **Retrofit + OkHttp**
-* **Coil**
-* **Room or DataStore**
-* **Hilt**
-* **ViewModel + StateFlow**
+- **Kotlin**
+- **Android Studio**
+- **Jetpack Compose**
+- **Compose for TV**
+- **Media3 / ExoPlayer**
+- **Retrofit + OkHttp**
+- **Coil**
+- **Room or DataStore**
+- **Hilt**
+- **ViewModel + StateFlow**
 
 Why this stack:
 
-* Jetpack Compose is Android’s recommended modern UI toolkit. ([Android Developers][2])
-* Compose for TV is the TV-specific UI path for Android TV apps. ([Android Developers][1])
-* Media3 is Google’s current media stack, and ExoPlayer lives there. ([Android Developers][3])
+- Jetpack Compose is Android’s recommended modern UI toolkit. ([Android Developers][2])
+- Compose for TV is the TV-specific UI path for Android TV apps. ([Android Developers][1])
+- Media3 is Google’s current media stack, and ExoPlayer lives there. ([Android Developers][3])
 
 ## App modules I’d split out
 
@@ -117,21 +115,21 @@ On TV, this needs to be designed around **D-pad navigation, focus states, and 10
 
 Use Compose for TV for:
 
-* home rails
-* poster rows
-* hero banners
-* details pages
-* search UI
-* settings
-* playback overlays
+- home rails
+- poster rows
+- hero banners
+- details pages
+- search UI
+- settings
+- playback overlays
 
 Important TV-specific concerns:
 
-* focus ring / focused card scaling
-* remote-friendly nav
-* very little dense text
-* oversized hit areas
-* predictable back behavior
+- focus ring / focused card scaling
+- remote-friendly nav
+- very little dense text
+- oversized hit areas
+- predictable back behavior
 
 This is where a lot of TV apps fail. Web UI habits do not transfer well.
 
@@ -163,11 +161,11 @@ GET    /items/:id/streams
 
 The TV app should not do heavy media logic on its own unless needed. Let the backend decide:
 
-* direct play vs transcode
-* stream URL
-* subtitle strategy
-* bitrate profile
-* container/codec compatibility
+- direct play vs transcode
+- stream URL
+- subtitle strategy
+- bitrate profile
+- container/codec compatibility
 
 That keeps your clients thinner and easier to maintain.
 
@@ -179,14 +177,14 @@ This is the heart of it.
 
 Use **Media3 / ExoPlayer** for:
 
-* HLS playback
-* progressive file playback
-* subtitles
-* multiple audio tracks
-* seeking
-* buffering
-* playback state
-* track selection
+- HLS playback
+- progressive file playback
+- subtitles
+- multiple audio tracks
+- seeking
+- buffering
+- playback state
+- track selection
 
 Media3’s player model is built around the `Player` interface and ExoPlayer is the recommended app-level playback engine. Media3 also has Compose UI support if you want to build player UI in Compose. ([Android Developers][4])
 
@@ -222,20 +220,20 @@ You need this or your app will feel incomplete.
 
 While playback is happening, report:
 
-* session started
-* current position every few seconds
-* paused / resumed
-* completed / stopped
-* subtitle/audio changes if you care
-* device info / client name
+- session started
+- current position every few seconds
+- paused / resumed
+- completed / stopped
+- subtitle/audio changes if you care
+- device info / client name
 
 This powers:
 
-* continue watching
-* resume playback
-* multi-device session view
-* “now playing”
-* next episode logic
+- continue watching
+- resume playback
+- multi-device session view
+- “now playing”
+- next episode logic
 
 A media app without solid playback reporting feels broken fast.
 
@@ -245,14 +243,14 @@ A media app without solid playback reporting feels broken fast.
 
 Use **Room** or **DataStore** for:
 
-* auth token
-* selected server
-* user/profile
-* playback preferences
-* subtitle defaults
-* local cached home rails
-* search history
-* continue-watching snapshot
+- auth token
+- selected server
+- user/profile
+- playback preferences
+- subtitle defaults
+- local cached home rails
+- search history
+- continue-watching snapshot
 
 Do not rely entirely on live API calls for every movement. TV apps feel sluggish when every screen is cold-fetched.
 
@@ -327,26 +325,26 @@ Because playback success depends on what the client can actually handle. Media3 
 
 Split search into:
 
-* **server search** for library items
-* maybe **global discovery** later
-* recent searches cached locally
+- **server search** for library items
+- maybe **global discovery** later
+- recent searches cached locally
 
 TV search should be dead simple:
 
-* open search screen
-* on-screen keyboard
-* optional voice later
-* big result tiles
+- open search screen
+- on-screen keyboard
+- optional voice later
+- big result tiles
 
 ## Images and metadata
 
 Use image endpoints for:
 
-* posters
-* backdrops
-* logos
-* thumbnails
-* episode stills
+- posters
+- backdrops
+- logos
+- thumbnails
+- episode stills
 
 Use **Coil** to cache aggressively. TV UIs lean heavily on image grids and rows, so weak image caching makes the whole app feel cheap.
 
@@ -356,12 +354,12 @@ This part matters more than most people think.
 
 Every screen needs:
 
-* deterministic focus entry point
-* deterministic focus restore
-* no focus traps
-* visible selected state
-* good back-stack behavior
-* no weird modal dead ends
+- deterministic focus entry point
+- deterministic focus restore
+- no focus traps
+- visible selected state
+- good back-stack behavior
+- no weird modal dead ends
 
 Android TV apps are built around controller handling and TV navigation patterns, so this is not optional polish; it’s core functionality. ([Android Developers][1])
 
@@ -369,10 +367,10 @@ Android TV apps are built around controller handling and TV navigation patterns,
 
 Yes, you can do a lot before touching a real TV:
 
-* Android TV emulator for install/debug
-* Compose previews for UI iteration
-* local backend running on your machine
-* test player against sample HLS/direct streams
+- Android TV emulator for install/debug
+- Compose previews for UI iteration
+- local backend running on your machine
+- test player against sample HLS/direct streams
 
 Android’s TV docs support emulator-based development, and the emulator is the right place to start. ([Android Developers][1])
 
@@ -384,33 +382,33 @@ Order matters. Do this:
 
 ### Phase 1
 
-* login to server
-* home screen with poster rows
-* movie details page
-* basic playback with one stream type
-* progress reporting
+- login to server
+- home screen with poster rows
+- movie details page
+- basic playback with one stream type
+- progress reporting
 
 ### Phase 2
 
-* shows/seasons/episodes
-* resume playback
-* subtitles/audio track switching
-* continue watching
+- shows/seasons/episodes
+- resume playback
+- subtitles/audio track switching
+- continue watching
 
 ### Phase 3
 
-* search
-* settings
-* profile switching
-* better caching
-* polished player overlay
+- search
+- settings
+- profile switching
+- better caching
+- polished player overlay
 
 ### Phase 4
 
-* recommendations
-* next episode autoplay
-* quality selection
-* downloads only if you really need them
+- recommendations
+- next episode autoplay
+- quality selection
+- downloads only if you really need them
 
 ## My honest recommendation for your stack
 
@@ -418,11 +416,11 @@ For your project, I would not try to over-share UI code from the React frontend 
 
 Do this instead:
 
-* **Go backend** stays shared
-* **shared API schema** stays shared conceptually
-* **Android TV app** is native Kotlin
-* **web app** stays React
-* reuse backend contracts, not frontend rendering
+- **Go backend** stays shared
+- **shared API schema** stays shared conceptually
+- **Android TV app** is native Kotlin
+- **web app** stays React
+- reuse backend contracts, not frontend rendering
 
 That gives you the cleanest result.
 

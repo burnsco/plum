@@ -148,6 +148,22 @@ const (
 	DiscoverMediaTypeTV    DiscoverMediaType = "tv"
 )
 
+type MediaStackServiceKind string
+
+const (
+	MediaStackServiceRadarr   MediaStackServiceKind = "radarr"
+	MediaStackServiceSonarrTV MediaStackServiceKind = "sonarr-tv"
+)
+
+type DiscoverAcquisitionState string
+
+const (
+	DiscoverAcquisitionStateNotAdded    DiscoverAcquisitionState = "not_added"
+	DiscoverAcquisitionStateAdded       DiscoverAcquisitionState = "added"
+	DiscoverAcquisitionStateDownloading DiscoverAcquisitionState = "downloading"
+	DiscoverAcquisitionStateAvailable   DiscoverAcquisitionState = "available"
+)
+
 var ErrTMDBNotConfigured = errors.New("tmdb discover requires TMDB_API_KEY")
 
 // ProviderError describes a provider HTTP or transport failure.
@@ -191,6 +207,13 @@ type DiscoverLibraryMatch struct {
 	ShowKey     string `json:"show_key,omitempty"`
 }
 
+type DiscoverAcquisition struct {
+	State        DiscoverAcquisitionState `json:"state"`
+	Source       MediaStackServiceKind    `json:"source,omitempty"`
+	CanAdd       bool                     `json:"can_add,omitempty"`
+	IsConfigured bool                     `json:"is_configured,omitempty"`
+}
+
 type DiscoverItem struct {
 	MediaType      DiscoverMediaType      `json:"media_type"`
 	TMDBID         int                    `json:"tmdb_id"`
@@ -202,6 +225,7 @@ type DiscoverItem struct {
 	FirstAirDate   string                 `json:"first_air_date,omitempty"`
 	VoteAverage    float64                `json:"vote_average,omitempty"`
 	LibraryMatches []DiscoverLibraryMatch `json:"library_matches,omitempty"`
+	Acquisition    *DiscoverAcquisition   `json:"acquisition,omitempty"`
 }
 
 type DiscoverShelf struct {
@@ -246,6 +270,7 @@ type DiscoverTitleDetails struct {
 	NumberOfEpisodes int                    `json:"number_of_episodes,omitempty"`
 	Videos           []DiscoverTitleVideo   `json:"videos"`
 	LibraryMatches   []DiscoverLibraryMatch `json:"library_matches,omitempty"`
+	Acquisition      *DiscoverAcquisition   `json:"acquisition,omitempty"`
 }
 
 type DiscoverProvider interface {

@@ -15,6 +15,7 @@ export function MediaCard({
   const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
   const [posterErrored, setPosterErrored] = useState(false);
   const cardState = item.cardState ?? "default";
+  const hasInlineAction = item.actionLabel != null;
   const progressPercent =
     item.progressPercent != null
       ? Math.max(0, Math.min(100, item.progressPercent))
@@ -31,16 +32,23 @@ export function MediaCard({
   return (
     <div className={`show-card ${className ?? ""}`} onContextMenu={item.onContextMenu}>
       {item.href ? (
-        <Link to={item.href} className="show-card-hit-area" aria-label={item.title} />
+        <Link
+          to={item.href}
+          className={`show-card-hit-area${hasInlineAction ? " show-card-hit-area--with-inline-action" : ""}`}
+          aria-label={item.title}
+        />
       ) : item.onClick ? (
         <button
           type="button"
-          className="show-card-hit-area show-card-hit-area-button"
+          className={`show-card-hit-area show-card-hit-area-button${hasInlineAction ? " show-card-hit-area--with-inline-action" : ""}`}
           aria-label={item.title}
           onClick={item.onClick}
         />
       ) : (
-        <div className="show-card-hit-area" aria-hidden="true" />
+        <div
+          className={`show-card-hit-area${hasInlineAction ? " show-card-hit-area--with-inline-action" : ""}`}
+          aria-hidden="true"
+        />
       )}
 
       {item.onPlay && cardState === "default" && (
@@ -129,6 +137,22 @@ export function MediaCard({
             )}
             {item.metaLine ? <span className="show-card-meta__copy">{item.metaLine}</span> : null}
           </div>
+          {item.actionLabel ? (
+            <div className="show-card-action-row">
+              <button
+                type="button"
+                className={`show-card-inline-action show-card-inline-action--${item.actionTone ?? "default"}`}
+                disabled={item.actionDisabled}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  item.onAction?.();
+                }}
+              >
+                {item.actionLabel}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

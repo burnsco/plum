@@ -72,6 +72,8 @@ export function TopBar() {
   const isHomeRoute = location.pathname === "/";
   const isDiscoverRoute =
     location.pathname === "/discover" || location.pathname.startsWith("/discover/");
+  const isDownloadsRoute =
+    location.pathname === "/downloads" || location.pathname.startsWith("/downloads/");
 
   useEffect(() => {
     if (location.pathname === "/search") {
@@ -154,6 +156,9 @@ export function TopBar() {
           </MobileNavLink>
           <MobileNavLink to="/discover" active={isDiscoverRoute}>
             Discover
+          </MobileNavLink>
+          <MobileNavLink to="/downloads" active={isDownloadsRoute}>
+            Downloads
           </MobileNavLink>
           {libraries.map((library) => {
             const active =

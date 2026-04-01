@@ -47,6 +47,11 @@ func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, al
 }
 
 func logWebSocketHandshakeRejected(r *http.Request, reason string, userID int) {
+	hasSessionCookie := sessionIDFromRequest(r) != ""
+	if reason == "unauthorized" && !hasSessionCookie {
+		return
+	}
+
 	log.Printf(
 		"ws handshake rejected reason=%s origin=%q remote=%q host=%q user_id=%d session_cookie=%t",
 		reason,
@@ -54,7 +59,7 @@ func logWebSocketHandshakeRejected(r *http.Request, reason string, userID int) {
 		clientIP(r),
 		strings.TrimSpace(r.Host),
 		userID,
-		sessionIDFromRequest(r) != "",
+		hasSessionCookie,
 	)
 }
 

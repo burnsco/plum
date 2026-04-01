@@ -1,4 +1,4 @@
-# Option 2: The "Hybrid Powerhouse" (React Native + Expo)
+# Option 1: The "Hybrid Powerhouse" (React Native + Expo)
 
 If your web player uses React, this is the gold standard. You reuse your logic (API calls, state management) but use native video components.
 

@@ -43,14 +43,8 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	sourcePath, err := db.ResolveMediaSourcePath(h.DB, *media)
-	if err != nil {
+	if _, err := db.RefreshPlaybackTrackMetadata(r.Context(), h.DB, media); err != nil {
 		writePlaybackError(w, err)
-		return
-	}
-	media.Path = sourcePath
-	if err := db.EnsurePlaybackTrackMetadata(r.Context(), h.DB, media); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	settings, err := db.GetTranscodingSettings(h.DB)
@@ -84,6 +78,29 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(state)
+}
+
+func (h *PlaybackHandler) RefreshPlaybackTracks(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	media, err := db.GetMediaByID(h.DB, id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if media == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	metadata, err := db.RefreshPlaybackTrackMetadata(r.Context(), h.DB, media)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(metadata)
 }
 
 func (h *PlaybackHandler) UpdateSessionAudio(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +244,10 @@ func writePlaybackError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	if errors.Is(err, db.ErrNotFound) {
 		status = http.StatusNotFound
+	}
+	var statusErr *db.StatusError
+	if errors.As(err, &statusErr) {
+		status = statusErr.Status
 	}
 	http.Error(w, err.Error(), status)
 }

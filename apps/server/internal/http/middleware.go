@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -137,6 +138,9 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 				sessID,
 			).Scan(&userID, &expiresAt)
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					clearSessionCookie(w, r)
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -153,6 +157,10 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 				userID,
 			).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt)
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessID)
+					clearSessionCookie(w, r)
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

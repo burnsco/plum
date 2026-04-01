@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -18,7 +19,32 @@ type AuthHandler struct {
 }
 
 type setupStatusResponse struct {
-	HasAdmin bool `json:"hasAdmin"`
+	HasAdmin        bool                `json:"hasAdmin"`
+	LibraryDefaults setupLibraryConfig `json:"libraryDefaults"`
+}
+
+type setupLibraryConfig struct {
+	TV    string `json:"tv"`
+	Movie string `json:"movie"`
+	Anime string `json:"anime"`
+	Music string `json:"music"`
+}
+
+func setupLibraryDefaults() setupLibraryConfig {
+	return setupLibraryConfig{
+		TV:    envOrDefault("PLUM_MEDIA_TV_PATH", "/tv"),
+		Movie: envOrDefault("PLUM_MEDIA_MOVIES_PATH", "/movies"),
+		Anime: envOrDefault("PLUM_MEDIA_ANIME_PATH", "/anime"),
+		Music: envOrDefault("PLUM_MEDIA_MUSIC_PATH", "/music"),
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func (h *AuthHandler) SetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +55,10 @@ func (h *AuthHandler) SetupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(setupStatusResponse{HasAdmin: count > 0})
+	_ = json.NewEncoder(w).Encode(setupStatusResponse{
+		HasAdmin:        count > 0,
+		LibraryDefaults: setupLibraryDefaults(),
+	})
 }
 
 type adminSetupRequest struct {

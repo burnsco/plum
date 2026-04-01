@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"plum/internal/arr"
 	"plum/internal/db"
 	"plum/internal/metadata"
 )
@@ -28,6 +29,7 @@ type LibraryHandler struct {
 	Series      metadata.SeriesDetailsProvider
 	SeriesQuery metadata.SeriesSearchProvider
 	Discover    metadata.DiscoverProvider
+	Arr         *arr.Service
 	ScanJobs    *LibraryScanManager
 	SearchIndex *SearchIndexManager
 	identifyRun *identifyRunTracker
@@ -2600,6 +2602,7 @@ func (h *LibraryHandler) GetDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	h.enrichDiscoverShelvesAcquisition(r.Context(), payload)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }
@@ -2643,6 +2646,7 @@ func (h *LibraryHandler) SearchDiscover(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	h.enrichDiscoverSearchAcquisition(r.Context(), payload)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }
@@ -2683,6 +2687,7 @@ func (h *LibraryHandler) GetDiscoverTitleDetails(w http.ResponseWriter, r *http.
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	h.enrichDiscoverTitleAcquisition(r.Context(), details)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(details)

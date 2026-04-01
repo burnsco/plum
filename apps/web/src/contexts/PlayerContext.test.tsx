@@ -248,6 +248,11 @@ describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.spyOn(api, "getMe").mockResolvedValue({
+      id: 1,
+      email: "admin@example.com",
+      is_admin: true,
+    });
     vi.spyOn(api, "listLibraries").mockResolvedValue([]);
     vi.spyOn(api, "createPlaybackSession").mockResolvedValue({
       sessionId: "session-99",

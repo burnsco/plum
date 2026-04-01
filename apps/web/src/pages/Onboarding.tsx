@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LibraryType } from "../api";
-import { createAdmin, createLibrary, getLibraryScanStatus, startLibraryScan } from "../api";
+import { createAdmin, createLibrary, getLibraryScanStatus, getSetupStatus, startLibraryScan } from "../api";
 import { useAuthActions } from "../contexts/AuthContext";
 import { getEnrichmentPhase, getLibraryActivity, getLibraryActivityLabel } from "../lib/libraryActivity";
 
@@ -33,13 +33,6 @@ const LIBRARY_TYPE_OPTIONS: { value: LibraryType; label: string }[] = [
   { value: "music", label: "Music" },
 ];
 
-const DEFAULT_LIBRARIES: { name: string; type: LibraryType; path: string }[] = [
-  { name: "TV", type: "tv", path: "/tv" },
-  { name: "Movies", type: "movie", path: "/movies" },
-  { name: "Anime", type: "anime", path: "/anime" },
-  { name: "Music", type: "music", path: "/music" },
-];
-
 const SCAN_STATUS_POLL_INTERVAL_MS = 2_000;
 
 function mergeLibraryScanStatus(
@@ -70,10 +63,31 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
   const [libraryName, setLibraryName] = useState("");
   const [libraryPath, setLibraryPath] = useState("");
   const [addedLibraries, setAddedLibraries] = useState<AddedLibrary[]>([]);
+  const [defaultLibraryPaths, setDefaultLibraryPaths] = useState<Record<LibraryType, string>>({
+    tv: "/tv",
+    movie: "/movies",
+    anime: "/anime",
+    music: "/music",
+  });
   const [loading, setLoading] = useState(false);
   const [addingDefaults, setAddingDefaults] = useState(false);
   const [showManualLibraryForm, setShowManualLibraryForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getSetupStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setDefaultLibraryPaths(status.libraryDefaults);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const pendingLibraries = addedLibraries.filter(
@@ -208,9 +222,15 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
     setError(null);
     setAddingDefaults(true);
     try {
+      const defaultLibraries: { name: string; type: LibraryType; path: string }[] = [
+        { name: "TV", type: "tv", path: defaultLibraryPaths.tv },
+        { name: "Movies", type: "movie", path: defaultLibraryPaths.movie },
+        { name: "Anime", type: "anime", path: defaultLibraryPaths.anime },
+        { name: "Music", type: "music", path: defaultLibraryPaths.music },
+      ];
       const existingPaths = new Set(addedLibraries.map((l) => l.path));
       const createdLibraries: AddedLibrary[] = [];
-      for (const def of DEFAULT_LIBRARIES) {
+      for (const def of defaultLibraries) {
         if (existingPaths.has(def.path)) continue;
         const lib = await createLibrary({ name: def.name, type: def.type, path: def.path });
         const nextLibrary: AddedLibrary = {

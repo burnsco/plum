@@ -28,11 +28,13 @@ type ParsedVttCueBlock = {
 export type TrackMenuOption = {
   key: string;
   label: string;
+  disabled?: boolean;
 };
 
 export type SubtitleTrackOption = TrackMenuOption & {
   src: string;
   srcLang: string;
+  supported?: boolean;
 };
 
 export type AudioTrackOption = TrackMenuOption & {
@@ -279,8 +281,9 @@ export function getPreferredSubtitleKey(
   return (
     subtitleTracks.find(
       (track) =>
-        languageMatchesPreference(track.srcLang, preferredLanguage) ||
-        languageMatchesPreference(track.label, preferredLanguage),
+        track.supported !== false &&
+        (languageMatchesPreference(track.srcLang, preferredLanguage) ||
+          languageMatchesPreference(track.label, preferredLanguage)),
     )?.key ?? "off"
   );
 }

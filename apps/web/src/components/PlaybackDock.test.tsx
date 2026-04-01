@@ -145,6 +145,11 @@ describe("PlaybackDock audio track selection", () => {
         subtitles_enabled_by_default: true,
       },
     ]);
+    vi.spyOn(api, "refreshPlaybackTracks").mockResolvedValue({
+      subtitles: [],
+      embeddedSubtitles: [],
+      embeddedAudioTracks: [],
+    });
     vi.spyOn(api, "updateMediaProgress").mockResolvedValue();
     mockUsePlayer.mockReturnValue({
       activeItem: {
@@ -736,21 +741,39 @@ describe("PlaybackDock audio track selection", () => {
     }
   });
 
-  it("keeps the subtitle picker visible when subtitle tracks exist", async () => {
-    mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
-      activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
-        subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
-      },
-    });
-
+  it("keeps the subtitle picker visible even before subtitle tracks are known", async () => {
     renderDock();
 
     expect(await screen.findByRole("button", { name: "Subtitles" })).toBeTruthy();
   });
 
-  it("shows a loading overlay while a subtitle track is being fetched", async () => {
+  it("refreshes playback tracks when opening subtitles with no usable tracks", async () => {
+    const refreshSpy = vi.spyOn(api, "refreshPlaybackTracks").mockResolvedValue({
+      subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
+      embeddedSubtitles: [],
+      embeddedAudioTracks: [],
+    });
+
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        subtitles: [],
+        embeddedSubtitles: [],
+      },
+    });
+
+    renderDock();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
+
+    await waitFor(() => {
+      expect(refreshSpy).toHaveBeenCalledWith(42);
+      expect(screen.getByRole("option", { name: /English/i })).toBeTruthy();
+    });
+  });
+
+  it("shows inline subtitle loading without blocking the player overlay", async () => {
     const subtitleRequest = createDeferred<Response>();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -793,14 +816,15 @@ describe("PlaybackDock audio track selection", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
       fireEvent.click(screen.getByRole("option", { name: /English/ }));
 
-      expect(screen.getByRole("status", { name: "Loading subtitles..." })).toBeTruthy();
+      expect(screen.getByText("Loading subtitles...")).toBeTruthy();
+      expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
 
       subtitleRequest.resolve(
         new Response("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello world\n", { status: 200 }),
       );
 
       await waitFor(() => {
-        expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
+        expect(screen.queryByText("Loading subtitles...")).toBeNull();
       });
     } finally {
       fetchSpy.mockRestore();
@@ -885,7 +909,7 @@ describe("PlaybackDock audio track selection", () => {
     }
   });
 
-  it("clears the subtitle loading overlay when subtitle loading fails", async () => {
+  it("keeps subtitle load failures non-blocking", async () => {
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       {
         id: 7,
@@ -915,10 +939,12 @@ describe("PlaybackDock audio track selection", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
       fireEvent.click(screen.getByRole("option", { name: /English/ }));
 
-      expect(screen.getByRole("status", { name: "Loading subtitles..." })).toBeTruthy();
+      expect(screen.getByText("Loading subtitles...")).toBeTruthy();
+      expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
 
       await waitFor(() => {
-        expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
+        expect(screen.queryByText("Loading subtitles...")).toBeNull();
+        expect(screen.getByText("Subtitle load failed. Try again.")).toBeTruthy();
       });
     } finally {
       fetchSpy.mockRestore();
@@ -926,6 +952,18 @@ describe("PlaybackDock audio track selection", () => {
   });
 
   it("keeps a timed out subtitle selected and allows retrying the same track", async () => {
+    const refreshSpy = vi.spyOn(api, "refreshPlaybackTracks").mockResolvedValue({
+      subtitles: [],
+      embeddedSubtitles: [
+        {
+          streamIndex: 7,
+          language: "eng",
+          title: "English Signs",
+          supported: true,
+        },
+      ],
+      embeddedAudioTracks: [],
+    });
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       {
         id: 7,
@@ -948,6 +986,7 @@ describe("PlaybackDock audio track selection", () => {
       ...mockUsePlayer.mock.results.at(-1)?.value,
       activeItem: {
         ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        id: 42,
         embeddedSubtitles: [{ streamIndex: 7, language: "eng", title: "English Signs" }],
       },
     });
@@ -958,10 +997,10 @@ describe("PlaybackDock audio track selection", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Subtitles" }));
       fireEvent.click(screen.getByRole("option", { name: /English Signs/i }));
 
-      expect(screen.getByRole("status", { name: "Loading subtitles..." })).toBeTruthy();
+      expect(screen.getByText("Loading subtitles...")).toBeTruthy();
 
       await waitFor(() => {
-        expect(screen.queryByRole("status", { name: "Loading subtitles..." })).toBeNull();
+        expect(screen.queryByText("Loading subtitles...")).toBeNull();
         expect(screen.getByText("Subtitle load timed out. Try again.")).toBeTruthy();
       });
 
@@ -972,6 +1011,7 @@ describe("PlaybackDock audio track selection", () => {
       fireEvent.click(screen.getByRole("option", { name: /English Signs/i }));
 
       await waitFor(() => {
+        expect(refreshSpy).toHaveBeenCalledWith(42);
         expect(fetchSpy).toHaveBeenCalledTimes(2);
       });
       await waitFor(() => {
@@ -980,6 +1020,46 @@ describe("PlaybackDock audio track selection", () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+
+  it("shows unsupported embedded subtitles as unavailable and skips auto-selection", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 7,
+        name: "Anime",
+        type: "anime",
+        path: "/anime",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: true,
+      },
+    ]);
+    mockUsePlayer.mockReturnValue({
+      ...mockUsePlayer.mock.results.at(-1)?.value,
+      activeItem: {
+        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        embeddedSubtitles: [
+          {
+            streamIndex: 7,
+            language: "eng",
+            title: "English PGS",
+            supported: false,
+          },
+        ],
+      },
+    });
+
+    renderDock();
+
+    const subtitleButton = await screen.findByRole("button", { name: "Subtitles" });
+    expect(subtitleButton.className.includes("is-active")).toBe(false);
+
+    fireEvent.click(subtitleButton);
+
+    const unavailableOption = screen.getByRole("option", { name: /English PGS \(Unavailable\)/i });
+    expect(unavailableOption).toBeDisabled();
+    expect(unavailableOption).toHaveAttribute("aria-selected", "false");
   });
 
   it("syncs the selected audio menu state from the active playback audio index", async () => {

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "air",
+    "dev": "bash ../../scripts/run-server-dev.sh",
     "build": "go build -o plum ./cmd/plum/main.go",
     "test": "go test ./..."
   }

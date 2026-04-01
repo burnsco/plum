@@ -867,6 +867,10 @@
   cursor: pointer;
 }
 
+.show-card-hit-area--with-inline-action {
+  bottom: 3.6rem;
+}
+
 .show-card-hit-area-button {
   padding: 0;
 }
@@ -1105,6 +1109,57 @@
   flex-direction: column;
   gap: 0.25rem;
   min-height: 5rem;
+}
+
+.show-card-action-row {
+  position: relative;
+  z-index: 3;
+  margin-top: 0.35rem;
+  pointer-events: auto;
+}
+
+.show-card-inline-action {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  background: rgba(255, 255, 255, 0.94);
+  color: rgba(18, 14, 24, 0.96);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.show-card-inline-action:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.show-card-inline-action:disabled {
+  cursor: default;
+  opacity: 0.82;
+  transform: none;
+}
+
+.show-card-inline-action--success {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.34);
+  color: rgb(167, 243, 208);
+}
+
+.show-card-inline-action--muted {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(226, 232, 240, 0.88);
 }
 
 .show-card-title {

@@ -10,6 +10,7 @@ import { MainLayout } from "./components/MainLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { Discover } from "./pages/Discover";
 import { DiscoverDetail } from "./pages/DiscoverDetail";
+import { Downloads } from "./pages/Downloads";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { MovieDetail } from "./pages/MovieDetail";
@@ -57,6 +58,7 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
                     <Route index element={<Dashboard />} />
                     <Route path="discover" element={<Discover />} />
                     <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
+                    <Route path="downloads" element={<Downloads />} />
                     <Route path="search" element={<SearchPage />} />
                     <Route path="library/:libraryId" element={<Home />} />
                     <Route path="library/:libraryId/movie/:mediaId" element={<MovieDetail />} />

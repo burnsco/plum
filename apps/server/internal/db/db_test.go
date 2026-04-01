@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -373,6 +375,76 @@ func TestHandleStreamEmbeddedSubtitle_ReturnsNotFoundForMissingStream(t *testing
 	err := HandleStreamEmbeddedSubtitle(rec, req, dbConn, mediaID, 99)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty response body on embedded subtitle error, got %q", rec.Body.String())
+	}
+}
+
+func TestHandleStreamEmbeddedSubtitle_ReturnsClientErrorForUnsupportedCodec(t *testing.T) {
+	dbConn := newTestDB(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "Episode 1.mkv")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	previousReadVideoMetadata := readVideoMetadata
+	readVideoMetadata = func(context.Context, string) (VideoProbeResult, error) {
+		supported := false
+		return VideoProbeResult{
+			EmbeddedSubtitles: []EmbeddedSubtitle{{
+				StreamIndex: 7,
+				Language:    "en",
+				Title:       "English PGS",
+				Codec:       "hdmv_pgs_subtitle",
+				Supported:   &supported,
+			}},
+		}, nil
+	}
+	t.Cleanup(func() {
+		readVideoMetadata = previousReadVideoMetadata
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV 4", "tv", root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Unsupported Stream - S01E01", sourcePath, 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`,
+		mediaID, 7, "en", "English PGS"); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d", mediaID, 7), nil)
+	err := HandleStreamEmbeddedSubtitle(rec, req, dbConn, mediaID, 7)
+	if err == nil {
+		t.Fatal("expected unsupported subtitle error")
+	}
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected StatusError, got %T %v", err, err)
+	}
+	if statusErr.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d", statusErr.Status)
+	}
+	if !strings.Contains(statusErr.Error(), "hdmv_pgs_subtitle") {
+		t.Fatalf("error = %q", statusErr.Error())
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("expected empty response body on embedded subtitle error, got %q", rec.Body.String())

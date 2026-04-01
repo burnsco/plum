@@ -1,11 +1,15 @@
 package httpapi
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"plum/internal/auth"
+	"plum/internal/db"
 )
 
 func TestSetSessionCookie_UsesSecureFlagFromEnv(t *testing.T) {
@@ -129,6 +133,120 @@ func TestRequestBodyLimitMiddleware_SkipsReadOnlyRequests(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected GET request to pass through, got %d", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_ClearsCookieWhenSessionMissing(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	middleware := AuthMiddleware(dbConn)
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName(), Value: "missing-session"})
+	rec := httptest.NewRecorder()
+
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected request to continue, got %d", rec.Code)
+	}
+	assertSessionCookieCleared(t, rec)
+}
+
+func TestAuthMiddleware_ClearsCookieWhenSessionExpired(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	sessionID := createTestSession(t, dbConn, time.Now().UTC().Add(-time.Hour))
+
+	middleware := AuthMiddleware(dbConn)
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName(), Value: sessionID})
+	rec := httptest.NewRecorder()
+
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected request to continue, got %d", rec.Code)
+	}
+	assertSessionCookieCleared(t, rec)
+
+	var count int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, sessionID).Scan(&count); err != nil {
+		t.Fatalf("count expired sessions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected expired session to be deleted, found %d rows", count)
+	}
+}
+
+func createTestSession(t *testing.T, dbConn *sql.DB, expiresAt time.Time) string {
+	t.Helper()
+
+	passwordHash, err := auth.HashPassword("correct-password")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"user@example.com",
+		passwordHash,
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	sessionID, err := auth.NewSessionID()
+	if err != nil {
+		t.Fatalf("new session id: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		sessionID,
+		userID,
+		now,
+		expiresAt,
+	); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	return sessionID
+}
+
+func assertSessionCookieCleared(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected session cookie to be cleared")
+	}
+
+	cookie := cookies[0]
+	if cookie.Name != sessionCookieName() {
+		t.Fatalf("expected cookie %q, got %q", sessionCookieName(), cookie.Name)
+	}
+	if cookie.Value != "" {
+		t.Fatalf("expected cleared cookie value, got %q", cookie.Value)
+	}
+	if cookie.MaxAge != -1 {
+		t.Fatalf("expected cleared cookie max-age -1, got %d", cookie.MaxAge)
 	}
 }
 

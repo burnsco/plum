@@ -32,7 +32,15 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { BASE_URL, updateMediaProgress } from "../api";
+import {
+  BASE_URL,
+  refreshPlaybackTracks,
+  updateMediaProgress,
+  type EmbeddedAudioTrack,
+  type EmbeddedSubtitle,
+  type PlaybackTrackMetadata,
+  type Subtitle,
+} from "../api";
 import { usePlayer } from "../contexts/PlayerContext";
 import {
   readStoredSubtitleAppearance,
@@ -85,6 +93,16 @@ type PlaybackState = {
 
 type LoadedSubtitleTrack = SubtitleTrackOption & {
   body: string;
+};
+
+type PlaybackTrackMetadataInput = {
+  subtitles?: readonly Subtitle[];
+  embeddedSubtitles?: readonly EmbeddedSubtitle[];
+  embeddedAudioTracks?: readonly EmbeddedAudioTrack[];
+};
+
+type PlaybackTrackSource = PlaybackTrackMetadataInput & {
+  mediaId: number;
 };
 
 type VideoProgressSnapshot = {
@@ -150,6 +168,7 @@ function TrackMenu({
           type="button"
           role="option"
           aria-selected={selectedKey === option.key}
+          disabled={option.disabled}
           className={`subtitle-menu__item${selectedKey === option.key ? " is-selected" : ""}`}
           onClick={() => onSelect(option.key)}
         >
@@ -291,6 +310,41 @@ function PlayerLoadingOverlay({
   );
 }
 
+function buildSubtitleTrackRequests(source: PlaybackTrackSource | null): SubtitleTrackOption[] {
+  if (source == null) return [];
+  const external =
+    source.subtitles?.map((subtitle, index) => ({
+      key: `ext-${subtitle.id}`,
+      label: subtitle.title || subtitle.language || `Subtitle ${index + 1}`,
+      src: externalSubtitleUrl(BASE_URL, subtitle.id),
+      srcLang: subtitle.language || "und",
+      supported: true,
+    })) ?? [];
+  const embedded =
+    source.embeddedSubtitles?.map((subtitle, index) => {
+      const supported = subtitle.supported ?? true;
+      const labelBase =
+        subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`;
+      return {
+        key: `emb-${subtitle.streamIndex}`,
+        label: supported ? labelBase : `${labelBase} (Unavailable)`,
+        src: embeddedSubtitleUrl(BASE_URL, source.mediaId, subtitle.streamIndex),
+        srcLang: subtitle.language || "und",
+        supported,
+        disabled: !supported,
+      };
+    }) ?? [];
+  return [...external, ...embedded];
+}
+
+function clonePlaybackTrackMetadata(metadata: PlaybackTrackMetadataInput): PlaybackTrackMetadata {
+  return {
+    subtitles: metadata.subtitles?.map((subtitle) => ({ ...subtitle })),
+    embeddedSubtitles: metadata.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
+    embeddedAudioTracks: metadata.embeddedAudioTracks?.map((track) => ({ ...track })),
+  };
+}
+
 export function PlaybackDock() {
   const queryClient = useQueryClient();
   const { data: libraries = [], isFetched: librariesFetched } = useLibraries();
@@ -320,6 +374,7 @@ export function PlaybackDock() {
   );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
+  const [refreshedPlaybackTracks, setRefreshedPlaybackTracks] = useState<PlaybackTrackMetadata | null>(null);
   const [subtitleStatusMessage, setSubtitleStatusMessage] = useState("");
   const [selectedAudioKey, setSelectedAudioKey] = useState("");
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
@@ -356,6 +411,7 @@ export function PlaybackDock() {
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
   const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const blockedSubtitleRetryKeysRef = useRef<Set<string>>(new Set());
+  const currentSubtitleMediaIdRef = useRef<number | null>(null);
   const lastVideoProgressRef = useRef<VideoProgressSnapshot | null>(null);
   const queuedSubtitlePreferenceRef = useRef<QueuedSubtitlePreference | null>(null);
   const manualSubtitleSelectionRef = useRef<number | null>(null);
@@ -399,14 +455,14 @@ export function PlaybackDock() {
   const activeItemDuration = activeItem?.duration ?? 0;
   const hasNextQueueItem = queueIndex < queue.length - 1;
   const hasVideoQueueNavigation = isVideo && queue.length > 1;
+  currentSubtitleMediaIdRef.current = activeItemId;
   const videoStatusMessage =
     hlsStatusMessage ||
     subtitleStatusMessage ||
     lastEvent ||
     (wsConnected ? "Waiting for transcode updates" : "WebSocket disconnected");
-  const playerLoadingLabel = pendingSubtitleKey
-    ? "Loading subtitles..."
-    : hlsStatusMessage && !hlsStatusMessage.startsWith("Stream error:")
+  const playerLoadingLabel =
+    hlsStatusMessage && !hlsStatusMessage.startsWith("Stream error:")
       ? hlsStatusMessage
       : lastEvent && !lastEvent.startsWith("Error:")
         ? lastEvent
@@ -414,7 +470,6 @@ export function PlaybackDock() {
   const showPlayerLoadingOverlay =
     isVideo &&
     (isVideoLoading ||
-      pendingSubtitleKey !== null ||
       (hlsStatusMessage !== "" && !hlsStatusMessage.startsWith("Stream error:")));
   const videoSourceIsHls = useMemo(
     () => /\.m3u8(?:$|\?)/i.test(videoSourceUrl),
@@ -460,26 +515,27 @@ export function PlaybackDock() {
     video.load();
   }, [playbackState.currentTime, videoSourceUrl]);
 
-  const subtitleTrackRequests = useMemo<SubtitleTrackOption[]>(() => {
-    if (!isVideo || !activeItem) return [];
-    const external =
-      activeItem.subtitles?.map((subtitle, index) => ({
-        key: `ext-${subtitle.id}`,
-        label: subtitle.title || subtitle.language || `Subtitle ${index + 1}`,
-        src: externalSubtitleUrl(BASE_URL, subtitle.id),
-        srcLang: subtitle.language || "und",
-      })) ?? [];
-    const embedded =
-      activeItem.embeddedSubtitles?.map((subtitle, index) => ({
-        key: `emb-${subtitle.streamIndex}`,
-        label: subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`,
-        src: embeddedSubtitleUrl(BASE_URL, activeItem.id, subtitle.streamIndex),
-        srcLang: subtitle.language || "und",
-      })) ?? [];
-    return [...external, ...embedded];
-  }, [activeItem, isVideo]);
+  const playbackTrackSource = useMemo<PlaybackTrackSource | null>(() => {
+    if (!isVideo || !activeItem) return null;
+    return {
+      mediaId: activeItem.id,
+      subtitles: refreshedPlaybackTracks?.subtitles ?? activeItem.subtitles,
+      embeddedSubtitles:
+        refreshedPlaybackTracks?.embeddedSubtitles ?? activeItem.embeddedSubtitles,
+      embeddedAudioTracks:
+        refreshedPlaybackTracks?.embeddedAudioTracks ?? activeItem.embeddedAudioTracks,
+    };
+  }, [activeItem, isVideo, refreshedPlaybackTracks]);
+
+  const subtitleTrackRequests = useMemo<SubtitleTrackOption[]>(
+    () => buildSubtitleTrackRequests(playbackTrackSource),
+    [playbackTrackSource],
+  );
 
   const subtitleTrackOptions = subtitleTrackRequests;
+  const hasSupportedSubtitleTracks = subtitleTrackRequests.some(
+    (track) => track.supported !== false,
+  );
   const rememberQueuedSubtitlePreference = useCallback(
     (key: string) => {
       if (key === "off") {
@@ -513,6 +569,32 @@ export function PlaybackDock() {
       null;
     return match?.key ?? null;
   }, [subtitleTrackOptions]);
+  const refreshActivePlaybackTracks = useCallback(
+    async (statusMessage = "Refreshing subtitle tracks...") => {
+      if (!isVideo || !activeItem) return null;
+      const mediaId = activeItem.id;
+      setSubtitleStatusMessage(statusMessage);
+      try {
+        const metadata = await refreshPlaybackTracks(mediaId);
+        if (currentSubtitleMediaIdRef.current !== mediaId) {
+          return null;
+        }
+        setRefreshedPlaybackTracks(clonePlaybackTrackMetadata(metadata));
+        setSubtitleStatusMessage("");
+        return metadata;
+      } catch (error) {
+        console.error("[PlaybackDock] Playback track refresh failed", {
+          mediaId,
+          error,
+        });
+        if (currentSubtitleMediaIdRef.current === mediaId) {
+          setSubtitleStatusMessage("Subtitle refresh failed. Try again.");
+        }
+        return null;
+      }
+    },
+    [activeItem, isVideo],
+  );
   const ensureSubtitleTrackLoaded = useCallback(
     async (trackKey: string) => {
       if (trackKey === "off") return;
@@ -521,6 +603,11 @@ export function PlaybackDock() {
       if (blockedSubtitleRetryKeysRef.current.has(trackKey)) return;
       const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
       if (!track) return;
+      if (track.supported === false) {
+        setSubtitleStatusMessage("This subtitle track is unavailable.");
+        setPendingSubtitleKey(null);
+        return;
+      }
 
       const controller = new AbortController();
       subtitleLoadControllersRef.current.set(trackKey, controller);
@@ -534,7 +621,7 @@ export function PlaybackDock() {
             }, SUBTITLE_LOAD_TIMEOUT_MS);
 
       try {
-        setSubtitleStatusMessage("");
+        setSubtitleStatusMessage("Loading subtitles...");
         const response = await fetch(track.src, {
           credentials: "include",
           signal: controller.signal,
@@ -550,6 +637,7 @@ export function PlaybackDock() {
         );
         blockedSubtitleRetryKeysRef.current.delete(track.key);
         setPendingSubtitleKey((current) => (current === track.key ? null : current));
+        setSubtitleStatusMessage("");
       } catch (error) {
         let loadError: unknown = error;
         if (
@@ -630,16 +718,16 @@ export function PlaybackDock() {
   ]);
 
   const audioTracks = useMemo<AudioTrackOption[]>(() => {
-    if (!isVideo || !activeItem) return [];
+    if (!isVideo || playbackTrackSource == null) return [];
     return (
-      activeItem.embeddedAudioTracks?.map((track, index) => ({
+      playbackTrackSource.embeddedAudioTracks?.map((track, index) => ({
         key: `aud-${track.streamIndex}`,
         label: formatTrackLabel(track.title, track.language, `Audio ${index + 1}`),
         streamIndex: track.streamIndex,
         language: track.language,
       })) ?? []
     );
-  }, [activeItem, isVideo]);
+  }, [isVideo, playbackTrackSource]);
 
   const selectedAudioIndex = useMemo(
     () => audioTracks.findIndex((track) => track.key === selectedAudioKey),
@@ -926,6 +1014,7 @@ export function PlaybackDock() {
     subtitleLoadControllersRef.current.clear();
     blockedSubtitleRetryKeysRef.current.clear();
     setLoadedSubtitleTracks([]);
+    setRefreshedPlaybackTracks(null);
     setSubtitleStatusMessage("");
     setSelectedAudioKey("");
     setAudioTrackVersion(0);
@@ -1010,7 +1099,14 @@ export function PlaybackDock() {
 
   useEffect(() => {
     if (!isVideo || !activeItem) return;
-    if (defaultTrackSelectionAppliedRef.current === activeItem.id) return;
+    if (
+      defaultTrackSelectionAppliedRef.current === activeItem.id &&
+      (manualSubtitleSelectionRef.current === activeItem.id ||
+        selectedSubtitleKey !== "off" ||
+        !hasSupportedSubtitleTracks)
+    ) {
+      return;
+    }
     if (activeItem.library_id != null && !librariesFetched) return;
     if (
       videoSourceUrl === "" &&
@@ -1052,6 +1148,8 @@ export function PlaybackDock() {
     libraryPlaybackPreferences.preferredSubtitleLanguage,
     libraryPlaybackPreferences.subtitlesEnabledByDefault,
     resolveQueuedSubtitleKey,
+    hasSupportedSubtitleTracks,
+    selectedSubtitleKey,
     subtitleTrackOptions,
     videoAudioIndex,
     videoSourceUrl,
@@ -1210,8 +1308,53 @@ export function PlaybackDock() {
     }
   }, [activeItem, audioTracks, isVideo, videoAudioIndex]);
 
+  const retrySubtitleTrackLoad = useCallback(
+    async (key: string) => {
+      if (!activeItem) return;
+      const metadata = await refreshActivePlaybackTracks();
+      if (currentSubtitleMediaIdRef.current !== activeItem.id) {
+        return;
+      }
+      const refreshedTrack = buildSubtitleTrackRequests({
+        mediaId: activeItem.id,
+        subtitles: metadata?.subtitles ?? playbackTrackSource?.subtitles,
+        embeddedSubtitles: metadata?.embeddedSubtitles ?? playbackTrackSource?.embeddedSubtitles,
+      }).find((candidate) => candidate.key === key);
+      if (!refreshedTrack || refreshedTrack.supported === false) {
+        setPendingSubtitleKey(null);
+        if (!refreshedTrack) {
+          setSubtitleStatusMessage("Subtitle track is no longer available.");
+        }
+        return;
+      }
+      blockedSubtitleRetryKeysRef.current.delete(key);
+      await ensureSubtitleTrackLoaded(key);
+    },
+    [activeItem, ensureSubtitleTrackLoaded, playbackTrackSource, refreshActivePlaybackTracks],
+  );
+
+  const toggleSubtitleMenu = useCallback(() => {
+    setSubtitleMenuOpen((value) => {
+      const nextOpen = !value;
+      if (
+        nextOpen &&
+        (!hasSupportedSubtitleTracks || blockedSubtitleRetryKeysRef.current.size > 0)
+      ) {
+        void refreshActivePlaybackTracks();
+      }
+      return nextOpen;
+    });
+    setAudioMenuOpen(false);
+    setPlayerSettingsOpen(false);
+  }, [hasSupportedSubtitleTracks, refreshActivePlaybackTracks]);
+
   const selectSubtitleTrack = useCallback(
     (key: string) => {
+      const track = subtitleTrackOptions.find((candidate) => candidate.key === key) ?? null;
+      if (key !== "off" && (track == null || track.supported === false)) {
+        setSubtitleStatusMessage("This subtitle track is unavailable.");
+        return;
+      }
       rememberQueuedSubtitlePreference(key);
       setSubtitleStatusMessage("");
       manualSubtitleSelectionRef.current = activeItem?.id ?? null;
@@ -1221,11 +1364,19 @@ export function PlaybackDock() {
         setPendingSubtitleKey(null);
         return;
       }
-      blockedSubtitleRetryKeysRef.current.delete(key);
+      const shouldRefreshBeforeRetry = blockedSubtitleRetryKeysRef.current.has(key);
       setLoadedSubtitleTracks((current) =>
         current.filter((candidate) => candidate.key !== key),
       );
       setPendingSubtitleKey(key);
+      if (shouldRefreshBeforeRetry) {
+        if (selectedSubtitleKey !== key) {
+          setSelectedSubtitleKey(key);
+        }
+        void retrySubtitleTrackLoad(key);
+        return;
+      }
+      blockedSubtitleRetryKeysRef.current.delete(key);
       if (selectedSubtitleKey === key) {
         void ensureSubtitleTrackLoaded(key);
         return;
@@ -1236,7 +1387,9 @@ export function PlaybackDock() {
       activeItem?.id,
       ensureSubtitleTrackLoaded,
       rememberQueuedSubtitlePreference,
+      retrySubtitleTrackLoad,
       selectedSubtitleKey,
+      subtitleTrackOptions,
     ],
   );
 
@@ -1725,7 +1878,7 @@ export function PlaybackDock() {
 
             {/* Right: subtitles + settings + volume + fullscreen + exit */}
             <div className="fullscreen-player__controls-right">
-              {subtitleTrackRequests.length > 0 && (
+              {isVideo && (
                 <div className="fullscreen-player__subtitle-wrap">
                   <button
                     ref={subtitleBtnRef}
@@ -1733,11 +1886,7 @@ export function PlaybackDock() {
                     className={`fullscreen-player__ctrl-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
                     aria-label="Subtitles"
                     title="Subtitles"
-                    onClick={() => {
-                      setSubtitleMenuOpen((value) => !value);
-                      setAudioMenuOpen(false);
-                      setPlayerSettingsOpen(false);
-                    }}
+                    onClick={toggleSubtitleMenu}
                   >
                     <Subtitles className="size-5" />
                     {showDefaultControls && <span>Subtitles</span>}
@@ -1998,17 +2147,13 @@ export function PlaybackDock() {
               {isVideo && activeItem.overview && (
                 <p className="playback-dock__overview">{activeItem.overview}</p>
               )}
-              {isVideo && subtitleTrackRequests.length > 0 && (
+              {isVideo && (
                 <div className="playback-dock__subtitle-picker">
                   <button
                     ref={subtitleBtnRef}
                     type="button"
                     className={`playback-dock__subtitle-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}`}
-                    onClick={() => {
-                      setSubtitleMenuOpen((value) => !value);
-                      setAudioMenuOpen(false);
-                      setPlayerSettingsOpen(false);
-                    }}
+                    onClick={toggleSubtitleMenu}
                     aria-label="Subtitles"
                   >
                     <Subtitles className="size-4" />

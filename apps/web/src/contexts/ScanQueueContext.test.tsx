@@ -103,6 +103,11 @@ function ScanQueueHarness() {
 describe("ScanQueueContext websocket updates", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(api, "getMe").mockResolvedValue({
+      id: 1,
+      email: "admin@example.com",
+      is_admin: true,
+    });
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
     ]);

@@ -1,3 +1,5 @@
+SHELL := /usr/bin/bash
+
 # Variables
 DOCKER_COMPOSE ?= docker compose
 BUN ?= bun
@@ -9,7 +11,7 @@ YELLOW := \033[1;33m
 RED := \033[1;31m
 NC := \033[0m # No Color
 
-.PHONY: help dev dev-clean build up down logs logs-app logs-frontend ps restart clean lint fmt test
+.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint fmt test
 
 # Default target
 help:
@@ -18,8 +20,11 @@ help:
 	@echo "$(BLUE)╚════════════════════════════════════════════════════════════════╝$(NC)"
 	@echo ""
 	@echo "$(GREEN)Development:$(NC)"
-	@echo "  make dev         - 🚀 Start full stack (keeps DB, sessions, and libraries across restarts)"
-	@echo "  make dev-clean  - 🧹 Wipe DB then start (onboarding from scratch)"
+	@echo "  make dev         - 🚀 Start local web + server dev and auto-open the mordor media-stack tunnel"
+	@echo "  make dev-clean   - 🧹 Reset local dev state, then start dev with live console output"
+	@echo "  make dev-stop    - ⛔ Stop the tracked mordor media-stack tunnel"
+	@echo "  make docker-dev  - 🐳 Start the Docker dev stack"
+	@echo "  make docker-dev-clean - 🧼 Recreate the Docker dev stack from scratch"
 	@echo "  make build      - 🔨 Build all Docker images"
 	@echo "  make up          - ⬆️  Start services in background"
 	@echo "  make down        - ⬇️  Stop all services"
@@ -41,10 +46,19 @@ help:
 	@echo "  make clean       - 🧹 Remove containers, volumes, and temp files"
 
 dev:
+	./scripts/dev.sh
+
+dev-clean:
+	./scripts/dev-clean.sh
+
+dev-stop:
+	./scripts/dev-stop.sh
+
+docker-dev:
 	# Start full stack. Rebuilds only what's changed.
 	$(DOCKER_COMPOSE) up --build
 
-dev-clean:
+docker-dev-clean:
 	# Remove volumes for a fresh DB (onboarding from scratch) and clean caches.
 	$(DOCKER_COMPOSE) down -v
 	$(DOCKER_COMPOSE) up --build

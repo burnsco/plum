@@ -66,7 +66,7 @@ Plum is built with modern, efficient technologies:
 4. Start the development environment:
 
    ```bash
-   bun run dev
+   make dev
    ```
 
 ### Environment
@@ -79,6 +79,53 @@ The backend reads these metadata-related env vars at runtime:
 - `FANART_API_KEY`
 
 The Docker Compose setup forwards the same variables into the `app` container, so the same `.env` file works for local development and Docker.
+
+Discover add/download integration can also be bootstrapped from env when the
+media-stack settings table is still empty:
+
+- `PLUM_RADARR_BASE_URL`
+- `PLUM_RADARR_API_KEY` or `PLUM_RADARR_API_KEY_FILE`
+- `PLUM_RADARR_QUALITY_PROFILE_ID`
+- `PLUM_RADARR_ROOT_FOLDER_PATH`
+- `PLUM_RADARR_SEARCH_ON_ADD`
+- `PLUM_SONARR_TV_BASE_URL`
+- `PLUM_SONARR_TV_API_KEY` or `PLUM_SONARR_TV_API_KEY_FILE`
+- `PLUM_SONARR_TV_QUALITY_PROFILE_ID`
+- `PLUM_SONARR_TV_ROOT_FOLDER_PATH`
+- `PLUM_SONARR_TV_SEARCH_ON_ADD`
+
+If your Radarr/Sonarr services only listen on `127.0.0.1` on another machine,
+forward them locally first and then point Plum at the forwarded ports. This repo
+includes `scripts/mordor-media-stack-tunnel.sh` for the `mordor` host.
+
+If Plum is running on a different machine, VM, or Docker Compose than your
+media stack, the Plum backend only needs network reachability to the Radarr and
+Sonarr HTTP APIs. qBittorrent can stay private behind Radarr/Sonarr unless you
+want to access its web UI directly.
+
+Common setups:
+
+- If Radarr/Sonarr are reachable over your LAN or Tailscale, set
+  `PLUM_RADARR_BASE_URL` and `PLUM_SONARR_TV_BASE_URL` to those URLs directly.
+- If Radarr/Sonarr only listen on `127.0.0.1` on the remote host, create an SSH
+  tunnel from the machine running Plum and keep the Plum env pointed at the
+  forwarded local ports.
+
+Example SSH tunnel for a remote host:
+
+```bash
+ssh -N \
+  -L 7878:127.0.0.1:7878 \
+  -L 8989:127.0.0.1:8989 \
+  user@your-server
+```
+
+Then use:
+
+```bash
+PLUM_RADARR_BASE_URL=http://127.0.0.1:7878
+PLUM_SONARR_TV_BASE_URL=http://127.0.0.1:8989
+```
 
 Other useful runtime env vars:
 
@@ -95,6 +142,11 @@ Other useful runtime env vars:
 
 ### Useful Commands
 
+- `make dev` — Start local web + server dev, export `.env`, and open the `mordor` Radarr/Sonarr tunnel automatically.
+- `make dev-clean` — Reset the local dev DB/cache state, then start local dev with live console output.
+- `make dev-stop` — Stop the tracked `mordor` media-stack tunnel used by local dev.
+- `make docker-dev` — Run the full Docker dev stack.
+- `make docker-dev-clean` — Recreate the Docker dev stack from scratch.
 - `bun run dev:web` — Start only the web client.
 - `bun run dev:server` — Start only the Go backend.
 - `bun run typecheck` — Run TypeScript type checking across the project.
@@ -106,7 +158,7 @@ Other useful runtime env vars:
 To run the dev stack in Docker:
 
 ```bash
-docker compose up --build
+make docker-dev
 ```
 
 Make sure `.env` includes the metadata keys you want enabled, including `FANART_API_KEY` for Fanart.tv artwork.

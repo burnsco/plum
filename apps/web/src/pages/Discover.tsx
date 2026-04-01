@@ -2,35 +2,46 @@ import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverItem, DiscoverResponse } from "@/api";
+import { useAuthState } from "@/contexts/AuthContext";
 import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
 import MediaCard from "@/components/MediaCard";
 import { Input } from "@/components/ui/input";
 import type { PosterGridItem } from "@/components/types";
-import { discoverMediaLabel, discoverYear } from "@/lib/discover";
-import { useDiscover, useDiscoverSearch } from "@/queries";
+import {
+  discoverAcquisitionLabel,
+  discoverAcquisitionTone,
+  discoverMediaLabel,
+  discoverYear,
+} from "@/lib/discover";
+import { useAddDiscoverTitle, useDiscover, useDiscoverSearch } from "@/queries";
+import { useNavigate } from "react-router-dom";
 
 function isDiscoverConfigError(error: Error | null): boolean {
   return error?.message.includes("TMDB_API_KEY") ?? false;
 }
 
 export function Discover() {
+  const { user } = useAuthState();
+  const isAdmin = user?.is_admin ?? false;
+  const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const addTitle = useAddDiscoverTitle();
   const {
     data: discover,
     error: discoverError,
     isLoading: discoverLoading,
     refetch: refetchDiscover,
-  } = useDiscover();
+  } = useDiscover({ refetchInterval: 15_000 });
 
   useEffect(() => {
     const trimmed = searchInput.trim();
     if (trimmed.length < 2) {
-      setSearchQuery("");
+      setSearchQuery((current) => (current === "" ? current : ""));
       return;
     }
     const timeoutId = window.setTimeout(() => {
-      setSearchQuery(trimmed);
+      setSearchQuery((current) => (current === trimmed ? current : trimmed));
     }, 300);
     return () => window.clearTimeout(timeoutId);
   }, [searchInput]);
@@ -41,7 +52,7 @@ export function Discover() {
     error: searchError,
     isLoading: searchLoading,
     refetch: refetchSearch,
-  } = useDiscoverSearch(searchQuery, { enabled: searchActive });
+  } = useDiscoverSearch(searchQuery, { enabled: searchActive, refetchInterval: 15_000 });
   const activeError = searchActive ? searchError : discoverError;
   const isConfigError = isDiscoverConfigError(activeError);
 
@@ -109,17 +120,35 @@ export function Discover() {
           query={searchQuery}
           loading={searchLoading}
           results={searchResults}
+          isAdmin={isAdmin}
+          addTitle={addTitle}
+          onOpenSettings={() => navigate("/settings")}
         />
       ) : discoverLoading ? (
         <p className="text-sm text-[var(--plum-muted)]">Loading discover shelves...</p>
       ) : (
-        <DiscoverShelves discover={discover} />
+        <DiscoverShelves
+          discover={discover}
+          isAdmin={isAdmin}
+          addTitle={addTitle}
+          onOpenSettings={() => navigate("/settings")}
+        />
       )}
     </div>
   );
 }
 
-function DiscoverShelves({ discover }: { discover: DiscoverResponse | undefined }) {
+function DiscoverShelves({
+  discover,
+  isAdmin,
+  addTitle,
+  onOpenSettings,
+}: {
+  discover: DiscoverResponse | undefined;
+  isAdmin: boolean;
+  addTitle: ReturnType<typeof useAddDiscoverTitle>;
+  onOpenSettings: () => void;
+}) {
   if (!discover?.shelves.length) {
     return (
       <DiscoverMessage
@@ -139,7 +168,12 @@ function DiscoverShelves({ discover }: { discover: DiscoverResponse | undefined 
               {shelf.items.length} title{shelf.items.length === 1 ? "" : "s"}
             </span>
           </div>
-          <DiscoverCardRail items={shelf.items} />
+          <DiscoverCardRail
+            items={shelf.items}
+            isAdmin={isAdmin}
+            addTitle={addTitle}
+            onOpenSettings={onOpenSettings}
+          />
         </section>
       ))}
     </div>
@@ -150,10 +184,16 @@ function DiscoverSearchResults({
   query,
   loading,
   results,
+  isAdmin,
+  addTitle,
+  onOpenSettings,
 }: {
   query: string;
   loading: boolean;
   results: { movies: DiscoverItem[]; tv: DiscoverItem[] } | undefined;
+  isAdmin: boolean;
+  addTitle: ReturnType<typeof useAddDiscoverTitle>;
+  onOpenSettings: () => void;
 }) {
   if (loading && !results) {
     return <p className="text-sm text-[var(--plum-muted)]">Searching TMDB...</p>;
@@ -178,7 +218,13 @@ function DiscoverSearchResults({
           <h2 className="text-lg font-semibold text-[var(--plum-text)]">Movies</h2>
           <span className="text-sm text-[var(--plum-muted)]">{movies.length} matches</span>
         </div>
-        <DiscoverGrid items={movies} emptyLabel="No movie matches." />
+        <DiscoverGrid
+          items={movies}
+          emptyLabel="No movie matches."
+          isAdmin={isAdmin}
+          addTitle={addTitle}
+          onOpenSettings={onOpenSettings}
+        />
       </section>
 
       <section className="flex flex-col gap-4">
@@ -186,13 +232,31 @@ function DiscoverSearchResults({
           <h2 className="text-lg font-semibold text-[var(--plum-text)]">TV Shows</h2>
           <span className="text-sm text-[var(--plum-muted)]">{tv.length} matches</span>
         </div>
-        <DiscoverGrid items={tv} emptyLabel="No TV matches." />
+        <DiscoverGrid
+          items={tv}
+          emptyLabel="No TV matches."
+          isAdmin={isAdmin}
+          addTitle={addTitle}
+          onOpenSettings={onOpenSettings}
+        />
       </section>
     </div>
   );
 }
 
-function DiscoverGrid({ items, emptyLabel }: { items: DiscoverItem[]; emptyLabel: string }) {
+function DiscoverGrid({
+  items,
+  emptyLabel,
+  isAdmin,
+  addTitle,
+  onOpenSettings,
+}: {
+  items: DiscoverItem[];
+  emptyLabel: string;
+  isAdmin: boolean;
+  addTitle: ReturnType<typeof useAddDiscoverTitle>;
+  onOpenSettings: () => void;
+}) {
   if (items.length === 0) {
     return (
       <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-6 text-sm text-[var(--plum-muted)]">
@@ -203,29 +267,63 @@ function DiscoverGrid({ items, emptyLabel }: { items: DiscoverItem[]; emptyLabel
 
   return (
     <LibraryPosterGrid
-      items={items.map(mapDiscoverItemToPosterGridItem)}
+      items={items.map((item) =>
+        mapDiscoverItemToPosterGridItem(item, isAdmin, addTitle, onOpenSettings),
+      )}
       aspectRatio="poster"
       cardWidth={170}
     />
   );
 }
 
-function DiscoverCardRail({ items }: { items: DiscoverItem[] }) {
+function DiscoverCardRail({
+  items,
+  isAdmin,
+  addTitle,
+  onOpenSettings,
+}: {
+  items: DiscoverItem[];
+  isAdmin: boolean;
+  addTitle: ReturnType<typeof useAddDiscoverTitle>;
+  onOpenSettings: () => void;
+}) {
   return (
     <div className="flex gap-4 overflow-x-auto pb-2">
       {items.map((item) => (
         <div key={`${item.media_type}-${item.tmdb_id}`} className="w-44 shrink-0">
-          <MediaCard item={mapDiscoverItemToPosterGridItem(item)} />
+          <MediaCard
+            item={mapDiscoverItemToPosterGridItem(item, isAdmin, addTitle, onOpenSettings)}
+          />
         </div>
       ))}
     </div>
   );
 }
 
-function mapDiscoverItemToPosterGridItem(item: DiscoverItem): PosterGridItem {
+function mapDiscoverItemToPosterGridItem(
+  item: DiscoverItem,
+  isAdmin: boolean,
+  addTitle: ReturnType<typeof useAddDiscoverTitle>,
+  onOpenSettings: () => void,
+): PosterGridItem {
   const year = discoverYear(item);
-  const inLibrary = (item.library_matches?.length ?? 0) > 0;
   const posterUrl = tmdbPosterUrl(item.poster_path, "w500");
+  const addPending =
+    addTitle.isPending &&
+    addTitle.variables?.mediaType === item.media_type &&
+    addTitle.variables?.tmdbId === item.tmdb_id;
+  const acquisition = item.acquisition;
+  const needsSetup =
+    acquisition?.is_configured === false && acquisition?.state === "not_added" && isAdmin;
+  const actionLabel = needsSetup ? "Set Up" : discoverAcquisitionLabel(acquisition, addPending);
+  const actionTone = needsSetup ? "default" : discoverAcquisitionTone(acquisition, addPending);
+  const actionDisabled = addPending || (!needsSetup && acquisition?.can_add !== true);
+  const onAction =
+    needsSetup
+      ? onOpenSettings
+      : acquisition?.can_add
+        ? () => addTitle.mutate({ mediaType: item.media_type, tmdbId: item.tmdb_id })
+        : undefined;
 
   return {
     key: `${item.media_type}-${item.tmdb_id}`,
@@ -241,13 +339,12 @@ function mapDiscoverItemToPosterGridItem(item: DiscoverItem): PosterGridItem {
         <span className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white/75 backdrop-blur-sm">
           {discoverMediaLabel(item.media_type)}
         </span>
-        {inLibrary ? (
-          <span className="rounded-full bg-[var(--plum-accent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white shadow-[0_0_18px_rgba(244,90,160,0.35)]">
-            In Library
-          </span>
-        ) : null}
       </>
     ),
+    actionLabel,
+    actionDisabled,
+    actionTone,
+    onAction,
   } satisfies PosterGridItem;
 }
 

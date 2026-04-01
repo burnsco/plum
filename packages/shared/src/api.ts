@@ -6,6 +6,7 @@ import type {
   CreatePlaybackSessionPayload,
   MovieDetails,
   DiscoverItem,
+  DiscoverAcquisition,
   DiscoverLibraryMatch,
   DiscoverMediaType,
   DiscoverResponse,
@@ -13,6 +14,8 @@ import type {
   DiscoverShelf,
   DiscoverTitleDetails,
   DiscoverTitleVideo,
+  DownloadItem,
+  DownloadsResponse,
   DetachPlaybackSessionCommand,
   EmbeddedAudioTrack,
   EmbeddedSubtitle,
@@ -29,11 +32,19 @@ import type {
   MetadataArtworkSettings,
   MetadataArtworkSettingsResponse,
   MatchStatus,
+  MediaStackQualityProfileOption,
+  MediaStackRootFolderOption,
+  MediaStackServiceKind,
+  MediaStackServiceSettings,
+  MediaStackServiceValidationResult,
+  MediaStackSettings,
+  MediaStackValidationResult,
   MediaItem,
   EpisodeMetadataArtworkFetchers,
   PlumWebSocketCommand,
   PlumWebSocketEvent,
   PlaybackDelivery,
+  PlaybackTrackMetadata,
   PlaybackSession,
   PosterCandidate,
   PosterCandidatesResponse,
@@ -65,8 +76,10 @@ import {
   CreatePlaybackSessionPayloadSchema,
   MovieDetailsSchema,
   DiscoverResponseSchema,
+  DiscoverAcquisitionSchema,
   DiscoverSearchResponseSchema,
   DiscoverTitleDetailsSchema,
+  DownloadsResponseSchema,
   DetachPlaybackSessionCommandSchema,
   HomeDashboardSchema,
   IdentifyResultSchema,
@@ -74,9 +87,12 @@ import {
   LibraryScanStatusSchema,
   MetadataArtworkSettingsResponseSchema,
   MetadataArtworkSettingsSchema,
+  MediaStackSettingsSchema,
+  MediaStackValidationResultSchema,
   MediaItemSchema,
   PosterCandidatesResponseSchema,
   PlaybackSessionSchema,
+  PlaybackTrackMetadataSchema,
   PlumWebSocketCommandSchema,
   PlumWebSocketEventSchema,
   SearchResponseSchema,
@@ -106,6 +122,7 @@ export type {
   CreatePlaybackSessionPayload,
   MovieDetails,
   DiscoverItem,
+  DiscoverAcquisition,
   DiscoverLibraryMatch,
   DiscoverMediaType,
   DiscoverResponse,
@@ -113,6 +130,8 @@ export type {
   DiscoverShelf,
   DiscoverTitleDetails,
   DiscoverTitleVideo,
+  DownloadItem,
+  DownloadsResponse,
   DetachPlaybackSessionCommand,
   EmbeddedAudioTrack,
   EmbeddedSubtitle,
@@ -125,10 +144,18 @@ export type {
   LibraryScanStatus,
   LibraryType,
   MatchStatus,
+  MediaStackQualityProfileOption,
+  MediaStackRootFolderOption,
+  MediaStackServiceKind,
+  MediaStackServiceSettings,
+  MediaStackServiceValidationResult,
+  MediaStackSettings,
+  MediaStackValidationResult,
   MediaItem,
   PlumWebSocketCommand,
   PlumWebSocketEvent,
   PlaybackDelivery,
+  PlaybackTrackMetadata,
   PlaybackSession,
   SearchResponse,
   RecentlyAddedEntry,
@@ -782,6 +809,19 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
               ? failHttpEffect(response, "GET", url, ({ status, body }) => body || `Discover title: ${status}`)
               : null,
       }),
+    addDiscoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
+      jsonRequestEffect({
+        method: "POST",
+        path: `/api/discover/${mediaType}/${tmdbId}/add`,
+        schema: DiscoverAcquisitionSchema,
+        errorMessage: ({ status, body }) => body || `Add discover title: ${status}`,
+      }),
+    getDownloads: () =>
+      jsonRequestEffect({
+        path: "/api/downloads",
+        schema: DownloadsResponseSchema,
+        errorMessage: ({ status, body }) => body || `Downloads: ${status}`,
+      }),
     fetchLibraryMedia: (id: number) =>
       jsonRequestEffect({
         path: `/api/libraries/${id}/media`,
@@ -838,6 +878,13 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
+    refreshPlaybackTracks: (id: number) =>
+      jsonRequestEffect({
+        method: "POST",
+        path: `/api/media/${id}/playback-tracks/refresh`,
+        schema: PlaybackTrackMetadataSchema,
+        errorMessage: ({ status, body }) => body || `Refresh playback tracks: ${status}`,
+      }),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       decodeSchemaEffect(
         UpdatePlaybackSessionAudioPayloadSchema,
@@ -892,6 +939,48 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: MetadataArtworkSettingsResponseSchema,
         errorMessage: ({ status, body }) => body || `Metadata artwork settings: ${status}`,
       }),
+    getMediaStackSettings: () =>
+      jsonRequestEffect({
+        path: "/api/settings/media-stack",
+        schema: MediaStackSettingsSchema,
+        errorMessage: ({ status, body }) => body || `Media stack settings: ${status}`,
+      }),
+    updateMediaStackSettings: (payload: MediaStackSettings) =>
+      decodeSchemaEffect(
+        MediaStackSettingsSchema,
+        payload,
+        "PUT",
+        "/api/settings/media-stack",
+        "Invalid media stack settings payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "PUT",
+            path: "/api/settings/media-stack",
+            schema: MediaStackSettingsSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Save media stack settings: ${status}`,
+          }),
+        ),
+      ),
+    validateMediaStackSettings: (payload: MediaStackSettings) =>
+      decodeSchemaEffect(
+        MediaStackSettingsSchema,
+        payload,
+        "POST",
+        "/api/settings/media-stack/validate",
+        "Invalid media stack settings payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "POST",
+            path: "/api/settings/media-stack/validate",
+            schema: MediaStackValidationResultSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Validate media stack settings: ${status}`,
+          }),
+        ),
+      ),
     updateMetadataArtworkSettings: (payload: MetadataArtworkSettings) =>
       decodeSchemaEffect(
         MetadataArtworkSettingsSchema,
@@ -1055,6 +1144,9 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     searchDiscover: (query: string) => run(effects.searchDiscover(query)),
     getDiscoverTitleDetails: (mediaType: DiscoverMediaType, tmdbId: number) =>
       run(effects.getDiscoverTitleDetails(mediaType, tmdbId)),
+    addDiscoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
+      run(effects.addDiscoverTitle(mediaType, tmdbId)),
+    getDownloads: () => run(effects.getDownloads()),
     fetchLibraryMedia: (id: number) => run(effects.fetchLibraryMedia(id)),
     getHomeDashboard: () => run(effects.getHomeDashboard()),
     fetchMediaList: () => run(effects.fetchMediaList()),
@@ -1062,6 +1154,7 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       run(effects.updateMediaProgress(id, payload)),
     createPlaybackSession: (id: number, payload?: CreatePlaybackSessionPayload) =>
       run(effects.createPlaybackSession(id, payload)),
+    refreshPlaybackTracks: (id: number) => run(effects.refreshPlaybackTracks(id)),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       run(effects.updatePlaybackSessionAudio(sessionId, payload)),
     closePlaybackSession: (sessionId: string) => run(effects.closePlaybackSession(sessionId)),
@@ -1069,6 +1162,11 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     updateTranscodingSettings: (payload: TranscodingSettings) =>
       run(effects.updateTranscodingSettings(payload)),
     getMetadataArtworkSettings: () => run(effects.getMetadataArtworkSettings()),
+    getMediaStackSettings: () => run(effects.getMediaStackSettings()),
+    updateMediaStackSettings: (payload: MediaStackSettings) =>
+      run(effects.updateMediaStackSettings(payload)),
+    validateMediaStackSettings: (payload: MediaStackSettings) =>
+      run(effects.validateMediaStackSettings(payload)),
     updateMetadataArtworkSettings: (payload: MetadataArtworkSettings) =>
       run(effects.updateMetadataArtworkSettings(payload)),
     getMoviePosterCandidates: (libraryId: number, mediaId: number) =>

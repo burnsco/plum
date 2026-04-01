@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	_ "modernc.org/sqlite"
 
+	"plum/internal/arr"
 	"plum/internal/db"
 	httpapi "plum/internal/http"
 	"plum/internal/metadata"
@@ -126,6 +127,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		ArtDir:   artDir,
 	}
 	searchIndex := httpapi.NewSearchIndexManager(sqlDB, pipeline, pipeline)
+	mediaStack := arr.NewService()
 	libHandler := &httpapi.LibraryHandler{
 		DB:          sqlDB,
 		Meta:        pipeline,
@@ -134,6 +136,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		Series:      pipeline,
 		SeriesQuery: pipeline,
 		Discover:    pipeline,
+		Arr:         mediaStack,
 		ScanJobs:    scanJobs,
 		SearchIndex: searchIndex,
 	}
@@ -144,6 +147,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	searchIndex.QueueAllLibraries(true)
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
 	metadataArtworkSettingsHandler := &httpapi.MetadataArtworkSettingsHandler{DB: sqlDB, Artwork: pipeline}
+	mediaStackSettingsHandler := &httpapi.MediaStackSettingsHandler{DB: sqlDB, Arr: mediaStack}
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -165,15 +169,20 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 			admin.Put("/api/settings/transcoding", transcodingSettingsHandler.Put)
 			admin.Get("/api/settings/metadata-artwork", metadataArtworkSettingsHandler.Get)
 			admin.Put("/api/settings/metadata-artwork", metadataArtworkSettingsHandler.Put)
+			admin.Get("/api/settings/media-stack", mediaStackSettingsHandler.Get)
+			admin.Put("/api/settings/media-stack", mediaStackSettingsHandler.Put)
+			admin.Post("/api/settings/media-stack/validate", mediaStackSettingsHandler.Validate)
 		})
 
 		protected.Post("/api/libraries", libHandler.CreateLibrary)
 		protected.Get("/api/libraries", libHandler.ListLibraries)
 		protected.Put("/api/libraries/{id}/playback-preferences", libHandler.UpdateLibraryPlaybackPreferences)
 		protected.Get("/api/home", libHandler.GetHomeDashboard)
+		protected.Get("/api/downloads", libHandler.GetDownloads)
 		protected.Get("/api/discover", libHandler.GetDiscover)
 		protected.Get("/api/discover/search", libHandler.SearchDiscover)
 		protected.Get("/api/discover/{mediaType}/{tmdbId}", libHandler.GetDiscoverTitleDetails)
+		protected.Post("/api/discover/{mediaType}/{tmdbId}/add", libHandler.AddDiscoverTitle)
 		protected.Get("/api/search", libHandler.SearchLibraryMedia)
 		protected.Get("/api/libraries/{id}/scan", libHandler.GetLibraryScanStatus)
 		protected.Post("/api/libraries/{id}/scan", libHandler.ScanLibrary)
@@ -197,6 +206,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 
 		protected.Get("/api/media", playbackHandler.ListMedia)
 		protected.Put("/api/media/{id}/progress", libHandler.UpdateMediaProgress)
+		protected.Post("/api/media/{id}/playback-tracks/refresh", playbackHandler.RefreshPlaybackTracks)
 		protected.Post("/api/playback/sessions/{id}", playbackHandler.CreateSession)
 		protected.Patch("/api/playback/sessions/{sessionId}/audio", playbackHandler.UpdateSessionAudio)
 		protected.Delete("/api/playback/sessions/{sessionId}", playbackHandler.CloseSession)

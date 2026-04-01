@@ -22,7 +22,7 @@ type AuthState = {
 type AuthActions = {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  refreshMe: () => Promise<void>;
+  refreshMe: () => Promise<User | null>;
   refreshSetupStatus: () => Promise<void>;
   clearError: () => void;
 };
@@ -39,12 +39,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshMe = useCallback(async () => {
     const u = await getMe();
     setUser(u);
+    return u;
   }, []);
 
   const refreshSetupStatus = useCallback(async () => {
     const status = await getSetupStatus();
     setHasAdmin(status.hasAdmin);
-    if (status.hasAdmin) await refreshMe();
+    if (!status.hasAdmin) {
+      setUser(null);
+      return;
+    }
+    await refreshMe();
   }, [refreshMe]);
 
   useEffect(() => {

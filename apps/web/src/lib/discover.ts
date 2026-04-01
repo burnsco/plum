@@ -1,4 +1,5 @@
 import type {
+  DiscoverAcquisition,
   DiscoverItem,
   DiscoverLibraryMatch,
   DiscoverMediaType,
@@ -66,4 +67,42 @@ export function discoverVideoUrl(video: DiscoverTitleVideo): string {
     return `https://vimeo.com/${video.key}`;
   }
   return "";
+}
+
+export function discoverAcquisitionLabel(
+  acquisition: DiscoverAcquisition | undefined,
+  pending = false,
+): string {
+  if (pending) {
+    return "Adding...";
+  }
+  switch (acquisition?.state) {
+    case "available":
+      return "In Library";
+    case "downloading":
+      return "Downloading";
+    case "added":
+      return "Added";
+    case "not_added":
+    default:
+      return acquisition?.is_configured === false ? "Unavailable" : "Add";
+  }
+}
+
+export function discoverAcquisitionTone(
+  acquisition: DiscoverAcquisition | undefined,
+  pending = false,
+): "default" | "success" | "muted" {
+  if (pending) {
+    return "default";
+  }
+  switch (acquisition?.state) {
+    case "available":
+    case "downloading":
+    case "added":
+      return "success";
+    case "not_added":
+    default:
+      return acquisition?.is_configured === false ? "muted" : "default";
+  }
 }

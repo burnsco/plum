@@ -3,7 +3,7 @@ import { useLibraries } from "@/queries";
 import { getLibraryActivity } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
-import { Compass, Film, Home, Music, Tv } from "lucide-react";
+import { ArrowDownCircle, Compass, Film, Home, Music, Tv } from "lucide-react";
 import type { Library } from "@/api";
 import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
@@ -23,6 +23,8 @@ export function Sidebar() {
   const activeId = libraryId ? parseInt(libraryId, 10) : null;
   const isHomeRoute = location.pathname === "/";
   const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
+  const isDownloadsRoute =
+    location.pathname === "/downloads" || location.pathname.startsWith("/downloads/");
 
   const navItemBase =
     "relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 transition-all cursor-pointer select-none";
@@ -51,6 +53,13 @@ export function Sidebar() {
         >
           <Compass className="size-4 shrink-0" />
           <span className="truncate">Discover</span>
+        </Link>
+        <Link
+          to="/downloads"
+          className={cn(navItemBase, isDownloadsRoute ? navItemActive : navItemInactive)}
+        >
+          <ArrowDownCircle className="size-4 shrink-0" />
+          <span className="truncate">Downloads</span>
         </Link>
 
         {/* Divider */}

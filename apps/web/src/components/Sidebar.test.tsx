@@ -105,6 +105,7 @@ describe("Sidebar", () => {
     expect(
       within(screen.getByRole("link", { name: /Anime/i })).getByTestId("library-identifying-3"),
     ).toBeVisible();
+    expect(screen.getByRole("link", { name: /Downloads/i })).toBeInTheDocument();
     expect(screen.queryByText("Queued for identify")).not.toBeInTheDocument();
     expect(screen.queryByText("Identifying")).not.toBeInTheDocument();
   });

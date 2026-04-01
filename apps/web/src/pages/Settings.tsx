@@ -3,6 +3,8 @@ import type {
   HardwareEncodeFormat,
   Library,
   MetadataArtworkSettings as MetadataArtworkSettingsShape,
+  MediaStackServiceValidationResult,
+  MediaStackSettings as MediaStackSettingsShape,
   TranscodingSettings as TranscodingSettingsShape,
   MetadataArtworkProviderStatus,
   TranscodingSettingsWarning,
@@ -23,9 +25,12 @@ import {
 } from "@/lib/playbackPreferences";
 import {
   useMetadataArtworkSettings,
+  useMediaStackSettings,
   useLibraries,
+  useUpdateMediaStackSettings,
   useUpdateMetadataArtworkSettings,
   useTranscodingSettings,
+  useValidateMediaStackSettings,
   useUpdateLibraryPlaybackPreferences,
   useUpdateTranscodingSettings,
 } from "@/queries";
@@ -117,6 +122,111 @@ function cloneMetadataArtworkSettings(
   };
 }
 
+function cloneMediaStackSettings(settings: MediaStackSettingsShape): MediaStackSettingsShape {
+  return {
+    radarr: { ...settings.radarr },
+    sonarrTv: { ...settings.sonarrTv },
+  };
+}
+
+const preferredMediaStackQualityProfiles: Record<keyof MediaStackSettingsShape, string> = {
+  radarr: "UHD Bluray + Web",
+  sonarrTv: "WEB-2160p",
+};
+
+function normalizeQualityProfileName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function resolvePreferredQualityProfileId(
+  service: keyof MediaStackSettingsShape,
+  validation: MediaStackServiceValidationResult,
+): number {
+  const preferredName = normalizeQualityProfileName(preferredMediaStackQualityProfiles[service]);
+  return (
+    validation.qualityProfiles.find(
+      (profile) => normalizeQualityProfileName(profile.name) === preferredName,
+    )?.id ?? 0
+  );
+}
+
+function applyMediaStackValidationDefaults(
+  settings: MediaStackSettingsShape,
+  result: {
+    radarr: MediaStackServiceValidationResult;
+    sonarrTv: MediaStackServiceValidationResult;
+  },
+): { next: MediaStackSettingsShape; changed: boolean } {
+  const next = cloneMediaStackSettings(settings);
+  let changed = false;
+
+  const applyDefaults = (
+    service: keyof MediaStackSettingsShape,
+    validation: MediaStackServiceValidationResult,
+  ) => {
+    if (!validation.reachable) return;
+    const currentService = next[service];
+    const nextRootFolder = validation.rootFolders.some(
+      (folder) => folder.path === currentService.rootFolderPath,
+    )
+      ? currentService.rootFolderPath
+      : (validation.rootFolders[0]?.path ?? "");
+    if (currentService.rootFolderPath !== nextRootFolder) {
+      currentService.rootFolderPath = nextRootFolder;
+      changed = true;
+    }
+
+    const currentQualityProfileIsValid = validation.qualityProfiles.some(
+      (profile) => profile.id === currentService.qualityProfileId,
+    );
+    const nextQualityProfileId = currentQualityProfileIsValid
+      ? currentService.qualityProfileId
+      : resolvePreferredQualityProfileId(service, validation) ||
+        (validation.qualityProfiles[0]?.id ?? 0);
+    if (currentService.qualityProfileId !== nextQualityProfileId) {
+      currentService.qualityProfileId = nextQualityProfileId;
+      changed = true;
+    }
+  };
+
+  applyDefaults("radarr", result.radarr);
+  applyDefaults("sonarrTv", result.sonarrTv);
+
+  return { next, changed };
+}
+
+function summarizeMediaStackValidation(result: {
+  radarr: MediaStackServiceValidationResult;
+  sonarrTv: MediaStackServiceValidationResult;
+}): { message: string; tone: "success" | "warning" } {
+  const statuses = [
+    { label: "Radarr", validation: result.radarr },
+    { label: "Sonarr TV", validation: result.sonarrTv },
+  ];
+  const reachable = statuses.filter((entry) => entry.validation.reachable);
+  const unreachable = statuses.filter(
+    (entry) => entry.validation.configured && !entry.validation.reachable,
+  );
+
+  if (reachable.length === 0) {
+    return {
+      message:
+        "Unable to reach the configured media stack services. Check the connection details below.",
+      tone: "warning",
+    };
+  }
+  if (unreachable.length > 0) {
+    return {
+      message: `Defaults refreshed for ${reachable.map((entry) => entry.label).join(" and ")}. ${unreachable.map((entry) => `${entry.label} still needs attention`).join(" and ")}.`,
+      tone: "warning",
+    };
+  }
+  return {
+    message: "Connection validated. Defaults refreshed from each reachable service.",
+    tone: "success",
+  };
+}
+
 type LibraryPlaybackPreferencesForm = {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
@@ -158,21 +268,35 @@ export function Settings() {
   const librariesQuery = useLibraries();
   const settingsQuery = useTranscodingSettings({ enabled: isAdmin });
   const metadataArtworkQuery = useMetadataArtworkSettings({ enabled: isAdmin });
+  const mediaStackQuery = useMediaStackSettings({ enabled: isAdmin });
   const updateLibraryPreferences = useUpdateLibraryPlaybackPreferences();
+  const updateMediaStack = useUpdateMediaStackSettings();
   const updateSettings = useUpdateTranscodingSettings();
   const updateMetadataArtwork = useUpdateMetadataArtworkSettings();
+  const validateMediaStack = useValidateMediaStackSettings();
   const [form, setForm] = useState<TranscodingSettingsShape | null>(null);
   const [metadataArtworkForm, setMetadataArtworkForm] =
     useState<MetadataArtworkSettingsShape | null>(null);
-  const [libraryForms, setLibraryForms] = useState<Record<number, LibraryPlaybackPreferencesForm>>({});
-  const [playerControlsAppearance, setPlayerControlsAppearance] = useState<PlayerControlsAppearance>(
-    () => readStoredPlayerControlsAppearance(),
+  const [mediaStackForm, setMediaStackForm] = useState<MediaStackSettingsShape | null>(null);
+  const [libraryForms, setLibraryForms] = useState<Record<number, LibraryPlaybackPreferencesForm>>(
+    {},
   );
+  const [playerControlsAppearance, setPlayerControlsAppearance] =
+    useState<PlayerControlsAppearance>(() => readStoredPlayerControlsAppearance());
   const [librarySaveMessages, setLibrarySaveMessages] = useState<Record<number, string | null>>({});
   const [savingLibraryId, setSavingLibraryId] = useState<number | null>(null);
   const [warnings, setWarnings] = useState<TranscodingSettingsWarning[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [mediaStackValidation, setMediaStackValidation] = useState<{
+    radarr: MediaStackServiceValidationResult;
+    sonarrTv: MediaStackServiceValidationResult;
+  } | null>(null);
+  const [mediaStackSaveMessage, setMediaStackSaveMessage] = useState<string | null>(null);
+  const [mediaStackSaveTone, setMediaStackSaveTone] = useState<"success" | "warning" | "error">(
+    "success",
+  );
+  const [mediaStackDirty, setMediaStackDirty] = useState(false);
   const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
   const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
 
@@ -186,6 +310,11 @@ export function Settings() {
     if (!metadataArtworkQuery.data || metadataArtworkDirty) return;
     setMetadataArtworkForm(cloneMetadataArtworkSettings(metadataArtworkQuery.data.settings));
   }, [metadataArtworkDirty, metadataArtworkQuery.data]);
+
+  useEffect(() => {
+    if (!mediaStackQuery.data || mediaStackDirty) return;
+    setMediaStackForm(cloneMediaStackSettings(mediaStackQuery.data));
+  }, [mediaStackDirty, mediaStackQuery.data]);
 
   useEffect(() => {
     if (!librariesQuery.data) return;
@@ -209,9 +338,7 @@ export function Settings() {
   useEffect(
     () =>
       subscribeToPlayerControlsAppearance((preference) => {
-        setPlayerControlsAppearance((current) =>
-          current === preference ? current : preference,
-        );
+        setPlayerControlsAppearance((current) => (current === preference ? current : preference));
       }),
     [],
   );
@@ -251,7 +378,10 @@ export function Settings() {
     setSavingLibraryId(library.id);
     setLibrarySaveMessages((current) => ({ ...current, [library.id]: null }));
     try {
-      const updated = await updateLibraryPreferences.mutateAsync({ libraryId: library.id, payload });
+      const updated = await updateLibraryPreferences.mutateAsync({
+        libraryId: library.id,
+        payload,
+      });
       setLibraryForms((current) => ({
         ...current,
         [library.id]: cloneLibraryPlaybackPreferences(updated),
@@ -263,8 +393,7 @@ export function Settings() {
     } catch (error) {
       setLibrarySaveMessages((current) => ({
         ...current,
-        [library.id]:
-          error instanceof Error ? error.message : "Failed to save playback defaults.",
+        [library.id]: error instanceof Error ? error.message : "Failed to save playback defaults.",
       }));
     } finally {
       setSavingLibraryId(null);
@@ -276,9 +405,9 @@ export function Settings() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Playback defaults</h1>
         <p className="max-w-2xl text-sm text-[var(--plum-muted)]">
-          Choose the default playback behavior and scan automation for each library. Anime
-          libraries default to Japanese audio with English subtitles; TV and movie libraries default
-          to English for both when available.
+          Choose the default playback behavior and scan automation for each library. Anime libraries
+          default to Japanese audio with English subtitles; TV and movie libraries default to
+          English for both when available.
         </p>
       </div>
 
@@ -437,7 +566,9 @@ export function Settings() {
                     <Toggle
                       label="Enable filesystem watcher"
                       checked={current.watcher_enabled}
-                      onChange={(checked) => setLibraryField(library.id, "watcher_enabled", checked)}
+                      onChange={(checked) =>
+                        setLibraryField(library.id, "watcher_enabled", checked)
+                      }
                       description="Automatically queue a scan when Plum sees filesystem changes for this library."
                     />
                   </div>
@@ -522,6 +653,79 @@ export function Settings() {
     </section>
   );
 
+  const mediaStackSection = (
+    <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Media stack</h1>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
+            Connect Radarr and Sonarr TV so Discover can add titles directly and Downloads can show
+            live queue progress.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={handleValidateMediaStack}
+            disabled={mediaStackForm == null || validateMediaStack.isPending}
+          >
+            {validateMediaStack.isPending ? "Validating..." : "Validate & load defaults"}
+          </Button>
+          <Button
+            onClick={handleSaveMediaStack}
+            disabled={mediaStackForm == null || !mediaStackDirty || updateMediaStack.isPending}
+          >
+            {updateMediaStack.isPending ? "Saving..." : "Save settings"}
+          </Button>
+        </div>
+      </div>
+
+      {mediaStackQuery.isLoading || mediaStackForm == null ? (
+        <p className="mt-5 text-sm text-[var(--plum-muted)]">Loading media stack settings...</p>
+      ) : mediaStackQuery.isError ? (
+        <p className="mt-5 text-sm text-red-300">
+          {mediaStackQuery.error.message || "Failed to load media stack settings."}
+        </p>
+      ) : (
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          <MediaStackServiceCard
+            title="Radarr"
+            description="Movie adds always route here in v1."
+            service={mediaStackForm.radarr}
+            validation={mediaStackValidation?.radarr ?? null}
+            onChange={(key, value) => setMediaStackServiceField("radarr", key, value)}
+          />
+          <MediaStackServiceCard
+            title="Sonarr TV"
+            description="TV show adds always route here in v1."
+            service={mediaStackForm.sonarrTv}
+            validation={mediaStackValidation?.sonarrTv ?? null}
+            onChange={(key, value) => setMediaStackServiceField("sonarrTv", key, value)}
+          />
+        </div>
+      )}
+
+      <p
+        className={`mt-4 text-sm ${
+          mediaStackSaveMessage == null
+            ? "text-[var(--plum-muted)]"
+            : mediaStackSaveTone === "success"
+              ? "text-emerald-300"
+              : mediaStackSaveTone === "warning"
+                ? "text-amber-200"
+                : mediaStackSaveMessage
+                  ? "text-red-300"
+                  : "text-[var(--plum-muted)]"
+        }`}
+      >
+        {mediaStackSaveMessage ??
+          (mediaStackDirty
+            ? "Unsaved changes."
+            : "Direct adds always search immediately after Plum hands the title to Radarr or Sonarr TV.")}
+      </p>
+    </section>
+  );
+
   if (!isAdmin) {
     return (
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -540,6 +744,7 @@ export function Settings() {
     return (
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         {playbackDefaultsSection}
+        {mediaStackSection}
         <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
           <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-red-300">
@@ -561,6 +766,7 @@ export function Settings() {
     return (
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         {playbackDefaultsSection}
+        {mediaStackSection}
         <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
           <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
           <p className="mt-2 text-sm text-[var(--plum-muted)]">Loading server settings…</p>
@@ -673,6 +879,65 @@ export function Settings() {
     }
   };
 
+  function setMediaStackServiceField<
+    S extends keyof MediaStackSettingsShape,
+    K extends keyof MediaStackSettingsShape[S],
+  >(service: S, key: K, value: MediaStackSettingsShape[S][K]) {
+    setMediaStackForm((current) =>
+      current
+        ? {
+            ...current,
+            [service]: {
+              ...current[service],
+              [key]: value,
+            },
+          }
+        : current,
+    );
+    setMediaStackDirty(true);
+    setMediaStackSaveMessage(null);
+    setMediaStackSaveTone("success");
+  }
+
+  async function handleValidateMediaStack() {
+    if (!mediaStackForm) return;
+    setMediaStackSaveMessage(null);
+    setMediaStackSaveTone("success");
+    try {
+      const result = await validateMediaStack.mutateAsync(mediaStackForm);
+      setMediaStackValidation(result);
+      const { next, changed } = applyMediaStackValidationDefaults(mediaStackForm, result);
+      const feedback = summarizeMediaStackValidation(result);
+      setMediaStackForm(next);
+      setMediaStackDirty((current) => current || changed);
+      setMediaStackSaveMessage(feedback.message);
+      setMediaStackSaveTone(feedback.tone);
+    } catch (error) {
+      setMediaStackSaveMessage(
+        error instanceof Error ? error.message : "Failed to validate media stack settings.",
+      );
+      setMediaStackSaveTone("error");
+    }
+  }
+
+  async function handleSaveMediaStack() {
+    if (!mediaStackForm) return;
+    setMediaStackSaveMessage(null);
+    setMediaStackSaveTone("success");
+    try {
+      const saved = await updateMediaStack.mutateAsync(mediaStackForm);
+      setMediaStackForm(cloneMediaStackSettings(saved));
+      setMediaStackDirty(false);
+      setMediaStackSaveMessage("Media stack settings saved.");
+      setMediaStackSaveTone("success");
+    } catch (error) {
+      setMediaStackSaveMessage(
+        error instanceof Error ? error.message : "Failed to save media stack settings.",
+      );
+      setMediaStackSaveTone("error");
+    }
+  }
+
   const metadataArtworkAvailabilityByProvider = new Map<string, MetadataArtworkProviderStatus>(
     (metadataArtworkQuery.data?.provider_availability ?? []).map((provider) => [
       provider.provider,
@@ -683,6 +948,7 @@ export function Settings() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       {playbackDefaultsSection}
+      {mediaStackSection}
 
       <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -1056,6 +1322,138 @@ export function Settings() {
         </aside>
       </section>
     </div>
+  );
+}
+
+function MediaStackServiceCard({
+  title,
+  description,
+  service,
+  validation,
+  onChange,
+}: {
+  title: string;
+  description: string;
+  service: MediaStackSettingsShape["radarr"];
+  validation: MediaStackServiceValidationResult | null;
+  onChange: <K extends keyof MediaStackSettingsShape["radarr"]>(
+    key: K,
+    value: MediaStackSettingsShape["radarr"][K],
+  ) => void;
+}) {
+  const reachable = validation?.reachable === true;
+  const serviceId = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  return (
+    <article className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-medium text-[var(--plum-text)]">{title}</h2>
+          <p className="mt-1 text-sm text-[var(--plum-muted)]">{description}</p>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
+            reachable
+              ? "bg-emerald-500/12 text-emerald-200"
+              : validation?.configured
+                ? "bg-amber-500/12 text-amber-200"
+                : "bg-[var(--plum-panel)] text-[var(--plum-muted)]"
+          }`}
+        >
+          {reachable ? "Connected" : validation?.configured ? "Needs attention" : "Not configured"}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-4">
+        <div>
+          <label
+            htmlFor={`${serviceId}-base-url`}
+            className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+          >
+            Base URL
+          </label>
+          <Input
+            id={`${serviceId}-base-url`}
+            value={service.baseUrl}
+            onChange={(event) => onChange("baseUrl", event.target.value)}
+            placeholder="http://127.0.0.1:7878"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor={`${serviceId}-api-key`}
+            className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+          >
+            API key
+          </label>
+          <Input
+            id={`${serviceId}-api-key`}
+            type="password"
+            value={service.apiKey}
+            onChange={(event) => onChange("apiKey", event.target.value)}
+            placeholder="Paste the service API key"
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label
+              htmlFor={`${serviceId}-root-folder`}
+              className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+            >
+              Root folder
+            </label>
+            <select
+              id={`${serviceId}-root-folder`}
+              value={service.rootFolderPath}
+              onChange={(event) => onChange("rootFolderPath", event.target.value)}
+              className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+            >
+              <option value="">Select a root folder</option>
+              {(validation?.rootFolders ?? []).map((folder) => (
+                <option key={folder.path} value={folder.path}>
+                  {folder.path}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor={`${serviceId}-quality-profile`}
+              className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+            >
+              Quality profile
+            </label>
+            <select
+              id={`${serviceId}-quality-profile`}
+              value={service.qualityProfileId}
+              onChange={(event) =>
+                onChange("qualityProfileId", Number.parseInt(event.target.value, 10) || 0)
+              }
+              className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+            >
+              <option value={0}>Select a quality profile</option>
+              {(validation?.qualityProfiles ?? []).map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <p
+        className={`mt-4 text-sm ${
+          validation?.errorMessage ? "text-amber-200" : "text-[var(--plum-muted)]"
+        }`}
+      >
+        {validation?.errorMessage ??
+          "Use Validate & load defaults to pull the live root folders and quality profiles from this service."}
+      </p>
+    </article>
   );
 }
 

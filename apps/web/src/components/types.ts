@@ -17,9 +17,13 @@ export type PosterGridItem = {
   statusLabel?: string;
   statusActionLabel?: string;
   statusActionDisabled?: boolean;
+  actionLabel?: string;
+  actionDisabled?: boolean;
+  actionTone?: "default" | "success" | "muted";
   href?: string;
   onClick?: () => void;
   onPlay?: () => void;
+  onAction?: () => void;
   onStatusAction?: () => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
   topBadge?: ReactNode;
