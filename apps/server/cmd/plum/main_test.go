@@ -33,7 +33,7 @@ func TestBuildRouter_WebSocketRequiresAuthentication(t *testing.T) {
 	serverURL, _, cleanup := testServer(t)
 	defer cleanup()
 
-	resp, err := dialWebSocket(serverURL, "http://allowed.example", "")
+	resp, err := dialWebSocket(serverURL, "http://allowed.example", "", "")
 	if err == nil {
 		t.Fatal("expected websocket dial to fail without authentication")
 	}
@@ -47,7 +47,7 @@ func TestBuildRouter_WebSocketRejectsDisallowedOrigin(t *testing.T) {
 	defer cleanup()
 
 	sessionID := createSession(t, dbConn)
-	resp, err := dialWebSocket(serverURL, "http://blocked.example", "plum_session="+sessionID)
+	resp, err := dialWebSocket(serverURL, "http://blocked.example", "plum_session="+sessionID, "")
 	if err == nil {
 		t.Fatal("expected websocket dial to fail for disallowed origin")
 	}
@@ -61,12 +61,40 @@ func TestBuildRouter_WebSocketAllowsAuthenticatedAllowedOrigin(t *testing.T) {
 	defer cleanup()
 
 	sessionID := createSession(t, dbConn)
-	resp, err := dialWebSocket(serverURL, "http://allowed.example", "plum_session="+sessionID)
+	resp, err := dialWebSocket(serverURL, "http://allowed.example", "plum_session="+sessionID, "")
 	if err != nil {
 		t.Fatalf("expected websocket dial to succeed, got err=%v resp=%+v", err, resp)
 	}
 	if resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("expected 101 response, got %+v", resp)
+	}
+}
+
+func TestBuildRouter_WebSocketAllowsBearerWithoutOrigin(t *testing.T) {
+	serverURL, dbConn, cleanup := testServer(t)
+	defer cleanup()
+
+	sessionID := createSession(t, dbConn)
+	resp, err := dialWebSocket(serverURL, "", "", "Bearer "+sessionID)
+	if err != nil {
+		t.Fatalf("expected websocket dial to succeed, got err=%v resp=%+v", err, resp)
+	}
+	if resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101 response, got %+v", resp)
+	}
+}
+
+func TestBuildRouter_WebSocketRejectsBearerWithDisallowedOrigin(t *testing.T) {
+	serverURL, dbConn, cleanup := testServer(t)
+	defer cleanup()
+
+	sessionID := createSession(t, dbConn)
+	resp, err := dialWebSocket(serverURL, "http://blocked.example", "", "Bearer "+sessionID)
+	if err == nil {
+		t.Fatal("expected websocket dial to fail when Origin is set but not allowed")
+	}
+	if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 response, got %+v", resp)
 	}
 }
 
@@ -143,7 +171,7 @@ func createSession(t *testing.T, dbConn *sql.DB) string {
 	return sessionID
 }
 
-func dialWebSocket(serverURL, origin, cookie string) (*http.Response, error) {
+func dialWebSocket(serverURL, origin, cookie, authorization string) (*http.Response, error) {
 	wsURL, err := url.Parse(serverURL)
 	if err != nil {
 		return nil, err
@@ -157,6 +185,9 @@ func dialWebSocket(serverURL, origin, cookie string) (*http.Response, error) {
 	}
 	if cookie != "" {
 		header.Set("Cookie", cookie)
+	}
+	if authorization != "" {
+		header.Set("Authorization", authorization)
 	}
 
 	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), wsURL.String(), header)

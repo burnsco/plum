@@ -2622,6 +2622,94 @@ ORDER BY g.id`
 	return items, total, nil
 }
 
+// queryMediaByShowID returns episode rows for a single show (indexed by shows.id), ordered by season/episode.
+func queryMediaByShowID(db *sql.DB, libraryID int, kind string, showID int) ([]MediaItem, error) {
+	table := mediaTableForKind(kind)
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return nil, nil
+	}
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
+FROM ` + table + ` m
+JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+LEFT JOIN shows s ON s.id = m.show_id
+WHERE m.library_id = ? AND m.show_id = ? AND COALESCE(m.missing_since, '') = ''
+	ORDER BY COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.title, ''), g.id`
+	rows, err := db.Query(q, kind, libraryID, showID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]MediaItem, 0)
+	for rows.Next() {
+		var m MediaItem
+		m.Type = kind
+		m.LibraryID = libraryID
+		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
+		var showPosterPath sql.NullString
+		var voteAvg, showVoteAvg, imdbRating sql.NullFloat64
+		var tmdbID sql.NullInt64
+		var tvdbID sql.NullString
+		var metadataReviewNeeded sql.NullBool
+		var metadataConfirmed sql.NullBool
+		err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
+		if err != nil {
+			return nil, err
+		}
+		m.TMDBID = int(tmdbID.Int64)
+		if tvdbID.Valid {
+			m.TVDBID = tvdbID.String
+		}
+		if overview.Valid {
+			m.Overview = overview.String
+		}
+		if posterPath.Valid {
+			m.PosterPath = posterPath.String
+		}
+		if backdropPath.Valid {
+			m.BackdropPath = backdropPath.String
+		}
+		if releaseDate.Valid {
+			m.ReleaseDate = releaseDate.String
+		}
+		if voteAvg.Valid {
+			m.VoteAverage = voteAvg.Float64
+		}
+		if imdbID.Valid {
+			m.IMDbID = imdbID.String
+		}
+		if imdbRating.Valid {
+			m.IMDbRating = imdbRating.Float64
+		}
+		if metadataReviewNeeded.Valid {
+			m.MetadataReviewNeeded = metadataReviewNeeded.Bool
+		}
+		if metadataConfirmed.Valid {
+			m.MetadataConfirmed = metadataConfirmed.Bool
+		}
+		if thumbnailPath.Valid {
+			m.ThumbnailPath = thumbnailPath.String
+		}
+		if showPosterPath.Valid {
+			m.ShowPosterPath = showPosterPath.String
+		}
+		if showVoteAvg.Valid {
+			m.ShowVoteAverage = showVoteAvg.Float64
+		}
+		if matchStatus.Valid {
+			m.MatchStatus = matchStatus.String
+		}
+		m.Missing = m.MissingSince != ""
+		items = append(items, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := hydrateEpisodeShowPosters(db, libraryID, kind, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func hydrateEpisodeShowPosters(db *sql.DB, libraryID int, kind string, items []MediaItem) error {
 	if len(items) == 0 || (kind != LibraryTypeTV && kind != LibraryTypeAnime) {
 		return nil

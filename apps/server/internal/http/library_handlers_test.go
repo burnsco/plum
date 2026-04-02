@@ -3289,10 +3289,18 @@ func TestLibraryScanManager_RecoverPreservesFIFOOrder(t *testing.T) {
 		t.Fatalf("recover scan jobs: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		bigStatus := scanJobs.status(bigLibraryID)
 		smallStatus := scanJobs.status(smallLibraryID)
+		// Fast scans can finish both jobs before we observe queuePosition==1; still verify FIFO via timestamps.
+		if bigStatus.Phase == libraryScanPhaseCompleted && smallStatus.Phase == libraryScanPhaseCompleted {
+			bigFin, e1 := time.Parse(time.RFC3339, bigStatus.FinishedAt)
+			smallStart, e2 := time.Parse(time.RFC3339, smallStatus.StartedAt)
+			if e1 == nil && e2 == nil && !smallStart.Before(bigFin) {
+				return
+			}
+		}
 		if (bigStatus.Phase == libraryScanPhaseScanning || bigStatus.Phase == libraryScanPhaseCompleted) && smallStatus.QueuePosition == 1 {
 			return
 		}

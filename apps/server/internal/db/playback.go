@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -423,4 +424,42 @@ func episodeLabel(item MediaItem) string {
 		return ""
 	}
 	return fmt.Sprintf("S%02dE%02d", season, episode)
+}
+
+// ErrShowNotFound is returned when the library is not TV/anime or the show key does not resolve to a show row.
+var ErrShowNotFound = errors.New("show not found")
+
+// GetLibraryShowEpisodesForUser returns all episode media rows for a show key, with progress and files attached.
+func GetLibraryShowEpisodesForUser(db *sql.DB, libraryID, userID int, showKey string) ([]MediaItem, error) {
+	var libraryType string
+	err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&libraryType)
+	if err != nil {
+		return nil, err
+	}
+	if libraryType != LibraryTypeTV && libraryType != LibraryTypeAnime {
+		return nil, ErrShowNotFound
+	}
+	if err := ensureLibraryShowsAndSeasons(db, libraryID, libraryType); err != nil {
+		return nil, err
+	}
+	showID, _, _, _, _, _, _, _, _, _, _, err := getShowCanonicalMetadata(db, libraryID, libraryType, showKey)
+	if err != nil {
+		return nil, err
+	}
+	if showID == 0 {
+		return nil, ErrShowNotFound
+	}
+	items, err := queryMediaByShowID(db, libraryID, libraryType, showID)
+	if err != nil {
+		return nil, err
+	}
+	items, err = attachMediaFilesBatch(db, items)
+	if err != nil {
+		return nil, err
+	}
+	items, err = attachPlaybackProgressBatch(db, userID, items)
+	if err != nil {
+		return nil, err
+	}
+	return attachDuplicateState(db, items)
 }

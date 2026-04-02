@@ -159,6 +159,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	r.Get("/api/setup/status", authHandler.SetupStatus)
 	r.Post("/api/auth/admin-setup", authHandler.AdminSetup)
 	r.Post("/api/auth/login", authHandler.Login)
+	r.Post("/api/auth/device-login", authHandler.DeviceLogin)
 	r.Post("/api/auth/logout", authHandler.Logout)
 	r.Get("/api/auth/me", authHandler.Me)
 
@@ -199,6 +200,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Delete("/api/libraries/{id}/movies/{mediaId}/artwork/poster", libHandler.ResetMoviePosterSelection)
 		protected.Post("/api/libraries/{id}/movies/identify", libHandler.IdentifyMovie)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/details", libHandler.GetLibraryShowDetails)
+		protected.Get("/api/libraries/{id}/shows/{showKey}/episodes", libHandler.GetLibraryShowEpisodes)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster/candidates", libHandler.GetShowPosterCandidates)
 		protected.Put("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.SetShowPosterSelection)
 		protected.Delete("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.ResetShowPosterSelection)

@@ -67,6 +67,8 @@ import type {
   ShowActionResult,
   ShowConfirmPayload,
   ShowDetails,
+  ShowEpisodesResponse,
+  ShowSeasonEpisodes,
   Subtitle,
   TranscodingSettings,
   TranscodingSettingsResponse,
@@ -117,6 +119,7 @@ import {
   ShowActionResultSchema,
   ShowConfirmPayloadSchema,
   ShowDetailsSchema,
+  ShowEpisodesResponseSchema,
   TranscodingSettingsResponseSchema,
   TranscodingSettingsSchema,
   UpdatePlaybackSessionAudioPayloadSchema,
@@ -187,6 +190,8 @@ export type {
   ShowActionResult,
   ShowConfirmPayload,
   ShowDetails,
+  ShowEpisodesResponse,
+  ShowSeasonEpisodes,
   Subtitle,
   TranscodingSettings,
   TranscodingSettingsResponse,
@@ -814,6 +819,12 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
               ? failHttpEffect(response, "GET", url, ({ status, body }) => body || `Show details: ${status}`)
               : null,
       }),
+    getShowEpisodes: (libraryId: number, showKey: string) =>
+      jsonRequestEffect({
+        path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/episodes`,
+        schema: ShowEpisodesResponseSchema,
+        errorMessage: ({ status, body }) => body || `Show episodes: ${status}`,
+      }),
     getDiscover: () =>
       jsonRequestEffect({
         path: "/api/discover",
@@ -1254,6 +1265,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       run(effects.getMovieDetails(libraryId, mediaId)),
     getShowDetails: (libraryId: number, showKey: string) =>
       run(effects.getShowDetails(libraryId, showKey)),
+    getShowEpisodes: (libraryId: number, showKey: string) =>
+      run(effects.getShowEpisodes(libraryId, showKey)),
     getDiscover: () => run(effects.getDiscover()),
     getDiscoverGenres: () => run(effects.getDiscoverGenres()),
     browseDiscover: (options?: {

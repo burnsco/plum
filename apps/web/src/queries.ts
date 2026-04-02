@@ -20,6 +20,7 @@ import {
   getMetadataArtworkSettings,
   getMediaStackSettings,
   getShowDetails,
+  getShowEpisodes,
   getShowPosterCandidates,
   fetchLibraryMedia,
   fetchSeriesByTmdbId,
@@ -61,6 +62,7 @@ import {
   type SeriesDetails,
   type ShowActionResult,
   type ShowDetails,
+  type ShowEpisodesResponse,
   type TranscodingSettings,
   type TranscodingSettingsResponse,
   type UpdateLibraryPlaybackPreferencesPayload,
@@ -85,6 +87,7 @@ type MoviePosterCandidatesResult = Awaited<ReturnType<typeof getMoviePosterCandi
 type MetadataArtworkSettingsResult = Awaited<ReturnType<typeof getMetadataArtworkSettings>>;
 type MediaStackSettingsResult = Awaited<ReturnType<typeof getMediaStackSettings>>;
 type ShowDetailsResult = Awaited<ReturnType<typeof getShowDetails>>;
+type ShowEpisodesResult = Awaited<ReturnType<typeof getShowEpisodes>>;
 type ShowPosterCandidatesResult = Awaited<ReturnType<typeof getShowPosterCandidates>>;
 type SearchLibraryMediaResult = Awaited<ReturnType<typeof searchLibraryMedia>>;
 type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
@@ -242,6 +245,16 @@ function cloneShowDetails(details: ShowDetailsResult): ShowDetails | null {
   };
 }
 
+function cloneShowEpisodes(response: ShowEpisodesResult): ShowEpisodesResponse {
+  return {
+    seasons: response.seasons.map((s) => ({
+      seasonNumber: s.seasonNumber,
+      label: s.label,
+      episodes: s.episodes.map((e) => ({ ...e })),
+    })),
+  };
+}
+
 function cloneSeriesDetails(details: Awaited<ReturnType<typeof fetchSeriesByTmdbId>>): SeriesDetails | null {
   if (details == null) {
     return null;
@@ -346,6 +359,7 @@ export const queryKeys = {
   showPosterCandidates: (libraryId: number, showKey: string) =>
     ["show-poster-candidates", libraryId, showKey] as const,
   showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
+  showEpisodes: (libraryId: number, showKey: string) => ["library", libraryId, "show-episodes", showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
 };
 
@@ -590,6 +604,19 @@ export function useShowDetails(
   });
 }
 
+export function useShowEpisodes(
+  libraryId: number | null,
+  showKey: string | null,
+  options?: { enabled?: boolean },
+): UseQueryResult<ShowEpisodesResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.showEpisodes(libraryId ?? 0, showKey ?? ""),
+    queryFn: async () => cloneShowEpisodes(await getShowEpisodes(libraryId!, showKey!)),
+    enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
+    staleTime: LIBRARY_MEDIA_STALE_MS,
+  });
+}
+
 export function useMoviePosterCandidates(
   libraryId: number | null,
   mediaId: number | null,
@@ -662,6 +689,7 @@ export function useRefreshShow(): UseMutationResult<
     onSuccess: (_, { libraryId, showKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
@@ -678,6 +706,7 @@ export function useConfirmShow(): UseMutationResult<
     onSuccess: (_, { libraryId, showKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
@@ -837,6 +866,7 @@ export function useSetShowPosterSelection(): UseMutationResult<
     onSuccess: (_, { libraryId, showKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
@@ -855,6 +885,7 @@ export function useResetShowPosterSelection(): UseMutationResult<
     onSuccess: (_, { libraryId, showKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       void queryClient.invalidateQueries({ queryKey: ["search"] });

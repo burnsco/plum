@@ -136,6 +136,75 @@ func TestRequestBodyLimitMiddleware_SkipsReadOnlyRequests(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_BearerTokenSetsUserAndSessionContext(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	sessionID := createTestSession(t, dbConn, time.Now().UTC().Add(time.Hour))
+
+	middleware := AuthMiddleware(dbConn)
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := UserFromContext(r.Context())
+		if u == nil || u.Email != "user@example.com" {
+			t.Fatalf("unexpected user: %+v", u)
+		}
+		if SessionIDFromContext(r.Context()) != sessionID {
+			t.Fatalf("session id in context = %q want %q", SessionIDFromContext(r.Context()), sessionID)
+		}
+		if !AuthViaBearerFromContext(r.Context()) {
+			t.Fatal("expected AuthViaBearerFromContext true")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/home", nil)
+	req.Header.Set("Authorization", "Bearer "+sessionID)
+	rec := httptest.NewRecorder()
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_BearerTokenWorksWhenCookieIsStale(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	sessionID := createTestSession(t, dbConn, time.Now().UTC().Add(time.Hour))
+
+	middleware := AuthMiddleware(dbConn)
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := UserFromContext(r.Context())
+		if u == nil || u.Email != "user@example.com" {
+			t.Fatalf("unexpected user: %+v", u)
+		}
+		if SessionIDFromContext(r.Context()) != sessionID {
+			t.Fatalf("session id in context = %q want %q", SessionIDFromContext(r.Context()), sessionID)
+		}
+		if !AuthViaBearerFromContext(r.Context()) {
+			t.Fatal("expected AuthViaBearerFromContext true")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/home", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName(), Value: "missing-session"})
+	req.Header.Set("Authorization", "Bearer "+sessionID)
+	rec := httptest.NewRecorder()
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+}
+
 func TestAuthMiddleware_ClearsCookieWhenSessionMissing(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {

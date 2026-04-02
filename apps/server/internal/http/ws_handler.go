@@ -10,6 +10,17 @@ import (
 	"plum/internal/ws"
 )
 
+// webSocketOriginAllowed enforces Origin for browser/cookie clients. Bearer-authenticated
+// native clients may omit Origin; if they send Origin, it must still be allowed.
+func webSocketOriginAllowed(r *http.Request, allowedOrigins map[string]struct{}) bool {
+	if AuthViaBearerFromContext(r.Context()) {
+		if strings.TrimSpace(r.Header.Get("Origin")) == "" {
+			return true
+		}
+	}
+	return OriginAllowed(r, allowedOrigins)
+}
+
 func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, allowedOrigins map[string]struct{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := UserFromContext(r.Context())
@@ -18,14 +29,14 @@ func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, al
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if !OriginAllowed(r, allowedOrigins) {
+		if !webSocketOriginAllowed(r, allowedOrigins) {
 			logWebSocketHandshakeRejected(r, "origin_not_allowed", user.ID)
 			http.Error(w, "origin not allowed", http.StatusForbidden)
 			return
 		}
 		if err := ws.ServeWS(hub, w, r, ws.ServeOptions{
 			CheckOrigin: func(req *http.Request) bool {
-				return OriginAllowed(req, allowedOrigins)
+				return webSocketOriginAllowed(req, allowedOrigins)
 			},
 			User: user,
 			OnClose: func(client *ws.Client) {
@@ -47,19 +58,19 @@ func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, al
 }
 
 func logWebSocketHandshakeRejected(r *http.Request, reason string, userID int) {
-	hasSessionCookie := sessionIDFromRequest(r) != ""
-	if reason == "unauthorized" && !hasSessionCookie {
+	hasSessionAuth := sessionIDFromCookie(r) != "" || bearerSessionToken(r) != ""
+	if reason == "unauthorized" && !hasSessionAuth {
 		return
 	}
 
 	log.Printf(
-		"ws handshake rejected reason=%s origin=%q remote=%q host=%q user_id=%d session_cookie=%t",
+		"ws handshake rejected reason=%s origin=%q remote=%q host=%q user_id=%d session_auth=%t",
 		reason,
 		strings.TrimSpace(r.Header.Get("Origin")),
 		clientIP(r),
 		strings.TrimSpace(r.Host),
 		userID,
-		hasSessionCookie,
+		hasSessionAuth,
 	)
 }
 

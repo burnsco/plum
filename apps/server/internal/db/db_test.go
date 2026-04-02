@@ -2042,6 +2042,80 @@ library_id, title, path, duration, match_status, season, episode
 	}
 }
 
+func TestGetLibraryShowEpisodesForUser(t *testing.T) {
+	dbConn := newTestDB(t)
+	libraryID := getLibraryID(t, dbConn, "tv")
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	var showID int
+	if err := dbConn.QueryRow(`INSERT INTO shows (
+library_id, kind, tmdb_id, title, title_key, poster_path, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, LibraryTypeTV, 321, "Slow Horses", "slowhorses", "/show-poster.jpg", now, now,
+	).Scan(&showID); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var seasonID int
+	if err := dbConn.QueryRow(`INSERT INTO seasons (
+show_id, season_number, title, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		showID, 1, "Season 1", now, now,
+	).Scan(&seasonID); err != nil {
+		t.Fatalf("insert season: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Slow Horses - S01E01 - Pilot", "/tv/Slow Horses/S01E01.mkv", 1800, MatchStatusIdentified, 321, showID, seasonID, 1, 1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	for _, episode := range []struct {
+		title string
+		path  string
+	}{
+		{title: "Slow Horses - Special Feature", path: "/tv/Slow Horses/S00E00-feature.mkv"},
+		{title: "Slow Horses - Behind the Scenes", path: "/tv/Slow Horses/S00E00-bts.mkv"},
+	} {
+		var extraEpisodeID int
+		if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			libraryID, episode.title, episode.path, 900, MatchStatusIdentified, 321, showID, seasonID, 1, 0,
+		).Scan(&extraEpisodeID); err != nil {
+			t.Fatalf("insert extra episode: %v", err)
+		}
+		if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, LibraryTypeTV, extraEpisodeID); err != nil {
+			t.Fatalf("insert extra media_global: %v", err)
+		}
+	}
+
+	var userID int
+	if err := dbConn.QueryRow(`SELECT user_id FROM libraries WHERE id = ?`, libraryID).Scan(&userID); err != nil {
+		t.Fatalf("library user: %v", err)
+	}
+
+	items, err := GetLibraryShowEpisodesForUser(dbConn, libraryID, userID, "tmdb-321")
+	if err != nil {
+		t.Fatalf("GetLibraryShowEpisodesForUser: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 episodes, got %d", len(items))
+	}
+	if items[0].Title != "Slow Horses - Behind the Scenes" || items[1].Title != "Slow Horses - Special Feature" || items[2].Title != "Slow Horses - S01E01 - Pilot" {
+		t.Fatalf("unexpected order: %#v", []string{items[0].Title, items[1].Title, items[2].Title})
+	}
+
+	_, err = GetLibraryShowEpisodesForUser(dbConn, libraryID, userID, "tmdb-999999")
+	if !errors.Is(err, ErrShowNotFound) {
+		t.Fatalf("expected ErrShowNotFound, got %v", err)
+	}
+}
+
 func TestGetMediaByLibraryID_RelinksMissingEpisodeShowAndSeason(t *testing.T) {
 	dbConn := newTestDB(t)
 	libraryID := getLibraryID(t, dbConn, "tv")

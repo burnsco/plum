@@ -3452,6 +3452,73 @@ func (h *LibraryHandler) GetLibraryShowDetails(w http.ResponseWriter, r *http.Re
 	_ = json.NewEncoder(w).Encode(details)
 }
 
+type showSeasonEpisodesResponse struct {
+	SeasonNumber int                         `json:"seasonNumber"`
+	Label        string                      `json:"label"`
+	Episodes     []libraryBrowseItemResponse `json:"episodes"`
+}
+
+type showEpisodesResponse struct {
+	Seasons []showSeasonEpisodesResponse `json:"seasons"`
+}
+
+func (h *LibraryHandler) GetLibraryShowEpisodes(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID, _, _, _, ok := h.authorizeLibraryRequest(w, r, u.ID)
+	if !ok {
+		return
+	}
+	showKey := strings.TrimSpace(chi.URLParam(r, "showKey"))
+	if showKey == "" {
+		http.Error(w, "invalid show key", http.StatusBadRequest)
+		return
+	}
+	items, err := db.GetLibraryShowEpisodesForUser(h.DB, libraryID, u.ID, showKey)
+	if err != nil {
+		if errors.Is(err, db.ErrShowNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if identifyStates := h.identifyRun.stateForLibrary(libraryID); len(identifyStates) > 0 {
+		for i := range items {
+			if state, ok := identifyStates[identifyRowKey(items[i].Type, items[i].Path)]; ok {
+				items[i].IdentifyState = state
+			}
+		}
+	}
+	bySeason := make(map[int][]libraryBrowseItemResponse)
+	for _, item := range items {
+		s := item.Season
+		bySeason[s] = append(bySeason[s], buildLibraryBrowseItemResponse(item))
+	}
+	seasonNums := make([]int, 0, len(bySeason))
+	for s := range bySeason {
+		seasonNums = append(seasonNums, s)
+	}
+	sort.Ints(seasonNums)
+	seasons := make([]showSeasonEpisodesResponse, 0, len(seasonNums))
+	for _, s := range seasonNums {
+		label := "Specials"
+		if s != 0 {
+			label = "Season " + strconv.Itoa(s)
+		}
+		seasons = append(seasons, showSeasonEpisodesResponse{
+			SeasonNumber: s,
+			Label:        label,
+			Episodes:     bySeason[s],
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(showEpisodesResponse{Seasons: seasons})
+}
+
 type refreshShowRequest struct {
 	ShowKey string `json:"showKey"`
 }

@@ -28,6 +28,17 @@ Any logic or utilities that are (or should be) common between the web app and th
 - `apps/desktop`: Electron wrapper for the web app, providing a native desktop experience.
 - `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for API and WebSocket protocol.
 - `packages/shared`: Shared runtime utilities consumed by both web and desktop.
+- `apps/android-tv`: Kotlin Android TV app (Gradle). Not part of `bun lint` / `bun typecheck`; build with Gradle when working on TV.
+
+### Android TV development
+
+Prerequisites: [Android Studio](https://developer.android.com/studio) with Android SDK, or a standalone SDK with `ANDROID_HOME` set. Use **JDK 17 or 21** for Gradle (e.g. Android Studio’s bundled JBR): some Gradle/Kotlin DSL versions do not run on **JDK 26+**, which surfaces as a cryptic `IllegalArgumentException` with a version number during settings script compilation.
+
+1. **SDK path**: Copy [`apps/android-tv/local.properties.example`](apps/android-tv/local.properties.example) to `apps/android-tv/local.properties` and set `sdk.dir=...`, or export `ANDROID_HOME` (the helper script will write `local.properties` from it on first run).
+2. **Build debug APK**: From repo root, `bun run android:assemble` (runs `./scripts/android-tv.sh :app:assembleDebug`).
+3. **Install on a connected device/emulator**: `bun run android:install` (device must be running; use an Android TV system image for TV behavior).
+4. **IDE**: Open the **`apps/android-tv`** directory in Android Studio (File → Open) for Gradle sync, Run/Debug, Logcat, and Kotlin editing. Compose Previews for TV are limited; use a TV emulator or hardware for real UI.
+5. **Backend**: Run Plum server (`bun run dev:server` or your usual command); the app defaults to `http://10.0.2.2:8080` on the emulator (host loopback). Physical devices need your LAN IP and cleartext is allowed via `network_security_config`.
 
 ## Effects & State
 
@@ -35,6 +46,6 @@ The project aims to use `Effect` for managing side effects and domain logic, ens
 
 ## Future Plans
 
-- Android TV version as a new package in `apps/android-tv`.
+- Android TV: remaining v1 work is real search UI, extra screens polish, and automated tests plus device smoke runs (see [.plans/ANDROID_PLAN.md](.plans/ANDROID_PLAN.md)). Playback includes Media3 + bearer `OkHttpDataSource`, `/ws` attach + `playback_session_update`, ~10s progress + pause/end sync, transcoding audio cycling via `PATCH` session audio, client-side subtitle cycling, and focused-scale TV controls.
 - Enhanced transcoding pipeline.
 - Multi-user support.

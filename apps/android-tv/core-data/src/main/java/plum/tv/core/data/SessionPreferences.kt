@@ -1,0 +1,44 @@
+package plum.tv.core.data
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "plum_session")
+
+@Singleton
+class SessionPreferences @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    private val store get() = context.sessionDataStore
+
+    private object Keys {
+        val serverUrl = stringPreferencesKey("server_url")
+        val sessionToken = stringPreferencesKey("session_token")
+    }
+
+    val serverUrl: Flow<String?> = store.data.map { it[Keys.serverUrl] }
+    val sessionToken: Flow<String?> = store.data.map { it[Keys.sessionToken] }
+
+    suspend fun setServerUrl(value: String) {
+        store.edit { it[Keys.serverUrl] = value.trim().trimEnd('/') }
+    }
+
+    suspend fun setSessionToken(value: String?) {
+        store.edit {
+            if (value.isNullOrEmpty()) it.remove(Keys.sessionToken) else it[Keys.sessionToken] = value
+        }
+    }
+
+    suspend fun clearSession() {
+        store.edit { it.remove(Keys.sessionToken) }
+    }
+}

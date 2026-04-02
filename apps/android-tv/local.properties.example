@@ -1,0 +1,4 @@
+# Copy to local.properties (gitignored) and set your Android SDK path.
+# Linux typical: /home/YOU/Android/Sdk
+# macOS typical: /Users/YOU/Library/Android/sdk
+sdk.dir=/path/to/Android/sdk

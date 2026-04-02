@@ -12,6 +12,12 @@ apps/web/.vite/
 apps/desktop/node_modules/
 apps/desktop/dist/
 
+# Android TV
+apps/android-tv/.gradle/
+apps/android-tv/**/build/
+apps/android-tv/local.properties
+apps/android-tv/*.iml
+
 # Server
 apps/server/plum
 apps/server/*.db

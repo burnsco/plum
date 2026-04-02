@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BASE_URL, type MediaItem } from "../api";
+import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { RatingBadge } from "../components/RatingBadge";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
-import { getShowKey, sortEpisodes } from "../lib/showGrouping";
 import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
-import { useLibraryMedia, useShowDetails } from "../queries";
+import { useShowDetails, useShowEpisodes } from "../queries";
 
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "";
@@ -28,39 +27,42 @@ export function ShowDetail() {
   const libraryId = libraryIdParam ? parseInt(libraryIdParam, 10) : null;
   const showKey = showKeyEncoded ? decodeURIComponent(showKeyEncoded) : null;
 
-  const { data, isLoading: loading, error } = useLibraryMedia(libraryId);
+  const { data: episodesData, isLoading: loading, error } = useShowEpisodes(libraryId, showKey);
   const { data: details } = useShowDetails(libraryId, showKey);
   const { playShowGroup } = usePlayer();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
 
-  const items = useMemo<MediaItem[]>(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
-
-  const episodes = useMemo(() => {
-    if (!showKey) return [];
-    const filtered = items.filter((m) => getShowKey(m) === showKey);
-    sortEpisodes(filtered);
-    return filtered;
-  }, [items, showKey]);
+  const episodes = useMemo<MediaItem[]>(() => {
+    if (!episodesData?.seasons) return [];
+    const out: MediaItem[] = [];
+    for (const s of episodesData.seasons) {
+      for (const e of s.episodes) {
+        out.push(e as MediaItem);
+      }
+    }
+    return out;
+  }, [episodesData]);
 
   /** Episodes grouped by season number, with seasons sorted ascending. */
   const episodesBySeason = useMemo(() => {
-    const map = new Map<number, MediaItem[]>();
-    for (const ep of episodes) {
-      const s = ep.season ?? 0;
-      const list = map.get(s) ?? [];
-      list.push(ep);
-      map.set(s, list);
+    if (!episodesData?.seasons) {
+      return { map: new Map<number, MediaItem[]>(), labels: new Map<number, string>(), seasons: [] as number[] };
     }
-    const seasons = Array.from(map.keys()).toSorted((a, b) => a - b);
-    return { map, seasons };
-  }, [episodes]);
+    const map = new Map<number, MediaItem[]>();
+    const labels = new Map<number, string>();
+    for (const s of episodesData.seasons) {
+      map.set(s.seasonNumber, s.episodes as MediaItem[]);
+      labels.set(s.seasonNumber, s.label);
+    }
+    const seasons = episodesData.seasons.map((s: ShowSeasonEpisodes) => s.seasonNumber).toSorted((a: number, b: number) => a - b);
+    return { map, labels, seasons };
+  }, [episodesData]);
   const activeSeason = selectedSeason ?? episodesBySeason.seasons[0] ?? null;
   const activeSeasonEpisodes =
     activeSeason == null ? [] : (episodesBySeason.map.get(activeSeason) ?? []);
-  const activeSeasonLabel =
-    activeSeason == null ? "" : activeSeason === 0 ? "Specials" : `Season ${activeSeason}`;
+  const activeSeasonLabel = activeSeason == null ? "" : (episodesBySeason.labels.get(activeSeason) ?? "");
 
   const showTitle =
     details?.name ??
@@ -210,8 +212,8 @@ export function ShowDetail() {
       ) : (
         <div className="show-detail-seasons">
           <div className="show-detail-season-picker" role="tablist" aria-label="Select season">
-            {episodesBySeason.seasons.map((seasonNum) => {
-              const label = seasonNum === 0 ? "Specials" : `Season ${seasonNum}`;
+            {episodesBySeason.seasons.map((seasonNum: number) => {
+              const label = episodesBySeason.labels.get(seasonNum) ?? "";
               const count = episodesBySeason.map.get(seasonNum)?.length ?? 0;
               const isActive = activeSeason === seasonNum;
               return (

@@ -15,7 +15,11 @@ import (
 
 type contextKey string
 
-const userContextKey contextKey = "plum.user"
+const (
+	userContextKey          contextKey = "plum.user"
+	sessionIDContextKey     contextKey = "plum.sessionID"
+	authViaBearerContextKey contextKey = "plum.authViaBearer"
+)
 
 func UserFromContext(ctx context.Context) *db.User {
 	val := ctx.Value(userContextKey)
@@ -32,6 +36,28 @@ func withUser(ctx context.Context, u *db.User) context.Context {
 	return context.WithValue(ctx, userContextKey, u)
 }
 
+// SessionIDFromContext returns the authenticated session id when AuthMiddleware ran successfully.
+func SessionIDFromContext(ctx context.Context) string {
+	if s, ok := ctx.Value(sessionIDContextKey).(string); ok {
+		return s
+	}
+	return ""
+}
+
+// AuthViaBearerFromContext is true when the session was established via Authorization: Bearer.
+func AuthViaBearerFromContext(ctx context.Context) bool {
+	if b, ok := ctx.Value(authViaBearerContextKey).(bool); ok {
+		return b
+	}
+	return false
+}
+
+func withSessionAuth(ctx context.Context, sessionID string, viaBearer bool) context.Context {
+	ctx = context.WithValue(ctx, sessionIDContextKey, sessionID)
+	ctx = context.WithValue(ctx, authViaBearerContextKey, viaBearer)
+	return ctx
+}
+
 func sessionCookieName() string {
 	if v := os.Getenv("PLUM_SESSION_COOKIE"); v != "" {
 		return v
@@ -39,12 +65,32 @@ func sessionCookieName() string {
 	return "plum_session"
 }
 
-func sessionIDFromRequest(r *http.Request) string {
+func sessionIDFromCookie(r *http.Request) string {
 	c, err := r.Cookie(sessionCookieName())
 	if err != nil {
 		return ""
 	}
 	return c.Value
+}
+
+func bearerSessionToken(r *http.Request) string {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if h == "" {
+		return ""
+	}
+	const prefix = "Bearer "
+	if len(h) < len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(h[len(prefix):])
+}
+
+// effectiveSessionID returns cookie session id if present, otherwise Bearer token session id.
+func effectiveSessionID(r *http.Request) string {
+	if id := sessionIDFromCookie(r); id != "" {
+		return id
+	}
+	return bearerSessionToken(r)
 }
 
 func envBoolEnabled(key string) (bool, bool) {
@@ -123,50 +169,68 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sessID := sessionIDFromRequest(r)
-			if sessID == "" {
+			cookieID := sessionIDFromCookie(r)
+			bearerID := bearerSessionToken(r)
+			type sessionCandidate struct {
+				id          string
+				viaBearer   bool
+				clearCookie bool
+			}
+			candidates := make([]sessionCandidate, 0, 2)
+			if cookieID != "" {
+				candidates = append(candidates, sessionCandidate{id: cookieID, clearCookie: true})
+			}
+			if bearerID != "" && bearerID != cookieID {
+				candidates = append(candidates, sessionCandidate{id: bearerID, viaBearer: true})
+			}
+			if len(candidates) == 0 {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			var (
-				userID    int
-				expiresAt time.Time
-			)
-			err := dbConn.QueryRow(
-				`SELECT user_id, expires_at FROM sessions WHERE id = ?`,
-				sessID,
-			).Scan(&userID, &expiresAt)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					clearSessionCookie(w, r)
+			for _, candidate := range candidates {
+				var (
+					userID    int
+					expiresAt time.Time
+				)
+				err := dbConn.QueryRow(
+					`SELECT user_id, expires_at FROM sessions WHERE id = ?`,
+					candidate.id,
+				).Scan(&userID, &expiresAt)
+				if err != nil {
+					if errors.Is(err, sql.ErrNoRows) && candidate.clearCookie {
+						clearSessionCookie(w, r)
+					}
+					continue
 				}
-				next.ServeHTTP(w, r)
-				return
-			}
-			if time.Now().After(expiresAt) {
-				_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessID)
-				clearSessionCookie(w, r)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			var u db.User
-			err = dbConn.QueryRow(
-				`SELECT id, email, is_admin, created_at FROM users WHERE id = ?`,
-				userID,
-			).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessID)
-					clearSessionCookie(w, r)
+				if time.Now().After(expiresAt) {
+					_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, candidate.id)
+					if candidate.clearCookie {
+						clearSessionCookie(w, r)
+					}
+					continue
 				}
-				next.ServeHTTP(w, r)
+
+				var u db.User
+				err = dbConn.QueryRow(
+					`SELECT id, email, is_admin, created_at FROM users WHERE id = ?`,
+					userID,
+				).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt)
+				if err != nil {
+					if errors.Is(err, sql.ErrNoRows) {
+						_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, candidate.id)
+						if candidate.clearCookie {
+							clearSessionCookie(w, r)
+						}
+					}
+					continue
+				}
+
+				ctx := withSessionAuth(withUser(r.Context(), &u), candidate.id, candidate.viaBearer)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-
-			ctx := withUser(r.Context(), &u)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r)
 		})
 	}
 }

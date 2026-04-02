@@ -268,6 +268,26 @@ export const LibraryMediaPageSchema = Schema.Struct({
   total: Schema.optional(Schema.Number),
 });
 
+export interface ShowSeasonEpisodes {
+  seasonNumber: number;
+  label: string;
+  episodes: LibraryBrowseItem[];
+}
+
+export const ShowSeasonEpisodesSchema = Schema.Struct({
+  seasonNumber: Schema.Number,
+  label: Schema.String,
+  episodes: Schema.Array(LibraryBrowseItemSchema),
+});
+
+export interface ShowEpisodesResponse {
+  seasons: ShowSeasonEpisodes[];
+}
+
+export const ShowEpisodesResponseSchema = Schema.Struct({
+  seasons: Schema.Array(ShowSeasonEpisodesSchema),
+});
+
 export interface UpdateMediaProgressPayload {
   position_seconds: number;
   duration_seconds: number;
