@@ -79,6 +79,21 @@ func (p *Pipeline) IdentifyMusic(ctx context.Context, info MusicInfo) *MusicMatc
 	return p.musicProvider.IdentifyMusic(ctx, info)
 }
 
+func (p *Pipeline) SearchMovie(ctx context.Context, query string) ([]MatchResult, error) {
+	if p.movieProvider == nil {
+		return []MatchResult{}, nil
+	}
+	return p.movieProvider.SearchMovie(ctx, query)
+}
+
+func (p *Pipeline) GetMovie(ctx context.Context, movieID string) (*MatchResult, error) {
+	lookup, ok := p.movieProvider.(MovieLookupProvider)
+	if !ok || lookup == nil {
+		return nil, nil
+	}
+	return lookup.GetMovie(ctx, movieID)
+}
+
 func (p *Pipeline) ProviderStatuses() []ArtworkProviderStatus {
 	statuses := []ArtworkProviderStatus{
 		{Provider: "fanart", Enabled: p.fanart != nil, Available: p.fanart != nil},
@@ -132,15 +147,22 @@ func appendPosterCandidate(candidates []PosterCandidate, seen map[string]struct{
 	})
 }
 
+func appendPosterCandidates(candidates []PosterCandidate, seen map[string]struct{}, provider string, imageURLs []string) []PosterCandidate {
+	for _, imageURL := range imageURLs {
+		candidates = appendPosterCandidate(candidates, seen, provider, imageURL)
+	}
+	return candidates
+}
+
 func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imdbID string) ([]PosterCandidate, error) {
-	candidates := make([]PosterCandidate, 0, 3)
+	candidates := make([]PosterCandidate, 0, 8)
 	seen := map[string]struct{}{}
 	if p.fanart != nil && tmdbID > 0 {
-		poster, err := p.fanart.moviePoster(ctx, tmdbID)
+		posters, err := p.fanart.moviePosters(ctx, tmdbID)
 		if err != nil {
 			return nil, err
 		}
-		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
+		candidates = appendPosterCandidates(candidates, seen, "fanart", posters)
 	}
 	if p.movieDetailsProvider != nil && tmdbID > 0 {
 		details, err := p.movieDetailsProvider.GetMovieDetails(ctx, tmdbID)
@@ -150,6 +172,13 @@ func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imd
 		if details != nil {
 			candidates = appendPosterCandidate(candidates, seen, "tmdb", details.PosterPath)
 		}
+	}
+	if p.tmdb != nil && tmdbID > 0 {
+		posters, err := p.tmdb.getMoviePosters(ctx, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidates(candidates, seen, "tmdb", posters)
 	}
 	if p.omdb != nil && imdbID != "" {
 		poster, err := p.omdb.GetPosterByID(ctx, imdbID)
@@ -162,7 +191,7 @@ func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imd
 }
 
 func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string) ([]PosterCandidate, error) {
-	candidates := make([]PosterCandidate, 0, 3)
+	candidates := make([]PosterCandidate, 0, 8)
 	seen := map[string]struct{}{}
 	if p.seriesDetailsProvider != nil && tmdbID > 0 {
 		details, err := p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID)
@@ -176,20 +205,27 @@ func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tm
 			}
 		}
 	}
-	if p.fanart != nil && tvdbID != "" {
-		poster, err := p.fanart.showPoster(ctx, tvdbID)
+	if p.tmdb != nil && tmdbID > 0 {
+		posters, err := p.tmdb.getTVPosters(ctx, tmdbID)
 		if err != nil {
 			return nil, err
 		}
-		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
+		candidates = appendPosterCandidates(candidates, seen, "tmdb", posters)
+	}
+	if p.fanart != nil && tvdbID != "" {
+		posters, err := p.fanart.showPosters(ctx, tvdbID)
+		if err != nil {
+			return nil, err
+		}
+		candidates = appendPosterCandidates(candidates, seen, "fanart", posters)
 	}
 	if prov := p.tvProviderByName("tvdb"); prov != nil {
 		if tvdbClient, ok := prov.(*TVDBClient); ok {
-			poster, err := tvdbClient.showPoster(ctx, title, tvdbID)
+			posters, err := tvdbClient.showPosters(ctx, title, tvdbID)
 			if err != nil {
 				return nil, err
 			}
-			candidates = appendPosterCandidate(candidates, seen, "tvdb", poster)
+			candidates = appendPosterCandidates(candidates, seen, "tvdb", posters)
 		}
 	}
 	return candidates, nil
@@ -260,6 +296,26 @@ func (p *Pipeline) GetDiscover(ctx context.Context) (*DiscoverResponse, error) {
 		return nil, ErrTMDBNotConfigured
 	}
 	return p.discoverProvider.GetDiscover(ctx)
+}
+
+func (p *Pipeline) GetDiscoverGenres(ctx context.Context) (*DiscoverGenresResponse, error) {
+	if p.discoverProvider == nil {
+		return nil, ErrTMDBNotConfigured
+	}
+	return p.discoverProvider.GetDiscoverGenres(ctx)
+}
+
+func (p *Pipeline) BrowseDiscover(
+	ctx context.Context,
+	category DiscoverBrowseCategory,
+	mediaType DiscoverMediaType,
+	genreID int,
+	page int,
+) (*DiscoverBrowseResponse, error) {
+	if p.discoverProvider == nil {
+		return nil, ErrTMDBNotConfigured
+	}
+	return p.discoverProvider.BrowseDiscover(ctx, category, mediaType, genreID, page)
 }
 
 func (p *Pipeline) SearchDiscover(ctx context.Context, query string) (*DiscoverSearchResponse, error) {

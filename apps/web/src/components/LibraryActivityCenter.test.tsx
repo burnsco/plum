@@ -13,12 +13,70 @@ vi.mock("@/contexts/ScanQueueContext", () => ({
 import { useLibraries } from "@/queries";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
 
+const mockUseLibraries = useLibraries as unknown as ReturnType<typeof vi.fn>;
+const mockUseScanQueue = useScanQueue as unknown as ReturnType<typeof vi.fn>;
+
 describe("LibraryActivityCenter", () => {
+  it("shows identifying progress instead of stale file details", async () => {
+    const staleAt = new Date(Date.now() - 20_000).toISOString();
+    mockUseLibraries.mockReturnValue({
+      data: [{ id: 3, name: "TV", type: "tv", path: "/tv", user_id: 1 }],
+    } as unknown as ReturnType<typeof useLibraries>);
+    mockUseScanQueue.mockReturnValue({
+      activeLibraryIds: [3],
+      activityScanStatuses: [
+        {
+          libraryId: 3,
+          phase: "completed",
+          enrichmentPhase: "idle",
+          enriching: false,
+          identifyPhase: "identifying",
+          identified: 8,
+          identifyFailed: 0,
+          processed: 42,
+          added: 42,
+          updated: 0,
+          removed: 0,
+          unmatched: 0,
+          skipped: 0,
+          identifyRequested: true,
+          estimatedItems: 42,
+          queuePosition: 0,
+          activity: {
+            stage: "identify",
+            current: {
+              phase: "identify",
+              target: "file",
+              relativePath: "Shows/Example/episode01.mkv",
+              at: staleAt,
+            },
+            recent: [],
+          },
+        },
+      ],
+      recentLibraryActivities: [],
+      scanStatuses: {},
+      getLibraryScanStatus: vi.fn(),
+      hasLibraryScanStatus: vi.fn(),
+      queueLibraryScan: vi.fn(),
+    });
+
+    render(<LibraryActivityCenter />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
+
+    const statusCard = await screen.findByTestId("library-activity-status-3");
+    expect(within(statusCard).getByText("Identifying")).toBeVisible();
+    expect(within(statusCard).getByText("Identified 8 so far")).toBeVisible();
+    expect(within(statusCard).queryByText("Shows/Example/episode01.mkv")).not.toBeInTheDocument();
+  });
+
   it("shows the active badge and popup details", async () => {
-    vi.mocked(useLibraries).mockReturnValue({
+    const freshAt = new Date().toISOString();
+    mockUseLibraries.mockReturnValue({
       data: [{ id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 }],
     } as unknown as ReturnType<typeof useLibraries>);
-    vi.mocked(useScanQueue).mockReturnValue({
+    mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [1],
       activityScanStatuses: [
         {
@@ -44,14 +102,14 @@ describe("LibraryActivityCenter", () => {
               phase: "discovery",
               target: "file",
               relativePath: "Shows/Example/episode01.mkv",
-              at: "2026-03-27T13:00:00Z",
+              at: freshAt,
             },
             recent: [
               {
                 phase: "discovery",
                 target: "file",
                 relativePath: "Shows/Example/episode01.mkv",
-                at: "2026-03-27T13:00:00Z",
+                at: freshAt,
               },
               {
                 phase: "discovery",
@@ -79,17 +137,18 @@ describe("LibraryActivityCenter", () => {
     );
 
     expect(await screen.findByText("Server activity")).toBeVisible();
-    expect(screen.getByText("Now")).toBeVisible();
+    expect(screen.queryByText("What Plum is doing now, and what just finished.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Now")).not.toBeInTheDocument();
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("TV");
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("Importing");
     expect(screen.getByText("Shows/Example/episode01.mkv")).toBeVisible();
   });
 
   it("shows the empty state when nothing is active", async () => {
-    vi.mocked(useLibraries).mockReturnValue({
+    mockUseLibraries.mockReturnValue({
       data: [],
     } as unknown as ReturnType<typeof useLibraries>);
-    vi.mocked(useScanQueue).mockReturnValue({
+    mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [],
       activityScanStatuses: [],
       recentLibraryActivities: [],
@@ -111,12 +170,12 @@ describe("LibraryActivityCenter", () => {
   });
 
   it("shows queued identify as waiting work", async () => {
-    vi.mocked(useLibraries).mockReturnValue({
+    mockUseLibraries.mockReturnValue({
       data: [
         { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
       ],
     } as unknown as ReturnType<typeof useLibraries>);
-    vi.mocked(useScanQueue).mockReturnValue({
+    mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [2],
       activityScanStatuses: [
         {
@@ -151,21 +210,18 @@ describe("LibraryActivityCenter", () => {
       screen.getByRole("button", { name: /Server activity/i }),
     );
 
-    const statusCard = await screen.findByTestId("library-activity-status-2");
-    expect(within(statusCard).getByText("Waiting for identify worker")).toBeVisible();
-    expect(
-      within(statusCard).queryByText("Identifying"),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByText("Nothing is happening right now.")).toBeVisible();
+    expect(screen.queryByTestId("library-activity-status-2")).not.toBeInTheDocument();
   });
 
   it("updates from identifying to failed without stale activity labels", async () => {
-    vi.mocked(useLibraries).mockReturnValue({
+    mockUseLibraries.mockReturnValue({
       data: [
         { id: 4, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
       ],
     } as unknown as ReturnType<typeof useLibraries>);
 
-    vi.mocked(useScanQueue).mockReturnValue({
+    mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [4],
       activityScanStatuses: [
         {
@@ -203,7 +259,7 @@ describe("LibraryActivityCenter", () => {
     let statusCard = await screen.findByTestId("library-activity-status-4");
     expect(within(statusCard).getByText("Identifying")).toBeVisible();
 
-    vi.mocked(useScanQueue).mockReturnValue({
+    mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [],
       activityScanStatuses: [],
       recentLibraryActivities: [
@@ -223,17 +279,18 @@ describe("LibraryActivityCenter", () => {
 
     view.rerender(<LibraryActivityCenter />);
 
-    expect(await screen.findByText("Just finished")).toBeVisible();
+    expect(await screen.findByText("Failed")).toBeVisible();
+    expect(screen.queryByText("Just finished")).not.toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeVisible();
     expect(screen.getByText("18 item(s) could not be identified automatically")).toBeVisible();
     expect(screen.queryByText("Identifying")).not.toBeInTheDocument();
   });
 
   it("shows queued enrichment as waiting work", async () => {
-    vi.mocked(useLibraries).mockReturnValue({
+    mockUseLibraries.mockReturnValue({
       data: [{ id: 5, name: "Anime", type: "anime", path: "/anime", user_id: 1 }],
     } as unknown as ReturnType<typeof useLibraries>);
-    vi.mocked(useScanQueue).mockReturnValue({
+    mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [5],
       activityScanStatuses: [
         {
@@ -266,8 +323,7 @@ describe("LibraryActivityCenter", () => {
 
     fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
 
-    const statusCard = await screen.findByTestId("library-activity-status-5");
-    expect(within(statusCard).getByText("Waiting for analyzer")).toBeVisible();
-    expect(within(statusCard).queryByText("Analyzing media")).not.toBeInTheDocument();
+    expect(await screen.findByText("Nothing is happening right now.")).toBeVisible();
+    expect(screen.queryByTestId("library-activity-status-5")).not.toBeInTheDocument();
   });
 });

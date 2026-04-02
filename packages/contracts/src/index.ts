@@ -164,6 +164,106 @@ export const MediaItemSchema = Schema.Struct({
   duplicate_count: Schema.optional(Schema.Number),
 });
 
+export interface LibraryBrowseItem {
+  id: number;
+  library_id?: number;
+  title: string;
+  path: string;
+  duration: number;
+  type: MediaType;
+  match_status?: MatchStatus;
+  identify_state?: IdentifyState;
+  tmdb_id?: number;
+  tvdb_id?: string;
+  overview?: string;
+  poster_path?: string;
+  backdrop_path?: string;
+  poster_url?: string;
+  backdrop_url?: string;
+  show_poster_path?: string;
+  show_poster_url?: string;
+  release_date?: string;
+  vote_average?: number;
+  imdb_id?: string;
+  imdb_rating?: number;
+  artist?: string;
+  album?: string;
+  album_artist?: string;
+  disc_number?: number;
+  track_number?: number;
+  release_year?: number;
+  progress_seconds?: number;
+  progress_percent?: number;
+  remaining_seconds?: number;
+  completed?: boolean;
+  last_watched_at?: string;
+  season?: number;
+  episode?: number;
+  metadata_review_needed?: boolean;
+  metadata_confirmed?: boolean;
+  thumbnail_path?: string;
+  thumbnail_url?: string;
+  missing?: boolean;
+  missing_since?: string;
+}
+
+export const LibraryBrowseItemSchema = Schema.Struct({
+  id: Schema.Number,
+  library_id: Schema.optional(Schema.Number),
+  title: Schema.String,
+  path: Schema.String,
+  duration: Schema.Number,
+  type: MediaTypeSchema,
+  match_status: Schema.optional(MatchStatusSchema),
+  identify_state: Schema.optional(IdentifyStateSchema),
+  tmdb_id: Schema.optional(Schema.Number),
+  tvdb_id: Schema.optional(Schema.String),
+  overview: Schema.optional(Schema.String),
+  poster_path: Schema.optional(Schema.String),
+  backdrop_path: Schema.optional(Schema.String),
+  poster_url: Schema.optional(Schema.String),
+  backdrop_url: Schema.optional(Schema.String),
+  show_poster_path: Schema.optional(Schema.String),
+  show_poster_url: Schema.optional(Schema.String),
+  release_date: Schema.optional(Schema.String),
+  vote_average: Schema.optional(Schema.Number),
+  imdb_id: Schema.optional(Schema.String),
+  imdb_rating: Schema.optional(Schema.Number),
+  artist: Schema.optional(Schema.String),
+  album: Schema.optional(Schema.String),
+  album_artist: Schema.optional(Schema.String),
+  disc_number: Schema.optional(Schema.Number),
+  track_number: Schema.optional(Schema.Number),
+  release_year: Schema.optional(Schema.Number),
+  progress_seconds: Schema.optional(Schema.Number),
+  progress_percent: Schema.optional(Schema.Number),
+  remaining_seconds: Schema.optional(Schema.Number),
+  completed: Schema.optional(Schema.Boolean),
+  last_watched_at: Schema.optional(Schema.String),
+  season: Schema.optional(Schema.Number),
+  episode: Schema.optional(Schema.Number),
+  metadata_review_needed: Schema.optional(Schema.Boolean),
+  metadata_confirmed: Schema.optional(Schema.Boolean),
+  thumbnail_path: Schema.optional(Schema.String),
+  thumbnail_url: Schema.optional(Schema.String),
+  missing: Schema.optional(Schema.Boolean),
+  missing_since: Schema.optional(Schema.String),
+});
+
+export interface LibraryMediaPage {
+  items: LibraryBrowseItem[];
+  next_offset?: number;
+  has_more: boolean;
+  total?: number;
+}
+
+export const LibraryMediaPageSchema = Schema.Struct({
+  items: Schema.Array(LibraryBrowseItemSchema),
+  next_offset: Schema.optional(Schema.Number),
+  has_more: Schema.Boolean,
+  total: Schema.optional(Schema.Number),
+});
+
 export interface UpdateMediaProgressPayload {
   position_seconds: number;
   duration_seconds: number;
@@ -839,9 +939,50 @@ export const SeriesSearchResultSchema = Schema.Struct({
   ExternalID: Schema.String,
 });
 
+export interface MovieSearchResult {
+  Title: string;
+  Overview: string;
+  PosterURL: string;
+  BackdropURL: string;
+  ReleaseDate: string;
+  VoteAverage: number;
+  Provider: string;
+  ExternalID: string;
+}
+
+export const MovieSearchResultSchema = Schema.Struct({
+  Title: Schema.String,
+  Overview: Schema.String,
+  PosterURL: Schema.String,
+  BackdropURL: Schema.String,
+  ReleaseDate: Schema.String,
+  VoteAverage: Schema.Number,
+  Provider: Schema.String,
+  ExternalID: Schema.String,
+});
+
 export type DiscoverMediaType = "movie" | "tv";
 
 export const DiscoverMediaTypeSchema = Schema.Literals(["movie", "tv"]);
+
+export type DiscoverBrowseCategory =
+  | "trending"
+  | "popular-movies"
+  | "popular-tv"
+  | "now-playing"
+  | "upcoming"
+  | "on-the-air"
+  | "top-rated";
+
+export const DiscoverBrowseCategorySchema = Schema.Literals([
+  "trending",
+  "popular-movies",
+  "popular-tv",
+  "now-playing",
+  "upcoming",
+  "on-the-air",
+  "top-rated",
+]);
 
 export type MediaStackServiceKind = "radarr" | "sonarr-tv";
 
@@ -942,6 +1083,46 @@ export interface DiscoverSearchResponse {
 export const DiscoverSearchResponseSchema = Schema.Struct({
   movies: Schema.Array(DiscoverItemSchema),
   tv: Schema.Array(DiscoverItemSchema),
+});
+
+export interface DiscoverGenre {
+  id: number;
+  name: string;
+}
+
+export const DiscoverGenreSchema = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+});
+
+export interface DiscoverGenresResponse {
+  movie_genres: DiscoverGenre[];
+  tv_genres: DiscoverGenre[];
+}
+
+export const DiscoverGenresResponseSchema = Schema.Struct({
+  movie_genres: Schema.Array(DiscoverGenreSchema),
+  tv_genres: Schema.Array(DiscoverGenreSchema),
+});
+
+export interface DiscoverBrowseResponse {
+  items: DiscoverItem[];
+  page: number;
+  total_pages: number;
+  total_results: number;
+  media_type?: DiscoverMediaType;
+  genre?: DiscoverGenre;
+  category?: DiscoverBrowseCategory;
+}
+
+export const DiscoverBrowseResponseSchema = Schema.Struct({
+  items: Schema.Array(DiscoverItemSchema),
+  page: Schema.Number,
+  total_pages: Schema.Number,
+  total_results: Schema.Number,
+  media_type: Schema.optional(DiscoverMediaTypeSchema),
+  genre: Schema.optional(DiscoverGenreSchema),
+  category: Schema.optional(DiscoverBrowseCategorySchema),
 });
 
 export interface DiscoverTitleVideo {
@@ -1134,12 +1315,30 @@ export const ShowConfirmPayloadSchema = Schema.Struct({
 
 export interface ShowIdentifyPayload {
   showKey: string;
-  tmdbId: number;
+  provider: string;
+  externalId: string;
+  tmdbId?: number;
 }
 
 export const ShowIdentifyPayloadSchema = Schema.Struct({
   showKey: Schema.String,
-  tmdbId: Schema.Number,
+  provider: Schema.String,
+  externalId: Schema.String,
+  tmdbId: Schema.optional(Schema.Number),
+});
+
+export interface MovieIdentifyPayload {
+  mediaId: number;
+  provider: string;
+  externalId: string;
+  tmdbId?: number;
+}
+
+export const MovieIdentifyPayloadSchema = Schema.Struct({
+  mediaId: Schema.Number,
+  provider: Schema.String,
+  externalId: Schema.String,
+  tmdbId: Schema.optional(Schema.Number),
 });
 
 export type VaapiDecodeCodec =

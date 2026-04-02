@@ -1,13 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { Library } from "../api";
+import { ExternalLink, Image, RefreshCw, ScanSearch } from "lucide-react";
+import type { Library, MediaItem } from "../api";
+import { IdentifyMovieDialog } from "../components/IdentifyMovieDialog";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
 import type { PosterGridItem } from "../components/types";
 import { LibraryPosterGrid } from "../components/LibraryPosterGrid";
@@ -24,6 +19,10 @@ import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
 import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
 import { useConfirmShow, useLibraryMedia, useLibraries, useRefreshShow } from "../queries";
+import {
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 
 const isTVOrAnime = (lib: Library) => lib.type === "tv" || lib.type === "anime";
 const IDENTIFY_POLL_INTERVAL_MS = 5_000;
@@ -123,27 +122,23 @@ function getGroupIdentifyState(group: ShowGroup): ItemIdentifyState {
   return undefined;
 }
 
-type LibraryContextMenuState =
-  | {
-      kind: "show";
-      x: number;
-      y: number;
-      group: ShowGroup;
-    }
-  | {
-      kind: "movie";
-      x: number;
-      y: number;
-      movieId: number;
-      title: string;
-      canRetryIdentify: boolean;
-    };
+function getPreferredEpisodeRating(episodes: ShowGroup["episodes"]) {
+  const imdbEpisode = episodes.find((episode) => (episode.imdb_rating ?? 0) > 0);
+  if (imdbEpisode?.imdb_rating) {
+    return { label: "IMDb", value: imdbEpisode.imdb_rating };
+  }
+  const tmdbEpisode = episodes.find((episode) => (episode.vote_average ?? 0) > 0);
+  if (tmdbEpisode?.vote_average) {
+    return { label: "TMDb", value: tmdbEpisode.vote_average };
+  }
+  return { label: undefined, value: undefined };
+}
 
 export function Home() {
   const { libraryId: libraryIdParam } = useParams();
   const navigate = useNavigate();
   const { playMovie, playMusicCollection, playShowGroup } = usePlayer();
-  const { getLibraryPhase, queueLibraryIdentify } = useIdentifyQueue();
+  const { getLibraryPhase } = useIdentifyQueue();
   const { getLibraryScanStatus } = useScanQueue();
   const { cardWidth, setCardWidth, layoutMode, setLayoutMode } = useLibraryViewPrefs();
   const {
@@ -157,6 +152,7 @@ export function Home() {
     if (id != null && libraries.some((library) => library.id === id)) return id;
     return libraries[0]?.id ?? null;
   }, [libraryIdParam, libraries]);
+  const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
   const selectedLibraryScanStatus = getLibraryScanStatus(selectedLibraryId);
   const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
     selectedLibraryScanStatus?.identifyPhase,
@@ -189,47 +185,49 @@ export function Home() {
             selectedLibraryIdentifyPhase === "soft-reveal"
           ? IDENTIFY_POLL_INTERVAL_MS
           : false;
+  const selectedLibraryPageSize =
+    selectedLib?.type === "music" ? 100 : layoutMode === "grid" ? 60 : 75;
   const {
-    data: selectedItems = [],
+    data: selectedLibraryData,
     isFetching: selectedFetching,
     isLoading: selectedLoading,
+    isFetchingNextPage: selectedFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
     error: selectedError,
     refetch: refetchLibraryMedia,
   } = useLibraryMedia(selectedLibraryId, {
     refetchInterval: selectedLibraryPollInterval,
+    pageSize: selectedLibraryPageSize,
   });
+  const selectedItems = useMemo<MediaItem[]>(
+    () => selectedLibraryData?.pages.flatMap((page) => page.items) ?? [],
+    [selectedLibraryData],
+  );
   const selectedLibraryScanWarning =
     selectedLibraryScanStatus?.phase === "completed" && selectedItems.length === 0
       ? selectedLibraryScanStatus.error
       : undefined;
   const refreshShowMutation = useRefreshShow();
   const confirmShowMutation = useConfirmShow();
-  const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
 
-  const [contextMenu, setContextMenu] = useState<LibraryContextMenuState | null>(null);
   const [identifyGroup, setIdentifyGroup] = useState<ShowGroup | null>(null);
+  const [identifyMovieItem, setIdentifyMovieItem] = useState<{ id: number; title: string } | null>(null);
   const [posterPicker, setPosterPicker] = useState<
     | { kind: "movie"; libraryId: number; mediaId: number; title: string }
     | { kind: "show"; libraryId: number; showKey: string; title: string }
     | null
   >(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
-  const closeContextMenu = useCallback(() => setContextMenu(null), []);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const onMouseDown = (event: MouseEvent) => {
-      if (contextMenuRef.current?.contains(event.target as Node)) return;
-      closeContextMenu();
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [contextMenu, closeContextMenu]);
 
   useEffect(() => {
     if (libraryIdParam != null || libraries.length === 0) return;
     navigate(`/library/${libraries[0].id}`, { replace: true });
   }, [libraryIdParam, libraries, navigate]);
+
+  const loadMoreLibraryItems = () => {
+    if (!hasNextPage || selectedFetchingNextPage) return;
+    void fetchNextPage();
+  };
 
   const hasActiveIdentifyItems = selectedItems.some((item) =>
     isActiveIdentifyState(item.identify_state),
@@ -284,6 +282,7 @@ export function Home() {
         !needsMetadataReview &&
         !isActiveIdentifyState(identifyState) &&
         (identifyState === "failed" || selectedLibraryCanShowFailure);
+      const rating = getPreferredEpisodeRating(group.episodes);
 
       return [
         {
@@ -300,8 +299,8 @@ export function Home() {
             : undefined,
           posterPath: group.posterPath,
           posterUrl: group.posterUrl,
-          ratingLabel: group.voteAverage ? "TMDB" : undefined,
-          ratingValue: group.voteAverage,
+          ratingLabel: rating.label,
+          ratingValue: rating.value,
           progressPercent: progressEpisode?.progress_percent,
           cardState: needsMetadataReview
             ? "review-needed"
@@ -336,17 +335,61 @@ export function Home() {
                 : undefined,
           href: `/library/${selectedLibraryId}/show/${encodeURIComponent(group.showKey)}`,
           onPlay: () => playShowGroup(group.episodes, progressEpisode),
-          onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
-            event.preventDefault();
-            setContextMenu({ kind: "show", x: event.clientX, y: event.clientY, group });
-          },
+          contextMenuContent:
+            selectedLibraryId == null ? undefined : (
+              <>
+                <ContextMenuItem
+                  onSelect={() => {
+                    setPosterPicker({
+                      kind: "show",
+                      libraryId: selectedLibraryId,
+                      showKey: group.showKey,
+                      title: group.showTitle,
+                    });
+                  }}
+                >
+                  <Image className="size-4 text-(--plum-muted)" />
+                  Change poster…
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={refreshShowMutation.isPending}
+                  onSelect={() => {
+                    refreshShowMutation.mutate({
+                      libraryId: selectedLibraryId,
+                      showKey: group.showKey,
+                    });
+                  }}
+                >
+                  <RefreshCw className="size-4 text-(--plum-muted)" />
+                  Refresh metadata
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => setIdentifyGroup(group)}>
+                  <ScanSearch className="size-4 text-(--plum-muted)" />
+                  Identify…
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => {
+                    navigate(
+                      `/library/${selectedLibraryId}/show/${encodeURIComponent(group.showKey)}`,
+                    );
+                  }}
+                >
+                  <ExternalLink className="size-4 text-(--plum-muted)" />
+                  Open details
+                </ContextMenuItem>
+              </>
+            ),
         },
       ] satisfies PosterGridItem[];
     });
     return { deferredCount: deferredGroups.length, visibleCards };
   }, [
     confirmShowMutation,
+    navigate,
     playShowGroup,
+    refreshShowMutation,
     shouldRevealSearchingCards,
     selectedLibraryIdentifyPhase,
     selectedLibraryCanShowFailure,
@@ -395,36 +438,53 @@ export function Home() {
               ? "Couldn't match automatically"
               : undefined,
           statusActionLabel:
-            showFailure && selectedLibraryId != null ? "Retry identify" : undefined,
+            showFailure && selectedLibraryId != null ? "Identify manually" : undefined,
           onStatusAction:
             showFailure && selectedLibraryId != null
-              ? () =>
-                  queueLibraryIdentify(selectedLibraryId, {
-                    prioritize: true,
-                    resetState: true,
-                  })
+              ? () => setIdentifyMovieItem({ id: item.id, title: item.title })
               : undefined,
           href: selectedLibraryId != null ? `/library/${selectedLibraryId}/movie/${item.id}` : undefined,
           onPlay: () => playMovie(item),
-          onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
-            event.preventDefault();
-            setContextMenu({
-              kind: "movie",
-              x: event.clientX,
-              y: event.clientY,
-              movieId: item.id,
-              title: item.title,
-              canRetryIdentify: showFailure,
-            });
-          },
+          contextMenuContent:
+            selectedLibraryId == null ? undefined : (
+              <>
+                <ContextMenuItem
+                  onSelect={() => {
+                    setPosterPicker({
+                      kind: "movie",
+                      libraryId: selectedLibraryId,
+                      mediaId: item.id,
+                      title: item.title,
+                    });
+                  }}
+                >
+                  <Image className="size-4 text-(--plum-muted)" />
+                  Change poster…
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => setIdentifyMovieItem({ id: item.id, title: item.title })}>
+                  <ScanSearch className="size-4 text-(--plum-muted)" />
+                  Identify…
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => {
+                    navigate(`/library/${selectedLibraryId}/movie/${item.id}`);
+                  }}
+                >
+                  <ExternalLink className="size-4 text-(--plum-muted)" />
+                  Open details
+                </ContextMenuItem>
+              </>
+            ),
         },
       ] satisfies PosterGridItem[];
     });
 
     return { deferredCount, visibleCards };
   }, [
+    navigate,
     playMovie,
-    queueLibraryIdentify,
     selectedItems,
     selectedLibraryIdentifyPhase,
     shouldRevealSearchingCards,
@@ -460,20 +520,20 @@ export function Home() {
   return (
     <>
       {loadingLibs ? (
-        <p className="text-sm text-[var(--plum-muted)]">Loading libraries…</p>
+        <p className="text-sm text-(--plum-muted)">Loading libraries…</p>
       ) : loadLibsError ? (
-        <p className="text-sm text-[var(--plum-muted)]">
+        <p className="text-sm text-(--plum-muted)">
           Failed to load libraries: {loadLibsError.message}{" "}
           <button
             type="button"
-            className="text-[var(--plum-accent)] hover:underline"
+            className="text-(--plum-accent) hover:underline"
             onClick={() => void refetchLibraries()}
           >
             Retry
           </button>
         </p>
       ) : libraries.length === 0 ? (
-        <p className="text-sm text-[var(--plum-muted)]">
+        <p className="text-sm text-(--plum-muted)">
           No libraries yet. Add one in Settings or onboarding.
         </p>
       ) : (
@@ -481,20 +541,20 @@ export function Home() {
           {selectedLib && (
             <div className="flex min-h-0 flex-1 flex-col">
               {selectedLoading ? (
-                <p className="text-sm text-[var(--plum-muted)]">Loading…</p>
+                <p className="text-sm text-(--plum-muted)">Loading…</p>
               ) : selectedError ? (
-                <p className="text-sm text-[var(--plum-muted)]">
+                <p className="text-sm text-(--plum-muted)">
                   {selectedError.message}{" "}
                   <button
                     type="button"
-                    className="text-[var(--plum-accent)] hover:underline"
+                    className="text-(--plum-accent) hover:underline"
                     onClick={() => void refetchLibraryMedia()}
                   >
                     Retry
                   </button>
                 </p>
               ) : selectedLibraryActivity != null && selectedItems.length === 0 ? (
-                <p className="text-sm text-[var(--plum-muted)]">
+                <p className="text-sm text-(--plum-muted)">
                   {selectedLibraryActivity === "importing"
                     ? "Importing library…"
                     : selectedLibraryActivity === "analyze-queued"
@@ -513,11 +573,11 @@ export function Home() {
                   )}
                 </p>
               ) : selectedLibraryScanWarning ? (
-                <p className="text-sm text-[var(--plum-muted)]">{selectedLibraryScanWarning}</p>
+                <p className="text-sm text-(--plum-muted)">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
-                <p className="text-sm text-[var(--plum-muted)]">No media in this library yet.</p>
+                <p className="text-sm text-(--plum-muted)">No media in this library yet.</p>
               ) : showIdentifyPlaceholder ? (
-                <p className="text-sm text-[var(--plum-muted)]">
+                <p className="text-sm text-(--plum-muted)">
                   {selectedLibraryIdentifyPhase === "queued"
                     ? "Queued for identify…"
                     : "Identifying library…"}
@@ -525,7 +585,7 @@ export function Home() {
               ) : selectedLib.type !== "music" ? (
                 <>
                   <div className="flex items-center justify-between gap-4 mb-4">
-                    <h2 className="text-base font-semibold text-[var(--plum-text)] truncate">
+                    <h2 className="text-base font-semibold text-(--plum-text) truncate">
                       {selectedLib.name}
                     </h2>
                     <LibraryViewControls
@@ -540,125 +600,30 @@ export function Home() {
                       items={selectedLibraryCards}
                       aspectRatio="cinema"
                       cardWidth={cardWidth}
+                      hasMore={hasNextPage ?? false}
+                      onLoadMore={loadMoreLibraryItems}
                     />
                   ) : layoutMode === "detail" ? (
-                    <MediaDetailView items={selectedLibraryCards} />
+                    <MediaDetailView
+                      items={selectedLibraryCards}
+                      hasMore={hasNextPage ?? false}
+                      onLoadMore={loadMoreLibraryItems}
+                    />
                   ) : (
-                    <MediaTableView items={selectedLibraryCards} />
+                    <MediaTableView
+                      items={selectedLibraryCards}
+                      hasMore={hasNextPage ?? false}
+                      onLoadMore={loadMoreLibraryItems}
+                    />
                   )}
                 </>
               ) : (
-                <MusicLibraryView items={selectedItems} onPlayCollection={playMusicCollection} />
-              )}
-              {contextMenu && selectedLibraryId != null && (
-                <div
-                  ref={contextMenuRef}
-                  role="menu"
-                  aria-label={contextMenu.kind === "show" ? "Show actions" : "Movie actions"}
-                  className="fixed z-50 min-w-[10rem] rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] py-1 text-[var(--plum-text)] shadow-lg"
-                  style={{ left: contextMenu.x, top: contextMenu.y }}
-                >
-                  {contextMenu.kind === "show" ? (
-                    <>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                        onClick={() => {
-                          setPosterPicker({
-                            kind: "show",
-                            libraryId: selectedLibraryId,
-                            showKey: contextMenu.group.showKey,
-                            title: contextMenu.group.showTitle,
-                          });
-                          closeContextMenu();
-                        }}
-                      >
-                        Change poster…
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                        onClick={() => {
-                          refreshShowMutation.mutate(
-                            {
-                              libraryId: selectedLibraryId,
-                              showKey: contextMenu.group.showKey,
-                            },
-                            { onSettled: closeContextMenu },
-                          );
-                        }}
-                        disabled={refreshShowMutation.isPending}
-                      >
-                        Refresh metadata
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                        onClick={() => {
-                          navigate(
-                            `/library/${selectedLibraryId}/show/${encodeURIComponent(contextMenu.group.showKey)}`,
-                          );
-                          closeContextMenu();
-                        }}
-                      >
-                        Open details
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                        onClick={() => {
-                          setIdentifyGroup(contextMenu.group);
-                          closeContextMenu();
-                        }}
-                      >
-                        Identify…
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                        onClick={() => {
-                          setPosterPicker({
-                            kind: "movie",
-                            libraryId: selectedLibraryId,
-                            mediaId: contextMenu.movieId,
-                            title: contextMenu.title,
-                          });
-                          closeContextMenu();
-                        }}
-                      >
-                        Change poster…
-                      </button>
-                      {contextMenu.canRetryIdentify ? (
-                        <button
-                          type="button"
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                          onClick={() => {
-                            queueLibraryIdentify(selectedLibraryId, {
-                              prioritize: true,
-                              resetState: true,
-                            });
-                            closeContextMenu();
-                          }}
-                        >
-                          Retry identify
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--plum-bg)]"
-                        onClick={() => {
-                          navigate(`/library/${selectedLibraryId}/movie/${contextMenu.movieId}`);
-                          closeContextMenu();
-                        }}
-                      >
-                        Open details
-                      </button>
-                    </>
-                  )}
-                </div>
+                <MusicLibraryView
+                  items={selectedItems}
+                  onPlayCollection={playMusicCollection}
+                  hasMore={hasNextPage ?? false}
+                  onLoadMore={loadMoreLibraryItems}
+                />
               )}
               {identifyGroup && selectedLibraryId != null && (
                 <IdentifyShowDialog
@@ -670,6 +635,16 @@ export function Home() {
                   onSuccess={() => void refetchLibraryMedia()}
                 />
               )}
+              {identifyMovieItem && selectedLibraryId != null ? (
+                <IdentifyMovieDialog
+                  open={identifyMovieItem != null}
+                  onOpenChange={(open) => !open && setIdentifyMovieItem(null)}
+                  libraryId={selectedLibraryId}
+                  mediaId={identifyMovieItem.id}
+                  movieTitle={identifyMovieItem.title}
+                  onSuccess={() => void refetchLibraryMedia()}
+                />
+              ) : null}
               {posterPicker ? (
                 <PosterPickerDialog
                   open={posterPicker != null}

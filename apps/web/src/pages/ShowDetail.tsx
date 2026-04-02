@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BASE_URL, type MediaItem } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
+import { RatingBadge } from "../components/RatingBadge";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
@@ -27,12 +28,14 @@ export function ShowDetail() {
   const libraryId = libraryIdParam ? parseInt(libraryIdParam, 10) : null;
   const showKey = showKeyEncoded ? decodeURIComponent(showKeyEncoded) : null;
 
-  const { data: items = [], isLoading: loading, error } = useLibraryMedia(libraryId);
+  const { data, isLoading: loading, error } = useLibraryMedia(libraryId);
   const { data: details } = useShowDetails(libraryId, showKey);
   const { playShowGroup } = usePlayer();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
+
+  const items = useMemo<MediaItem[]>(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
 
   const episodes = useMemo(() => {
     if (!showKey) return [];
@@ -67,6 +70,8 @@ export function ShowDetail() {
   const showImdbRating =
     details?.imdb_rating ??
     episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating;
+  const showTmdbRating =
+    episodes.find((episode) => (episode.vote_average ?? 0) > 0)?.vote_average;
 
   useEffect(() => {
     if (episodesBySeason.seasons.length === 0) {
@@ -147,8 +152,11 @@ export function ShowDetail() {
         )}
         <div className="show-detail-meta">
           <h1 className="show-detail-title">{showTitle}</h1>
-          {showImdbRating ? (
-            <p className="show-detail-date">IMDb {showImdbRating.toFixed(1)}</p>
+          {showImdbRating || showTmdbRating ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <RatingBadge label="IMDb" value={showImdbRating} size="md" />
+              <RatingBadge label="TMDb" value={showTmdbRating} size="md" />
+            </div>
           ) : null}
           {details?.first_air_date && <p className="show-detail-date">{details.first_air_date}</p>}
           {details?.overview && (
@@ -159,7 +167,7 @@ export function ShowDetail() {
               {details.genres.map((genre) => (
                 <span
                   key={genre}
-                  className="rounded-full border border-[var(--plum-border)] px-3 py-1 text-xs uppercase tracking-[0.12em] text-[var(--plum-muted)]"
+                  className="rounded-full border border-(--plum-border) px-3 py-1 text-xs uppercase tracking-[0.12em] text-(--plum-muted)"
                 >
                   {genre}
                 </span>
@@ -169,7 +177,7 @@ export function ShowDetail() {
           <div>
             <button
               type="button"
-              className="rounded-[var(--radius-md)] border border-[var(--plum-border)] px-4 py-2 text-sm text-[var(--plum-text)] transition-colors hover:bg-[var(--plum-panel)]"
+              className="rounded-md border border-(--plum-border) px-4 py-2 text-sm text-(--plum-text) transition-colors hover:bg-(--plum-panel)"
               onClick={() => setPosterPickerOpen(true)}
             >
               Change poster…
@@ -178,17 +186,17 @@ export function ShowDetail() {
         </div>
       </div>
       {details?.cast.length ? (
-        <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Cast</h2>
+        <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
+          <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {details.cast.map((member) => (
               <div
                 key={`${member.name}-${member.character ?? ""}`}
-                className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] p-3"
+                className="rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3"
               >
-                <div className="text-sm font-semibold text-[var(--plum-text)]">{member.name}</div>
+                <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
                 {member.character ? (
-                  <div className="text-xs text-[var(--plum-muted)]">{member.character}</div>
+                  <div className="text-xs text-(--plum-muted)">{member.character}</div>
                 ) : null}
               </div>
             ))}
@@ -272,7 +280,7 @@ export function ShowDetail() {
                             style={{ width: `${ep.progress_percent ?? 0}%` }}
                           />
                         </div>
-                        <span className="text-xs text-[var(--plum-muted)]">
+                        <span className="text-xs text-(--plum-muted)">
                           {formatRemainingTime(ep.remaining_seconds)}
                         </span>
                       </div>

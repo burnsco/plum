@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const loopbackHTTPAnyPortOrigin = "__plum_loopback_http_any_port__"
+
 var defaultAllowedOrigins = []string{
 	"http://localhost:3000",
 	"http://127.0.0.1:3000",
@@ -19,6 +21,8 @@ func AllowedOriginsFromEnv(raw string) map[string]struct{} {
 	values := defaultAllowedOrigins
 	if trimmed := strings.TrimSpace(raw); trimmed != "" {
 		values = strings.Split(trimmed, ",")
+	} else {
+		origins[loopbackHTTPAnyPortOrigin] = struct{}{}
 	}
 	for _, value := range values {
 		origin := strings.TrimSpace(value)

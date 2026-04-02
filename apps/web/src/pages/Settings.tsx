@@ -34,6 +34,8 @@ import {
   useUpdateLibraryPlaybackPreferences,
   useUpdateTranscodingSettings,
 } from "@/queries";
+import { cn } from "@/lib/utils";
+import { Cpu, Image, Link2, Volume2 } from "lucide-react";
 
 const decodeCodecOptions: Array<{
   key: VaapiDecodeCodec;
@@ -262,6 +264,8 @@ function libraryPreferencesEqual(
   );
 }
 
+type SettingsTab = "playback" | "media-stack" | "metadata" | "transcoding";
+
 export function Settings() {
   const { user } = useAuthState();
   const isAdmin = user?.is_admin ?? false;
@@ -299,6 +303,7 @@ export function Settings() {
   const [mediaStackDirty, setMediaStackDirty] = useState(false);
   const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
   const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("playback");
 
   useEffect(() => {
     if (!settingsQuery.data || dirty) return;
@@ -353,7 +358,7 @@ export function Settings() {
           preferred_subtitle_language: "en",
           subtitles_enabled_by_default: true,
           watcher_enabled: false,
-          watcher_mode: "auto",
+          watcher_mode: "auto" as const,
           scan_interval_minutes: 0,
         };
   };
@@ -399,381 +404,6 @@ export function Settings() {
       setSavingLibraryId(null);
     }
   };
-
-  const playbackDefaultsSection = (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Playback defaults</h1>
-        <p className="max-w-2xl text-sm text-[var(--plum-muted)]">
-          Choose the default playback behavior and scan automation for each library. Anime libraries
-          default to Japanese audio with English subtitles; TV and movie libraries default to
-          English for both when available.
-        </p>
-      </div>
-
-      <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
-        <div className="flex flex-col gap-2">
-          <h2 className="text-lg font-medium text-[var(--plum-text)]">Player controls look</h2>
-          <p className="text-sm text-[var(--plum-muted)]">
-            Pick the default video-player controls style for docked and fullscreen playback. The
-            quick switch inside the player updates this same preference.
-          </p>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {playerControlsAppearanceOptions.map((option) => {
-            const isActive = playerControlsAppearance === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className={`rounded-[var(--radius-md)] border p-4 text-left transition-colors ${
-                  isActive
-                    ? "border-[var(--plum-accent-soft)] bg-[color-mix(in_srgb,var(--plum-accent)_18%,transparent)] text-[var(--plum-text)]"
-                    : "border-[var(--plum-border)] bg-[var(--plum-panel)]/70 text-[var(--plum-text)] hover:border-[var(--plum-accent-soft)]"
-                }`}
-                onClick={() => setPlayerControlsAppearance(option.value)}
-                aria-pressed={isActive}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium">{option.label}</span>
-                  <span className="text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
-                    {isActive ? "Active" : "Available"}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-[var(--plum-muted)]">{option.description}</p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {librariesQuery.isLoading ? (
-        <p className="mt-5 text-sm text-[var(--plum-muted)]">Loading libraries…</p>
-      ) : librariesQuery.isError ? (
-        <p className="mt-5 text-sm text-red-300">
-          {librariesQuery.error.message || "Failed to load libraries."}
-        </p>
-      ) : libraries.length === 0 ? (
-        <p className="mt-5 text-sm text-[var(--plum-muted)]">
-          Add a library to configure playback defaults and automation.
-        </p>
-      ) : (
-        <div className="mt-6 grid gap-4">
-          {libraries.map((library) => {
-            const current = libraryForms[library.id] ?? cloneLibraryPlaybackPreferences(library);
-            const saved = cloneLibraryPlaybackPreferences(library);
-            const isDirty = !libraryPreferencesEqual(current, saved);
-            const message = librarySaveMessages[library.id];
-            const supportsPlaybackPreferences = library.type !== "music";
-
-            return (
-              <article
-                key={library.id}
-                className="rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5"
-              >
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h2 className="text-lg font-medium text-[var(--plum-text)]">{library.name}</h2>
-                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
-                      {library.type}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => void saveLibraryPreferences(library)}
-                    disabled={!isDirty || savingLibraryId === library.id}
-                  >
-                    {savingLibraryId === library.id ? "Saving…" : "Save defaults"}
-                  </Button>
-                </div>
-
-                {supportsPlaybackPreferences ? (
-                  <div className="mt-5 grid gap-4 md:grid-cols-3">
-                    <div>
-                      <label
-                        className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                        htmlFor={`library-audio-${library.id}`}
-                      >
-                        Preferred audio
-                      </label>
-                      <select
-                        id={`library-audio-${library.id}`}
-                        value={current.preferred_audio_language}
-                        onChange={(event) =>
-                          setLibraryField(
-                            library.id,
-                            "preferred_audio_language",
-                            normalizeLanguagePreference(event.target.value),
-                          )
-                        }
-                        className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
-                      >
-                        {languagePreferenceOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label
-                        className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                        htmlFor={`library-subtitles-${library.id}`}
-                      >
-                        Preferred subtitles
-                      </label>
-                      <select
-                        id={`library-subtitles-${library.id}`}
-                        value={current.preferred_subtitle_language}
-                        onChange={(event) =>
-                          setLibraryField(
-                            library.id,
-                            "preferred_subtitle_language",
-                            normalizeLanguagePreference(event.target.value),
-                          )
-                        }
-                        className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
-                      >
-                        {languagePreferenceOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-end">
-                      <Toggle
-                        label="Enable subtitles by default"
-                        checked={current.subtitles_enabled_by_default}
-                        onChange={(checked) =>
-                          setLibraryField(library.id, "subtitles_enabled_by_default", checked)
-                        }
-                        description="If the preferred subtitle language exists, Plum will enable it automatically."
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <p className="mt-5 text-sm text-[var(--plum-muted)]">
-                    Music libraries skip playback language defaults, but still support automated
-                    scan behavior below.
-                  </p>
-                )}
-
-                <div className="mt-5 grid gap-4 md:grid-cols-3">
-                  <div className="flex items-end">
-                    <Toggle
-                      label="Enable filesystem watcher"
-                      checked={current.watcher_enabled}
-                      onChange={(checked) =>
-                        setLibraryField(library.id, "watcher_enabled", checked)
-                      }
-                      description="Automatically queue a scan when Plum sees filesystem changes for this library."
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                      htmlFor={`library-watcher-mode-${library.id}`}
-                    >
-                      Watcher mode
-                    </label>
-                    <select
-                      id={`library-watcher-mode-${library.id}`}
-                      value={current.watcher_mode}
-                      disabled={!current.watcher_enabled}
-                      onChange={(event) =>
-                        setLibraryField(
-                          library.id,
-                          "watcher_mode",
-                          event.target.value === "poll" ? "poll" : "auto",
-                        )
-                      }
-                      className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
-                    >
-                      <option value="auto">Auto</option>
-                      <option value="poll">Poll</option>
-                    </select>
-                    <p className="mt-2 text-xs text-[var(--plum-muted)]">
-                      Auto prefers native filesystem events and falls back to polling when needed.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label
-                      className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                      htmlFor={`library-scan-interval-${library.id}`}
-                    >
-                      Scheduled scan interval
-                    </label>
-                    <Input
-                      id={`library-scan-interval-${library.id}`}
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={current.scan_interval_minutes}
-                      onChange={(event) =>
-                        setLibraryField(
-                          library.id,
-                          "scan_interval_minutes",
-                          Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0),
-                        )
-                      }
-                    />
-                    <p className="mt-2 text-xs text-[var(--plum-muted)]">
-                      Enter minutes between automatic scans. Use <code>0</code> to disable scheduled
-                      scans.
-                    </p>
-                  </div>
-                </div>
-
-                <p
-                  className={`mt-4 text-sm ${
-                    message?.includes("saved")
-                      ? "text-emerald-300"
-                      : message
-                        ? "text-red-300"
-                        : isDirty
-                          ? "text-[var(--plum-muted)]"
-                          : "text-[var(--plum-muted)]"
-                  }`}
-                >
-                  {message ??
-                    (isDirty
-                      ? "Unsaved changes."
-                      : "Defaults are active for new playback sessions and future automation runs.")}
-                </p>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-
-  const mediaStackSection = (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Media stack</h1>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
-            Connect Radarr and Sonarr TV so Discover can add titles directly and Downloads can show
-            live queue progress.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="outline"
-            onClick={handleValidateMediaStack}
-            disabled={mediaStackForm == null || validateMediaStack.isPending}
-          >
-            {validateMediaStack.isPending ? "Validating..." : "Validate & load defaults"}
-          </Button>
-          <Button
-            onClick={handleSaveMediaStack}
-            disabled={mediaStackForm == null || !mediaStackDirty || updateMediaStack.isPending}
-          >
-            {updateMediaStack.isPending ? "Saving..." : "Save settings"}
-          </Button>
-        </div>
-      </div>
-
-      {mediaStackQuery.isLoading || mediaStackForm == null ? (
-        <p className="mt-5 text-sm text-[var(--plum-muted)]">Loading media stack settings...</p>
-      ) : mediaStackQuery.isError ? (
-        <p className="mt-5 text-sm text-red-300">
-          {mediaStackQuery.error.message || "Failed to load media stack settings."}
-        </p>
-      ) : (
-        <div className="mt-6 grid gap-4 xl:grid-cols-2">
-          <MediaStackServiceCard
-            title="Radarr"
-            description="Movie adds always route here in v1."
-            service={mediaStackForm.radarr}
-            validation={mediaStackValidation?.radarr ?? null}
-            onChange={(key, value) => setMediaStackServiceField("radarr", key, value)}
-          />
-          <MediaStackServiceCard
-            title="Sonarr TV"
-            description="TV show adds always route here in v1."
-            service={mediaStackForm.sonarrTv}
-            validation={mediaStackValidation?.sonarrTv ?? null}
-            onChange={(key, value) => setMediaStackServiceField("sonarrTv", key, value)}
-          />
-        </div>
-      )}
-
-      <p
-        className={`mt-4 text-sm ${
-          mediaStackSaveMessage == null
-            ? "text-[var(--plum-muted)]"
-            : mediaStackSaveTone === "success"
-              ? "text-emerald-300"
-              : mediaStackSaveTone === "warning"
-                ? "text-amber-200"
-                : mediaStackSaveMessage
-                  ? "text-red-300"
-                  : "text-[var(--plum-muted)]"
-        }`}
-      >
-        {mediaStackSaveMessage ??
-          (mediaStackDirty
-            ? "Unsaved changes."
-            : "Direct adds always search immediately after Plum hands the title to Radarr or Sonarr TV.")}
-      </p>
-    </section>
-  );
-
-  if (!isAdmin) {
-    return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        {playbackDefaultsSection}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
-          <p className="mt-2 text-sm text-[var(--plum-muted)]">
-            Server transcoding and metadata artwork settings are only available to admin accounts.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (settingsQuery.isError || metadataArtworkQuery.isError) {
-    return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        {playbackDefaultsSection}
-        {mediaStackSection}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
-          <p className="mt-2 text-sm text-red-300">
-            {settingsQuery.error?.message ||
-              metadataArtworkQuery.error?.message ||
-              "Failed to load server settings."}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (
-    settingsQuery.isLoading ||
-    metadataArtworkQuery.isLoading ||
-    form == null ||
-    metadataArtworkForm == null
-  ) {
-    return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        {playbackDefaultsSection}
-        {mediaStackSection}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <h2 className="text-xl font-semibold text-[var(--plum-text)]">Server settings</h2>
-          <p className="mt-2 text-sm text-[var(--plum-muted)]">Loading server settings…</p>
-        </div>
-      </div>
-    );
-  }
 
   function setField<K extends keyof TranscodingSettingsShape>(
     key: K,
@@ -945,16 +575,359 @@ export function Settings() {
     ]),
   );
 
-  return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      {playbackDefaultsSection}
-      {mediaStackSection}
+  // ── Tab: Playback ──────────────────────────────────────────────────────────
 
-      <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+  const playbackTabContent = (
+    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-xl font-semibold text-(--plum-text)">Playback defaults</h2>
+        <p className="max-w-2xl text-sm text-(--plum-muted)">
+          Choose the default playback behavior and scan automation for each library. Anime libraries
+          default to Japanese audio with English subtitles; TV and movie libraries default to
+          English for both when available.
+        </p>
+      </div>
+
+      <div className="mt-6 rounded-md border border-(--plum-border) bg-(--plum-panel-alt)/60 p-5">
+        <div className="flex flex-col gap-2">
+          <h3 className="text-base font-medium text-(--plum-text)">Player controls look</h3>
+          <p className="text-sm text-(--plum-muted)">
+            Pick the default video-player controls style for docked and fullscreen playback. The
+            quick switch inside the player updates this same preference.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {playerControlsAppearanceOptions.map((option) => {
+            const isActive = playerControlsAppearance === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`rounded-md border p-4 text-left transition-colors ${
+                  isActive
+                    ? "border-(--plum-accent-soft) bg-[color-mix(in_srgb,var(--plum-accent)_18%,transparent)] text-(--plum-text)"
+                    : "border-(--plum-border) bg-(--plum-panel)/70 text-(--plum-text) hover:border-(--plum-accent-soft)"
+                }`}
+                onClick={() => setPlayerControlsAppearance(option.value)}
+                aria-pressed={isActive}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium">{option.label}</span>
+                  <span className="text-xs uppercase tracking-[0.16em] text-(--plum-muted)">
+                    {isActive ? "Active" : "Available"}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-(--plum-muted)">{option.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {librariesQuery.isLoading ? (
+        <p className="mt-5 text-sm text-(--plum-muted)">Loading libraries…</p>
+      ) : librariesQuery.isError ? (
+        <p className="mt-5 text-sm text-red-300">
+          {librariesQuery.error.message || "Failed to load libraries."}
+        </p>
+      ) : libraries.length === 0 ? (
+        <p className="mt-5 text-sm text-(--plum-muted)">
+          Add a library to configure playback defaults and automation.
+        </p>
+      ) : (
+        <div className="mt-6 grid gap-4">
+          {libraries.map((library) => {
+            const current = libraryForms[library.id] ?? cloneLibraryPlaybackPreferences(library);
+            const saved = cloneLibraryPlaybackPreferences(library);
+            const isDirty = !libraryPreferencesEqual(current, saved);
+            const message = librarySaveMessages[library.id];
+            const supportsPlaybackPreferences = library.type !== "music";
+
+            return (
+              <article
+                key={library.id}
+                className="rounded-md border border-(--plum-border) bg-(--plum-panel-alt)/60 p-5"
+              >
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-base font-medium text-(--plum-text)">{library.name}</h3>
+                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-(--plum-muted)">
+                      {library.type}
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => void saveLibraryPreferences(library)}
+                    disabled={!isDirty || savingLibraryId === library.id}
+                  >
+                    {savingLibraryId === library.id ? "Saving…" : "Save defaults"}
+                  </Button>
+                </div>
+
+                {supportsPlaybackPreferences ? (
+                  <div className="mt-5 grid gap-4 md:grid-cols-3">
+                    <div>
+                      <label
+                        className="mb-2 block text-sm font-medium text-(--plum-text)"
+                        htmlFor={`library-audio-${library.id}`}
+                      >
+                        Preferred audio
+                      </label>
+                      <select
+                        id={`library-audio-${library.id}`}
+                        value={current.preferred_audio_language}
+                        onChange={(event) =>
+                          setLibraryField(
+                            library.id,
+                            "preferred_audio_language",
+                            normalizeLanguagePreference(event.target.value),
+                          )
+                        }
+                        className="flex h-9 w-full rounded-md border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
+                      >
+                        {languagePreferenceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        className="mb-2 block text-sm font-medium text-(--plum-text)"
+                        htmlFor={`library-subtitles-${library.id}`}
+                      >
+                        Preferred subtitles
+                      </label>
+                      <select
+                        id={`library-subtitles-${library.id}`}
+                        value={current.preferred_subtitle_language}
+                        onChange={(event) =>
+                          setLibraryField(
+                            library.id,
+                            "preferred_subtitle_language",
+                            normalizeLanguagePreference(event.target.value),
+                          )
+                        }
+                        className="flex h-9 w-full rounded-md border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
+                      >
+                        {languagePreferenceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-end">
+                      <Toggle
+                        label="Enable subtitles by default"
+                        checked={current.subtitles_enabled_by_default}
+                        onChange={(checked) =>
+                          setLibraryField(library.id, "subtitles_enabled_by_default", checked)
+                        }
+                        description="If the preferred subtitle language exists, Plum will enable it automatically."
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-5 text-sm text-(--plum-muted)">
+                    Music libraries skip playback language defaults, but still support automated
+                    scan behavior below.
+                  </p>
+                )}
+
+                <div className="mt-5 grid gap-4 md:grid-cols-3">
+                  <div className="flex items-end">
+                    <Toggle
+                      label="Enable filesystem watcher"
+                      checked={current.watcher_enabled}
+                      onChange={(checked) =>
+                        setLibraryField(library.id, "watcher_enabled", checked)
+                      }
+                      description="Automatically queue a scan when Plum sees filesystem changes for this library."
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      className="mb-2 block text-sm font-medium text-(--plum-text)"
+                      htmlFor={`library-watcher-mode-${library.id}`}
+                    >
+                      Watcher mode
+                    </label>
+                    <select
+                      id={`library-watcher-mode-${library.id}`}
+                      value={current.watcher_mode}
+                      disabled={!current.watcher_enabled}
+                      onChange={(event) =>
+                        setLibraryField(
+                          library.id,
+                          "watcher_mode",
+                          event.target.value === "poll" ? "poll" : "auto",
+                        )
+                      }
+                      className="flex h-9 w-full rounded-md border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="poll">Poll</option>
+                    </select>
+                    <p className="mt-2 text-xs text-(--plum-muted)">
+                      Auto prefers native filesystem events and falls back to polling when needed.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      className="mb-2 block text-sm font-medium text-(--plum-text)"
+                      htmlFor={`library-scan-interval-${library.id}`}
+                    >
+                      Scheduled scan interval
+                    </label>
+                    <Input
+                      id={`library-scan-interval-${library.id}`}
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={current.scan_interval_minutes}
+                      onChange={(event) =>
+                        setLibraryField(
+                          library.id,
+                          "scan_interval_minutes",
+                          Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0),
+                        )
+                      }
+                    />
+                    <p className="mt-2 text-xs text-(--plum-muted)">
+                      Enter minutes between automatic scans. Use <code>0</code> to disable scheduled
+                      scans.
+                    </p>
+                  </div>
+                </div>
+
+                <p
+                  className={`mt-4 text-sm ${
+                    message?.includes("saved")
+                      ? "text-emerald-300"
+                      : message
+                        ? "text-red-300"
+                        : "text-(--plum-muted)"
+                  }`}
+                >
+                  {message ??
+                    (isDirty
+                      ? "Unsaved changes."
+                      : "Defaults are active for new playback sessions and future automation runs.")}
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+
+  // ── Tab: Media Stack ───────────────────────────────────────────────────────
+
+  const mediaStackTabContent = (
+    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-(--plum-text)">Media stack</h2>
+          <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
+            Connect Radarr and Sonarr TV so Discover can add titles directly and Downloads can show
+            live queue progress.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={handleValidateMediaStack}
+            disabled={mediaStackForm == null || validateMediaStack.isPending}
+          >
+            {validateMediaStack.isPending ? "Validating..." : "Validate & load defaults"}
+          </Button>
+          <Button
+            onClick={handleSaveMediaStack}
+            disabled={mediaStackForm == null || !mediaStackDirty || updateMediaStack.isPending}
+          >
+            {updateMediaStack.isPending ? "Saving..." : "Save settings"}
+          </Button>
+        </div>
+      </div>
+
+      {mediaStackQuery.isLoading || mediaStackForm == null ? (
+        <p className="mt-5 text-sm text-(--plum-muted)">Loading media stack settings...</p>
+      ) : mediaStackQuery.isError ? (
+        <p className="mt-5 text-sm text-red-300">
+          {mediaStackQuery.error.message || "Failed to load media stack settings."}
+        </p>
+      ) : (
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          <MediaStackServiceCard
+            title="Radarr"
+            description="Movie adds always route here in v1."
+            service={mediaStackForm.radarr}
+            validation={mediaStackValidation?.radarr ?? null}
+            onChange={(key, value) => setMediaStackServiceField("radarr", key, value)}
+          />
+          <MediaStackServiceCard
+            title="Sonarr TV"
+            description="TV show adds always route here in v1."
+            service={mediaStackForm.sonarrTv}
+            validation={mediaStackValidation?.sonarrTv ?? null}
+            onChange={(key, value) => setMediaStackServiceField("sonarrTv", key, value)}
+          />
+        </div>
+      )}
+
+      <p
+        className={`mt-4 text-sm ${
+          mediaStackSaveMessage == null
+            ? "text-(--plum-muted)"
+            : mediaStackSaveTone === "success"
+              ? "text-emerald-300"
+              : mediaStackSaveTone === "warning"
+                ? "text-amber-200"
+                : mediaStackSaveMessage
+                  ? "text-red-300"
+                  : "text-(--plum-muted)"
+        }`}
+      >
+        {mediaStackSaveMessage ??
+          (mediaStackDirty
+            ? "Unsaved changes."
+            : "Direct adds always search immediately after Plum hands the title to Radarr or Sonarr TV.")}
+      </p>
+    </section>
+  );
+
+  // ── Tab: Metadata ──────────────────────────────────────────────────────────
+
+  const metadataTabContent = (() => {
+    if (metadataArtworkQuery.isLoading || metadataArtworkForm == null) {
+      return (
+        <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+          <p className="text-sm text-(--plum-muted)">Loading metadata artwork settings…</p>
+        </div>
+      );
+    }
+    if (metadataArtworkQuery.isError) {
+      return (
+        <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+          <p className="text-sm text-red-300">
+            {metadataArtworkQuery.error.message || "Failed to load metadata artwork settings."}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)] md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Metadata artwork</h1>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
+            <h2 className="text-xl font-semibold text-(--plum-text)">Metadata artwork</h2>
+            <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
               Control which image fetchers Plum uses for movies, shows, seasons, and episodes.
               Provider order is fixed; these toggles only enable or disable each step.
             </p>
@@ -963,165 +936,187 @@ export function Settings() {
             {updateMetadataArtwork.isPending ? "Saving…" : "Save settings"}
           </Button>
         </div>
-      </section>
 
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
-        <div className="flex flex-col gap-6">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Movies</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
-              Automatic order: Fanart, then TMDB, then TVDB.
-            </p>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {movieArtworkProviderOptions.map((option) => {
-                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
-                return (
-                  <CheckboxCard
-                    key={`movies-${option.key}`}
-                    checked={metadataArtworkForm.movies[option.key]}
-                    label={option.label}
-                    description={
-                      availability && !availability.available && availability.reason
-                        ? `${option.description} ${availability.reason}.`
-                        : option.description
-                    }
-                    disabled={availability?.available === false}
-                    onChange={(checked) => setArtworkField("movies", option.key, checked)}
-                  />
-                );
-              })}
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+          <div className="flex flex-col gap-6">
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+              <h3 className="text-base font-medium text-(--plum-text)">Movies</h3>
+              <p className="mt-1 text-sm text-(--plum-muted)">
+                Automatic order: Fanart, then TMDB, then TVDB.
+              </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {movieArtworkProviderOptions.map((option) => {
+                  const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                  return (
+                    <CheckboxCard
+                      key={`movies-${option.key}`}
+                      checked={metadataArtworkForm.movies[option.key]}
+                      label={option.label}
+                      description={
+                        availability && !availability.available && availability.reason
+                          ? `${option.description} ${availability.reason}.`
+                          : option.description
+                      }
+                      disabled={availability?.available === false}
+                      onChange={(checked) => setArtworkField("movies", option.key, checked)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+              <h3 className="text-base font-medium text-(--plum-text)">Shows</h3>
+              <p className="mt-1 text-sm text-(--plum-muted)">
+                Automatic order: Fanart, then TMDB, then TVDB.
+              </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {showArtworkProviderOptions.map((option) => {
+                  const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                  return (
+                    <CheckboxCard
+                      key={`shows-${option.key}`}
+                      checked={metadataArtworkForm.shows[option.key]}
+                      label={option.label}
+                      description={
+                        availability && !availability.available && availability.reason
+                          ? `${option.description} ${availability.reason}.`
+                          : option.description
+                      }
+                      disabled={availability?.available === false}
+                      onChange={(checked) => setArtworkField("shows", option.key, checked)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+              <h3 className="text-base font-medium text-(--plum-text)">Seasons</h3>
+              <p className="mt-1 text-sm text-(--plum-muted)">
+                Automatic order: Fanart, then TMDB, then TVDB.
+              </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {showArtworkProviderOptions.map((option) => {
+                  const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                  return (
+                    <CheckboxCard
+                      key={`seasons-${option.key}`}
+                      checked={metadataArtworkForm.seasons[option.key]}
+                      label={option.label}
+                      description={
+                        availability && !availability.available && availability.reason
+                          ? `${option.description} ${availability.reason}.`
+                          : option.description
+                      }
+                      disabled={availability?.available === false}
+                      onChange={(checked) => setArtworkField("seasons", option.key, checked)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+              <h3 className="text-base font-medium text-(--plum-text)">Episodes</h3>
+              <p className="mt-1 text-sm text-(--plum-muted)">
+                Automatic order: TMDB, TVDB, then OMDb.
+              </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {episodeArtworkProviderOptions.map((option) => {
+                  const availability = metadataArtworkAvailabilityByProvider.get(option.key);
+                  return (
+                    <CheckboxCard
+                      key={`episodes-${option.key}`}
+                      checked={metadataArtworkForm.episodes[option.key]}
+                      label={option.label}
+                      description={
+                        availability && !availability.available && availability.reason
+                          ? `${option.description} ${availability.reason}.`
+                          : option.description
+                      }
+                      disabled={availability?.available === false}
+                      onChange={(checked) => setEpisodeArtworkField(option.key, checked)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Shows</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
-              Automatic order: Fanart, then TMDB, then TVDB.
-            </p>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {showArtworkProviderOptions.map((option) => {
-                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
-                return (
-                  <CheckboxCard
-                    key={`shows-${option.key}`}
-                    checked={metadataArtworkForm.shows[option.key]}
-                    label={option.label}
-                    description={
-                      availability && !availability.available && availability.reason
-                        ? `${option.description} ${availability.reason}.`
-                        : option.description
-                    }
-                    disabled={availability?.available === false}
-                    onChange={(checked) => setArtworkField("shows", option.key, checked)}
-                  />
-                );
-              })}
+          <aside className="flex flex-col gap-4">
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+                Provider status
+              </h3>
+              <ul className="mt-3 space-y-3">
+                {(metadataArtworkQuery.data?.provider_availability ?? []).map((provider) => (
+                  <li
+                    key={provider.provider}
+                    className={`rounded-md border p-3 text-sm ${
+                      provider.available
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                        : "border-(--plum-border) bg-(--plum-panel-alt)/60 text-(--plum-muted)"
+                    }`}
+                  >
+                    <div className="font-medium uppercase tracking-[0.12em]">{provider.provider}</div>
+                    <div className="mt-1">
+                      {provider.available ? "Available" : provider.reason || "Unavailable"}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Seasons</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
-              Automatic order: Fanart, then TMDB, then TVDB.
-            </p>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {showArtworkProviderOptions.map((option) => {
-                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
-                return (
-                  <CheckboxCard
-                    key={`seasons-${option.key}`}
-                    checked={metadataArtworkForm.seasons[option.key]}
-                    label={option.label}
-                    description={
-                      availability && !availability.available && availability.reason
-                        ? `${option.description} ${availability.reason}.`
-                        : option.description
-                    }
-                    disabled={availability?.available === false}
-                    onChange={(checked) => setArtworkField("seasons", option.key, checked)}
-                  />
-                );
-              })}
+            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+                Save status
+              </h3>
+              <p
+                className={`mt-3 text-sm ${
+                  metadataArtworkSaveMessage?.includes("saved")
+                    ? "text-emerald-300"
+                    : metadataArtworkSaveMessage
+                      ? "text-red-300"
+                      : "text-[var(--plum-muted)]"
+                }`}
+              >
+                {metadataArtworkSaveMessage ??
+                  (metadataArtworkDirty
+                    ? "Unsaved changes."
+                    : "Saved settings are active for future metadata refreshes.")}
+              </p>
             </div>
-          </div>
-
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <h2 className="text-lg font-medium text-[var(--plum-text)]">Episodes</h2>
-            <p className="mt-1 text-sm text-[var(--plum-muted)]">
-              Automatic order: TMDB, TVDB, then OMDb.
-            </p>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {episodeArtworkProviderOptions.map((option) => {
-                const availability = metadataArtworkAvailabilityByProvider.get(option.key);
-                return (
-                  <CheckboxCard
-                    key={`episodes-${option.key}`}
-                    checked={metadataArtworkForm.episodes[option.key]}
-                    label={option.label}
-                    description={
-                      availability && !availability.available && availability.reason
-                        ? `${option.description} ${availability.reason}.`
-                        : option.description
-                    }
-                    disabled={availability?.available === false}
-                    onChange={(checked) => setEpisodeArtworkField(option.key, checked)}
-                  />
-                );
-              })}
-            </div>
-          </div>
+          </aside>
         </div>
+      </div>
+    );
+  })();
 
-        <aside className="flex flex-col gap-4">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
-              Provider status
-            </h2>
-            <ul className="mt-3 space-y-3">
-              {(metadataArtworkQuery.data?.provider_availability ?? []).map((provider) => (
-                <li
-                  key={provider.provider}
-                  className={`rounded-[var(--radius-md)] border p-3 text-sm ${
-                    provider.available
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                      : "border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 text-[var(--plum-muted)]"
-                  }`}
-                >
-                  <div className="font-medium uppercase tracking-[0.12em]">{provider.provider}</div>
-                  <div className="mt-1">
-                    {provider.available ? "Available" : provider.reason || "Unavailable"}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
+  // ── Tab: Transcoding ───────────────────────────────────────────────────────
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
-              Save status
-            </h2>
-            <p
-              className={`mt-3 text-sm ${
-                metadataArtworkSaveMessage?.includes("saved")
-                  ? "text-emerald-300"
-                  : metadataArtworkSaveMessage
-                    ? "text-red-300"
-                    : "text-[var(--plum-muted)]"
-              }`}
-            >
-              {metadataArtworkSaveMessage ??
-                (metadataArtworkDirty
-                  ? "Unsaved changes."
-                  : "Saved settings are active for future metadata refreshes.")}
-            </p>
-          </div>
-        </aside>
-      </section>
-
-      <section className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+  const transcodingTabContent = (() => {
+    if (settingsQuery.isLoading || form == null) {
+      return (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+          <p className="text-sm text-[var(--plum-muted)]">Loading transcoding settings…</p>
+        </div>
+      );
+    }
+    if (settingsQuery.isError) {
+      return (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+          <p className="text-sm text-red-300">
+            {settingsQuery.error.message || "Failed to load transcoding settings."}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)] md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Transcoding</h1>
+            <h2 className="text-xl font-semibold text-[var(--plum-text)]">Transcoding</h2>
             <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
               Configure server-wide VAAPI decode and hardware encode behavior for future transcode
               jobs.
@@ -1131,196 +1126,263 @@ export function Settings() {
             {updateSettings.isPending ? "Saving…" : "Save settings"}
           </Button>
         </div>
-      </section>
 
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
-        <div className="flex flex-col gap-6">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-medium text-[var(--plum-text)]">
-                  Video Acceleration API
-                </h2>
-                <p className="mt-1 text-sm text-[var(--plum-muted)]">
-                  Enable VAAPI on the server and choose which source codecs are allowed to use it
-                  for decode.
-                </p>
-              </div>
-              <Toggle
-                label="Enable VAAPI"
-                checked={form.vaapiEnabled}
-                onChange={(checked) => setField("vaapiEnabled", checked)}
-              />
-            </div>
-
-            <div className="mt-5 space-y-5">
-              <div>
-                <label
-                  className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                  htmlFor="vaapi-device"
-                >
-                  VAAPI device
-                </label>
-                <Input
-                  id="vaapi-device"
-                  value={form.vaapiDevicePath}
-                  onChange={(event) => setField("vaapiDevicePath", event.target.value)}
-                  placeholder="/dev/dri/renderD128"
-                />
-                <p className="mt-2 text-xs text-[var(--plum-muted)]">
-                  Default render node for Intel/AMD VAAPI on Linux hosts.
-                </p>
-              </div>
-
-              <div>
-                <div className="mb-3">
-                  <h3 className="text-sm font-medium text-[var(--plum-text)]">Decode codecs</h3>
-                  <p className="mt-1 text-xs text-[var(--plum-muted)]">
-                    Each codec can be enabled or disabled independently. Disabled codecs stay on
-                    software decode.
-                  </p>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {decodeCodecOptions.map((option) => (
-                    <CheckboxCard
-                      key={option.key}
-                      checked={form.decodeCodecs[option.key]}
-                      label={option.label}
-                      description={option.description}
-                      onChange={(checked) => setDecodeCodec(option.key, checked)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-medium text-[var(--plum-text)]">Hardware encoding</h2>
-                <p className="mt-1 text-sm text-[var(--plum-muted)]">
-                  Use VAAPI encoders when possible, with automatic software fallback if the hardware
-                  path fails.
-                </p>
-              </div>
-              <Toggle
-                label="Enable hardware encoding"
-                checked={form.hardwareEncodingEnabled}
-                onChange={(checked) => setField("hardwareEncodingEnabled", checked)}
-              />
-            </div>
-
-            <div className="mt-5 space-y-5">
-              <div>
-                <div className="mb-3">
-                  <h3 className="text-sm font-medium text-[var(--plum-text)]">
-                    Allowed output formats
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+          <div className="flex flex-col gap-6">
+            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-medium text-[var(--plum-text)]">
+                    Video Acceleration API
                   </h3>
-                  <p className="mt-1 text-xs text-[var(--plum-muted)]">
-                    H.264 is enabled by default. HEVC and AV1 stay opt-in for compatibility and host
-                    support reasons.
+                  <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                    Enable VAAPI on the server and choose which source codecs are allowed to use it
+                    for decode.
                   </p>
                 </div>
-                <div className="grid gap-3 md:grid-cols-3">
-                  {encodeFormatOptions.map((option) => (
-                    <CheckboxCard
-                      key={option.key}
-                      checked={form.encodeFormats[option.key]}
-                      label={option.label}
-                      description={option.description}
-                      onChange={(checked) => setEncodeFormat(option.key, checked)}
-                    />
-                  ))}
+                <Toggle
+                  label="Enable VAAPI"
+                  checked={form.vaapiEnabled}
+                  onChange={(checked) => setField("vaapiEnabled", checked)}
+                />
+              </div>
+
+              <div className="mt-5 space-y-5">
+                <div>
+                  <label
+                    className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                    htmlFor="vaapi-device"
+                  >
+                    VAAPI device
+                  </label>
+                  <Input
+                    id="vaapi-device"
+                    value={form.vaapiDevicePath}
+                    onChange={(event) => setField("vaapiDevicePath", event.target.value)}
+                    placeholder="/dev/dri/renderD128"
+                  />
+                  <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                    Default render node for Intel/AMD VAAPI on Linux hosts.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="mb-3">
+                    <h4 className="text-sm font-medium text-[var(--plum-text)]">Decode codecs</h4>
+                    <p className="mt-1 text-xs text-[var(--plum-muted)]">
+                      Each codec can be enabled or disabled independently. Disabled codecs stay on
+                      software decode.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {decodeCodecOptions.map((option) => (
+                      <CheckboxCard
+                        key={option.key}
+                        checked={form.decodeCodecs[option.key]}
+                        label={option.label}
+                        description={option.description}
+                        onChange={(checked) => setDecodeCodec(option.key, checked)}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <div>
-                <label
-                  className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
-                  htmlFor="preferred-encode-format"
-                >
-                  Preferred hardware encode format
-                </label>
-                <select
-                  id="preferred-encode-format"
-                  value={form.preferredHardwareEncodeFormat}
-                  onChange={(event) =>
-                    setField(
-                      "preferredHardwareEncodeFormat",
-                      event.target.value as HardwareEncodeFormat,
-                    )
-                  }
-                  className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
-                >
-                  {encodeFormatOptions.map((option) => (
-                    <option
-                      key={option.key}
-                      value={option.key}
-                      disabled={!form.encodeFormats[option.key]}
-                    >
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-xs text-[var(--plum-muted)]">
-                  Plum will try this hardware output format first, then retry in software if enabled
-                  below.
-                </p>
+            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-medium text-[var(--plum-text)]">Hardware encoding</h3>
+                  <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                    Use VAAPI encoders when possible, with automatic software fallback if the hardware
+                    path fails.
+                  </p>
+                </div>
+                <Toggle
+                  label="Enable hardware encoding"
+                  checked={form.hardwareEncodingEnabled}
+                  onChange={(checked) => setField("hardwareEncodingEnabled", checked)}
+                />
               </div>
 
-              <Toggle
-                label="Allow automatic software fallback"
-                checked={form.allowSoftwareFallback}
-                onChange={(checked) => setField("allowSoftwareFallback", checked)}
-                description="When hardware transcoding fails, retry with software-safe FFmpeg settings."
-              />
+              <div className="mt-5 space-y-5">
+                <div>
+                  <div className="mb-3">
+                    <h4 className="text-sm font-medium text-[var(--plum-text)]">
+                      Allowed output formats
+                    </h4>
+                    <p className="mt-1 text-xs text-[var(--plum-muted)]">
+                      H.264 is enabled by default. HEVC and AV1 stay opt-in for compatibility and host
+                      support reasons.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {encodeFormatOptions.map((option) => (
+                      <CheckboxCard
+                        key={option.key}
+                        checked={form.encodeFormats[option.key]}
+                        label={option.label}
+                        description={option.description}
+                        onChange={(checked) => setEncodeFormat(option.key, checked)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                    htmlFor="preferred-encode-format"
+                  >
+                    Preferred hardware encode format
+                  </label>
+                  <select
+                    id="preferred-encode-format"
+                    value={form.preferredHardwareEncodeFormat}
+                    onChange={(event) =>
+                      setField(
+                        "preferredHardwareEncodeFormat",
+                        event.target.value as HardwareEncodeFormat,
+                      )
+                    }
+                    className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                  >
+                    {encodeFormatOptions.map((option) => (
+                      <option
+                        key={option.key}
+                        value={option.key}
+                        disabled={!form.encodeFormats[option.key]}
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                    Plum will try this hardware output format first, then retry in software if enabled
+                    below.
+                  </p>
+                </div>
+
+                <Toggle
+                  label="Allow automatic software fallback"
+                  checked={form.allowSoftwareFallback}
+                  onChange={(checked) => setField("allowSoftwareFallback", checked)}
+                  description="When hardware transcoding fails, retry with software-safe FFmpeg settings."
+                />
+              </div>
             </div>
           </div>
-        </div>
 
-        <aside className="flex flex-col gap-4">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
-              Host warnings
-            </h2>
-            {warnings.length === 0 ? (
-              <p className="mt-3 text-sm text-[var(--plum-muted)]">
-                No capability warnings reported for the current server configuration.
+          <aside className="flex flex-col gap-4">
+            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+                Host warnings
+              </h3>
+              {warnings.length === 0 ? (
+                <p className="mt-3 text-sm text-[var(--plum-muted)]">
+                  No capability warnings reported for the current server configuration.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-3">
+                  {warnings.map((warning) => (
+                    <li
+                      key={warning.code}
+                      className="rounded-[var(--radius-md)] border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100"
+                    >
+                      {warning.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+                Save status
+              </h3>
+              <p
+                className={`mt-3 text-sm ${
+                  saveMessage?.includes("saved")
+                    ? "text-emerald-300"
+                    : saveMessage
+                      ? "text-red-300"
+                      : "text-[var(--plum-muted)]"
+                }`}
+              >
+                {saveMessage ??
+                  (dirty ? "Unsaved changes." : "Saved settings are active for future jobs.")}
               </p>
-            ) : (
-              <ul className="mt-3 space-y-3">
-                {warnings.map((warning) => (
-                  <li
-                    key={warning.code}
-                    className="rounded-[var(--radius-md)] border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100"
-                  >
-                    {warning.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    );
+  })();
 
-          <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
-              Save status
-            </h2>
-            <p
-              className={`mt-3 text-sm ${
-                saveMessage?.includes("saved")
-                  ? "text-emerald-300"
-                  : saveMessage
-                    ? "text-red-300"
-                    : "text-[var(--plum-muted)]"
-              }`}
-            >
-              {saveMessage ??
-                (dirty ? "Unsaved changes." : "Saved settings are active for future jobs.")}
-            </p>
+  // ── Tab definitions ────────────────────────────────────────────────────────
+
+  const navItemBase =
+    "relative flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer select-none w-full";
+  const navItemActive =
+    "text-[var(--plum-text)] bg-[rgba(181,123,255,0.1)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-[var(--plum-accent)] before:content-[''] shadow-[0_0_20px_rgba(139,92,246,0.08)]";
+  const navItemInactive =
+    "text-[var(--plum-muted)] hover:text-[var(--plum-text)] hover:bg-[rgba(181,123,255,0.06)]";
+
+  type TabItem = { id: SettingsTab; label: string; icon: React.ReactNode };
+  const tabs: TabItem[] = [
+    { id: "playback", label: "Playback", icon: <Volume2 className="size-4 shrink-0" /> },
+    ...(isAdmin
+      ? ([
+          { id: "media-stack", label: "Media Stack", icon: <Link2 className="size-4 shrink-0" /> },
+          { id: "metadata", label: "Metadata", icon: <Image className="size-4 shrink-0" /> },
+          { id: "transcoding", label: "Transcoding", icon: <Cpu className="size-4 shrink-0" /> },
+        ] as TabItem[])
+      : []),
+  ];
+
+  const tabContent: Record<SettingsTab, React.ReactNode> = {
+    playback: playbackTabContent,
+    "media-stack": mediaStackTabContent,
+    metadata: metadataTabContent,
+    transcoding: transcodingTabContent,
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Settings</h1>
+        <p className="mt-1 text-sm text-[var(--plum-muted)]">
+          Manage playback preferences{isAdmin ? ", media stack, metadata artwork, and transcoding" : ""}.
+        </p>
+      </div>
+
+      <div className="flex gap-6 items-start">
+        <nav
+          className="w-44 shrink-0 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-2"
+          aria-label="Settings sections"
+        >
+          <div className="flex flex-col gap-0.5">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(navItemBase, activeTab === tab.id ? navItemActive : navItemInactive)}
+                aria-current={activeTab === tab.id ? "page" : undefined}
+              >
+                {tab.icon}
+                <span className="truncate">{tab.label}</span>
+              </button>
+            ))}
           </div>
-        </aside>
-      </section>
+        </nav>
+
+        <div className="min-w-0 flex-1">
+          {tabContent[activeTab]}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1348,7 +1410,7 @@ function MediaStackServiceCard({
     <article className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-medium text-[var(--plum-text)]">{title}</h2>
+          <h3 className="text-base font-medium text-[var(--plum-text)]">{title}</h3>
           <p className="mt-1 text-sm text-[var(--plum-muted)]">{description}</p>
         </div>
         <span

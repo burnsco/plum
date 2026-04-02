@@ -73,9 +73,9 @@ export function Dashboard() {
     <div className="flex min-h-0 flex-1 flex-col gap-8">
       <section className="flex min-h-0 flex-1 flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Recent progress</h2>
+          <h2 className="text-lg font-semibold text-(--plum-text)">Recent progress</h2>
           {data?.continueWatching.length ? (
-            <span className="text-sm text-[var(--plum-muted)]">
+            <span className="text-sm text-(--plum-muted)">
               {data.continueWatching.length} active item
               {data.continueWatching.length === 1 ? "" : "s"}
             </span>
@@ -83,20 +83,20 @@ export function Dashboard() {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-[var(--plum-muted)]">Loading continue watching…</p>
+          <p className="text-sm text-(--plum-muted)">Loading continue watching…</p>
         ) : error ? (
-          <p className="text-sm text-[var(--plum-muted)]">
+          <p className="text-sm text-(--plum-muted)">
             Failed to load home: {error.message}{" "}
             <button
               type="button"
-              className="text-[var(--plum-accent)] hover:underline"
+              className="text-(--plum-accent) hover:underline"
               onClick={() => void refetch()}
             >
               Retry
             </button>
           </p>
         ) : continueWatchingCards.length === 0 ? (
-          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8 text-sm text-[var(--plum-muted)]">
+          <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8 text-sm text-(--plum-muted)">
             Start a movie or episode and Plum will keep your spot here.
           </div>
         ) : (
@@ -106,29 +106,29 @@ export function Dashboard() {
 
       <section className="flex min-h-0 flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Recently added</h2>
+          <h2 className="text-lg font-semibold text-(--plum-text)">Recently added</h2>
           {data?.recentlyAdded?.length ? (
-            <span className="text-sm text-[var(--plum-muted)]">
+            <span className="text-sm text-(--plum-muted)">
               {data.recentlyAdded.length} new item{data.recentlyAdded.length === 1 ? "" : "s"}
             </span>
           ) : null}
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-[var(--plum-muted)]">Loading recently added…</p>
+          <p className="text-sm text-(--plum-muted)">Loading recently added…</p>
         ) : error ? (
-          <p className="text-sm text-[var(--plum-muted)]">
+          <p className="text-sm text-(--plum-muted)">
             Failed to load home: {error.message}{" "}
             <button
               type="button"
-              className="text-[var(--plum-accent)] hover:underline"
+              className="text-(--plum-accent) hover:underline"
               onClick={() => void refetch()}
             >
               Retry
             </button>
           </p>
         ) : recentlyAddedCards.length === 0 ? (
-          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8 text-sm text-[var(--plum-muted)]">
+          <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8 text-sm text-(--plum-muted)">
             Scan your libraries and Plum will surface the newest additions here.
           </div>
         ) : (

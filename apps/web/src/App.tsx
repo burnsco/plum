@@ -4,11 +4,12 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuthActions, useAuthState } from "./contexts/AuthContext";
 import { IdentifyQueueProvider } from "./contexts/IdentifyQueueContext";
 import { PlayerProvider } from "./contexts/PlayerContext";
-import { ScanQueueProvider } from "./contexts/ScanQueueContext";
+import { ScanQueueProvider } from "./contexts/ScanQueueProvider";
 import { WsProvider } from "./contexts/WsContext";
 import { MainLayout } from "./components/MainLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { Discover } from "./pages/Discover";
+import { DiscoverBrowse } from "./pages/DiscoverBrowse";
 import { DiscoverDetail } from "./pages/DiscoverDetail";
 import { Downloads } from "./pages/Downloads";
 import { Home } from "./pages/Home";
@@ -57,6 +58,7 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
                   <Route path="/" element={<MainLayout />}>
                     <Route index element={<Dashboard />} />
                     <Route path="discover" element={<Discover />} />
+                    <Route path="discover/browse" element={<DiscoverBrowse />} />
                     <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
                     <Route path="downloads" element={<Downloads />} />
                     <Route path="search" element={<SearchPage />} />

@@ -3,10 +3,17 @@ import { useLibraries } from "@/queries";
 import { getLibraryActivity } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
-import { ArrowDownCircle, Compass, Film, Home, Music, Tv } from "lucide-react";
+import { ArrowDownCircle, Compass, Film, Home, Music, RefreshCw, ScanLine, Tv } from "lucide-react";
 import type { Library } from "@/api";
 import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 function LibraryIcon({ lib }: { lib: Library }) {
   if (lib.type === "music") return <Music className="size-4 shrink-0" />;
@@ -17,8 +24,8 @@ function LibraryIcon({ lib }: { lib: Library }) {
 export function Sidebar() {
   const { libraryId } = useParams();
   const { data: libraries = [], isLoading } = useLibraries();
-  const { getLibraryPhase } = useIdentifyQueue();
-  const { getLibraryScanStatus } = useScanQueue();
+  const { getLibraryPhase, queueLibraryIdentify } = useIdentifyQueue();
+  const { getLibraryScanStatus, queueLibraryScan } = useScanQueue();
   const location = useLocation();
   const activeId = libraryId ? parseInt(libraryId, 10) : null;
   const isHomeRoute = location.pathname === "/";
@@ -70,12 +77,13 @@ export function Sidebar() {
           Libraries
         </div>
         {isLoading ? (
-          <div className="px-4 py-2 text-sm text-[var(--plum-muted)] italic">Loading…</div>
+          <div className="px-4 py-2 text-sm text-(--plum-muted) italic">Loading…</div>
         ) : (
           libraries.map((lib) => {
             const isActive = activeId === lib.id;
             const identifyPhase = getLibraryPhase(lib.id);
             const scanStatus = getLibraryScanStatus(lib.id);
+            const supportsMetadataRefresh = lib.type !== "music";
             const activity = getLibraryActivity({
               scanPhase: scanStatus?.phase,
               enrichmentPhase: scanStatus?.enrichmentPhase,
@@ -87,36 +95,67 @@ export function Sidebar() {
               scanStatus?.phase === "failed" || scanStatus?.identifyPhase === "failed";
             const isBusy = activity != null;
             const showActivePulse = activity != null && activity !== "identify-queued";
+            const isIdentifying =
+              identifyPhase === "queued" ||
+              identifyPhase === "identifying" ||
+              scanStatus?.identifyPhase === "queued" ||
+              scanStatus?.identifyPhase === "identifying";
+            const label = getLibraryTabLabel(lib);
             return (
-              <Link
-                key={lib.id}
-                to={`/library/${lib.id}`}
-                className={cn(navItemBase, isActive ? navItemActive : navItemInactive)}
-              >
-                <LibraryIcon lib={lib} />
-                <span className="min-w-0 truncate">{getLibraryTabLabel(lib)}</span>
-                {(isBusy || isFailed) && (
-                  <span
-                    className="ml-auto flex shrink-0 items-center"
-                    data-testid={`library-identifying-${lib.id}`}
-                    aria-hidden="true"
+              <ContextMenu key={lib.id}>
+                <ContextMenuTrigger asChild>
+                  <Link
+                    to={`/library/${lib.id}`}
+                    title={label}
+                    className={cn(navItemBase, isActive ? navItemActive : navItemInactive)}
                   >
-                    <span className="relative flex size-2.5 items-center justify-center">
-                      {showActivePulse && !isFailed && (
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--plum-accent)] opacity-45" />
-                      )}
+                    <LibraryIcon lib={lib} />
+                    <span className="min-w-0 truncate">{label}</span>
+                    {(isBusy || isFailed) && (
                       <span
-                        className={cn(
-                          "relative size-2 rounded-full",
-                          isFailed
-                            ? "bg-rose-400"
-                            : "bg-[var(--plum-accent)] shadow-[0_0_10px_var(--plum-accent)]",
-                        )}
-                      />
-                    </span>
-                  </span>
-                )}
-              </Link>
+                        className="ml-auto flex shrink-0 items-center"
+                        data-testid={`library-identifying-${lib.id}`}
+                        aria-hidden="true"
+                      >
+                        <span className="relative flex size-2.5 items-center justify-center">
+                          {showActivePulse && !isFailed && (
+                            <span className="absolute inline-flex size-full animate-ping rounded-full bg-(--plum-accent) opacity-45" />
+                          )}
+                          <span
+                            className={cn(
+                              "relative size-2 rounded-full",
+                              isFailed
+                                ? "bg-rose-400"
+                                : "bg-(--plum-accent) shadow-[0_0_10px_var(--plum-accent)]",
+                            )}
+                          />
+                        </span>
+                      </span>
+                    )}
+                  </Link>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    disabled={isBusy}
+                    onSelect={() => void queueLibraryScan(lib.id, { identify: false })}
+                  >
+                    <ScanLine className="size-4 text-(--plum-muted)" />
+                    Scan for changes
+                  </ContextMenuItem>
+                  {supportsMetadataRefresh ? (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        disabled={isIdentifying}
+                        onSelect={() => queueLibraryIdentify(lib.id)}
+                      >
+                        <RefreshCw className="size-4 text-(--plum-muted)" />
+                        Refresh metadata
+                      </ContextMenuItem>
+                    </>
+                  ) : null}
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })
         )}

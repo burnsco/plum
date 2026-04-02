@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
 import { BASE_URL, type MediaItem } from "@/api";
 import { PosterPickerDialog } from "@/components/PosterPickerDialog";
+import { RatingBadge } from "@/components/RatingBadge";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useMovieDetails } from "@/queries";
 
@@ -37,15 +38,15 @@ export function MovieDetail() {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--plum-muted)]">Loading movie…</p>;
+    return <p className="text-sm text-(--plum-muted)">Loading movie…</p>;
   }
 
   if (error) {
-    return <p className="text-sm text-[var(--plum-muted)]">{error.message}</p>;
+    return <p className="text-sm text-(--plum-muted)">{error.message}</p>;
   }
 
   if (!details) {
-    return <p className="text-sm text-[var(--plum-muted)]">Movie not found.</p>;
+    return <p className="text-sm text-(--plum-muted)">Movie not found.</p>;
   }
 
   const movie: MediaItem = {
@@ -102,11 +103,11 @@ export function MovieDetail() {
         <div className="show-detail-meta space-y-4">
           <div className="space-y-2">
             <h1 className="show-detail-title">{details.title}</h1>
-            <div className="flex flex-wrap gap-2 text-sm text-[var(--plum-muted)]">
+            <div className="flex flex-wrap gap-2 text-sm text-(--plum-muted)">
               {year ? <span>{year}</span> : null}
               {runtime ? <span>{runtime}</span> : null}
-              {details.imdb_rating ? <span>IMDb {details.imdb_rating.toFixed(1)}</span> : null}
             </div>
+            <RatingBadge label="IMDb" value={details.imdb_rating} size="md" />
           </div>
 
           {details.overview ? (
@@ -118,7 +119,7 @@ export function MovieDetail() {
               {details.genres.map((genre) => (
                 <span
                   key={genre}
-                  className="rounded-full border border-[var(--plum-border)] px-3 py-1 text-xs uppercase tracking-[0.12em] text-[var(--plum-muted)]"
+                  className="rounded-full border border-(--plum-border) px-3 py-1 text-xs uppercase tracking-[0.12em] text-(--plum-muted)"
                 >
                   {genre}
                 </span>
@@ -132,7 +133,7 @@ export function MovieDetail() {
             </button>
             <button
               type="button"
-              className="rounded-[var(--radius-md)] border border-[var(--plum-border)] px-4 py-2 text-sm text-[var(--plum-text)] transition-colors hover:bg-[var(--plum-panel)]"
+              className="rounded-md border border-(--plum-border) px-4 py-2 text-sm text-(--plum-text) transition-colors hover:bg-(--plum-panel)"
               onClick={() => setPosterPickerOpen(true)}
             >
               Change poster…
@@ -141,20 +142,20 @@ export function MovieDetail() {
         </div>
       </section>
 
-      <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-5">
-        <h2 className="text-lg font-semibold text-[var(--plum-text)]">Cast</h2>
+      <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
+        <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
         {details.cast.length === 0 ? (
-          <p className="mt-3 text-sm text-[var(--plum-muted)]">No cast metadata yet.</p>
+          <p className="mt-3 text-sm text-(--plum-muted)">No cast metadata yet.</p>
         ) : (
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {details.cast.map((member) => (
               <div
                 key={`${member.name}-${member.character ?? ""}`}
-                className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] p-3"
+                className="rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3"
               >
-                <div className="text-sm font-semibold text-[var(--plum-text)]">{member.name}</div>
+                <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
                 {member.character ? (
-                  <div className="text-xs text-[var(--plum-muted)]">{member.character}</div>
+                  <div className="text-xs text-(--plum-muted)">{member.character}</div>
                 ) : null}
               </div>
             ))}

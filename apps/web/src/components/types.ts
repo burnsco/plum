@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export type PosterCardState = "default" | "identifying" | "identify-failed" | "review-needed";
 export type PosterAspectRatio = "poster" | "cinema" | "square" | "landscape";
@@ -25,6 +25,6 @@ export type PosterGridItem = {
   onPlay?: () => void;
   onAction?: () => void;
   onStatusAction?: () => void;
-  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  contextMenuContent?: ReactNode;
   topBadge?: ReactNode;
 };

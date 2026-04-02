@@ -245,6 +245,76 @@ func TestGetDownloadsReturnsPartialPayloadWhenOneServiceFails(t *testing.T) {
 	}
 }
 
+func TestGetDownloadsReturnsEmptyPayloadWhenOneServiceFailsWithoutActiveDownloads(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	radarrServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/movie":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v3/queue":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"page":         1,
+				"pageSize":     250,
+				"totalRecords": 0,
+				"records":      []map[string]any{},
+			})
+		default:
+			t.Fatalf("unexpected radarr path: %s", r.URL.Path)
+		}
+	}))
+	defer radarrServer.Close()
+
+	sonarrServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "sonarr unavailable", http.StatusBadGateway)
+	}))
+	defer sonarrServer.Close()
+
+	if _, err := db.SaveMediaStackSettings(dbConn, db.MediaStackSettings{
+		Radarr: db.MediaStackServiceSettings{
+			BaseURL:          radarrServer.URL,
+			APIKey:           "radarr-key",
+			QualityProfileID: 8,
+			RootFolderPath:   "/storage/media/movies",
+			SearchOnAdd:      true,
+		},
+		SonarrTV: db.MediaStackServiceSettings{
+			BaseURL:          sonarrServer.URL,
+			APIKey:           "sonarr-key",
+			QualityProfileID: 4,
+			RootFolderPath:   "/storage/media/tv",
+			SearchOnAdd:      true,
+		},
+	}); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn, Arr: arr.NewService()}
+	req := httptest.NewRequest(http.MethodGet, "/api/downloads", nil)
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: 1, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.GetDownloads(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload arr.DownloadsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Configured {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if len(payload.Items) != 0 {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
 func TestGetDiscoverAttachesAcquisitionStates(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {

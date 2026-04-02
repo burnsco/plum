@@ -133,6 +133,8 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		Meta:        pipeline,
 		Artwork:     pipeline,
 		Movies:      pipeline,
+		MovieQuery:  pipeline,
+		MovieLookup: pipeline,
 		Series:      pipeline,
 		SeriesQuery: pipeline,
 		Discover:    pipeline,
@@ -180,6 +182,8 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/home", libHandler.GetHomeDashboard)
 		protected.Get("/api/downloads", libHandler.GetDownloads)
 		protected.Get("/api/discover", libHandler.GetDiscover)
+		protected.Get("/api/discover/genres", libHandler.GetDiscoverGenres)
+		protected.Get("/api/discover/browse", libHandler.BrowseDiscover)
 		protected.Get("/api/discover/search", libHandler.SearchDiscover)
 		protected.Get("/api/discover/{mediaType}/{tmdbId}", libHandler.GetDiscoverTitleDetails)
 		protected.Post("/api/discover/{mediaType}/{tmdbId}/add", libHandler.AddDiscoverTitle)
@@ -193,6 +197,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Get("/api/libraries/{id}/movies/{mediaId}/artwork/poster/candidates", libHandler.GetMoviePosterCandidates)
 		protected.Put("/api/libraries/{id}/movies/{mediaId}/artwork/poster", libHandler.SetMoviePosterSelection)
 		protected.Delete("/api/libraries/{id}/movies/{mediaId}/artwork/poster", libHandler.ResetMoviePosterSelection)
+		protected.Post("/api/libraries/{id}/movies/identify", libHandler.IdentifyMovie)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/details", libHandler.GetLibraryShowDetails)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster/candidates", libHandler.GetShowPosterCandidates)
 		protected.Put("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.SetShowPosterSelection)
@@ -201,6 +206,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Post("/api/libraries/{id}/shows/identify", libHandler.IdentifyShow)
 		protected.Post("/api/libraries/{id}/shows/confirm", libHandler.ConfirmShow)
 
+		protected.Get("/api/movies/search", libHandler.GetMovieSearch)
 		protected.Get("/api/series/search", libHandler.GetSeriesSearch)
 		protected.Get("/api/series/{tmdbId}", libHandler.GetSeriesDetails)
 

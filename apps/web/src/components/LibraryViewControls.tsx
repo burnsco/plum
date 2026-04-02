@@ -48,7 +48,7 @@ export function LibraryViewControls({
 
       {/* Layout mode toggle */}
       <div
-        className="flex items-center rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[rgba(255,255,255,0.03)] p-0.5"
+        className="flex items-center rounded-md border border-(--plum-border) bg-[rgba(255,255,255,0.03)] p-0.5"
         role="group"
         aria-label="Layout mode"
       >
@@ -62,8 +62,8 @@ export function LibraryViewControls({
             className={cn(
               "flex items-center justify-center rounded-[calc(var(--radius-md)-2px)] p-1.5 transition-colors",
               layoutMode === mode
-                ? "bg-[rgba(255,255,255,0.1)] text-[var(--plum-text)]"
-                : "text-[var(--plum-muted)] hover:text-[var(--plum-text)]",
+                ? "bg-[rgba(255,255,255,0.1)] text-(--plum-text)"
+                : "text-(--plum-muted) hover:text-(--plum-text)",
             )}
           >
             {icon}

@@ -53,6 +53,19 @@ func GetMediaByLibraryIDForUser(db *sql.DB, libraryID int, userID int) ([]MediaI
 	return attachPlaybackProgressBatch(db, userID, items)
 }
 
+func GetMediaPageByLibraryIDForUser(db *sql.DB, libraryID int, userID int, offset int, limit int) (LibraryMediaPage, error) {
+	page, err := GetMediaPageByLibraryID(db, libraryID, offset, limit)
+	if err != nil {
+		return LibraryMediaPage{}, err
+	}
+	items, err := attachPlaybackProgressBatch(db, userID, page.Items)
+	if err != nil {
+		return LibraryMediaPage{}, err
+	}
+	page.Items = items
+	return page, nil
+}
+
 func GetHomeDashboardForUser(db *sql.DB, userID int) (HomeDashboard, error) {
 	items, err := queryAllMediaByKind(db, userID, "")
 	if err != nil {

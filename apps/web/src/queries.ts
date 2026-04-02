@@ -1,15 +1,19 @@
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
 import {
   addDiscoverTitle,
+  browseDiscover,
   confirmShow,
   getDownloads,
   getDiscover,
+  getDiscoverGenres,
   getDiscoverTitleDetails,
   getMovieDetails,
   getMoviePosterCandidates,
@@ -31,6 +35,10 @@ import {
   refreshShow,
   scanLibraryById,
   type DiscoverAcquisition,
+  type DiscoverBrowseCategory,
+  type DiscoverBrowseResponse,
+  type DiscoverGenre,
+  type DiscoverGenresResponse,
   type DiscoverLibraryMatch,
   type DiscoverMediaType,
   type DiscoverResponse,
@@ -65,10 +73,12 @@ import {
 
 type LibrariesResult = Awaited<ReturnType<typeof listLibraries>>;
 type DiscoverResult = Awaited<ReturnType<typeof getDiscover>>;
+type DiscoverBrowseResult = Awaited<ReturnType<typeof browseDiscover>>;
+type DiscoverGenresResult = Awaited<ReturnType<typeof getDiscoverGenres>>;
 type DiscoverSearchResult = Awaited<ReturnType<typeof searchDiscover>>;
 type DiscoverTitleDetailsResult = Awaited<ReturnType<typeof getDiscoverTitleDetails>>;
 type DownloadsResult = Awaited<ReturnType<typeof getDownloads>>;
-type LibraryMediaResult = Awaited<ReturnType<typeof fetchLibraryMedia>>;
+type LibraryMediaPageResult = Exclude<Awaited<ReturnType<typeof fetchLibraryMedia>>, MediaItem[]>;
 type HomeDashboardResult = Awaited<ReturnType<typeof getHomeDashboard>>;
 type MovieDetailsResult = Awaited<ReturnType<typeof getMovieDetails>>;
 type MoviePosterCandidatesResult = Awaited<ReturnType<typeof getMoviePosterCandidates>>;
@@ -78,22 +88,36 @@ type ShowDetailsResult = Awaited<ReturnType<typeof getShowDetails>>;
 type ShowPosterCandidatesResult = Awaited<ReturnType<typeof getShowPosterCandidates>>;
 type SearchLibraryMediaResult = Awaited<ReturnType<typeof searchLibraryMedia>>;
 type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
+type HomeDashboardMediaResult = HomeDashboardResult["continueWatching"][number]["media"];
 
 function cloneLibrary(library: LibrariesResult[number]): Library {
   return { ...library };
 }
 
-function cloneMediaItem(item: LibraryMediaResult[number]): MediaItem {
+function cloneDiscoverLibraryMatch(match: DiscoverLibraryMatch): DiscoverLibraryMatch {
+  return { ...match };
+}
+
+function normalizeLibraryMediaPage(
+  response: Awaited<ReturnType<typeof fetchLibraryMedia>>,
+): LibraryMediaPageResult {
+  if (Array.isArray(response)) {
+    return {
+      items: response,
+      has_more: false,
+      total: response.length,
+    };
+  }
+  return response;
+}
+
+function cloneMediaItem(item: HomeDashboardMediaResult): MediaItem {
   return {
     ...item,
     subtitles: item.subtitles?.map((subtitle) => ({ ...subtitle })),
     embeddedSubtitles: item.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
     embeddedAudioTracks: item.embeddedAudioTracks?.map((track) => ({ ...track })),
   };
-}
-
-function cloneDiscoverLibraryMatch(match: DiscoverLibraryMatch): DiscoverLibraryMatch {
-  return { ...match };
 }
 
 function cloneDiscoverAcquisition(acquisition: DiscoverAcquisition): DiscoverAcquisition {
@@ -114,6 +138,29 @@ function cloneDiscoverResponse(response: DiscoverResult): DiscoverResponse {
       ...shelf,
       items: shelf.items.map(cloneDiscoverItem),
     })),
+  };
+}
+
+function cloneDiscoverGenre(genre: DiscoverGenre): DiscoverGenre {
+  return { ...genre };
+}
+
+function cloneDiscoverGenresResponse(response: DiscoverGenresResult): DiscoverGenresResponse {
+  return {
+    movie_genres: response.movie_genres.map(cloneDiscoverGenre),
+    tv_genres: response.tv_genres.map(cloneDiscoverGenre),
+  };
+}
+
+function cloneDiscoverBrowseResponse(response: DiscoverBrowseResult): DiscoverBrowseResponse {
+  return {
+    items: response.items.map(cloneDiscoverItem),
+    page: response.page,
+    total_pages: response.total_pages,
+    total_results: response.total_results,
+    media_type: response.media_type,
+    genre: response.genre ? cloneDiscoverGenre(response.genre) : undefined,
+    category: response.category,
   };
 }
 
@@ -274,13 +321,20 @@ function clonePosterCandidatesResponse(
 
 export const queryKeys = {
   discover: ["discover"] as const,
+  discoverBrowse: (
+    category: DiscoverBrowseCategory | "",
+    mediaType: DiscoverMediaType | "",
+    genreId: number | null,
+  ) => ["discover-browse", category, mediaType, genreId ?? 0] as const,
+  discoverGenres: ["discover-genres"] as const,
   discoverSearch: (query: string) => ["discover-search", query] as const,
   discoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
     ["discover-title", mediaType, tmdbId] as const,
   downloads: ["downloads"] as const,
   home: ["home"] as const,
   libraries: ["libraries"] as const,
-  library: (id: number) => ["library", id] as const,
+  library: (id: number, pageSize?: number) =>
+    pageSize == null ? (["library", id] as const) : (["library", id, pageSize] as const),
   movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
   moviePosterCandidates: (libraryId: number, mediaId: number) =>
     ["movie-poster-candidates", libraryId, mediaId] as const,
@@ -294,6 +348,15 @@ export const queryKeys = {
   showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
 };
+
+/** Refetch Discover shelves, search, and title detail queries (e.g. after downloads or library scans). */
+export function invalidateDiscoverRelatedQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.discover });
+  void queryClient.invalidateQueries({ queryKey: ["discover-browse"] });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.discoverGenres });
+  void queryClient.invalidateQueries({ queryKey: ["discover-search"] });
+  void queryClient.invalidateQueries({ queryKey: ["discover-title"] });
+}
 
 const LIBRARIES_STALE_MS = 60 * 1000;
 const LIBRARY_MEDIA_STALE_MS = 60 * 1000;
@@ -316,6 +379,51 @@ export function useDiscover(options?: {
     queryFn: async () => cloneDiscoverResponse(await getDiscover()),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
+    staleTime: DISCOVER_STALE_MS,
+  });
+}
+
+export function useDiscoverGenres(options?: {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}): UseQueryResult<DiscoverGenresResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.discoverGenres,
+    queryFn: async () => cloneDiscoverGenresResponse(await getDiscoverGenres()),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
+    staleTime: DISCOVER_STALE_MS,
+  });
+}
+
+export function useDiscoverBrowse(
+  options: {
+    category?: DiscoverBrowseCategory | "";
+    mediaType?: DiscoverMediaType | "";
+    genreId?: number | null;
+    enabled?: boolean;
+    refetchInterval?: number | false;
+  },
+) {
+  const category = options.category ?? "";
+  const mediaType = options.mediaType ?? "";
+  const genreId = options.genreId ?? null;
+  return useInfiniteQuery({
+    queryKey: queryKeys.discoverBrowse(category, mediaType, genreId),
+    queryFn: async ({ pageParam }) =>
+      cloneDiscoverBrowseResponse(
+        await browseDiscover({
+          category: category === "" ? undefined : category,
+          mediaType: mediaType === "" ? undefined : mediaType,
+          genreId: genreId ?? undefined,
+          page: Number(pageParam ?? 1),
+        }),
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.total_pages ? lastPage.page + 1 : undefined,
+    enabled: options.enabled ?? true,
+    refetchInterval: options.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
   });
 }
@@ -374,12 +482,18 @@ export function useHomeDashboard(options?: {
 
 export function useLibraryMedia(
   libraryId: number | null,
-  options?: { enabled?: boolean; refetchInterval?: number | false },
-): UseQueryResult<MediaItem[], Error> {
-  return useQuery({
-    queryKey: queryKeys.library(libraryId ?? 0),
-    queryFn: async () => (await fetchLibraryMedia(libraryId!)).map(cloneMediaItem),
+  options?: { enabled?: boolean; refetchInterval?: number | false; pageSize?: number },
+) {
+  const pageSize = options?.pageSize ?? 60;
+  return useInfiniteQuery({
+    queryKey: queryKeys.library(libraryId ?? 0, pageSize),
+    queryFn: async ({ pageParam }) =>
+      normalizeLibraryMediaPage(
+        await fetchLibraryMedia(libraryId!, { offset: Number(pageParam ?? 0), limit: pageSize }),
+      ),
     enabled: (options?.enabled ?? true) && libraryId != null,
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.next_offset,
     refetchInterval: options?.refetchInterval,
     staleTime: LIBRARY_MEDIA_STALE_MS,
   });
@@ -642,7 +756,7 @@ export function useUpdateMediaStackSettings(): UseMutationResult<
     mutationFn: async (settings) => cloneMediaStackSettings(await updateMediaStackSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.mediaStackSettings, data);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.discover });
+      invalidateDiscoverRelatedQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: queryKeys.downloads });
     },
   });
@@ -667,10 +781,8 @@ export function useAddDiscoverTitle(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ mediaType, tmdbId }) => addDiscoverTitle(mediaType, tmdbId),
-    onSuccess: (_, { mediaType, tmdbId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.discover });
-      void queryClient.invalidateQueries({ queryKey: ["discover-search"] });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.discoverTitle(mediaType, tmdbId) });
+    onSuccess: () => {
+      invalidateDiscoverRelatedQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: queryKeys.downloads });
     },
   });

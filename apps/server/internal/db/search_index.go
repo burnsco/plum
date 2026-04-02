@@ -364,7 +364,7 @@ func extractDocShowKey(doc searchDocument) string {
 }
 
 func buildSearchDocuments(db *sql.DB, libraryID int, libraryName, libraryType string) ([]searchDocument, error) {
-	items, err := queryMediaByLibraryID(db, libraryID, libraryType)
+	items, _, err := queryMediaByLibraryID(db, libraryID, libraryType, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -618,7 +618,7 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 		}
 		return nil, err
 	}
-	items, err := queryMediaByLibraryID(db, libraryID, libraryType)
+	items, _, err := queryMediaByLibraryID(db, libraryID, libraryType, 0, 0)
 	if err != nil {
 		return nil, err
 	}

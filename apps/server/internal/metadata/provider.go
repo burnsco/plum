@@ -148,6 +148,18 @@ const (
 	DiscoverMediaTypeTV    DiscoverMediaType = "tv"
 )
 
+type DiscoverBrowseCategory string
+
+const (
+	DiscoverBrowseCategoryTrending      DiscoverBrowseCategory = "trending"
+	DiscoverBrowseCategoryPopularMovies DiscoverBrowseCategory = "popular-movies"
+	DiscoverBrowseCategoryPopularTV     DiscoverBrowseCategory = "popular-tv"
+	DiscoverBrowseCategoryNowPlaying    DiscoverBrowseCategory = "now-playing"
+	DiscoverBrowseCategoryUpcoming      DiscoverBrowseCategory = "upcoming"
+	DiscoverBrowseCategoryOnTheAir      DiscoverBrowseCategory = "on-the-air"
+	DiscoverBrowseCategoryTopRated      DiscoverBrowseCategory = "top-rated"
+)
+
 type MediaStackServiceKind string
 
 const (
@@ -243,6 +255,26 @@ type DiscoverSearchResponse struct {
 	TV     []DiscoverItem `json:"tv"`
 }
 
+type DiscoverGenre struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type DiscoverGenresResponse struct {
+	MovieGenres []DiscoverGenre `json:"movie_genres"`
+	TVGenres    []DiscoverGenre `json:"tv_genres"`
+}
+
+type DiscoverBrowseResponse struct {
+	Items        []DiscoverItem        `json:"items"`
+	Page         int                   `json:"page"`
+	TotalPages   int                   `json:"total_pages"`
+	TotalResults int                   `json:"total_results"`
+	MediaType    DiscoverMediaType     `json:"media_type,omitempty"`
+	Genre        *DiscoverGenre        `json:"genre,omitempty"`
+	Category     DiscoverBrowseCategory `json:"category,omitempty"`
+}
+
 type DiscoverTitleVideo struct {
 	Name     string `json:"name"`
 	Site     string `json:"site"`
@@ -275,6 +307,8 @@ type DiscoverTitleDetails struct {
 
 type DiscoverProvider interface {
 	GetDiscover(ctx context.Context) (*DiscoverResponse, error)
+	GetDiscoverGenres(ctx context.Context) (*DiscoverGenresResponse, error)
+	BrowseDiscover(ctx context.Context, category DiscoverBrowseCategory, mediaType DiscoverMediaType, genreID int, page int) (*DiscoverBrowseResponse, error)
 	SearchDiscover(ctx context.Context, query string) (*DiscoverSearchResponse, error)
 	GetDiscoverTitleDetails(ctx context.Context, mediaType DiscoverMediaType, tmdbID int) (*DiscoverTitleDetails, error)
 }

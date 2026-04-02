@@ -8,6 +8,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n \"web,server\" -c \"blue,green\" \"./scripts/run-web-dev.sh\" \"./scripts/run-server-dev.sh\"",
+    "dev:clear-vite-cache": "rm -rf apps/web/.vite",
+    "dev:diagnose-node": "bash ./scripts/diagnose-node-dev.sh",
     "dev:web": "bun run --cwd apps/web dev",
     "dev:server": "bun run --cwd apps/server dev",
     "dev:desktop": "bun run --cwd apps/desktop dev",

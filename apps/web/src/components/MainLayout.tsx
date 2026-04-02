@@ -1,8 +1,11 @@
 import { Outlet } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { DownloadCompletionNotifier } from "@/components/DownloadCompletionNotifier";
+import { LibraryReadyNotifier } from "@/components/LibraryReadyNotifier";
 import { PlaybackDock } from "./PlaybackDock";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
+import { Toaster } from "./ui/sonner";
 
 export function MainLayout() {
   const { activeMode, isDockOpen, viewMode } = usePlayer();
@@ -10,6 +13,9 @@ export function MainLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden flex-col">
+      <DownloadCompletionNotifier />
+      <LibraryReadyNotifier />
+      <Toaster />
       <TopBar />
       <div className="flex flex-1 min-h-0">
         <Sidebar />

@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 function resolveScrollParent(element: HTMLElement | null) {
   return element?.closest(".main-content") as HTMLElement | null;
@@ -45,4 +45,42 @@ export function useVirtualContainerMetrics<T extends HTMLElement>(ref: RefObject
   }, [ref]);
 
   return { scrollElement, width, scrollMargin };
+}
+
+export function useLoadMoreTrigger({
+  root,
+  enabled,
+  onLoadMore,
+  rootMargin = "400px 0px",
+}: {
+  root: HTMLElement | null;
+  enabled: boolean;
+  onLoadMore?: () => void;
+  rootMargin?: string;
+}) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!enabled || sentinel == null || onLoadMore == null) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore();
+        }
+      },
+      {
+        root,
+        rootMargin,
+      },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [enabled, onLoadMore, root, rootMargin]);
+
+  return sentinelRef;
 }

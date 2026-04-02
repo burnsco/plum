@@ -20,39 +20,16 @@ function PlumLogoButton() {
   return (
     <Link
       to="/"
-      className="flex items-center justify-center shrink-0 rounded-[var(--radius-lg)] transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)]"
+      className="flex items-center justify-center shrink-0 rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring)"
       aria-label="Plum home"
     >
-      <svg
-        width="42"
-        height="42"
-        viewBox="0 0 42 42"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Dark rounded-square background */}
-        <rect width="42" height="42" rx="10" fill="#1a1a1a" />
-
-        {/* Purple plum fruit body */}
-        <ellipse cx="21" cy="23" rx="12" ry="11" fill="url(#plumGrad)" />
-
-        {/* Highlight gloss */}
-        <ellipse cx="17.5" cy="19.5" rx="4" ry="3" fill="rgba(255,255,255,0.18)" />
-
-        {/* Stem */}
-        <path d="M21 12 C21 12, 22 9, 25 8 C24 10, 23 11, 21 12Z" fill="#5a3e1b" />
-
-        {/* Leaf */}
-        <path d="M21 12 C21 12, 24 10, 27 11 C25 13, 22 13, 21 12Z" fill="#4ade80" opacity="0.85" />
-
-        <defs>
-          <radialGradient id="plumGrad" cx="38%" cy="35%" r="65%" gradientUnits="objectBoundingBox">
-            <stop offset="0%" stopColor="#d97bff" />
-            <stop offset="55%" stopColor="#a855f7" />
-            <stop offset="100%" stopColor="#7c22d4" />
-          </radialGradient>
-        </defs>
-      </svg>
+      <img
+        src="/logo.svg"
+        alt="Plum"
+        width={42}
+        height={42}
+        className="block h-10 w-10 object-contain"
+      />
     </Link>
   );
 }
@@ -98,8 +75,11 @@ export function TopBar() {
   }, [activeQuery, location.pathname, navigate, searchValue]);
 
   return (
-    <header className="sticky top-0 z-40 shrink-0 border-b border-[rgba(181,123,255,0.1)] bg-[rgba(10,8,18,0.97)] shadow-[0_1px_0_rgba(181,123,255,0.06),0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl" style={{backdropFilter: "blur(24px) saturate(1.5)"}}>
-      <div className="mx-auto flex w-full max-w-[var(--page-max-width)] flex-col gap-3 px-4 py-3 md:h-16 md:flex-row md:items-center md:gap-4 md:px-6 xl:px-8">
+    <header
+      className="sticky top-0 z-40 shrink-0 border-b border-[rgba(181,123,255,0.1)] bg-[rgba(10,8,18,0.97)] shadow-[0_1px_0_rgba(181,123,255,0.06),0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      style={{ backdropFilter: "blur(24px) saturate(1.5)" }}
+    >
+      <div className="mx-auto flex w-full max-w-(--page-max-width) items-center gap-3 px-4 py-3 md:h-16 md:gap-4 md:px-6 xl:px-8 flex-wrap">
         <div className="flex items-center justify-between gap-3 md:justify-start">
           <PlumLogoButton />
 
@@ -118,13 +98,13 @@ export function TopBar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 {user?.email && (
-                  <div className="truncate px-2 py-1.5 text-sm text-[var(--plum-muted)]">
+                  <div className="truncate px-2 py-1.5 text-sm text-(--plum-muted)">
                     {user.email}
                   </div>
                 )}
                 <DropdownMenuItem
                   onSelect={() => logout()}
-                  className="text-[var(--plum-accent)] focus:text-[var(--plum-accent)]"
+                  className="text-(--plum-accent) focus:text-(--plum-accent)"
                 >
                   Sign out
                 </DropdownMenuItem>
@@ -133,15 +113,15 @@ export function TopBar() {
           </div>
         </div>
 
-        <div className="flex md:flex-1 md:justify-center">
-          <div className="relative w-full max-w-xl">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--plum-muted)]" />
+        <div className="flex flex-1 min-w-0 justify-center">
+          <div className="relative flex-1 min-w-0 max-w-xl">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-(--plum-muted)" />
             <Input
               type="search"
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search libraries, shows, and movies"
-              className="h-10 border-[rgba(181,123,255,0.12)] bg-[rgba(181,123,255,0.05)] pl-9 placeholder:text-[var(--plum-muted)] focus-visible:border-[rgba(181,123,255,0.32)] focus-visible:ring-0 focus-visible:shadow-[0_0_0_3px_rgba(139,92,246,0.15)]"
+              className="h-8 md:h-10 border-[rgba(181,123,255,0.12)] bg-[rgba(181,123,255,0.05)] pl-8 md:pl-9 placeholder:text-(--plum-muted) focus-visible:border-[rgba(181,123,255,0.32)] focus-visible:ring-0 focus-visible:shadow-[0_0_0_3px_rgba(139,92,246,0.15)]"
             />
           </div>
         </div>
@@ -189,13 +169,13 @@ export function TopBar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               {user?.email && (
-                <div className="truncate px-2 py-1.5 text-sm text-[var(--plum-muted)]">
+                <div className="truncate px-2 py-1.5 text-sm text-(--plum-muted)">
                   {user.email}
                 </div>
               )}
               <DropdownMenuItem
                 onSelect={() => logout()}
-                className="text-[var(--plum-accent)] focus:text-[var(--plum-accent)]"
+                className="text-(--plum-accent) focus:text-(--plum-accent)"
               >
                 Sign out
               </DropdownMenuItem>
@@ -222,8 +202,8 @@ function MobileNavLink({
       className={cn(
         "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
         active
-          ? "border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.08)] text-[var(--plum-text)]"
-          : "border-[var(--plum-border)] bg-transparent text-[var(--plum-muted)] hover:border-[rgba(255,255,255,0.14)] hover:text-[var(--plum-text)]",
+          ? "border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.08)] text-(--plum-text)"
+          : "border-(--plum-border) bg-transparent text-(--plum-muted) hover:border-[rgba(255,255,255,0.14)] hover:text-(--plum-text)",
       )}
     >
       {children}

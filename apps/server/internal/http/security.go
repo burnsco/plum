@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -110,8 +111,27 @@ func OriginAllowed(r *http.Request, allowedOrigins map[string]struct{}) bool {
 	if origin == "" {
 		return false
 	}
-	_, ok := allowedOrigins[origin]
-	return ok
+	if _, ok := allowedOrigins[origin]; ok {
+		return true
+	}
+	if _, ok := allowedOrigins[loopbackHTTPAnyPortOrigin]; !ok {
+		return false
+	}
+	// Vite (and similar) may use any free port (e.g. 5174 when 5173 is taken).
+	return isLoopbackHTTPOrigin(origin)
+}
+
+func isLoopbackHTTPOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(u.Hostname())) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func clientIP(r *http.Request) string {

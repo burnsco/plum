@@ -157,6 +157,8 @@ function mockDefaultAppApis() {
     startedAt: new Date().toISOString(),
   }));
   vi.spyOn(api, "identifyLibrary").mockResolvedValue({ identified: 0, failed: 0 });
+  vi.spyOn(api, "searchMovies").mockResolvedValue([]);
+  vi.spyOn(api, "identifyMovie").mockResolvedValue({ updated: 1 });
   vi.spyOn(api, "confirmShow").mockResolvedValue({ updated: 1 });
   vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
     continueWatching: [],
@@ -223,7 +225,7 @@ describe("App library and player wiring", () => {
     await renderApp();
 
     await waitFor(() => {
-      expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1);
+      expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1, { offset: 0, limit: 60 });
     });
 
     expect(await screen.findByRole("link", { name: /TV/i })).toBeTruthy();
@@ -872,7 +874,7 @@ describe("App library and player wiring", () => {
     await renderApp();
 
     await waitFor(() => {
-      expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1);
+      expect(api.fetchLibraryMedia).toHaveBeenCalledWith(1, { offset: 0, limit: 60 });
     });
     expect(await screen.findByRole("link", { name: /Retry Show/i })).toBeTruthy();
     expect(screen.queryByText("Searching…")).not.toBeInTheDocument();
@@ -979,6 +981,76 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Identify manually/i }));
 
     expect(await screen.findByRole("heading", { name: /Identify show/i })).toBeTruthy();
+  });
+
+  it("opens manual identify for a failed movie from the card action", async () => {
+    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
+      libraryId: 1,
+      phase: "completed",
+      enrichmentPhase: "idle",
+      enriching: false,
+      identifyPhase: "failed",
+      identified: 0,
+      identifyFailed: 1,
+      processed: 1,
+      added: 1,
+      updated: 0,
+      removed: 0,
+      unmatched: 1,
+      skipped: 0,
+      identifyRequested: false,
+      estimatedItems: 1,
+      queuePosition: 0,
+    });
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 42,
+        title: "Missing Movie (2024)",
+        path: "/movies/Missing Movie (2024).mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "local",
+      },
+    ]);
+    vi.spyOn(api, "searchMovies").mockResolvedValue([]);
+
+    await renderApp();
+
+    expect(await screen.findByText("Couldn't match automatically")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Identify manually/i }));
+
+    expect(await screen.findByRole("heading", { name: /Identify movie/i })).toBeTruthy();
+  });
+
+  it("opens movie manual identify from the poster context menu", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 42,
+        title: "Missing Movie (2024)",
+        path: "/movies/Missing Movie (2024).mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "local",
+      },
+    ]);
+    vi.spyOn(api, "searchMovies").mockResolvedValue([]);
+
+    await renderApp();
+
+    const movieCard = (await screen.findByRole("link", { name: /Missing Movie/i })).closest(".show-card");
+    expect(movieCard).toBeTruthy();
+
+    fireEvent.contextMenu(movieCard!);
+    fireEvent.click(await screen.findByText("Identify…"));
+
+    expect(await screen.findByRole("heading", { name: /Identify movie/i })).toBeTruthy();
   });
 
   it("does not show manual identify while backend identify is still active", async () => {
@@ -1195,7 +1267,10 @@ describe("App library and player wiring", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Choose/i }));
 
     await waitFor(() => {
-      expect(api.identifyShow).toHaveBeenCalledWith(1, "title-missingshow2024", 456);
+      expect(api.identifyShow).toHaveBeenCalledWith(1, "title-missingshow2024", {
+        provider: "tmdb",
+        externalId: "456",
+      });
     });
     await waitFor(() => {
       expect(api.identifyLibrary).toHaveBeenCalledTimes(1);
@@ -1207,6 +1282,87 @@ describe("App library and player wiring", () => {
       expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
     });
     expect(identifyLibraryIds()).toEqual([1]);
+  });
+
+  it("applies manual identify for unmatched movies without restarting library identify", async () => {
+    vi.spyOn(api, "getLibraryScanStatus").mockResolvedValue({
+      libraryId: 1,
+      phase: "completed",
+      enrichmentPhase: "idle",
+      enriching: false,
+      identifyPhase: "failed",
+      identified: 0,
+      identifyFailed: 1,
+      processed: 1,
+      added: 1,
+      updated: 0,
+      removed: 0,
+      unmatched: 1,
+      skipped: 0,
+      identifyRequested: false,
+      estimatedItems: 1,
+      queuePosition: 0,
+    });
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    const fetchLibraryMedia = vi.spyOn(api, "fetchLibraryMedia");
+    fetchLibraryMedia.mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Missing Movie (2024)",
+        path: "/movies/Missing Movie (2024).mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "local",
+      },
+    ]);
+    fetchLibraryMedia.mockResolvedValue([
+      {
+        id: 42,
+        title: "Correct Movie",
+        path: "/movies/Missing Movie (2024).mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "identified",
+        tmdb_id: 456,
+        poster_path: "/correct-movie.jpg",
+      },
+    ]);
+    vi.spyOn(api, "searchMovies").mockResolvedValue([
+      {
+        Title: "Correct Movie",
+        Overview: "",
+        ExternalID: "456",
+        Provider: "tmdb",
+        PosterURL: "/correct-movie.jpg",
+        BackdropURL: "",
+        ReleaseDate: "2024-01-01",
+        VoteAverage: 0,
+      },
+    ]);
+    vi.spyOn(api, "identifyMovie").mockResolvedValue({ updated: 1 });
+
+    await renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Identify manually/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Choose/i }));
+
+    await waitFor(() => {
+      expect(api.identifyMovie).toHaveBeenCalledWith(1, {
+        mediaId: 42,
+        provider: "tmdb",
+        externalId: "456",
+        tmdbId: 456,
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /Identify movie/i })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
+    });
+    expect(api.identifyLibrary).not.toHaveBeenCalled();
   });
 
   it("queues a restarted identify pass with abortActive after a manual show match", async () => {
@@ -1248,7 +1404,10 @@ describe("App library and player wiring", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Choose/i }));
 
     await waitFor(() => {
-      expect(api.identifyShow).toHaveBeenCalledWith(1, "title-missingshow2024", 456);
+      expect(api.identifyShow).toHaveBeenCalledWith(1, "title-missingshow2024", {
+        provider: "tmdb",
+        externalId: "456",
+      });
     });
     expect(queueLibraryIdentify).toHaveBeenCalledWith(1, {
       abortActive: true,
@@ -1587,11 +1746,39 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("link", { name: /^Slow Horses$/i })).toBeTruthy();
     expect(screen.queryByText("Searching…")).not.toBeInTheDocument();
     expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();
-    expect(screen.getByText("TMDB")).toBeTruthy();
+    expect(screen.getByText("tmdb")).toBeTruthy();
     expect(screen.getByText("8.7")).toBeTruthy();
     expect(screen.queryByText("IMDb")).not.toBeInTheDocument();
     const showCard = screen.getByRole("link", { name: /^Slow Horses$/i }).closest(".show-card");
     expect(showCard?.querySelector("img")).toHaveAttribute("src", "/slow-horses-show.jpg");
+  });
+
+  it("falls back to IMDb badges for TV cards when TMDb scores are missing", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 11,
+        title: "The Bear - S01E01 - System",
+        path: "/tv/The Bear/Season 1/The Bear - S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "identified",
+        tmdb_id: 654,
+        show_poster_path: "/the-bear-show.jpg",
+        imdb_rating: 8.5,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+    vi.mocked(api.identifyLibrary).mockResolvedValue({ identified: 1, failed: 0 });
+
+    await renderApp("/library/1");
+
+    expect(await screen.findByRole("link", { name: /^The Bear$/i })).toBeTruthy();
+    expect(screen.getByText("IMDb")).toBeTruthy();
+    expect(screen.getByText("8.5")).toBeTruthy();
   });
 
   it("uses poster art from any matched anime episode before showing failed state", async () => {

@@ -1,5 +1,7 @@
 import type {
   DiscoverAcquisition,
+  DiscoverBrowseCategory,
+  DiscoverGenre,
   DiscoverItem,
   DiscoverLibraryMatch,
   DiscoverMediaType,
@@ -9,8 +11,93 @@ import type {
 
 type DiscoverDateSource = Pick<DiscoverItem, "release_date" | "first_air_date">;
 
+export const DISCOVER_MEDIA_FILTERS = ["all", "movie", "tv"] as const;
+
+export type DiscoverMediaFilter = (typeof DISCOVER_MEDIA_FILTERS)[number];
+
+export interface DiscoverCategoryOption {
+  id: DiscoverBrowseCategory;
+  label: string;
+  defaultMediaType: DiscoverMediaType | "";
+}
+
+export const DISCOVER_CATEGORY_OPTIONS: DiscoverCategoryOption[] = [
+  { id: "trending", label: "Trending Now", defaultMediaType: "" },
+  { id: "popular-movies", label: "Popular Movies", defaultMediaType: "movie" },
+  { id: "now-playing", label: "Now Playing", defaultMediaType: "movie" },
+  { id: "upcoming", label: "Upcoming Movies", defaultMediaType: "movie" },
+  { id: "popular-tv", label: "Popular TV", defaultMediaType: "tv" },
+  { id: "on-the-air", label: "On The Air", defaultMediaType: "tv" },
+  { id: "top-rated", label: "Top Rated Picks", defaultMediaType: "movie" },
+];
+
 export function discoverMediaLabel(mediaType: DiscoverMediaType): string {
   return mediaType === "movie" ? "Movie" : "TV";
+}
+
+export function discoverMediaFilterLabel(filter: DiscoverMediaFilter): string {
+  switch (filter) {
+    case "movie":
+      return "Movies";
+    case "tv":
+      return "TV";
+    case "all":
+    default:
+      return "All";
+  }
+}
+
+export function discoverCategoryLabel(category: DiscoverBrowseCategory): string {
+  return DISCOVER_CATEGORY_OPTIONS.find((option) => option.id === category)?.label ?? "Browse";
+}
+
+export function discoverVisibleItems(
+  items: DiscoverItem[],
+  mediaFilter: DiscoverMediaFilter,
+): DiscoverItem[] {
+  if (mediaFilter === "all") {
+    return items;
+  }
+  return items.filter((item) => item.media_type === mediaFilter);
+}
+
+export function discoverGenresForFilter(
+  movieGenres: DiscoverGenre[],
+  tvGenres: DiscoverGenre[],
+  mediaFilter: DiscoverMediaFilter,
+): DiscoverGenre[] {
+  if (mediaFilter === "movie") {
+    return movieGenres;
+  }
+  if (mediaFilter === "tv") {
+    return tvGenres;
+  }
+  const merged = new Map<string, DiscoverGenre>();
+  for (const genre of [...movieGenres, ...tvGenres]) {
+    if (!merged.has(genre.name)) {
+      merged.set(genre.name, genre);
+    }
+  }
+  return [...merged.values()];
+}
+
+export function discoverBrowseHref(options: {
+  category?: DiscoverBrowseCategory | "";
+  mediaType?: DiscoverMediaType | "";
+  genreId?: number | null;
+}): string {
+  const params = new URLSearchParams();
+  if (options.category) {
+    params.set("category", options.category);
+  }
+  if (options.mediaType) {
+    params.set("mediaType", options.mediaType);
+  }
+  if (options.genreId != null && options.genreId > 0) {
+    params.set("genre", String(options.genreId));
+  }
+  const query = params.toString();
+  return query ? `/discover/browse?${query}` : "/discover/browse";
 }
 
 export function discoverPrimaryDate(item: DiscoverDateSource): string {

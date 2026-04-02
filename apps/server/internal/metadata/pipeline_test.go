@@ -67,6 +67,14 @@ func (s *stubSeriesDetailsProvider) GetSeriesDetails(_ context.Context, _ int) (
 	return s.details, nil
 }
 
+type stubMovieDetailsProvider struct {
+	details *MovieDetails
+}
+
+func (s *stubMovieDetailsProvider) GetMovieDetails(_ context.Context, _ int) (*MovieDetails, error) {
+	return s.details, nil
+}
+
 type stubIMDbRatingProvider struct {
 	rating float64
 }
@@ -137,6 +145,9 @@ func TestGetShowPosterCandidates_UsesEnrichedTVDBIDForFanart(t *testing.T) {
 			fanartRequested = true
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"tvposter":[{"url":"https://fanart.example/poster.jpg"}]}`)
+		case "/v4/search":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":[{"id":"123","name":"Show","image_url":"/series.jpg","type":"series"}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -171,11 +182,161 @@ func TestGetShowPosterCandidates_UsesEnrichedTVDBIDForFanart(t *testing.T) {
 	if !tvdbRequested {
 		t.Fatal("expected TVDB lookup to run")
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates, got %d: %#v", len(candidates), candidates)
+	if len(candidates) != 3 {
+		t.Fatalf("expected 3 candidates, got %d: %#v", len(candidates), candidates)
 	}
-	if candidates[0].Provider != "fanart" || candidates[1].Provider != "tvdb" {
+	if candidates[0].Provider != "fanart" || candidates[1].Provider != "tvdb" || candidates[2].Provider != "tvdb" {
 		t.Fatalf("unexpected candidate providers: %#v", candidates)
+	}
+}
+
+func TestGetMoviePosterCandidates_ReturnsMultipleTMDBAndFanartPosters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v3/movies/44":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"movieposter": [
+					{"url":"https://fanart.example/movie-1.jpg"},
+					{"url":"https://fanart.example/movie-2.jpg"}
+				]
+			}`)
+		case "/3/movie/44/images":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"posters": [
+					{"file_path": "/tmdb-1.jpg"},
+					{"file_path": "/tmdb-2.jpg"},
+					{"file_path": "/tmdb-3.jpg"}
+				]
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	oldClient := providerHTTPClient
+	providerHTTPClient = &http.Client{Transport: &rewriteTransport{base: baseURL}}
+	t.Cleanup(func() {
+		providerHTTPClient = oldClient
+	})
+
+	p := &Pipeline{
+		fanart: &FanartClient{APIKey: "fanart"},
+		tmdb:   &TMDBClient{APIKey: "tmdb", baseURL: tmdbBaseURL},
+		movieDetailsProvider: &stubMovieDetailsProvider{
+			details: &MovieDetails{PosterPath: "https://image.tmdb.org/t/p/w500/tmdb-1.jpg"},
+		},
+	}
+
+	candidates, err := p.GetMoviePosterCandidates(context.Background(), 44, "")
+	if err != nil {
+		t.Fatalf("GetMoviePosterCandidates returned error: %v", err)
+	}
+	if len(candidates) != 5 {
+		t.Fatalf("expected 5 candidates, got %d: %#v", len(candidates), candidates)
+	}
+	if candidates[0].ImageURL != "https://fanart.example/movie-1.jpg" || candidates[1].ImageURL != "https://fanart.example/movie-2.jpg" {
+		t.Fatalf("unexpected fanart candidates: %#v", candidates[:2])
+	}
+	if candidates[2].ImageURL != "https://image.tmdb.org/t/p/w500/tmdb-1.jpg" {
+		t.Fatalf("expected primary tmdb poster third, got %#v", candidates[2])
+	}
+	if candidates[3].ImageURL != "https://image.tmdb.org/t/p/w500/tmdb-2.jpg" || candidates[4].ImageURL != "https://image.tmdb.org/t/p/w500/tmdb-3.jpg" {
+		t.Fatalf("unexpected tmdb candidate order: %#v", candidates[2:])
+	}
+}
+
+func TestGetShowPosterCandidates_ReturnsMultipleProviderPosters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"token":"token"}}`)
+		case "/v4/series/123/episodes/default":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"data": {
+					"series": {"id": 123, "name": "Show", "image": "/series.jpg", "firstAired": "2024-01-01"},
+					"episodes": [
+						{"id": 1, "name": "Pilot", "overview": "Pilot", "aired": "2024-01-01", "image": "/episode.jpg", "seasonNumber": 1, "number": 1}
+					]
+				}
+			}`)
+		case "/v4/search":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"data": [
+					{"id":"123","name":"Show","image_url":"/series-search-1.jpg","type":"series"},
+					{"id":"999","name":"Show","image_url":"/series-search-2.jpg","type":"series"}
+				]
+			}`)
+		case "/v3/tv/123":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"tvposter": [
+					{"url":"https://fanart.example/show-1.jpg"},
+					{"url":"https://fanart.example/show-2.jpg"}
+				]
+			}`)
+		case "/3/tv/42/images":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"posters": [
+					{"file_path": "/tmdb-show-1.jpg"},
+					{"file_path": "/tmdb-show-2.jpg"}
+				]
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	oldClient := providerHTTPClient
+	providerHTTPClient = &http.Client{Transport: &rewriteTransport{base: baseURL}}
+	t.Cleanup(func() {
+		providerHTTPClient = oldClient
+	})
+
+	p := &Pipeline{
+		seriesDetailsProvider: &stubSeriesDetailsProvider{
+			details: &SeriesDetails{
+				PosterPath: "https://image.tmdb.org/t/p/w500/tmdb-show-1.jpg",
+				TVDBID:     "123",
+			},
+		},
+		tvProviders: []TVProvider{&TVDBClient{APIKey: "tvdb"}},
+		fanart:      &FanartClient{APIKey: "fanart"},
+		tmdb:        &TMDBClient{APIKey: "tmdb", baseURL: tmdbBaseURL},
+	}
+
+	candidates, err := p.GetShowPosterCandidates(context.Background(), "Show", 42, "")
+	if err != nil {
+		t.Fatalf("GetShowPosterCandidates returned error: %v", err)
+	}
+	if len(candidates) != 7 {
+		t.Fatalf("expected 7 candidates, got %d: %#v", len(candidates), candidates)
+	}
+	if candidates[0].ImageURL != "https://image.tmdb.org/t/p/w500/tmdb-show-1.jpg" || candidates[1].ImageURL != "https://image.tmdb.org/t/p/w500/tmdb-show-2.jpg" {
+		t.Fatalf("unexpected tmdb candidates: %#v", candidates[:2])
+	}
+	if candidates[2].ImageURL != "https://fanart.example/show-1.jpg" || candidates[3].ImageURL != "https://fanart.example/show-2.jpg" {
+		t.Fatalf("unexpected fanart candidates: %#v", candidates[2:4])
+	}
+	if candidates[4].ImageURL != "https://artworks.thetvdb.com/episode.jpg" ||
+		candidates[5].ImageURL != "https://artworks.thetvdb.com/series-search-1.jpg" ||
+		candidates[6].ImageURL != "https://artworks.thetvdb.com/series-search-2.jpg" {
+		t.Fatalf("unexpected tvdb candidates: %#v", candidates[4:])
 	}
 }
 

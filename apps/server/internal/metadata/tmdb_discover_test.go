@@ -175,6 +175,70 @@ func TestTMDBClientSearchAndDetailMapDiscoverPayloads(t *testing.T) {
 	}
 }
 
+func TestTMDBClientBrowseDiscoverAndGenres(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/genre/movie/list":
+			_, _ = w.Write([]byte(`{"genres":[{"id":28,"name":"Action"},{"id":18,"name":"Drama"}]}`))
+		case "/genre/tv/list":
+			_, _ = w.Write([]byte(`{"genres":[{"id":10765,"name":"Sci-Fi & Fantasy"}]}`))
+		case "/discover/movie":
+			if got := r.URL.Query().Get("with_genres"); got != "28" {
+				t.Fatalf("with_genres = %q", got)
+			}
+			if got := r.URL.Query().Get("page"); got != "2" {
+				t.Fatalf("page = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"page":2,"total_pages":4,"total_results":80,"results":[{"id":21,"title":"Genre Movie","poster_path":"/movie.jpg","release_date":"2024-01-01","vote_average":7.8}]}`))
+		case "/trending/tv/day":
+			if got := r.URL.Query().Get("page"); got != "3" {
+				t.Fatalf("page = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"page":3,"total_pages":6,"total_results":120,"results":[{"id":31,"name":"Trending Show","poster_path":"/show.jpg","first_air_date":"2024-02-02","vote_average":8.4}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewTMDBClient("test-key")
+	client.baseURL = server.URL
+
+	genres, err := client.GetDiscoverGenres(context.Background())
+	if err != nil {
+		t.Fatalf("get genres: %v", err)
+	}
+	if len(genres.MovieGenres) != 2 || genres.MovieGenres[0].Name != "Action" {
+		t.Fatalf("movie genres = %+v", genres.MovieGenres)
+	}
+
+	browseGenre, err := client.BrowseDiscover(context.Background(), "", DiscoverMediaTypeMovie, 28, 2)
+	if err != nil {
+		t.Fatalf("browse genre: %v", err)
+	}
+	if browseGenre.Page != 2 || browseGenre.TotalPages != 4 || browseGenre.TotalResults != 80 {
+		t.Fatalf("browse genre page = %+v", browseGenre)
+	}
+	if browseGenre.Genre == nil || browseGenre.Genre.Name != "Action" || browseGenre.MediaType != DiscoverMediaTypeMovie {
+		t.Fatalf("browse genre metadata = %+v", browseGenre)
+	}
+	if len(browseGenre.Items) != 1 || browseGenre.Items[0].TMDBID != 21 {
+		t.Fatalf("browse genre items = %+v", browseGenre.Items)
+	}
+
+	browseTrending, err := client.BrowseDiscover(context.Background(), DiscoverBrowseCategoryTrending, DiscoverMediaTypeTV, 0, 3)
+	if err != nil {
+		t.Fatalf("browse trending: %v", err)
+	}
+	if browseTrending.Category != DiscoverBrowseCategoryTrending || browseTrending.MediaType != DiscoverMediaTypeTV {
+		t.Fatalf("browse trending metadata = %+v", browseTrending)
+	}
+	if len(browseTrending.Items) != 1 || browseTrending.Items[0].TMDBID != 31 {
+		t.Fatalf("browse trending items = %+v", browseTrending.Items)
+	}
+}
+
 func TestTMDBClientDiscoverSurfacesHTTPFailuresAndMapsDetail404ToNil(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

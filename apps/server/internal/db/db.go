@@ -184,6 +184,13 @@ type MediaItem struct {
 	FileHashKind  string `json:"-"`
 }
 
+type LibraryMediaPage struct {
+	Items      []MediaItem `json:"items"`
+	NextOffset *int        `json:"next_offset,omitempty"`
+	HasMore    bool        `json:"has_more"`
+	Total      int         `json:"total,omitempty"`
+}
+
 type PlaybackTrackMetadata struct {
 	Subtitles           []Subtitle           `json:"subtitles"`
 	EmbeddedSubtitles   []EmbeddedSubtitle   `json:"embeddedSubtitles"`
@@ -1226,6 +1233,14 @@ var schemaMigrations = []schemaMigration{
 				return err
 			}
 			return nil
+		},
+	},
+	{
+		version: 22,
+		name:    "enable_watcher_for_existing_libraries",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `UPDATE libraries SET watcher_enabled = 1 WHERE watcher_enabled = 0`)
+			return err
 		},
 	},
 	{
@@ -2362,7 +2377,7 @@ func GetMediaByLibraryID(db *sql.DB, libraryID int) ([]MediaItem, error) {
 			return nil, err
 		}
 	}
-	items, err := queryMediaByLibraryID(db, libraryID, typ)
+	items, _, err := queryMediaByLibraryID(db, libraryID, typ, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -2370,12 +2385,63 @@ func GetMediaByLibraryID(db *sql.DB, libraryID int) ([]MediaItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return attachSubtitlesBatch(db, items)
+	items, err = attachSubtitlesBatch(db, items)
+	if err != nil {
+		return nil, err
+	}
+	return attachDuplicateState(db, items)
+}
+
+func GetMediaPageByLibraryID(db *sql.DB, libraryID int, offset int, limit int) (LibraryMediaPage, error) {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	var typ string
+	err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return LibraryMediaPage{Items: []MediaItem{}, HasMore: false, Total: 0}, nil
+		}
+		return LibraryMediaPage{}, err
+	}
+	if typ == LibraryTypeTV || typ == LibraryTypeAnime {
+		if err := ensureLibraryShowsAndSeasons(db, libraryID, typ); err != nil {
+			return LibraryMediaPage{}, err
+		}
+	}
+	items, total, err := queryMediaByLibraryID(db, libraryID, typ, offset, limit)
+	if err != nil {
+		return LibraryMediaPage{}, err
+	}
+	items, err = attachMediaFilesBatch(db, items)
+	if err != nil {
+		return LibraryMediaPage{}, err
+	}
+	hasMore := offset+len(items) < total
+	var nextOffset *int
+	if hasMore {
+		value := offset + len(items)
+		nextOffset = &value
+	}
+	return LibraryMediaPage{
+		Items:      items,
+		NextOffset: nextOffset,
+		HasMore:    hasMore,
+		Total:      total,
+	}, nil
 }
 
 // queryMediaByLibraryID queries the single category table for this library.
-func queryMediaByLibraryID(db *sql.DB, libraryID int, kind string) ([]MediaItem, error) {
+func queryMediaByLibraryID(db *sql.DB, libraryID int, kind string, offset int, limit int) ([]MediaItem, int, error) {
 	table := mediaTableForKind(kind)
+	countQuery := `SELECT COUNT(1) FROM ` + table + ` WHERE library_id = ? AND COALESCE(missing_since, '') = ''`
+	var total int
+	if err := db.QueryRow(countQuery, libraryID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
 	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
@@ -2401,15 +2467,26 @@ JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
 	}
+	if limit > 0 {
+		q += ` LIMIT ? OFFSET ?`
+	}
 	var rows *sql.Rows
 	var err error
 	if table == "music_tracks" {
-		rows, err = db.Query(q, libraryID)
+		if limit > 0 {
+			rows, err = db.Query(q, libraryID, limit, offset)
+		} else {
+			rows, err = db.Query(q, libraryID)
+		}
 	} else {
-		rows, err = db.Query(q, kind, libraryID)
+		if limit > 0 {
+			rows, err = db.Query(q, kind, libraryID, limit, offset)
+		} else {
+			rows, err = db.Query(q, kind, libraryID)
+		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	items := make([]MediaItem, 0)
@@ -2512,19 +2589,19 @@ ORDER BY g.id`
 		}
 		m.Missing = m.MissingSince != ""
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		items = append(items, m)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if table == "tv_episodes" || table == "anime_episodes" {
 		if err := hydrateEpisodeShowPosters(db, libraryID, kind, items); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
-	return attachDuplicateState(db, items)
+	return items, total, nil
 }
 
 func hydrateEpisodeShowPosters(db *sql.DB, libraryID int, kind string, items []MediaItem) error {

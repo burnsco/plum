@@ -1,4 +1,5 @@
 import { createPlumApiClient, ensureBaseUrl } from "@plum/shared";
+import type { LibraryMediaPage, MediaItem } from "@plum/shared";
 
 export type {
   AttachPlaybackSessionCommand,
@@ -7,7 +8,13 @@ export type {
   CredentialsPayload,
   CreatePlaybackSessionPayload,
   MovieDetails,
+  MovieIdentifyPayload,
+  MovieSearchResult,
   DiscoverAcquisition,
+  DiscoverBrowseCategory,
+  DiscoverBrowseResponse,
+  DiscoverGenre,
+  DiscoverGenresResponse,
   DiscoverItem,
   DiscoverLibraryMatch,
   DiscoverMediaType,
@@ -25,6 +32,7 @@ export type {
   HomeDashboard,
   IdentifyResult,
   Library,
+  LibraryMediaPage,
   LibraryScanActivity,
   LibraryScanActivityEntry,
   LibraryScanStatus,
@@ -96,11 +104,12 @@ export const {
   getMovieDetails,
   getShowDetails,
   getDiscover,
+  getDiscoverGenres,
+  browseDiscover,
   searchDiscover,
   getDiscoverTitleDetails,
   addDiscoverTitle,
   getDownloads,
-  fetchLibraryMedia,
   getHomeDashboard,
   fetchMediaList,
   createPlaybackSession,
@@ -120,11 +129,20 @@ export const {
   getShowPosterCandidates,
   setShowPosterSelection,
   resetShowPosterSelection,
+  searchMovies,
   searchSeries,
   refreshShow,
   confirmShow,
   identifyShow,
+  identifyMovie,
   updateMediaProgress,
 } = client;
+
+export function fetchLibraryMedia(
+  id: number,
+  options?: { offset?: number; limit?: number },
+): Promise<LibraryMediaPage | MediaItem[]> {
+  return client.fetchLibraryMedia(id, options) as Promise<LibraryMediaPage | MediaItem[]>;
+}
 
 export { client as plumApiClient };

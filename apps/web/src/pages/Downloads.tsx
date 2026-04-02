@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
-import { ArrowDownCircle, Clock3, Download, ServerCog } from "lucide-react";
+import { ArrowDownCircle, Clock3, Download, RefreshCw, ServerCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthState } from "@/contexts/AuthContext";
 import { useDownloads } from "@/queries";
+import type { DownloadItem } from "@/api";
 
 function formatBytes(value: number | undefined): string {
   if (!value || value <= 0) {
-    return "Unknown";
+    return "—";
   }
   const units = ["B", "KB", "MB", "GB", "TB"];
   let size = value;
@@ -20,7 +21,7 @@ function formatBytes(value: number | undefined): string {
 
 function formatEta(seconds: number | undefined): string {
   if (!seconds || seconds <= 0) {
-    return "Unknown";
+    return "—";
   }
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -33,47 +34,129 @@ function formatEta(seconds: number | undefined): string {
   return `${seconds}s`;
 }
 
+function ProgressCell({ progress }: { progress: number }) {
+  const pct = Math.max(0, Math.min(100, progress));
+  return (
+    <div className="min-w-20">
+      <span className="text-sm font-medium tabular-nums text-(--plum-text)">
+        {Math.round(pct)}%
+      </span>
+      <div className="mt-1 h-0.75 w-full overflow-hidden rounded-full bg-[rgba(255,255,255,0.08)]">
+        <div
+          className="h-full rounded-full bg-[linear-gradient(90deg,var(--plum-accent),#38bdf8)] transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DownloadRow({ item }: { item: DownloadItem }) {
+  return (
+    <>
+      <tr className="group border-b border-(--plum-border) transition-colors hover:bg-[rgba(181,123,255,0.04)]">
+        {/* Title */}
+        <td className="py-3 pl-4 pr-3">
+          <span className="block max-w-xs truncate text-sm font-medium text-(--plum-text) lg:max-w-sm xl:max-w-md" title={item.title}>
+            {item.title}
+          </span>
+          <span className="mt-0.5 block text-xs text-(--plum-muted)">{item.status_text}</span>
+        </td>
+
+        {/* Type */}
+        <td className="whitespace-nowrap px-3 py-3">
+          <span className="rounded-full border border-(--plum-border) bg-(--plum-panel-alt) px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-(--plum-muted)">
+            {item.media_type === "movie" ? "Movie" : "TV"}
+          </span>
+        </td>
+
+        {/* Source */}
+        <td className="whitespace-nowrap px-3 py-3">
+          <span className="rounded-full bg-[color-mix(in_srgb,var(--plum-accent)_14%,transparent)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-(--plum-text-2)">
+            {item.source}
+          </span>
+        </td>
+
+        {/* Progress */}
+        <td className="px-3 py-3">
+          <ProgressCell progress={item.progress ?? 0} />
+        </td>
+
+        {/* Remaining */}
+        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-(--plum-text-2)">
+          {formatBytes(item.size_left_bytes)}
+        </td>
+
+        {/* ETA */}
+        <td className="whitespace-nowrap px-3 py-3 text-right">
+          <span className="inline-flex items-center gap-1 text-sm tabular-nums text-(--plum-text-2)">
+            <Clock3 className="size-3 shrink-0 text-(--plum-muted)" />
+            {formatEta(item.eta_seconds)}
+          </span>
+        </td>
+      </tr>
+      {item.error_message ? (
+        <tr className="border-b border-(--plum-border)">
+          <td
+            colSpan={6}
+            className="border-l-2 border-amber-500/60 bg-amber-500/6 py-2 pl-4 pr-4 text-xs text-amber-200"
+          >
+            {item.error_message}
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
 export function Downloads() {
   const { user } = useAuthState();
   const isAdmin = user?.is_admin ?? false;
   const { data, error, isLoading, refetch } = useDownloads({ refetchInterval: 5_000 });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-8">
-      <section className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.2),transparent_42%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(16,24,39,0.88))] p-6 text-white shadow-[0_20px_70px_rgba(9,12,20,0.28)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-white/75">
-              <ArrowDownCircle className="size-3.5" />
-              Downloads
-            </div>
-            <h1 className="text-3xl font-semibold tracking-tight">Track what Plum is pulling in.</h1>
-            <p className="max-w-xl text-sm leading-6 text-white/75">
-              See active movie and TV downloads flowing through Radarr and Sonarr TV without
-              leaving Plum.
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          <ArrowDownCircle className="size-5 text-(--plum-accent)" />
+          <div>
+            <h1 className="text-xl font-semibold text-(--plum-text)">Downloads</h1>
+            <p className="text-xs text-(--plum-muted)">
+              Live queue from Radarr and Sonarr TV
             </p>
           </div>
-          <Button variant="outline" onClick={() => void refetch()} className="border-white/15 text-white hover:bg-white/10">
-            Refresh now
-          </Button>
         </div>
-      </section>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void refetch()}
+          className="flex items-center gap-1.5"
+        >
+          <RefreshCw className="size-3.5" />
+          Refresh
+        </Button>
+      </div>
 
+      {/* States */}
       {isLoading && !data ? (
-        <p className="text-sm text-[var(--plum-muted)]">Loading download activity...</p>
+        <p className="text-sm text-(--plum-muted)">Loading download activity…</p>
       ) : error ? (
-        <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Downloads are unavailable</h2>
-          <p className="mt-2 text-sm text-[var(--plum-muted)]">{error.message}</p>
+        <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8">
+          <h2 className="text-base font-semibold text-(--plum-text)">Downloads unavailable</h2>
+          <p className="mt-2 text-sm text-(--plum-muted)">{error.message}</p>
         </div>
       ) : !data?.configured ? (
-        <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8">
+        <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8">
           <div className="flex items-start gap-3">
-            <ServerCog className="mt-0.5 size-5 text-[var(--plum-accent)]" />
+            <ServerCog className="mt-0.5 size-5 text-(--plum-accent)" />
             <div>
-              <h2 className="text-lg font-semibold text-[var(--plum-text)]">Media stack not configured</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--plum-muted)]">
-                Radarr and Sonarr TV need to be connected before Plum can show direct download activity.
+              <h2 className="text-base font-semibold text-(--plum-text)">
+                Media stack not configured
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-(--plum-muted)">
+                Radarr and Sonarr TV need to be connected before Plum can show direct download
+                activity.
               </p>
               {isAdmin ? (
                 <div className="mt-4">
@@ -85,77 +168,53 @@ export function Downloads() {
             </div>
           </div>
         </div>
-      ) : (data.items.length ?? 0) === 0 ? (
-        <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8">
+      ) : (data?.items.length ?? 0) === 0 ? (
+        <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8">
           <div className="flex items-start gap-3">
-            <Download className="mt-0.5 size-5 text-[var(--plum-accent)]" />
+            <Download className="mt-0.5 size-5 text-(--plum-accent)" />
             <div>
-              <h2 className="text-lg font-semibold text-[var(--plum-text)]">No active downloads</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--plum-muted)]">
-                New items you add from Discover will show up here while Radarr or Sonarr TV is working on them.
+              <h2 className="text-base font-semibold text-(--plum-text)">
+                No active downloads
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-(--plum-muted)">
+                New items you add from Discover will show up here while Radarr or Sonarr TV is
+                working on them.
               </p>
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid gap-4">
-          {data.items.map((item) => (
-            <article
-              key={item.id}
-              className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-5 shadow-[0_18px_45px_rgba(5,10,18,0.16)]"
-            >
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--plum-muted)]">
-                      {item.media_type === "movie" ? "Movie" : "TV"}
-                    </span>
-                    <span className="rounded-full bg-[color-mix(in_srgb,var(--plum-accent)_16%,transparent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--plum-text)]">
-                      {item.source}
-                    </span>
-                  </div>
-                  <h2 className="mt-3 truncate text-xl font-semibold text-[var(--plum-text)]">
-                    {item.title}
-                  </h2>
-                  <p className="mt-1 text-sm text-[var(--plum-muted)]">{item.status_text}</p>
-                  {item.error_message ? (
-                    <p className="mt-3 rounded-[var(--radius-md)] border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-                      {item.error_message}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="grid min-w-[14rem] gap-3 text-sm text-[var(--plum-text)] md:grid-cols-3 lg:grid-cols-1">
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
-                      Progress
-                    </div>
-                    <div className="mt-2 text-lg font-semibold">{Math.round(item.progress ?? 0)}%</div>
-                  </div>
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
-                      Remaining
-                    </div>
-                    <div className="mt-2 text-lg font-semibold">{formatBytes(item.size_left_bytes)}</div>
-                  </div>
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-4 py-3">
-                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-[var(--plum-muted)]">
-                      <Clock3 className="size-3.5" />
-                      ETA
-                    </div>
-                    <div className="mt-2 text-lg font-semibold">{formatEta(item.eta_seconds)}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-[rgba(255,255,255,0.08)]">
-                <div
-                  className="h-full rounded-full bg-[linear-gradient(90deg,var(--plum-accent),#38bdf8)]"
-                  style={{ width: `${Math.max(0, Math.min(100, item.progress ?? 0))}%` }}
-                />
-              </div>
-            </article>
-          ))}
+        /* Download table */
+        <div className="overflow-hidden rounded-lg border border-(--plum-border) bg-(--plum-panel)">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-(--plum-border) bg-(--plum-panel-alt)/60">
+                <th className="py-2.5 pl-4 pr-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  Title
+                </th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  Type
+                </th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  Source
+                </th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  Progress
+                </th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  Remaining
+                </th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  ETA
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((item) => (
+                <DownloadRow key={item.id} item={item} />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

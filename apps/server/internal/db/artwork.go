@@ -155,7 +155,7 @@ func ensureArtworkAsset(
 		}
 	}
 
-	sourceURL := artworkSourceURL(source)
+	sourceURL := artworkSourceURL(source, artworkKind)
 	if sourceURL == "" {
 		return asset, ErrNotFound
 	}
@@ -360,7 +360,7 @@ func ensureArtworkVariant(dbConn *sql.DB, asset artworkAssetRecord, artworkDir s
 	return relPath, nil
 }
 
-func artworkSourceURL(path string) string {
+func artworkSourceURL(path string, artworkKind string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
@@ -369,7 +369,14 @@ func artworkSourceURL(path string) string {
 		return path
 	}
 	if strings.HasPrefix(path, "/") {
-		return "https://image.tmdb.org/t/p/original" + path
+		switch artworkKind {
+		case "backdrop":
+			return "https://image.tmdb.org/t/p/w780" + path
+		case "poster":
+			fallthrough
+		default:
+			return "https://image.tmdb.org/t/p/w500" + path
+		}
 	}
 	return path
 }

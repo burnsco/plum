@@ -2,26 +2,29 @@ import { useRef, useMemo, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MediaItem } from "../api";
 import {
+  buildMusicLibraryGroups,
   formatRuntime,
-  groupMusicByAlbum,
-  groupMusicByArtist,
-  sortMusicTracks,
 } from "../lib/musicGrouping";
-import { useVirtualContainerMetrics } from "../lib/virtualization";
+import { useLoadMoreTrigger, useVirtualContainerMetrics } from "../lib/virtualization";
 import { LibraryPosterGrid } from "./LibraryPosterGrid";
 
 interface Props {
   items: MediaItem[];
   onPlayCollection: (items: MediaItem[], startItem?: MediaItem) => void;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 const TRACK_ROW_ESTIMATE = 74;
 const TRACK_VIRTUALIZATION_THRESHOLD = 150;
 
-export function MusicLibraryView({ items, onPlayCollection }: Props) {
-  const tracks = useMemo(() => sortMusicTracks(items), [items]);
-  const albums = useMemo(() => groupMusicByAlbum(items), [items]);
-  const artists = useMemo(() => groupMusicByArtist(items), [items]);
+export function MusicLibraryView({
+  items,
+  onPlayCollection,
+  hasMore = false,
+  onLoadMore,
+}: Props) {
+  const { tracks, albums, artists } = useMemo(() => buildMusicLibraryGroups(items), [items]);
 
   return (
     <div className="music-library">
@@ -31,6 +34,8 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
       >
         <LibraryPosterGrid
           compact
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
           items={albums.map((album) => ({
             key: album.key,
             title: album.title,
@@ -49,6 +54,8 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
       >
         <LibraryPosterGrid
           compact
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
           items={artists.map((artist) => ({
             key: artist.key,
             title: artist.name,
@@ -65,7 +72,12 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
         title="Tracks"
         count={`${tracks.length} track${tracks.length === 1 ? "" : "s"}`}
       >
-        <VirtualTrackList items={tracks} onPlayCollection={onPlayCollection} />
+        <VirtualTrackList
+          items={tracks}
+          onPlayCollection={onPlayCollection}
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
+        />
       </MusicSection>
 
       <div className="music-section-grid">
@@ -85,12 +97,21 @@ export function MusicLibraryView({ items, onPlayCollection }: Props) {
 function VirtualTrackList({
   items,
   onPlayCollection,
+  hasMore = false,
+  onLoadMore,
 }: {
   items: MediaItem[];
   onPlayCollection: (items: MediaItem[], startItem?: MediaItem) => void;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { scrollElement, scrollMargin } = useVirtualContainerMetrics(rootRef);
+  const loadMoreRef = useLoadMoreTrigger({
+    root: scrollElement,
+    enabled: hasMore ?? false,
+    onLoadMore,
+  });
   const shouldVirtualize =
     items.length >= TRACK_VIRTUALIZATION_THRESHOLD &&
     scrollElement != null &&
@@ -114,6 +135,7 @@ function VirtualTrackList({
             onPlayCollection={onPlayCollection}
           />
         ))}
+        {hasMore ? <div ref={loadMoreRef} className="h-px w-full" aria-hidden="true" /> : null}
       </div>
     );
   }
@@ -135,6 +157,14 @@ function VirtualTrackList({
             </div>
           );
         })}
+        {hasMore ? (
+          <div
+            ref={loadMoreRef}
+            className="w-full"
+            style={{ position: "absolute", top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`, height: "1px" }}
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
     </div>
   );

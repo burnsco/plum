@@ -26,6 +26,8 @@ type LibraryHandler struct {
 	Meta        metadata.Identifier
 	Artwork     metadata.MetadataArtworkProvider
 	Movies      metadata.MovieDetailsProvider
+	MovieQuery  metadata.MovieProvider
+	MovieLookup metadata.MovieLookupProvider
 	Series      metadata.SeriesDetailsProvider
 	SeriesQuery metadata.SeriesSearchProvider
 	Discover    metadata.DiscoverProvider
@@ -179,6 +181,101 @@ type libraryResponse struct {
 	ScanIntervalMinutes       int    `json:"scan_interval_minutes"`
 }
 
+type libraryBrowseItemResponse struct {
+	ID                   int     `json:"id"`
+	LibraryID            int     `json:"library_id,omitempty"`
+	Title                string  `json:"title"`
+	Path                 string  `json:"path"`
+	Duration             int     `json:"duration"`
+	Type                 string  `json:"type"`
+	MatchStatus          string  `json:"match_status,omitempty"`
+	IdentifyState        string  `json:"identify_state,omitempty"`
+	TMDBID               int     `json:"tmdb_id,omitempty"`
+	TVDBID               string  `json:"tvdb_id,omitempty"`
+	Overview             string  `json:"overview,omitempty"`
+	PosterPath           string  `json:"poster_path,omitempty"`
+	BackdropPath         string  `json:"backdrop_path,omitempty"`
+	PosterURL            string  `json:"poster_url,omitempty"`
+	BackdropURL          string  `json:"backdrop_url,omitempty"`
+	ShowPosterPath       string  `json:"show_poster_path,omitempty"`
+	ShowPosterURL        string  `json:"show_poster_url,omitempty"`
+	ReleaseDate          string  `json:"release_date,omitempty"`
+	VoteAverage          float64 `json:"vote_average,omitempty"`
+	IMDbID               string  `json:"imdb_id,omitempty"`
+	IMDbRating           float64 `json:"imdb_rating,omitempty"`
+	Artist               string  `json:"artist,omitempty"`
+	Album                string  `json:"album,omitempty"`
+	AlbumArtist          string  `json:"album_artist,omitempty"`
+	DiscNumber           int     `json:"disc_number,omitempty"`
+	TrackNumber          int     `json:"track_number,omitempty"`
+	ReleaseYear          int     `json:"release_year,omitempty"`
+	ProgressSeconds      float64 `json:"progress_seconds,omitempty"`
+	ProgressPercent      float64 `json:"progress_percent,omitempty"`
+	RemainingSeconds     float64 `json:"remaining_seconds,omitempty"`
+	Completed            bool    `json:"completed,omitempty"`
+	LastWatchedAt        string  `json:"last_watched_at,omitempty"`
+	Season               int     `json:"season,omitempty"`
+	Episode              int     `json:"episode,omitempty"`
+	MetadataReviewNeeded bool    `json:"metadata_review_needed,omitempty"`
+	MetadataConfirmed    bool    `json:"metadata_confirmed,omitempty"`
+	ThumbnailPath        string  `json:"thumbnail_path,omitempty"`
+	ThumbnailURL         string  `json:"thumbnail_url,omitempty"`
+	Missing              bool    `json:"missing,omitempty"`
+	MissingSince         string  `json:"missing_since,omitempty"`
+}
+
+type libraryMediaPageResponse struct {
+	Items      []libraryBrowseItemResponse `json:"items"`
+	NextOffset *int                        `json:"next_offset,omitempty"`
+	HasMore    bool                        `json:"has_more"`
+	Total      int                         `json:"total,omitempty"`
+}
+
+func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse {
+	return libraryBrowseItemResponse{
+		ID:                   item.ID,
+		LibraryID:            item.LibraryID,
+		Title:                item.Title,
+		Path:                 item.Path,
+		Duration:             item.Duration,
+		Type:                 item.Type,
+		MatchStatus:          item.MatchStatus,
+		IdentifyState:        item.IdentifyState,
+		TMDBID:               item.TMDBID,
+		TVDBID:               item.TVDBID,
+		Overview:             item.Overview,
+		PosterPath:           item.PosterPath,
+		BackdropPath:         item.BackdropPath,
+		PosterURL:            item.PosterURL,
+		BackdropURL:          item.BackdropURL,
+		ShowPosterPath:       item.ShowPosterPath,
+		ShowPosterURL:        item.ShowPosterURL,
+		ReleaseDate:          item.ReleaseDate,
+		VoteAverage:          item.VoteAverage,
+		IMDbID:               item.IMDbID,
+		IMDbRating:           item.IMDbRating,
+		Artist:               item.Artist,
+		Album:                item.Album,
+		AlbumArtist:          item.AlbumArtist,
+		DiscNumber:           item.DiscNumber,
+		TrackNumber:          item.TrackNumber,
+		ReleaseYear:          item.ReleaseYear,
+		ProgressSeconds:      item.ProgressSeconds,
+		ProgressPercent:      item.ProgressPercent,
+		RemainingSeconds:     item.RemainingSeconds,
+		Completed:            item.Completed,
+		LastWatchedAt:        item.LastWatchedAt,
+		Season:               item.Season,
+		Episode:              item.Episode,
+		MetadataReviewNeeded: item.MetadataReviewNeeded,
+		MetadataConfirmed:    item.MetadataConfirmed,
+		ThumbnailPath:        item.ThumbnailPath,
+		ThumbnailURL:         item.ThumbnailURL,
+		Missing:              item.Missing,
+		MissingSince:         item.MissingSince,
+	}
+}
+
 func defaultLibraryPlaybackPreferences(libraryType string) (preferredAudio string, preferredSubtitle string, subtitlesEnabled bool) {
 	switch libraryType {
 	case db.LibraryTypeAnime:
@@ -191,7 +288,7 @@ func defaultLibraryPlaybackPreferences(libraryType string) (preferredAudio strin
 }
 
 func defaultLibraryAutomation() (watcherEnabled bool, watcherMode string, scanIntervalMinutes int) {
-	return false, db.LibraryWatcherModeAuto, 0
+	return true, db.LibraryWatcherModeAuto, 0
 }
 
 func normalizeLibraryAutomationWithDefaults(
@@ -1888,6 +1985,40 @@ func updateMetadataWithRetry(
 	return lastErr
 }
 
+type existingEpisodeMetadata struct {
+	Title        string
+	Overview     string
+	PosterPath   string
+	BackdropPath string
+	ReleaseDate  string
+	VoteAverage  float64
+	IMDbID       string
+	IMDbRating   float64
+}
+
+func loadExistingEpisodeMetadata(dbConn *sql.DB, table string, refID int) (*existingEpisodeMetadata, error) {
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return nil, nil
+	}
+	row := &existingEpisodeMetadata{}
+	if err := dbConn.QueryRow(
+		`SELECT title, COALESCE(overview, ''), COALESCE(poster_path, ''), COALESCE(backdrop_path, ''), COALESCE(release_date, ''), COALESCE(vote_average, 0), COALESCE(imdb_id, ''), COALESCE(imdb_rating, 0) FROM `+table+` WHERE id = ?`,
+		refID,
+	).Scan(
+		&row.Title,
+		&row.Overview,
+		&row.PosterPath,
+		&row.BackdropPath,
+		&row.ReleaseDate,
+		&row.VoteAverage,
+		&row.IMDbID,
+		&row.IMDbRating,
+	); err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
 func (h *LibraryHandler) identifyLibraryJob(
 	ctx context.Context,
 	libraryID int,
@@ -1968,11 +2099,12 @@ func (h *LibraryHandler) identifyLibraryJob(
 	}
 
 	tmdbID, tvdbID := 0, ""
-	if res.Provider == "tmdb" {
+	switch res.Provider {
+	case "tmdb":
 		if id, err := strconv.Atoi(res.ExternalID); err == nil {
 			tmdbID = id
 		}
-	} else if res.Provider == "tvdb" {
+	case "tvdb":
 		tvdbID = res.ExternalID
 	}
 	tbl := db.MediaTableForKind(row.Kind)
@@ -2008,7 +2140,8 @@ func (h *LibraryHandler) identifyLibraryJob(
 		Cast:         cast,
 		Runtime:      res.Runtime,
 	}
-	if row.Kind == db.LibraryTypeMovie {
+	switch row.Kind {
+	case db.LibraryTypeMovie:
 		posterPath = automaticMoviePosterSource(
 			ctx,
 			h.Artwork,
@@ -2018,7 +2151,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 			res.PosterURL,
 			res.Provider,
 		)
-	} else if row.Kind == db.LibraryTypeTV || row.Kind == db.LibraryTypeAnime {
+	case db.LibraryTypeTV, db.LibraryTypeAnime:
 		showTitle := showTitleFromEpisodeTitle(res.Title)
 		canonical.PosterPath = automaticShowPosterSource(
 			ctx,
@@ -2213,6 +2346,57 @@ func (h *LibraryHandler) applySeriesToRefs(
 			ep, err = h.SeriesQuery.GetEpisode(ctx, "tmdb", seriesID, ref.Season, ref.Episode)
 		}
 		if err != nil || ep == nil {
+			if !metadataConfirmed {
+				continue
+			}
+			if len(strings.TrimSpace(canonical.Title)) == 0 {
+				continue
+			}
+			existing, loadErr := loadExistingEpisodeMetadata(h.DB, table, ref.RefID)
+			if loadErr != nil || existing == nil {
+				continue
+			}
+			fallbackCanonical := canonical
+			fallbackCanonical.SeasonPosterPath = automaticSeasonPosterSource(
+				ctx,
+				h.Artwork,
+				settings,
+				showTitle,
+				seriesTMDBID,
+				seriesTVDBID,
+				ref.Season,
+				fallbackCanonical.PosterPath,
+				"tmdb",
+			)
+			if fallbackCanonical.SeasonPosterPath == "" {
+				fallbackCanonical.SeasonPosterPath = fallbackCanonical.PosterPath
+			}
+			if err := updateMetadataWithRetry(
+				h.DB,
+				table,
+				ref.RefID,
+				existing.Title,
+				existing.Overview,
+				existing.PosterPath,
+				existing.BackdropPath,
+				existing.ReleaseDate,
+				existing.VoteAverage,
+				existing.IMDbID,
+				existing.IMDbRating,
+				seriesTMDBID,
+				seriesTVDBID,
+				ref.Season,
+				ref.Episode,
+				fallbackCanonical,
+				metadataReviewNeeded,
+				metadataConfirmed,
+			); err != nil {
+				continue
+			}
+			updatedRefIDs = append(updatedRefIDs, ref.RefID)
+			if cache == nil {
+				time.Sleep(identifyEpisodeRateLimit)
+			}
 			continue
 		}
 		if showTitle == "" {
@@ -2279,6 +2463,86 @@ func (h *LibraryHandler) applyTMDBSeriesToRefs(
 ) (int, error) {
 	updatedRefIDs, err := h.applySeriesToRefs(ctx, seriesTMDBID, refs, metadataReviewNeeded, metadataConfirmed, nil, true)
 	return len(updatedRefIDs), err
+}
+
+func (h *LibraryHandler) applySeriesMatchToRefs(
+	ctx context.Context,
+	provider string,
+	externalID string,
+	refs []db.ShowEpisodeRef,
+	metadataReviewNeeded bool,
+	metadataConfirmed bool,
+) (int, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	externalID = strings.TrimSpace(externalID)
+	if provider == "" || externalID == "" || len(refs) == 0 || h.SeriesQuery == nil {
+		return 0, nil
+	}
+	if provider == "tmdb" {
+		seriesTMDBID, err := strconv.Atoi(externalID)
+		if err != nil || seriesTMDBID <= 0 {
+			return 0, nil
+		}
+		return h.applyTMDBSeriesToRefs(ctx, seriesTMDBID, refs, metadataReviewNeeded, metadataConfirmed)
+	}
+
+	table := db.MediaTableForKind(refs[0].Kind)
+	updatedRefIDs := make([]int, 0, len(refs))
+	for _, ref := range refs {
+		ep, err := h.SeriesQuery.GetEpisode(ctx, provider, externalID, ref.Season, ref.Episode)
+		if err != nil || ep == nil {
+			continue
+		}
+		tmdbID := 0
+		tvdbID := ""
+		switch ep.Provider {
+		case "tmdb":
+			tmdbID, _ = strconv.Atoi(ep.ExternalID)
+		case "tvdb":
+			tvdbID = ep.ExternalID
+		}
+		if tvdbID == "" && provider == "tvdb" {
+			tvdbID = externalID
+		}
+		showTitle := showTitleFromEpisodeTitle(ep.Title)
+		settings := loadMetadataArtworkSettings(h.DB)
+		posterPath := automaticEpisodePosterSource(
+			ctx,
+			h.Artwork,
+			settings,
+			showTitle,
+			tmdbID,
+			tvdbID,
+			ep.IMDbID,
+			ref.Season,
+			ref.Episode,
+			ep.PosterURL,
+			ep.Provider,
+		)
+		canonical := db.CanonicalMetadata{
+			Title:            showTitle,
+			Overview:         ep.Overview,
+			PosterPath:       posterPath,
+			SeasonPosterPath: posterPath,
+			BackdropPath:     ep.BackdropURL,
+			ReleaseDate:      ep.ReleaseDate,
+			IMDbID:           ep.IMDbID,
+			IMDbRating:       ep.IMDbRating,
+			Genres:           ep.Genres,
+			Runtime:          ep.Runtime,
+		}
+		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, posterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, tmdbID, tvdbID, ref.Season, ref.Episode, canonical, metadataReviewNeeded, metadataConfirmed); err != nil {
+			continue
+		}
+		updatedRefIDs = append(updatedRefIDs, ref.RefID)
+	}
+	if len(updatedRefIDs) > 0 && h.SearchIndex != nil {
+		var libraryID int
+		if err := h.DB.QueryRow(`SELECT library_id FROM `+table+` WHERE id = ?`, refs[0].RefID).Scan(&libraryID); err == nil {
+			h.SearchIndex.Queue(libraryID, false)
+		}
+	}
+	return len(updatedRefIDs), nil
 }
 
 func identifyMediaInfo(row db.IdentificationRow, libraryPath string) metadata.MediaInfo {
@@ -2545,20 +2809,51 @@ func (h *LibraryHandler) ListLibraryMedia(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	items, err := db.GetMediaByLibraryIDForUser(h.DB, libraryID, u.ID)
+	offset := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
+		parsed, convErr := strconv.Atoi(raw)
+		if convErr != nil || parsed < 0 {
+			http.Error(w, "invalid offset", http.StatusBadRequest)
+			return
+		}
+		offset = parsed
+	}
+	limit := 60
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, convErr := strconv.Atoi(raw)
+		if convErr != nil || parsed <= 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		if parsed > 200 {
+			parsed = 200
+		}
+		limit = parsed
+	}
+
+	page, err := db.GetMediaPageByLibraryIDForUser(h.DB, libraryID, u.ID, offset, limit)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if identifyStates := h.identifyRun.stateForLibrary(libraryID); len(identifyStates) > 0 {
-		for i := range items {
-			if state, ok := identifyStates[identifyRowKey(items[i].Type, items[i].Path)]; ok {
-				items[i].IdentifyState = state
+		for i := range page.Items {
+			if state, ok := identifyStates[identifyRowKey(page.Items[i].Type, page.Items[i].Path)]; ok {
+				page.Items[i].IdentifyState = state
 			}
 		}
 	}
+	response := libraryMediaPageResponse{
+		Items:      make([]libraryBrowseItemResponse, 0, len(page.Items)),
+		NextOffset: page.NextOffset,
+		HasMore:    page.HasMore,
+		Total:      page.Total,
+	}
+	for _, item := range page.Items {
+		response.Items = append(response.Items, buildLibraryBrowseItemResponse(item))
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(items)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *LibraryHandler) GetHomeDashboard(w http.ResponseWriter, r *http.Request) {
@@ -2603,6 +2898,130 @@ func (h *LibraryHandler) GetDiscover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.enrichDiscoverShelvesAcquisition(r.Context(), payload)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func (h *LibraryHandler) GetDiscoverGenres(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if h.Discover == nil {
+		http.Error(w, metadata.ErrTMDBNotConfigured.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	payload, err := h.Discover.GetDiscoverGenres(r.Context())
+	if err != nil {
+		status, message := discoverHTTPStatus(err)
+		http.Error(w, message, status)
+		return
+	}
+	if payload == nil {
+		payload = &metadata.DiscoverGenresResponse{
+			MovieGenres: []metadata.DiscoverGenre{},
+			TVGenres:    []metadata.DiscoverGenre{},
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func parseDiscoverBrowseCategory(raw string) (metadata.DiscoverBrowseCategory, bool) {
+	switch metadata.DiscoverBrowseCategory(strings.TrimSpace(raw)) {
+	case "":
+		return "", true
+	case metadata.DiscoverBrowseCategoryTrending,
+		metadata.DiscoverBrowseCategoryPopularMovies,
+		metadata.DiscoverBrowseCategoryPopularTV,
+		metadata.DiscoverBrowseCategoryNowPlaying,
+		metadata.DiscoverBrowseCategoryUpcoming,
+		metadata.DiscoverBrowseCategoryOnTheAir,
+		metadata.DiscoverBrowseCategoryTopRated:
+		return metadata.DiscoverBrowseCategory(strings.TrimSpace(raw)), true
+	default:
+		return "", false
+	}
+}
+
+func parseDiscoverBrowseMediaType(raw string) (metadata.DiscoverMediaType, bool) {
+	switch metadata.DiscoverMediaType(strings.TrimSpace(raw)) {
+	case "":
+		return "", true
+	case metadata.DiscoverMediaTypeMovie, metadata.DiscoverMediaTypeTV:
+		return metadata.DiscoverMediaType(strings.TrimSpace(raw)), true
+	default:
+		return "", false
+	}
+}
+
+func (h *LibraryHandler) BrowseDiscover(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if h.Discover == nil {
+		http.Error(w, metadata.ErrTMDBNotConfigured.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	category, ok := parseDiscoverBrowseCategory(r.URL.Query().Get("category"))
+	if !ok {
+		http.Error(w, "invalid discover category", http.StatusBadRequest)
+		return
+	}
+	mediaType, ok := parseDiscoverBrowseMediaType(r.URL.Query().Get("media_type"))
+	if !ok {
+		http.Error(w, "invalid discover media type", http.StatusBadRequest)
+		return
+	}
+
+	genreID := 0
+	if rawGenre := strings.TrimSpace(r.URL.Query().Get("genre")); rawGenre != "" {
+		parsedGenre, err := strconv.Atoi(rawGenre)
+		if err != nil || parsedGenre <= 0 {
+			http.Error(w, "invalid discover genre", http.StatusBadRequest)
+			return
+		}
+		genreID = parsedGenre
+	}
+
+	page := 1
+	if rawPage := strings.TrimSpace(r.URL.Query().Get("page")); rawPage != "" {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err != nil || parsedPage <= 0 {
+			http.Error(w, "invalid discover page", http.StatusBadRequest)
+			return
+		}
+		page = parsedPage
+	}
+
+	payload, err := h.Discover.BrowseDiscover(r.Context(), category, mediaType, genreID, page)
+	if err != nil {
+		status, message := discoverHTTPStatus(err)
+		http.Error(w, message, status)
+		return
+	}
+	if payload == nil {
+		payload = &metadata.DiscoverBrowseResponse{
+			Items:        []metadata.DiscoverItem{},
+			Page:         page,
+			TotalPages:   1,
+			TotalResults: 0,
+			Category:     category,
+			MediaType:    mediaType,
+		}
+	}
+	if err := db.AttachDiscoverLibraryMatches(h.DB, u.ID, payload.Items); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	h.enrichDiscoverItemsAcquisition(r.Context(), payload.Items)
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }
@@ -2734,6 +3153,35 @@ func (h *LibraryHandler) UpdateMediaProgress(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *LibraryHandler) GetMovieSearch(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+		return
+	}
+	if h.MovieQuery == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+		return
+	}
+	results, err := h.MovieQuery.SearchMovie(r.Context(), q)
+	if err != nil {
+		http.Error(w, "search failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if results == nil {
+		results = []metadata.MatchResult{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
+}
+
 func (h *LibraryHandler) GetSeriesSearch(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -2836,6 +3284,135 @@ func (h *LibraryHandler) GetLibraryMovieDetails(w http.ResponseWriter, r *http.R
 	_ = json.NewEncoder(w).Encode(details)
 }
 
+func (h *LibraryHandler) IdentifyMovie(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	var libraryID, ownerID int
+	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var payload identifyMovieRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	payload.Provider = strings.ToLower(strings.TrimSpace(payload.Provider))
+	payload.ExternalID = strings.TrimSpace(payload.ExternalID)
+	if payload.Provider == "" && payload.TmdbID > 0 {
+		payload.Provider = "tmdb"
+	}
+	if payload.ExternalID == "" && payload.TmdbID > 0 {
+		payload.ExternalID = strconv.Itoa(payload.TmdbID)
+	}
+	if payload.MediaID <= 0 || payload.Provider == "" || payload.ExternalID == "" {
+		http.Error(w, "mediaId, provider, and externalId are required", http.StatusBadRequest)
+		return
+	}
+	if h.MovieLookup == nil {
+		http.Error(w, "metadata not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var refID int
+	err = h.DB.QueryRow(`SELECT id FROM movies WHERE library_id = ? AND id = ?`, libraryID, payload.MediaID).Scan(&refID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	match, err := h.MovieLookup.GetMovie(r.Context(), payload.ExternalID)
+	if err != nil {
+		http.Error(w, "identify failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if match == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(showActionResult{Updated: 0})
+		return
+	}
+
+	tmdbID := 0
+	if match.Provider == "tmdb" {
+		tmdbID, _ = strconv.Atoi(match.ExternalID)
+	}
+	cast := make([]db.CastCredit, 0, len(match.Cast))
+	for _, member := range match.Cast {
+		cast = append(cast, db.CastCredit{
+			Name:        member.Name,
+			Character:   member.Character,
+			Order:       member.Order,
+			ProfilePath: member.ProfilePath,
+			Provider:    member.Provider,
+			ProviderID:  member.ProviderID,
+		})
+	}
+	settings := loadMetadataArtworkSettings(h.DB)
+	posterPath := automaticMoviePosterSource(
+		r.Context(),
+		h.Artwork,
+		settings,
+		tmdbID,
+		match.IMDbID,
+		match.PosterURL,
+		match.Provider,
+	)
+	canonical := db.CanonicalMetadata{
+		Title:        match.Title,
+		Overview:     match.Overview,
+		PosterPath:   posterPath,
+		BackdropPath: match.BackdropURL,
+		ReleaseDate:  match.ReleaseDate,
+		IMDbID:       match.IMDbID,
+		IMDbRating:   match.IMDbRating,
+		Genres:       match.Genres,
+		Cast:         cast,
+		Runtime:      match.Runtime,
+	}
+	if err := updateMetadataWithRetry(
+		h.DB,
+		db.MediaTableForKind(db.LibraryTypeMovie),
+		refID,
+		match.Title,
+		match.Overview,
+		posterPath,
+		match.BackdropURL,
+		match.ReleaseDate,
+		match.VoteAverage,
+		match.IMDbID,
+		match.IMDbRating,
+		tmdbID,
+		"",
+		0,
+		0,
+		canonical,
+		false,
+		true,
+	); err != nil {
+		http.Error(w, "identify failed", http.StatusInternalServerError)
+		return
+	}
+	if h.SearchIndex != nil {
+		h.SearchIndex.Queue(libraryID, false)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(showActionResult{Updated: 1})
+}
+
 func (h *LibraryHandler) GetLibraryShowDetails(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -2873,8 +3450,17 @@ type confirmShowRequest struct {
 }
 
 type identifyShowRequest struct {
-	ShowKey string `json:"showKey"`
-	TmdbID  int    `json:"tmdbId"`
+	ShowKey    string `json:"showKey"`
+	Provider   string `json:"provider"`
+	ExternalID string `json:"externalId"`
+	TmdbID     int    `json:"tmdbId"`
+}
+
+type identifyMovieRequest struct {
+	MediaID    int    `json:"mediaId"`
+	Provider   string `json:"provider"`
+	ExternalID string `json:"externalId"`
+	TmdbID     int    `json:"tmdbId"`
 }
 
 type showActionResult struct {
@@ -2957,8 +3543,17 @@ func (h *LibraryHandler) IdentifyShow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if payload.ShowKey == "" || payload.TmdbID <= 0 {
-		http.Error(w, "showKey and tmdbId are required", http.StatusBadRequest)
+	payload.ShowKey = strings.TrimSpace(payload.ShowKey)
+	payload.Provider = strings.ToLower(strings.TrimSpace(payload.Provider))
+	payload.ExternalID = strings.TrimSpace(payload.ExternalID)
+	if payload.Provider == "" && payload.TmdbID > 0 {
+		payload.Provider = "tmdb"
+	}
+	if payload.ExternalID == "" && payload.TmdbID > 0 {
+		payload.ExternalID = strconv.Itoa(payload.TmdbID)
+	}
+	if payload.ShowKey == "" || payload.Provider == "" || payload.ExternalID == "" {
+		http.Error(w, "showKey, provider, and externalId are required", http.StatusBadRequest)
 		return
 	}
 	refs, err := db.ListShowEpisodeRefs(h.DB, libraryID, payload.ShowKey)
@@ -2975,7 +3570,7 @@ func (h *LibraryHandler) IdentifyShow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "metadata not configured", http.StatusServiceUnavailable)
 		return
 	}
-	updated, _ := h.applyTMDBSeriesToRefs(r.Context(), payload.TmdbID, refs, false, true)
+	updated, _ := h.applySeriesMatchToRefs(r.Context(), payload.Provider, payload.ExternalID, refs, false, true)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})
 }

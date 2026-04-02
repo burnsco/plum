@@ -3,19 +3,24 @@ import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BASE_URL } from "../api";
+import { LibraryMediaContextMenu } from "@/components/LibraryMediaContextMenu";
+import { RatingBadge } from "@/components/RatingBadge";
 import type { PosterGridItem } from "./types";
 
 export function MediaCard({
   item,
   className,
+  index = 0,
 }: {
   item: PosterGridItem;
   className?: string;
+  index?: number;
 }) {
   const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
   const [posterErrored, setPosterErrored] = useState(false);
   const cardState = item.cardState ?? "default";
   const hasInlineAction = item.actionLabel != null;
+  const shouldPrioritizePoster = index < 8;
   const progressPercent =
     item.progressPercent != null
       ? Math.max(0, Math.min(100, item.progressPercent))
@@ -30,7 +35,8 @@ export function MediaCard({
   }, [posterUrl]);
 
   return (
-    <div className={`show-card ${className ?? ""}`} onContextMenu={item.onContextMenu}>
+    <LibraryMediaContextMenu menu={item.contextMenuContent}>
+    <div className={`show-card ${className ?? ""}`}>
       {item.href ? (
         <Link
           to={item.href}
@@ -81,9 +87,22 @@ export function MediaCard({
               aria-hidden="true"
             />
           ) : showPlaceholderPoster ? (
-            <img src="/placeholder-poster.svg" alt="" />
+            <img
+              src="/placeholder-poster.svg"
+              alt=""
+              loading={shouldPrioritizePoster ? "eager" : "lazy"}
+              decoding="async"
+              fetchPriority={shouldPrioritizePoster ? "high" : "low"}
+            />
           ) : (
-            <img src={posterUrl} alt="" onError={() => setPosterErrored(true)} />
+            <img
+              src={posterUrl}
+              alt=""
+              loading={shouldPrioritizePoster ? "eager" : "lazy"}
+              decoding="async"
+              fetchPriority={shouldPrioritizePoster ? "high" : "low"}
+              onError={() => setPosterErrored(true)}
+            />
           )}
 
           {cardState !== "default" && (
@@ -126,10 +145,7 @@ export function MediaCard({
           <div className="show-card-count">{item.subtitle}</div>
           <div className="show-card-meta">
             {item.ratingValue ? (
-              <span className="show-card-imdb">
-                <span className="show-card-imdb__mark">{item.ratingLabel ?? "Rating"}</span>
-                <span>{item.ratingValue.toFixed(1)}</span>
-              </span>
+              <RatingBadge label={item.ratingLabel} value={item.ratingValue} />
             ) : (
               <span className="show-card-meta__copy show-card-meta__copy--empty" aria-hidden="true">
                 &nbsp;
@@ -156,6 +172,7 @@ export function MediaCard({
         </div>
       </div>
     </div>
+    </LibraryMediaContextMenu>
   );
 }
 

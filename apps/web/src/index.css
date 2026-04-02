@@ -1,5 +1,9 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap");
-@import "tailwindcss";
+/* Explicit sources only: limits Tailwind’s full-repo scan during Vite dev (memory/CPU). */
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "./**/*.{ts,tsx}";
+@source "../../../packages/shared/src/**/*.ts";
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;

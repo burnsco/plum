@@ -90,6 +90,27 @@ func (h *LibraryHandler) enrichDiscoverSearchAcquisition(ctx context.Context, pa
 	}
 }
 
+func (h *LibraryHandler) enrichDiscoverItemsAcquisition(ctx context.Context, items []metadata.DiscoverItem) {
+	if h == nil || h.Arr == nil || len(items) == 0 {
+		return
+	}
+	settings := loadMediaStackSettings(h.DB)
+	snapshot, err := h.Arr.LoadSnapshot(ctx, settings)
+	if err != nil {
+		log.Printf("media stack snapshot: %v", err)
+	}
+	for index := range items {
+		item := &items[index]
+		item.Acquisition = h.Arr.ResolveDiscoverAcquisition(
+			item.MediaType,
+			item.TMDBID,
+			len(item.LibraryMatches) > 0,
+			settings,
+			snapshot,
+		)
+	}
+}
+
 func (h *LibraryHandler) enrichDiscoverTitleAcquisition(ctx context.Context, details *metadata.DiscoverTitleDetails) {
 	if h == nil || h.Arr == nil || details == nil {
 		return
@@ -227,10 +248,6 @@ func (h *LibraryHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := h.Arr.GetDownloads(r.Context(), settings)
 	if err != nil {
-		if len(payload.Items) == 0 {
-			mediaStackUpstreamError(w, err)
-			return
-		}
 		log.Printf("media stack downloads partial response: %v", err)
 	}
 

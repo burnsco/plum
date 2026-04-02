@@ -1,7 +1,7 @@
 import { useRef, type CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import MediaCard from "./MediaCard";
-import { useVirtualContainerMetrics } from "@/lib/virtualization";
+import { useLoadMoreTrigger, useVirtualContainerMetrics } from "@/lib/virtualization";
 import type { PosterAspectRatio, PosterGridItem } from "./types";
 
 interface Props {
@@ -10,6 +10,8 @@ interface Props {
   aspectRatio?: PosterAspectRatio;
   /** Externally controlled card width in px (overrides compact prop widths) */
   cardWidth?: number;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 const DEFAULT_CARD_WIDTH = 180;
@@ -44,9 +46,16 @@ export function LibraryPosterGrid({
   compact = false,
   aspectRatio = "poster",
   cardWidth: externalCardWidth,
+  hasMore = false,
+  onLoadMore,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { scrollElement, width, scrollMargin } = useVirtualContainerMetrics(rootRef);
+  const loadMoreRef = useLoadMoreTrigger({
+    root: scrollElement,
+    enabled: hasMore,
+    onLoadMore,
+  });
   const baseCardWidth = compact ? COMPACT_CARD_WIDTH : DEFAULT_CARD_WIDTH;
   const cardWidth = externalCardWidth ?? baseCardWidth;
   const gap = compact ? COMPACT_CARD_GAP : DEFAULT_CARD_GAP;
@@ -80,9 +89,10 @@ export function LibraryPosterGrid({
           } as CSSProperties
         }
       >
-        {items.map((item) => (
-          <MediaCard key={item.key} item={item} />
+        {items.map((item, index) => (
+          <MediaCard key={item.key} item={item} index={index} />
         ))}
+        {hasMore ? <div ref={loadMoreRef} className="h-px w-full" aria-hidden="true" /> : null}
       </div>
     );
   }
@@ -113,12 +123,20 @@ export function LibraryPosterGrid({
                 transform: `translateY(${virtualRow.start - scrollMargin}px)`,
               }}
             >
-              {rowItems.map((item) => (
-                <MediaCard key={item.key} item={item} />
+              {rowItems.map((item, columnIndex) => (
+                <MediaCard key={item.key} item={item} index={start + columnIndex} />
               ))}
             </div>
           );
         })}
+        {hasMore ? (
+          <div
+            ref={loadMoreRef}
+            className="w-full"
+            style={{ position: "absolute", top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`, height: "1px" }}
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
     </div>
   );

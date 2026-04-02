@@ -5,8 +5,14 @@ import type {
   CredentialsPayload,
   CreatePlaybackSessionPayload,
   MovieDetails,
+  MovieIdentifyPayload,
+  MovieSearchResult,
   DiscoverItem,
   DiscoverAcquisition,
+  DiscoverBrowseCategory,
+  DiscoverBrowseResponse,
+  DiscoverGenre,
+  DiscoverGenresResponse,
   DiscoverLibraryMatch,
   DiscoverMediaType,
   DiscoverResponse,
@@ -23,6 +29,8 @@ import type {
   HomeDashboard,
   IdentifyResult,
   Library,
+  LibraryBrowseItem,
+  LibraryMediaPage,
   LibraryScanActivity,
   LibraryScanActivityEntry,
   LibraryScanStatus,
@@ -75,8 +83,12 @@ import {
   CredentialsPayloadSchema,
   CreatePlaybackSessionPayloadSchema,
   MovieDetailsSchema,
+  MovieIdentifyPayloadSchema,
+  MovieSearchResultSchema,
   DiscoverResponseSchema,
   DiscoverAcquisitionSchema,
+  DiscoverBrowseResponseSchema,
+  DiscoverGenresResponseSchema,
   DiscoverSearchResponseSchema,
   DiscoverTitleDetailsSchema,
   DownloadsResponseSchema,
@@ -84,6 +96,7 @@ import {
   HomeDashboardSchema,
   IdentifyResultSchema,
   LibrarySchema,
+  LibraryMediaPageSchema,
   LibraryScanStatusSchema,
   MetadataArtworkSettingsResponseSchema,
   MetadataArtworkSettingsSchema,
@@ -123,6 +136,10 @@ export type {
   MovieDetails,
   DiscoverItem,
   DiscoverAcquisition,
+  DiscoverBrowseCategory,
+  DiscoverBrowseResponse,
+  DiscoverGenre,
+  DiscoverGenresResponse,
   DiscoverLibraryMatch,
   DiscoverMediaType,
   DiscoverResponse,
@@ -139,6 +156,8 @@ export type {
   HomeDashboard,
   IdentifyResult,
   Library,
+  LibraryBrowseItem,
+  LibraryMediaPage,
   LibraryScanActivity,
   LibraryScanActivityEntry,
   LibraryScanStatus,
@@ -160,6 +179,8 @@ export type {
   SearchResponse,
   RecentlyAddedEntry,
   ScanLibraryResult,
+  MovieIdentifyPayload,
+  MovieSearchResult,
   SeriesDetails,
   SeriesSearchResult,
   SetupStatus,
@@ -330,6 +351,21 @@ function buildScanQuery(options?: { readonly identify?: boolean; readonly subpat
   }
   const query = params.toString();
   return query === "" ? "" : `?${query}`;
+}
+
+function buildPath(path: string, query?: Record<string, string | undefined>): string {
+  if (query == null) {
+    return path;
+  }
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value == null || value === "") {
+      continue;
+    }
+    params.set(key, value);
+  }
+  const serialized = params.toString();
+  return serialized === "" ? path : `${path}?${serialized}`;
 }
 
 export function effectErrorToError(error: PlumApiError | IdentifyTimeoutError): Error {
@@ -784,6 +820,37 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: DiscoverResponseSchema,
         errorMessage: ({ status, body }) => body || `Discover: ${status}`,
       }),
+    getDiscoverGenres: () =>
+      jsonRequestEffect({
+        path: "/api/discover/genres",
+        schema: DiscoverGenresResponseSchema,
+        errorMessage: ({ status, body }) => body || `Discover genres: ${status}`,
+      }),
+    browseDiscover: (options?: {
+      readonly category?: DiscoverBrowseCategory;
+      readonly mediaType?: DiscoverMediaType;
+      readonly genreId?: number;
+      readonly page?: number;
+    }) => {
+      const params = new URLSearchParams();
+      if (options?.category) {
+        params.set("category", options.category);
+      }
+      if (options?.mediaType) {
+        params.set("media_type", options.mediaType);
+      }
+      if (options?.genreId != null) {
+        params.set("genre", String(options.genreId));
+      }
+      if (options?.page != null) {
+        params.set("page", String(options.page));
+      }
+      return jsonRequestEffect({
+        path: `/api/discover/browse${params.size > 0 ? `?${params.toString()}` : ""}`,
+        schema: DiscoverBrowseResponseSchema,
+        errorMessage: ({ status, body }) => body || `Discover browse: ${status}`,
+      });
+    },
     searchDiscover: (query: string) => {
       const trimmed = query.trim();
       if (trimmed.length < 2) {
@@ -822,10 +889,18 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: DownloadsResponseSchema,
         errorMessage: ({ status, body }) => body || `Downloads: ${status}`,
       }),
-    fetchLibraryMedia: (id: number) =>
+    fetchLibraryMedia: (id: number, options?: { readonly offset?: number; readonly limit?: number }) =>
       jsonRequestEffect({
-        path: `/api/libraries/${id}/media`,
-        schema: Schema.Array(MediaItemSchema),
+        path: buildPath(
+          `/api/libraries/${id}/media`,
+          options?.offset != null || options?.limit != null
+            ? {
+                offset: options.offset != null ? String(options.offset) : undefined,
+                limit: options.limit != null ? String(options.limit) : undefined,
+              }
+            : undefined,
+        ),
+        schema: LibraryMediaPageSchema,
         errorMessage: ({ status, body }) => `Library media: ${status}${body ? ` ${body}` : ""}`,
       }),
     getHomeDashboard: () =>
@@ -1057,6 +1132,17 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/artwork/poster`,
         errorMessage: ({ status, body }) => body || `Reset show poster: ${status}`,
       }),
+    searchMovies: (query: string) => {
+      const trimmed = query.trim();
+      if (!trimmed) {
+        return Effect.succeed<MovieSearchResult[]>([]);
+      }
+      return jsonRequestEffect({
+        path: `/api/movies/search?q=${encodeURIComponent(trimmed)}`,
+        schema: Schema.Array(MovieSearchResultSchema),
+        errorMessage: ({ status }) => `Search: ${status}`,
+      });
+    },
     searchSeries: (query: string) => {
       const trimmed = query.trim();
       if (!trimmed) {
@@ -1094,14 +1180,42 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
-    identifyShow: (libraryId: number, showKey: string, tmdbId: number) =>
+    identifyShow: (
+      libraryId: number,
+      showKey: string,
+      selection: { readonly provider: string; readonly externalId: string },
+    ) =>
       jsonRequestEffect({
         method: "POST",
         path: `/api/libraries/${libraryId}/shows/identify`,
         schema: ShowActionResultSchema,
-        body: { showKey, tmdbId },
+        body: {
+          showKey,
+          provider: selection.provider,
+          externalId: selection.externalId,
+          tmdbId:
+            selection.provider === "tmdb" ? Number.parseInt(selection.externalId, 10) : undefined,
+        },
         errorMessage: ({ status }) => `Identify: ${status}`,
       }),
+    identifyMovie: (libraryId: number, payload: MovieIdentifyPayload) =>
+      decodeSchemaEffect(
+        MovieIdentifyPayloadSchema,
+        payload,
+        "POST",
+        `/api/libraries/${libraryId}/movies/identify`,
+        "Invalid movie identify payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "POST",
+            path: `/api/libraries/${libraryId}/movies/identify`,
+            schema: ShowActionResultSchema,
+            body: validatedPayload,
+            errorMessage: ({ status }) => `Identify: ${status}`,
+          }),
+        ),
+      ),
   };
 
   return {
@@ -1141,13 +1255,21 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     getShowDetails: (libraryId: number, showKey: string) =>
       run(effects.getShowDetails(libraryId, showKey)),
     getDiscover: () => run(effects.getDiscover()),
+    getDiscoverGenres: () => run(effects.getDiscoverGenres()),
+    browseDiscover: (options?: {
+      readonly category?: DiscoverBrowseCategory;
+      readonly mediaType?: DiscoverMediaType;
+      readonly genreId?: number;
+      readonly page?: number;
+    }) => run(effects.browseDiscover(options)),
     searchDiscover: (query: string) => run(effects.searchDiscover(query)),
     getDiscoverTitleDetails: (mediaType: DiscoverMediaType, tmdbId: number) =>
       run(effects.getDiscoverTitleDetails(mediaType, tmdbId)),
     addDiscoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
       run(effects.addDiscoverTitle(mediaType, tmdbId)),
     getDownloads: () => run(effects.getDownloads()),
-    fetchLibraryMedia: (id: number) => run(effects.fetchLibraryMedia(id)),
+    fetchLibraryMedia: (id: number, options?: { readonly offset?: number; readonly limit?: number }) =>
+      run(effects.fetchLibraryMedia(id, options)),
     getHomeDashboard: () => run(effects.getHomeDashboard()),
     fetchMediaList: () => run(effects.fetchMediaList()),
     updateMediaProgress: (id: number, payload: UpdateMediaProgressPayload) =>
@@ -1187,13 +1309,19 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     ) => run(effects.setShowPosterSelection(libraryId, showKey, payload)),
     resetShowPosterSelection: (libraryId: number, showKey: string) =>
       run(effects.resetShowPosterSelection(libraryId, showKey)),
+    searchMovies: (query: string) => run(effects.searchMovies(query)),
     searchSeries: (query: string) => run(effects.searchSeries(query)),
     refreshShow: (libraryId: number, showKey: string) =>
       run(effects.refreshShow(libraryId, showKey)),
     confirmShow: (libraryId: number, payload: ShowConfirmPayload) =>
       run(effects.confirmShow(libraryId, payload)),
-    identifyShow: (libraryId: number, showKey: string, tmdbId: number) =>
-      run(effects.identifyShow(libraryId, showKey, tmdbId)),
+    identifyShow: (
+      libraryId: number,
+      showKey: string,
+      selection: { readonly provider: string; readonly externalId: string },
+    ) => run(effects.identifyShow(libraryId, showKey, selection)),
+    identifyMovie: (libraryId: number, payload: MovieIdentifyPayload) =>
+      run(effects.identifyMovie(libraryId, payload)),
   };
 }
 

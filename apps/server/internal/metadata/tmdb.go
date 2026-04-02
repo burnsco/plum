@@ -77,6 +77,16 @@ type tmdbExternalIDsResponse struct {
 	TVDBID int    `json:"tvdb_id"`
 }
 
+type tmdbImageAsset struct {
+	FilePath    string  `json:"file_path"`
+	ISO6391     string  `json:"iso_639_1"`
+	VoteAverage float64 `json:"vote_average"`
+}
+
+type tmdbImagesResponse struct {
+	Posters []tmdbImageAsset `json:"posters"`
+}
+
 type tmdbEpisodeDetails struct {
 	Name         string  `json:"name"`
 	Overview     string  `json:"overview"`
@@ -260,6 +270,49 @@ func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*tmdbMovieDet
 	c.movieDetails[id] = &res
 	c.mu.Unlock()
 	return &res, nil
+}
+
+func (c *TMDBClient) getMoviePosters(ctx context.Context, id int) ([]string, error) {
+	if id <= 0 {
+		return nil, nil
+	}
+	u := fmt.Sprintf("%s/movie/%d/images?api_key=%s&include_image_language=en,null", c.baseURL, id, c.APIKey)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
+	if err != nil {
+		return nil, err
+	}
+	var res tmdbImagesResponse
+	if err := json.Unmarshal(resp.Body, &res); err != nil {
+		return nil, err
+	}
+	return tmdbPosterImageURLs(res.Posters), nil
+}
+
+func (c *TMDBClient) getTVPosters(ctx context.Context, id int) ([]string, error) {
+	if id <= 0 {
+		return nil, nil
+	}
+	u := fmt.Sprintf("%s/tv/%d/images?api_key=%s&include_image_language=en,null", c.baseURL, id, c.APIKey)
+	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
+	if err != nil {
+		return nil, err
+	}
+	var res tmdbImagesResponse
+	if err := json.Unmarshal(resp.Body, &res); err != nil {
+		return nil, err
+	}
+	return tmdbPosterImageURLs(res.Posters), nil
+}
+
+func tmdbPosterImageURLs(images []tmdbImageAsset) []string {
+	urls := make([]string, 0, len(images))
+	for _, image := range images {
+		if image.FilePath == "" {
+			continue
+		}
+		urls = append(urls, tmdbImageURL(image.FilePath, "w500"))
+	}
+	return urls
 }
 
 // GetSeriesDetails returns TV series metadata by TMDB ID for the show-detail UI.

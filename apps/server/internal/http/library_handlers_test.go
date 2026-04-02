@@ -217,6 +217,8 @@ type seriesDetailsStub struct {
 
 type discoverStub struct {
 	getDiscover            func(context.Context) (*metadata.DiscoverResponse, error)
+	getDiscoverGenres      func(context.Context) (*metadata.DiscoverGenresResponse, error)
+	browseDiscover         func(context.Context, metadata.DiscoverBrowseCategory, metadata.DiscoverMediaType, int, int) (*metadata.DiscoverBrowseResponse, error)
 	searchDiscover         func(context.Context, string) (*metadata.DiscoverSearchResponse, error)
 	getDiscoverTitleDetail func(context.Context, metadata.DiscoverMediaType, int) (*metadata.DiscoverTitleDetails, error)
 }
@@ -257,6 +259,26 @@ func (s *discoverStub) GetDiscover(ctx context.Context) (*metadata.DiscoverRespo
 		return nil, nil
 	}
 	return s.getDiscover(ctx)
+}
+
+func (s *discoverStub) GetDiscoverGenres(ctx context.Context) (*metadata.DiscoverGenresResponse, error) {
+	if s.getDiscoverGenres == nil {
+		return nil, nil
+	}
+	return s.getDiscoverGenres(ctx)
+}
+
+func (s *discoverStub) BrowseDiscover(
+	ctx context.Context,
+	category metadata.DiscoverBrowseCategory,
+	mediaType metadata.DiscoverMediaType,
+	genreID int,
+	page int,
+) (*metadata.DiscoverBrowseResponse, error) {
+	if s.browseDiscover == nil {
+		return nil, nil
+	}
+	return s.browseDiscover(ctx, category, mediaType, genreID, page)
 }
 
 func (s *discoverStub) SearchDiscover(ctx context.Context, query string) (*metadata.DiscoverSearchResponse, error) {
@@ -888,7 +910,7 @@ func TestIdentifyShow_ClearsMetadataReviewNeeded(t *testing.T) {
 		},
 	}
 
-	body := strings.NewReader(`{"showKey":"tmdb-123","tmdbId":456}`)
+	body := strings.NewReader(`{"showKey":"tmdb-123","provider":"tmdb","externalId":"456","tmdbId":456}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()
@@ -969,7 +991,7 @@ func TestIdentifyShow_UsesTitleShowKeyForUnmatchedRows(t *testing.T) {
 		},
 	}
 
-	body := strings.NewReader(`{"showKey":"title-missingshow2024","tmdbId":456}`)
+	body := strings.NewReader(`{"showKey":"title-missingshow2024","provider":"tmdb","externalId":"456","tmdbId":456}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()
@@ -1068,7 +1090,7 @@ func TestIdentifyShow_OnlyUpdatesEpisodesForMatchingYearQualifiedShowKey(t *test
 		},
 	}
 
-	body := strings.NewReader(`{"showKey":"title-battlestargalactica1978","tmdbId":456}`)
+	body := strings.NewReader(`{"showKey":"title-battlestargalactica1978","provider":"tmdb","externalId":"456","tmdbId":456}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()
@@ -1096,6 +1118,205 @@ func TestIdentifyShow_OnlyUpdatesEpisodesForMatchingYearQualifiedShowKey(t *test
 	}
 	if tmdbID2004 != 0 {
 		t.Fatalf("expected 2004 tmdb_id to remain unset, got %d", tmdbID2004)
+	}
+}
+
+func TestIdentifyShow_UsesSelectedTVDBSeries(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Black Spot (Zone Blanche) - S01E01 - Episode",
+		"/tv/Black Spot (Zone Blanche)/Season 1/Black Spot (Zone Blanche) - S01E01.mkv",
+		0,
+		db.MatchStatusUnmatched,
+		1,
+		1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media global row: %v", err)
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		SeriesQuery: &seriesQueryStub{
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tvdb" || seriesID != "36647" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				if season != 1 || episode != 1 {
+					t.Fatalf("unexpected episode = S%02dE%02d", season, episode)
+				}
+				return &metadata.MatchResult{
+					Title:       "Black Spot (Zone Blanche) - S01E01 - Episode",
+					Overview:    "Pilot",
+					Provider:    "tvdb",
+					ExternalID:  "36647",
+					ReleaseDate: "2017-04-10",
+				}, nil
+			},
+		},
+	}
+
+	body := strings.NewReader(`{"showKey":"title-blackspotzoneblanche","provider":"tvdb","externalId":"36647"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Updated != 1 {
+		t.Fatalf("updated = %d", payload.Updated)
+	}
+	var storedTVDBID string
+	var metadataConfirmed bool
+	if err := dbConn.QueryRow(`SELECT COALESCE(tvdb_id, ''), COALESCE(metadata_confirmed, 0) FROM tv_episodes WHERE id = ?`, episodeID).Scan(&storedTVDBID, &metadataConfirmed); err != nil {
+		t.Fatalf("query tv episode: %v", err)
+	}
+	if storedTVDBID != "36647" {
+		t.Fatalf("tvdb_id = %q", storedTVDBID)
+	}
+	if !metadataConfirmed {
+		t.Fatal("expected metadata_confirmed to be set")
+	}
+}
+
+func TestIdentifyShow_UsesSeriesMetadataWhenEpisodeLookupFails(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Kfulim (False Flag) - S01E01 - Episode 1",
+		"/tv/Kfulim (False Flag)/Season 1/Kfulim (False Flag) - S01E01.mkv",
+		0,
+		db.MatchStatusUnmatched,
+		1,
+		1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media global row: %v", err)
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Series: &seriesDetailsStub{
+			getSeriesDetails: func(_ context.Context, tmdbID int) (*metadata.SeriesDetails, error) {
+				if tmdbID != 456 {
+					t.Fatalf("tmdbID = %d", tmdbID)
+				}
+				return &metadata.SeriesDetails{
+					Name:         "False Flag",
+					Overview:     "Series overview",
+					PosterPath:   "series poster",
+					BackdropPath: "series backdrop",
+					FirstAirDate: "2015-10-29",
+				}, nil
+			},
+		},
+		SeriesQuery: &seriesQueryStub{
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tmdb" || seriesID != "456" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	body := strings.NewReader(`{"showKey":"title-kfulimfalseflag","provider":"tmdb","externalId":"456","tmdbId":456}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Updated != 1 {
+		t.Fatalf("updated = %d", payload.Updated)
+	}
+
+	var title string
+	var tmdbID int
+	var metadataConfirmed bool
+	var showID int
+	if err := dbConn.QueryRow(`SELECT title, COALESCE(tmdb_id, 0), COALESCE(metadata_confirmed, 0), COALESCE(show_id, 0) FROM tv_episodes WHERE id = ?`, episodeID).
+		Scan(&title, &tmdbID, &metadataConfirmed, &showID); err != nil {
+		t.Fatalf("query tv episode: %v", err)
+	}
+	if title != "Kfulim (False Flag) - S01E01 - Episode 1" {
+		t.Fatalf("title = %q", title)
+	}
+	if tmdbID != 456 {
+		t.Fatalf("tmdb_id = %d", tmdbID)
+	}
+	if !metadataConfirmed {
+		t.Fatal("expected metadata_confirmed to be set")
+	}
+	if showID == 0 {
+		t.Fatal("expected show link to be created")
+	}
+
+	var showTitle string
+	if err := dbConn.QueryRow(`SELECT title FROM shows WHERE id = ?`, showID).Scan(&showTitle); err != nil {
+		t.Fatalf("query show row: %v", err)
+	}
+	if showTitle != "False Flag" {
+		t.Fatalf("show title = %q", showTitle)
 	}
 }
 
@@ -3829,7 +4050,7 @@ func TestLibraryScanManager_StatusWarnsWhenCompletedScanFindsNoFiles(t *testing.
 	}
 }
 
-func TestListLibraryMedia_EmbeddedSubtitlesUseCamelCaseStreamIndex(t *testing.T) {
+func TestListLibraryMedia_OmitsEmbeddedSubtitlesFromBrowsePayload(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -3898,29 +4119,17 @@ func TestListLibraryMedia_EmbeddedSubtitlesUseCamelCaseStreamIndex(t *testing.T)
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	var payload []map[string]any
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 media item, got %d", len(payload))
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(payload.Items))
 	}
-	embedded, ok := payload[0]["embeddedSubtitles"].([]any)
-	if !ok || len(embedded) != 1 {
-		t.Fatalf("unexpected embeddedSubtitles payload: %#v", payload[0]["embeddedSubtitles"])
-	}
-	entry, ok := embedded[0].(map[string]any)
-	if !ok {
-		t.Fatalf("unexpected embedded subtitle entry: %#v", embedded[0])
-	}
-	if _, exists := entry["media_id"]; exists {
-		t.Fatalf("embedded subtitle should not include media_id: %#v", entry)
-	}
-	if _, exists := entry["stream_index"]; exists {
-		t.Fatalf("embedded subtitle should not include stream_index: %#v", entry)
-	}
-	if got, ok := entry["streamIndex"].(float64); !ok || got != 3 {
-		t.Fatalf("embedded subtitle streamIndex = %#v", entry["streamIndex"])
+	if _, exists := payload.Items[0]["embeddedSubtitles"]; exists {
+		t.Fatalf("expected embeddedSubtitles to be omitted from browse payload: %#v", payload.Items[0]["embeddedSubtitles"])
 	}
 }
 
@@ -3989,19 +4198,21 @@ func TestListLibraryMedia_IncludesIdentifyStateOverlay(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	var payload []map[string]any
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 media item, got %d", len(payload))
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(payload.Items))
 	}
-	if got := payload[0]["identify_state"]; got != "identifying" {
+	if got := payload.Items[0]["identify_state"]; got != "identifying" {
 		t.Fatalf("identify_state = %#v", got)
 	}
 }
 
-func TestListLibraryMedia_EmbeddedAudioTracksUseCamelCaseStreamIndex(t *testing.T) {
+func TestListLibraryMedia_OmitsEmbeddedAudioTracksFromBrowsePayload(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -4069,33 +4280,21 @@ func TestListLibraryMedia_EmbeddedAudioTracksUseCamelCaseStreamIndex(t *testing.
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	var payload []map[string]any
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 media item, got %d", len(payload))
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(payload.Items))
 	}
-	audioTracks, ok := payload[0]["embeddedAudioTracks"].([]any)
-	if !ok || len(audioTracks) != 1 {
-		t.Fatalf("unexpected embeddedAudioTracks payload: %#v", payload[0]["embeddedAudioTracks"])
-	}
-	entry, ok := audioTracks[0].(map[string]any)
-	if !ok {
-		t.Fatalf("unexpected embedded audio track entry: %#v", audioTracks[0])
-	}
-	if _, exists := entry["media_id"]; exists {
-		t.Fatalf("embedded audio track should not include media_id: %#v", entry)
-	}
-	if _, exists := entry["stream_index"]; exists {
-		t.Fatalf("embedded audio track should not include stream_index: %#v", entry)
-	}
-	if got, ok := entry["streamIndex"].(float64); !ok || got != 2 {
-		t.Fatalf("embedded audio track streamIndex = %#v", entry["streamIndex"])
+	if _, exists := payload.Items[0]["embeddedAudioTracks"]; exists {
+		t.Fatalf("expected embeddedAudioTracks to be omitted from browse payload: %#v", payload.Items[0]["embeddedAudioTracks"])
 	}
 }
 
-func TestListLibraryMedia_SubtitlesOmitInternalFields(t *testing.T) {
+func TestListLibraryMedia_OmitsSubtitlesFromBrowsePayload(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -4164,26 +4363,17 @@ func TestListLibraryMedia_SubtitlesOmitInternalFields(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	var payload []map[string]any
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 media item, got %d", len(payload))
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(payload.Items))
 	}
-	subtitles, ok := payload[0]["subtitles"].([]any)
-	if !ok || len(subtitles) != 1 {
-		t.Fatalf("unexpected subtitles payload: %#v", payload[0]["subtitles"])
-	}
-	entry, ok := subtitles[0].(map[string]any)
-	if !ok {
-		t.Fatalf("unexpected subtitle entry: %#v", subtitles[0])
-	}
-	if _, exists := entry["media_id"]; exists {
-		t.Fatalf("subtitle should not include media_id: %#v", entry)
-	}
-	if _, exists := entry["path"]; exists {
-		t.Fatalf("subtitle should not include path: %#v", entry)
+	if _, exists := payload.Items[0]["subtitles"]; exists {
+		t.Fatalf("expected subtitles to be omitted from browse payload: %#v", payload.Items[0]["subtitles"])
 	}
 }
 
@@ -4227,8 +4417,104 @@ func TestListLibraryMedia_EmptyLibraryReturnsJSONArray(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if strings.TrimSpace(rec.Body.String()) != "[]" {
-		t.Fatalf("body = %q, want []", rec.Body.String())
+	var payload struct {
+		Items   []map[string]any `json:"items"`
+		HasMore bool             `json:"has_more"`
+		Total   int              `json:"total"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Items) != 0 || payload.HasMore || payload.Total != 0 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
+func TestListLibraryMedia_PaginatesWithOffsetAndLimit(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) RETURNING id`,
+		"paged@test.local",
+		"hash",
+		true,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	titles := []string{"Movie A", "Movie B", "Movie C"}
+	for _, title := range titles {
+		var movieID int
+		if err := dbConn.QueryRow(
+			`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+			libraryID,
+			title,
+			"/movies/"+title+".mkv",
+			120,
+			db.MatchStatusLocal,
+		).Scan(&movieID); err != nil {
+			t.Fatalf("insert movie %q: %v", title, err)
+		}
+		if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeMovie, movieID); err != nil {
+			t.Fatalf("insert media global row: %v", err)
+		}
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/libraries/%d/media?limit=2&offset=0", libraryID), nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ListLibraryMedia(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Items      []map[string]any `json:"items"`
+		NextOffset *int             `json:"next_offset"`
+		HasMore    bool             `json:"has_more"`
+		Total      int              `json:"total"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(payload.Items))
+	}
+	if payload.Total != 3 {
+		t.Fatalf("total = %d", payload.Total)
+	}
+	if !payload.HasMore {
+		t.Fatal("expected has_more to be true")
+	}
+	if payload.NextOffset == nil || *payload.NextOffset != 2 {
+		t.Fatalf("next_offset = %#v", payload.NextOffset)
+	}
+	if got := payload.Items[0]["title"]; got != "Movie A" {
+		t.Fatalf("first title = %#v", got)
+	}
+	if got := payload.Items[1]["title"]; got != "Movie B" {
+		t.Fatalf("second title = %#v", got)
 	}
 }
 
@@ -4477,6 +4763,134 @@ func TestGetDiscoverTitleDetails_AttachesLibraryMatch(t *testing.T) {
 	}
 	if payload.LibraryMatches[0].ShowKey != "tmdb-404" {
 		t.Fatalf("show key = %q", payload.LibraryMatches[0].ShowKey)
+	}
+}
+
+func TestGetDiscoverGenres_ReturnsPayload(t *testing.T) {
+	handler := &LibraryHandler{
+		Discover: &discoverStub{
+			getDiscoverGenres: func(context.Context) (*metadata.DiscoverGenresResponse, error) {
+				return &metadata.DiscoverGenresResponse{
+					MovieGenres: []metadata.DiscoverGenre{{ID: 28, Name: "Action"}},
+					TVGenres:    []metadata.DiscoverGenre{{ID: 10765, Name: "Sci-Fi & Fantasy"}},
+				}, nil
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/discover/genres", nil)
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: 1, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.GetDiscoverGenres(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload metadata.DiscoverGenresResponse
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload.MovieGenres) != 1 || payload.MovieGenres[0].Name != "Action" {
+		t.Fatalf("movie genres = %+v", payload.MovieGenres)
+	}
+	if len(payload.TVGenres) != 1 || payload.TVGenres[0].Name != "Sci-Fi & Fantasy" {
+		t.Fatalf("tv genres = %+v", payload.TVGenres)
+	}
+}
+
+func TestBrowseDiscover_AttachesLibraryMatches(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"browse@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO movies (library_id, title, path, duration, match_status, tmdb_id) VALUES (?, ?, ?, ?, ?, ?)`,
+		libraryID,
+		"Browse Match",
+		"/movies/browse-match.mkv",
+		0,
+		db.MatchStatusIdentified,
+		515,
+	); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		Discover: &discoverStub{
+			browseDiscover: func(context.Context, metadata.DiscoverBrowseCategory, metadata.DiscoverMediaType, int, int) (*metadata.DiscoverBrowseResponse, error) {
+				return &metadata.DiscoverBrowseResponse{
+					Items:        []metadata.DiscoverItem{{MediaType: metadata.DiscoverMediaTypeMovie, TMDBID: 515, Title: "Browse Match"}},
+					Page:         1,
+					TotalPages:   3,
+					TotalResults: 60,
+					MediaType:    metadata.DiscoverMediaTypeMovie,
+					Category:     metadata.DiscoverBrowseCategoryPopularMovies,
+				}, nil
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/discover/browse?category=popular-movies&media_type=movie&page=1", nil)
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.BrowseDiscover(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload metadata.DiscoverBrowseResponse
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.TotalResults != 60 || len(payload.Items) != 1 {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if len(payload.Items[0].LibraryMatches) != 1 || payload.Items[0].LibraryMatches[0].Kind != "movie" {
+		t.Fatalf("library matches = %+v", payload.Items[0].LibraryMatches)
+	}
+}
+
+func TestBrowseDiscover_RejectsInvalidParams(t *testing.T) {
+	handler := &LibraryHandler{
+		Discover: &discoverStub{},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/discover/browse?category=bad&page=0", nil)
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: 1, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.BrowseDiscover(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

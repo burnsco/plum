@@ -2,7 +2,8 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
-import { ScanQueueProvider, useScanQueue } from "./ScanQueueContext";
+import { useScanQueue } from "./ScanQueueContext";
+import { ScanQueueProvider } from "./ScanQueueProvider";
 import { WsProvider } from "./WsContext";
 
 type MockWebSocketHandle = {

@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Film, Sparkles, Star, Tv } from "lucide-react";
+import { ExternalLink, Film, Tv } from "lucide-react";
 import { tmdbBackdropUrl, tmdbPosterUrl } from "@plum/shared";
+import { RatingBadge } from "@/components/RatingBadge";
 import { Button } from "@/components/ui/button";
 import type { DiscoverMediaType } from "@/api";
 import { useAuthState } from "@/contexts/AuthContext";
@@ -48,7 +49,7 @@ export function DiscoverDetail() {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--plum-muted)]">Loading discover title...</p>;
+    return <p className="text-sm text-(--plum-muted)">Loading discover title...</p>;
   }
 
   if (isDiscoverConfigError(error)) {
@@ -108,7 +109,7 @@ export function DiscoverDetail() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
-      <section className="relative overflow-hidden rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] shadow-[0_24px_80px_rgba(8,12,24,0.16)]">
+      <section className="relative overflow-hidden rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) shadow-[0_24px_80px_rgba(8,12,24,0.16)]">
         <div className="absolute inset-0">
           {backdropUrl ? (
             <img src={backdropUrl} alt="" className="h-full w-full object-cover opacity-35" />
@@ -117,7 +118,7 @@ export function DiscoverDetail() {
         </div>
 
         <div className="relative grid gap-6 p-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:p-8">
-          <div className="overflow-hidden rounded-[var(--radius-lg)] border border-white/10 bg-black/20 shadow-[0_20px_55px_rgba(0,0,0,0.28)]">
+          <div className="overflow-hidden rounded-lg border border-white/10 bg-black/20 shadow-[0_20px_55px_rgba(0,0,0,0.28)]">
             {posterUrl ? (
               <img src={posterUrl} alt="" className="h-full w-full object-cover" />
             ) : (
@@ -145,7 +146,7 @@ export function DiscoverDetail() {
                   {discoverMediaLabel(details.media_type)}
                 </span>
                 {(details.library_matches?.length ?? 0) > 0 ? (
-                  <span className="rounded-full bg-[var(--plum-accent)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_18px_rgba(244,90,160,0.35)]">
+                  <span className="rounded-full bg-(--plum-accent) px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_18px_rgba(244,90,160,0.35)]">
                     In Library
                   </span>
                 ) : (
@@ -166,18 +167,8 @@ export function DiscoverDetail() {
             </div>
 
             <div className="flex flex-wrap items-center gap-4 text-sm text-white/80">
-              {details.vote_average ? (
-                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1">
-                  <Star className="size-4 fill-current text-[var(--plum-accent)]" />
-                  TMDB {details.vote_average.toFixed(1)}
-                </span>
-              ) : null}
-              {details.imdb_rating ? (
-                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1">
-                  <Sparkles className="size-4 text-[var(--plum-accent)]" />
-                  IMDb {details.imdb_rating.toFixed(1)}
-                </span>
-              ) : null}
+              <RatingBadge label="TMDb" value={details.vote_average} size="md" />
+              <RatingBadge label="IMDb" value={details.imdb_rating} size="md" />
             </div>
 
             <p className="max-w-3xl text-sm leading-7 text-white/78">{details.overview}</p>
@@ -218,7 +209,7 @@ export function DiscoverDetail() {
             ) : null}
 
             {(details.library_matches?.length ?? 0) > 0 ? (
-              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-black/20 p-4">
+              <div className="rounded-lg border border-white/10 bg-black/20 p-4">
                 <div className="text-sm font-medium text-white">Available in Plum</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {details.library_matches?.map((match) => (
@@ -242,10 +233,10 @@ export function DiscoverDetail() {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-6">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">Videos</h2>
+        <div className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-6">
+          <h2 className="text-lg font-semibold text-(--plum-text)">Videos</h2>
           {videos.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--plum-muted)]">
+            <p className="mt-3 text-sm text-(--plum-muted)">
               TMDB did not return any trailer or featurette links for this title.
             </p>
           ) : (
@@ -256,28 +247,28 @@ export function DiscoverDetail() {
                   href={video.href}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-4 py-3 text-sm text-[var(--plum-text)] transition-colors hover:border-[var(--plum-accent-soft)]"
+                  className="flex items-center justify-between gap-4 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) px-4 py-3 text-sm text-(--plum-text) transition-colors hover:border-(--plum-accent-soft)"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{video.name}</div>
-                    <div className="text-xs uppercase tracking-[0.14em] text-[var(--plum-muted)]">
+                    <div className="text-xs uppercase tracking-[0.14em] text-(--plum-muted)">
                       {video.site} • {video.type}
                     </div>
                   </div>
-                  <ExternalLink className="size-4 shrink-0 text-[var(--plum-muted)]" />
+                  <ExternalLink className="size-4 shrink-0 text-(--plum-muted)" />
                 </a>
               ))}
             </div>
           )}
         </div>
 
-        <aside className="rounded-[var(--radius-xl)] border border-[var(--plum-border)] bg-[var(--plum-panel)] p-6">
-          <h2 className="text-lg font-semibold text-[var(--plum-text)]">At a glance</h2>
+        <aside className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-6">
+          <h2 className="text-lg font-semibold text-(--plum-text)">At a glance</h2>
           <div className="mt-4 flex flex-wrap gap-2">
             {details.genres.map((genre) => (
               <span
                 key={genre}
-                className="rounded-full border border-[var(--plum-border)] bg-[var(--plum-panel-alt)] px-3 py-1.5 text-xs font-medium text-[var(--plum-text)]"
+                className="rounded-full border border-(--plum-border) bg-(--plum-panel-alt) px-3 py-1.5 text-xs font-medium text-(--plum-text)"
               >
                 {genre}
               </span>
@@ -311,8 +302,8 @@ export function DiscoverDetail() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <dt className="text-[var(--plum-muted)]">{label}</dt>
-      <dd className="text-right font-medium text-[var(--plum-text)]">{value}</dd>
+      <dt className="text-(--plum-muted)">{label}</dt>
+      <dd className="text-right font-medium text-(--plum-text)">{value}</dd>
     </div>
   );
 }
@@ -329,15 +320,15 @@ function DiscoverDetailMessage({
   onAction?: () => void;
 }) {
   return (
-    <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--plum-border)] bg-[var(--plum-panel)]/45 p-8">
+    <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8">
       <div className="max-w-xl space-y-2">
-        <h1 className="text-lg font-semibold text-[var(--plum-text)]">{title}</h1>
-        <p className="text-sm leading-6 text-[var(--plum-muted)]">{copy}</p>
+        <h1 className="text-lg font-semibold text-(--plum-text)">{title}</h1>
+        <p className="text-sm leading-6 text-(--plum-muted)">{copy}</p>
         <div className="pt-2">
           {actionLabel && onAction ? (
             <button
               type="button"
-              className="text-sm font-medium text-[var(--plum-accent)] hover:underline"
+              className="text-sm font-medium text-(--plum-accent) hover:underline"
               onClick={onAction}
             >
               {actionLabel}

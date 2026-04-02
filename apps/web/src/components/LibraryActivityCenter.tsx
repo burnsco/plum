@@ -14,25 +14,31 @@ type ActivityLibraryStatus = {
   status: LibraryScanStatus;
 };
 
-function isActiveStatus(status: LibraryScanStatus) {
-  const enrichmentPhase = getEnrichmentPhase(status);
+const STALE_ACTIVITY_DETAIL_MS = 15_000;
+
+function getActivityAgeMs(entry?: LibraryScanActivityEntry | null) {
+  if (!entry?.at) return Number.POSITIVE_INFINITY;
+  const parsed = Date.parse(entry.at);
+  if (!Number.isFinite(parsed)) return Number.POSITIVE_INFINITY;
+  return Date.now() - parsed;
+}
+
+function hasFreshActivityDetail(entry?: LibraryScanActivityEntry | null) {
+  return getActivityAgeMs(entry) <= STALE_ACTIVITY_DETAIL_MS;
+}
+
+function isLiveStatus(status: LibraryScanStatus) {
   return (
-    status.phase === "queued" ||
     status.phase === "scanning" ||
-    enrichmentPhase === "queued" ||
-    enrichmentPhase === "running" ||
-    status.identifyPhase === "queued" ||
+    getEnrichmentPhase(status) === "running" ||
     status.identifyPhase === "identifying"
   );
 }
 
 function getStatusSortOrder(status: LibraryScanStatus) {
   if (status.phase === "scanning") return 0;
-  if (status.phase === "queued") return 1;
-  if (getEnrichmentPhase(status) === "running") return 2;
-  if (getEnrichmentPhase(status) === "queued") return 3;
-  if (status.identifyPhase === "queued") return 4;
-  if (status.identifyPhase === "identifying") return 5;
+  if (getEnrichmentPhase(status) === "running") return 1;
+  if (status.identifyPhase === "identifying") return 2;
   return 6;
 }
 
@@ -46,43 +52,28 @@ function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
 }
 
 function getNowSummary(status: LibraryScanStatus) {
+  const currentActivity = status.activity?.current;
   const enrichmentPhase = getEnrichmentPhase(status);
   if (status.identifyPhase === "identifying") {
     return {
       label: "Identifying",
       detail:
-        formatActivityPath(status.activity?.current) ||
+        (hasFreshActivityDetail(currentActivity) ? formatActivityPath(currentActivity) : "") ||
         (status.identified > 0 ? `Identified ${status.identified} so far` : ""),
-    };
-  }
-  if (status.identifyPhase === "queued") {
-    return {
-      label: "Waiting for identify worker",
-      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
     };
   }
   if (enrichmentPhase === "running") {
     return {
       label: "Analyzing media",
-      detail: formatActivityPath(status.activity?.current),
-    };
-  }
-  if (enrichmentPhase === "queued") {
-    return {
-      label: "Waiting for analyzer",
-      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
+      detail: hasFreshActivityDetail(currentActivity) ? formatActivityPath(currentActivity) : "",
     };
   }
   if (status.phase === "scanning") {
     return {
       label: "Importing",
-      detail: formatActivityPath(status.activity?.current) || `Processed ${status.processed}`,
-    };
-  }
-  if (status.phase === "queued") {
-    return {
-      label: "Queued",
-      detail: status.queuePosition > 0 ? `Queue position ${status.queuePosition}` : "",
+      detail:
+        (hasFreshActivityDetail(currentActivity) ? formatActivityPath(currentActivity) : "") ||
+        `Processed ${status.processed}`,
     };
   }
   return { label: "Done", detail: "" };
@@ -93,19 +84,19 @@ function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
 
   return (
     <section
-      className="space-y-2 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/90 p-3"
+      className="space-y-2 rounded-md border border-(--plum-border) bg-(--plum-panel)/90 p-3"
       data-testid={`library-activity-status-${library.id}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[var(--plum-text)]">
+          <div className="truncate text-sm font-semibold text-(--plum-text)">
             {getLibraryTabLabel(library)}
           </div>
           {summary.detail ? (
-            <div className="mt-1 text-xs text-[var(--plum-muted)]">{summary.detail}</div>
+            <div className="mt-1 text-xs text-(--plum-muted)">{summary.detail}</div>
           ) : null}
         </div>
-        <span className="rounded-full bg-[var(--plum-accent-soft)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-accent)]">
+        <span className="rounded-full bg-(--plum-accent-soft) px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-(--plum-accent)">
           {summary.label}
         </span>
       </div>
@@ -115,7 +106,7 @@ function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
 
 export function LibraryActivityCenter() {
   const { data: libraries = [] } = useLibraries();
-  const { activeLibraryIds, activityScanStatuses, recentLibraryActivities } = useScanQueue();
+  const { activityScanStatuses, recentLibraryActivities } = useScanQueue();
 
   const libraryById = useMemo(
     () => new Map(libraries.map((library) => [library.id, library])),
@@ -124,7 +115,7 @@ export function LibraryActivityCenter() {
 
   const nowStatuses = useMemo(() => {
     return activityScanStatuses
-      .filter(isActiveStatus)
+      .filter(isLiveStatus)
       .map((status) => {
         const library = libraryById.get(status.libraryId);
         return library ? { library, status } : null;
@@ -148,7 +139,7 @@ export function LibraryActivityCenter() {
     [libraryById, recentLibraryActivities],
   );
 
-  const activeCount = activeLibraryIds.length;
+  const activeCount = nowStatuses.length;
   const hasUpdates = activeCount > 0 || recentItems.length > 0;
 
   return (
@@ -161,15 +152,15 @@ export function LibraryActivityCenter() {
           className={cn(
             "relative transition-all duration-500",
             hasUpdates &&
-              "bg-[var(--plum-accent-soft)] text-[var(--plum-accent)] hover:bg-[var(--plum-accent-soft)]/80 hover:text-[var(--plum-accent)]",
-            activeCount > 0 && "animate-pulse shadow-[0_0_15px_var(--plum-accent-glow)] ring-1 ring-[var(--plum-accent-soft)]",
+              "bg-(--plum-accent-soft) text-(--plum-accent) hover:bg-(--plum-accent-soft)/80 hover:text-(--plum-accent)",
+            activeCount > 0 && "animate-pulse shadow-[0_0_15px_var(--plum-accent-glow)] ring-1 ring-(--plum-accent-soft)",
           )}
           data-testid="library-activity-trigger"
         >
           <Activity className="size-5" />
           {activeCount > 0 && (
             <span
-              className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-[var(--plum-accent)] px-1.5 py-0.5 text-[10px] font-semibold text-white"
+              className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-(--plum-accent) px-1.5 py-0.5 text-[10px] font-semibold text-white"
               data-testid="library-activity-badge"
             >
               {activeCount}
@@ -179,20 +170,12 @@ export function LibraryActivityCenter() {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-[23rem] max-w-[calc(100vw-1rem)] space-y-4 p-3 max-h-[70vh] overflow-y-auto"
+        className="w-92 max-w-[calc(100vw-1rem)] space-y-4 p-3 max-h-[70vh] overflow-y-auto"
       >
-        <div className="space-y-1">
-          <div className="text-sm font-semibold text-[var(--plum-text)]">Server activity</div>
-          <div className="text-xs text-[var(--plum-muted)]">
-            What Plum is doing now, and what just finished.
-          </div>
-        </div>
+        <div className="text-sm font-semibold text-(--plum-text)">Server activity</div>
 
         {nowStatuses.length > 0 ? (
           <div className="space-y-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-muted)]">
-              Now
-            </div>
             <div className="space-y-2">
               {nowStatuses.map(({ library, status }) => (
                 <ActivityStatusCard key={library.id} library={library} status={status} />
@@ -203,21 +186,18 @@ export function LibraryActivityCenter() {
 
         {recentItems.length > 0 ? (
           <div className="space-y-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--plum-muted)]">
-              Just finished
-            </div>
             <div className="space-y-2">
               {recentItems.map(({ activity, library }) => (
                 <section
                   key={`${activity.libraryId}-${activity.finishedAt}-${activity.status}`}
-                  className="flex items-start justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/70 p-3"
+                  className="flex items-start justify-between gap-3 rounded-md border border-(--plum-border) bg-(--plum-panel)/70 p-3"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[var(--plum-text)]">
+                    <div className="truncate text-sm font-semibold text-(--plum-text)">
                       {getLibraryTabLabel(library)}
                     </div>
                     {activity.detail ? (
-                      <div className="mt-1 text-xs text-[var(--plum-muted)]">{activity.detail}</div>
+                      <div className="mt-1 text-xs text-(--plum-muted)">{activity.detail}</div>
                     ) : null}
                   </div>
                   <span
@@ -237,7 +217,7 @@ export function LibraryActivityCenter() {
         ) : null}
 
         {nowStatuses.length === 0 && recentItems.length === 0 ? (
-          <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--plum-border)] px-3 py-5 text-sm text-[var(--plum-muted)]">
+          <div className="rounded-md border border-dashed border-(--plum-border) px-3 py-5 text-sm text-(--plum-muted)">
             Nothing is happening right now.
           </div>
         ) : null}

@@ -274,28 +274,39 @@ func (c *TVDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 }
 
 func (c *TVDBClient) showPoster(ctx context.Context, title string, seriesID string) (string, error) {
-	if c == nil || c.APIKey == "" {
-		return "", nil
+	posters, err := c.showPosters(ctx, title, seriesID)
+	if err != nil {
+		return "", err
 	}
+	for _, poster := range posters {
+		return poster, nil
+	}
+	return "", nil
+}
+
+func (c *TVDBClient) showPosters(ctx context.Context, title string, seriesID string) ([]string, error) {
+	if c == nil || c.APIKey == "" {
+		return nil, nil
+	}
+	posters := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
 	if seriesID != "" {
 		match, err := c.GetEpisode(ctx, seriesID, 0, 0)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if match != nil && match.PosterURL != "" {
-			return match.PosterURL, nil
+			posters = appendUniquePosterURL(posters, seen, match.PosterURL)
 		}
 	}
 	results, err := c.SearchTV(ctx, title)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, result := range results {
-		if result.PosterURL != "" {
-			return result.PosterURL, nil
-		}
+		posters = appendUniquePosterURL(posters, seen, result.PosterURL)
 	}
-	return "", nil
+	return posters, nil
 }
 
 func (c *TVDBClient) seasonPoster(ctx context.Context, title string, seriesID string, season int) (string, error) {
@@ -313,4 +324,15 @@ func (c *TVDBClient) seasonPoster(ctx context.Context, title string, seriesID st
 		return match.PosterURL, nil
 	}
 	return c.showPoster(ctx, title, seriesID)
+}
+
+func appendUniquePosterURL(posters []string, seen map[string]struct{}, poster string) []string {
+	if poster == "" {
+		return posters
+	}
+	if _, ok := seen[poster]; ok {
+		return posters
+	}
+	seen[poster] = struct{}{}
+	return append(posters, poster)
 }

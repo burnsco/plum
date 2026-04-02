@@ -15,12 +15,25 @@ const useDirectBackendUrl = browserBackendUrl != null;
 
 export default defineConfig({
   cacheDir: ".vite",
+  // Pre-bundle effect once into .vite/deps to avoid repeated optimize churn in dev.
+  optimizeDeps: {
+    include: ["effect"],
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
   server: {
     host: true, // Needed for Docker
+    watch: {
+      ignored: [
+        "**/dist/**",
+        "**/coverage/**",
+        "**/*.tsbuildinfo",
+        // Repo-root tmp used when rotating an unwritable Vite cache (run-web-dev.sh)
+        "**/tmp/**",
+      ],
+    },
     ...(useDirectBackendUrl
       ? {}
       : {

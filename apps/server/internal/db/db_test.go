@@ -1967,7 +1967,7 @@ library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, se
 		t.Fatalf("insert media_global: %v", err)
 	}
 
-	items, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV)
+	items, _, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV, 0, 0)
 	if err != nil {
 		t.Fatalf("query media: %v", err)
 	}
@@ -2000,7 +2000,7 @@ library_id, title, path, duration, match_status, tmdb_id, season, episode
 		t.Fatalf("insert media_global: %v", err)
 	}
 
-	items, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV)
+	items, _, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV, 0, 0)
 	if err != nil {
 		t.Fatalf("query media: %v", err)
 	}
@@ -2033,7 +2033,7 @@ library_id, title, path, duration, match_status, season, episode
 		t.Fatalf("insert media_global: %v", err)
 	}
 
-	items, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV)
+	items, _, err := queryMediaByLibraryID(dbConn, libraryID, LibraryTypeTV, 0, 0)
 	if err != nil {
 		t.Fatalf("query media: %v", err)
 	}

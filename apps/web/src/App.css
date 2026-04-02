@@ -831,10 +831,21 @@
   grid-template-columns: repeat(var(--poster-columns, 1), minmax(0, 1fr));
 }
 
+.horizontal-scroll-rail {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .show-card {
   position: relative;
   display: flex;
   flex-direction: column;
+  content-visibility: auto;
+  contain-intrinsic-size: 360px 520px;
   border-radius: 1rem;
   border: 1px solid var(--plum-border);
   background: rgba(16, 14, 26, 0.96);
