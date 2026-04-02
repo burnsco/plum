@@ -11,6 +11,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.network.LibraryShowDetailsJson
@@ -38,35 +39,38 @@ class ShowDetailViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<ShowDetailUiState>(ShowDetailUiState.Loading)
     val state: StateFlow<ShowDetailUiState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     init {
         load()
     }
 
     fun load() {
-        viewModelScope.launch {
-            _state.value = ShowDetailUiState.Loading
-            coroutineScope {
-                val d = async { browseRepository.showDetails(libraryId, showKey) }
-                val e = async { browseRepository.showEpisodes(libraryId, showKey) }
-                val det = d.await()
-                val eps = e.await()
-                if (det.isFailure) {
-                    _state.value = ShowDetailUiState.Error(det.exceptionOrNull()?.message ?: "Failed to load show")
-                    return@coroutineScope
+        loadJob?.cancel()
+        loadJob =
+            viewModelScope.launch {
+                _state.value = ShowDetailUiState.Loading
+                coroutineScope {
+                    val d = async { browseRepository.showDetails(libraryId, showKey) }
+                    val e = async { browseRepository.showEpisodes(libraryId, showKey) }
+                    val det = d.await()
+                    val eps = e.await()
+                    if (det.isFailure) {
+                        _state.value = ShowDetailUiState.Error(det.exceptionOrNull()?.message ?: "Failed to load show")
+                        return@coroutineScope
+                    }
+                    if (eps.isFailure) {
+                        _state.value = ShowDetailUiState.Error(eps.exceptionOrNull()?.message ?: "Failed to load episodes")
+                        return@coroutineScope
+                    }
+                    val seasons = eps.getOrNull()?.seasons.orEmpty()
+                    _state.value = ShowDetailUiState.Ready(
+                        details = det.getOrNull()!!,
+                        seasons = seasons,
+                        selectedSeasonIndex = 0,
+                    )
                 }
-                if (eps.isFailure) {
-                    _state.value = ShowDetailUiState.Error(eps.exceptionOrNull()?.message ?: "Failed to load episodes")
-                    return@coroutineScope
-                }
-                val seasons = eps.getOrNull()?.seasons.orEmpty()
-                _state.value = ShowDetailUiState.Ready(
-                    details = det.getOrNull()!!,
-                    seasons = seasons,
-                    selectedSeasonIndex = 0,
-                )
             }
-        }
     }
 
     fun selectSeason(index: Int) {

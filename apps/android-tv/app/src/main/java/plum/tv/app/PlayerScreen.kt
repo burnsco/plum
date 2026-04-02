@@ -55,7 +55,11 @@ fun PlayerRoute(
                     player = viewModel.player
                 }
             },
-            update = { it.player = viewModel.player },
+            update = {
+                if (it.player !== viewModel.player) {
+                    it.player = viewModel.player
+                }
+            },
         )
         Column(
             modifier = Modifier

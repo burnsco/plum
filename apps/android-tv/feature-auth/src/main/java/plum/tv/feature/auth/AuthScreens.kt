@@ -19,9 +19,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+
 @Composable
 fun AuthNavHost(
     onAuthenticated: () -> Unit,
+    defaultServerUrl: String,
+    defaultAdminEmail: String,
+    defaultAdminPassword: String,
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -29,6 +33,9 @@ fun AuthNavHost(
         composable("splash") {
             SplashRoute(
                 viewModel = viewModel,
+                defaultServerUrl = defaultServerUrl,
+                defaultAdminEmail = defaultAdminEmail,
+                defaultAdminPassword = defaultAdminPassword,
                 onNeedServer = { navController.navigate("server") { popUpTo("splash") { inclusive = true } } },
                 onNeedLogin = { navController.navigate("login") { popUpTo("splash") { inclusive = true } } },
                 onReady = onAuthenticated,
@@ -37,6 +44,7 @@ fun AuthNavHost(
         composable("server") {
             ServerRoute(
                 viewModel = viewModel,
+                defaultServerUrl = defaultServerUrl,
                 onSaved = {
                     navController.navigate("login") {
                         popUpTo("server") { inclusive = true }
@@ -47,6 +55,8 @@ fun AuthNavHost(
         composable("login") {
             LoginRoute(
                 viewModel = viewModel,
+                defaultAdminEmail = defaultAdminEmail,
+                defaultAdminPassword = defaultAdminPassword,
                 onSuccess = onAuthenticated,
             )
         }
@@ -56,12 +66,15 @@ fun AuthNavHost(
 @Composable
 private fun SplashRoute(
     viewModel: AuthViewModel,
+    defaultServerUrl: String,
+    defaultAdminEmail: String,
+    defaultAdminPassword: String,
     onNeedServer: () -> Unit,
     onNeedLogin: () -> Unit,
     onReady: () -> Unit,
 ) {
-    LaunchedEffect(Unit) {
-        when (viewModel.readStartupState()) {
+    LaunchedEffect(defaultServerUrl, defaultAdminEmail, defaultAdminPassword) {
+        when (viewModel.bootstrap(defaultServerUrl, defaultAdminEmail, defaultAdminPassword)) {
             StartupState.NeedServer -> onNeedServer()
             StartupState.NeedLogin -> onNeedLogin()
             StartupState.Authenticated -> onReady()
@@ -73,9 +86,14 @@ private fun SplashRoute(
 @Composable
 private fun ServerRoute(
     viewModel: AuthViewModel,
+    defaultServerUrl: String,
     onSaved: () -> Unit,
 ) {
-    var url by remember { mutableStateOf(viewModel.serverUrl.value ?: "http://10.0.2.2:8080") }
+    var url by remember {
+        mutableStateOf(
+            viewModel.serverUrl.value ?: defaultServerUrl.ifBlank { "http://10.0.2.2:8080" },
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -101,10 +119,12 @@ private fun ServerRoute(
 @Composable
 private fun LoginRoute(
     viewModel: AuthViewModel,
+    defaultAdminEmail: String,
+    defaultAdminPassword: String,
     onSuccess: () -> Unit,
 ) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf(defaultAdminEmail) }
+    var password by remember { mutableStateOf(defaultAdminPassword) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(
         modifier = Modifier

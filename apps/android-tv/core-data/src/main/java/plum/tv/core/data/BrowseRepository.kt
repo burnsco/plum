@@ -15,6 +15,15 @@ import plum.tv.core.network.ShowEpisodesResponseJson
 class BrowseRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
 ) {
+    private val librariesCacheLock = Any()
+    @Volatile
+    private var cachedLibraries: List<LibraryJson>? = null
+
+    fun invalidateLibrariesCache() {
+        synchronized(librariesCacheLock) {
+            cachedLibraries = null
+        }
+    }
     suspend fun homeDashboard(): Result<HomeDashboardJson> = runCatching {
         val res = sessionRepository.getPlumApi().homeDashboard()
         if (!res.isSuccessful) {
@@ -23,12 +32,23 @@ class BrowseRepository @Inject constructor(
         res.body() ?: error("Empty home response")
     }
 
-    suspend fun libraries(): Result<List<LibraryJson>> = runCatching {
-        val res = sessionRepository.getPlumApi().libraries()
-        if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Libraries: HTTP ${res.code()}")
+    suspend fun libraries(forceRefresh: Boolean = false): Result<List<LibraryJson>> {
+        if (!forceRefresh) {
+            synchronized(librariesCacheLock) {
+                cachedLibraries?.let { return Result.success(it) }
+            }
         }
-        res.body() ?: emptyList()
+        return runCatching {
+            val res = sessionRepository.getPlumApi().libraries()
+            if (!res.isSuccessful) {
+                error(res.errorBody()?.string() ?: "Libraries: HTTP ${res.code()}")
+            }
+            val body = res.body() ?: emptyList()
+            synchronized(librariesCacheLock) {
+                cachedLibraries = body
+            }
+            body
+        }
     }
 
     suspend fun libraryMedia(libraryId: Int, offset: Int? = null, limit: Int? = null): Result<LibraryMediaPageJson> =

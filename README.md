@@ -38,6 +38,7 @@ Plum is built with modern, efficient technologies:
 - `apps/server`: The core Go backend service.
 - `apps/web`: The React-based web interface.
 - `apps/desktop`: The cross-platform desktop application.
+- `apps/android-tv`: The Android TV client.
 - `packages/contracts`: Shared TypeScript types and API definitions.
 - `packages/shared`: Common utilities used across the monorepo.
 
@@ -162,6 +163,10 @@ make docker-dev
 ```
 
 Make sure `.env` includes the metadata keys you want enabled, including `FANART_API_KEY` for Fanart.tv artwork.
+
+## Android TV
+
+Plum has an Android TV client in `apps/android-tv`. See [ANDROID_TV.md](ANDROID_TV.md) for a full guide on building and sideloading it onto your device without Android Studio.
 
 ## Roadmap
 

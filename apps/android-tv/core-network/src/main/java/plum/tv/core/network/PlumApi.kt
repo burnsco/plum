@@ -98,4 +98,36 @@ interface PlumApi {
         @Query("type") mediaType: String? = null,
         @Query("genre") genre: String? = null,
     ): Response<SearchResponseJson>
+
+    @GET("/api/discover")
+    suspend fun discover(): Response<DiscoverResponseJson>
+
+    @GET("/api/discover/genres")
+    suspend fun discoverGenres(): Response<DiscoverGenresResponseJson>
+
+    @GET("/api/discover/browse")
+    suspend fun browseDiscover(
+        @Query("category") category: String? = null,
+        @Query("media_type") mediaType: String? = null,
+        @Query("genre") genreId: Int? = null,
+        @Query("page") page: Int? = null,
+    ): Response<DiscoverBrowseResponseJson>
+
+    @GET("/api/discover/search")
+    suspend fun searchDiscover(@Query("q") query: String): Response<DiscoverSearchResponseJson>
+
+    @GET("/api/discover/{mediaType}/{tmdbId}")
+    suspend fun discoverTitleDetails(
+        @Path("mediaType") mediaType: String,
+        @Path("tmdbId") tmdbId: Int,
+    ): Response<DiscoverTitleDetailsJson>
+
+    @POST("/api/discover/{mediaType}/{tmdbId}/add")
+    suspend fun addDiscoverTitle(
+        @Path("mediaType") mediaType: String,
+        @Path("tmdbId") tmdbId: Int,
+    ): Response<DiscoverAcquisitionJson>
+
+    @GET("/api/downloads")
+    suspend fun downloads(): Response<DownloadsResponseJson>
 }

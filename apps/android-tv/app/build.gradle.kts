@@ -1,3 +1,24 @@
+import java.util.Properties
+
+fun loadLocalProperties(): Properties {
+    val props = Properties()
+    val localProps = file("../local.properties")
+    if (localProps.exists()) {
+        localProps.inputStream().use { props.load(it) }
+    }
+    return props
+}
+
+fun String.asBuildConfigString(): String = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val localProps = loadLocalProperties()
+
+fun localProperty(name: String): String =
+    localProps.getProperty(name)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: ""
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,6 +28,8 @@ plugins {
 }
 
 android {
+    buildFeatures { buildConfig = true }
+
     namespace = "plum.tv.app"
     compileSdk = 35
     defaultConfig {
@@ -15,6 +38,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField("String", "DEFAULT_SERVER_URL", localProperty("plumTv.defaultServerUrl").asBuildConfigString())
+        buildConfigField("String", "DEFAULT_ADMIN_EMAIL", localProperty("plumTv.defaultAdminEmail").asBuildConfigString())
+        buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", localProperty("plumTv.defaultAdminPassword").asBuildConfigString())
     }
     buildTypes {
         release {
@@ -33,6 +60,7 @@ dependencies {
     implementation(project(":core-model"))
     implementation(project(":core-network"))
     implementation(project(":core-data"))
+    implementation(project(":core-ui"))
     implementation(project(":core-player"))
     implementation(project(":feature-auth"))
     implementation(project(":feature-home"))
@@ -58,4 +86,5 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("io.coil-kt:coil:2.7.0")
 }
