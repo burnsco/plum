@@ -37,6 +37,7 @@ import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.PlumTvMetrics
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.resolveImageUrl
 
@@ -254,9 +255,9 @@ private fun HeroSection(
 
     // Prefer backdrop for the wide hero, fall back to poster
     val heroImageUrl =
-        resolveArtworkUrl(serverBase, media.backdropUrl, media.backdropPath, "w780")
-            ?: resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, "w500")
-            ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, "w500")
+        resolveArtworkUrl(serverBase, media.backdropUrl, media.backdropPath, PlumImageSizes.BACKDROP_HERO)
+            ?: resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_DETAIL)
+            ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_DETAIL)
 
     Box(
         modifier = Modifier
@@ -340,8 +341,8 @@ private fun MediaEntryCard(
         title = media.title,
         subtitle = subtitle,
         imageUrl =
-            resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, "w200")
-                ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, "w200")
+            resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_GRID)
+                ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_GRID)
                 ?: media.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: media.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,

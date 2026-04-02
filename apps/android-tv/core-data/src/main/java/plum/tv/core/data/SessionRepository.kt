@@ -1,15 +1,17 @@
 package plum.tv.core.data
 
+import com.squareup.moshi.Moshi
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import plum.tv.core.model.DeviceLoginResult
 import plum.tv.core.network.DeviceLoginRequest
 import plum.tv.core.network.PlumApi
 import plum.tv.core.network.PlumRetrofit
-import com.squareup.moshi.Moshi
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class SessionRepository @Inject constructor(
@@ -27,6 +29,8 @@ class SessionRepository @Inject constructor(
     @Volatile
     private var cachedApi: PlumApi? = null
 
+    private val apiMutex = Mutex()
+
     suspend fun hydrateTokenFromStore() {
         tokenBridge.setToken(prefs.sessionToken.first())
     }
@@ -39,7 +43,7 @@ class SessionRepository @Inject constructor(
             tokenBridge.setToken(null)
         }
         prefs.setServerUrl(url)
-        synchronized(this) {
+        apiMutex.withLock {
             cachedBaseUrl = null
             cachedApi = null
         }
@@ -48,14 +52,14 @@ class SessionRepository @Inject constructor(
     suspend fun getPlumApi(): PlumApi {
         val base = prefs.serverUrl.first()?.trim()?.trimEnd('/')
             ?: throw IllegalStateException("Server URL is not set")
-        synchronized(this) {
+        return apiMutex.withLock {
             if (cachedBaseUrl == base && cachedApi != null) {
-                return cachedApi!!
+                return@withLock cachedApi!!
             }
             val api = PlumRetrofit.createApi(base, okHttpClient, moshi)
             cachedBaseUrl = base
             cachedApi = api
-            return api
+            api
         }
     }
 
@@ -83,7 +87,7 @@ class SessionRepository @Inject constructor(
         }
         prefs.clearSession()
         tokenBridge.setToken(null)
-        synchronized(this) {
+        apiMutex.withLock {
             cachedApi = null
             cachedBaseUrl = null
         }

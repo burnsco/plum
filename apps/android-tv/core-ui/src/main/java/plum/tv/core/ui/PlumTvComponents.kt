@@ -20,6 +20,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -32,6 +34,9 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 
 enum class PlumButtonVariant {
     Primary,
@@ -248,10 +253,27 @@ fun PlumPosterCard(
     val shape = RoundedCornerShape(metrics.tileRadius)
 
     val resolvedUrl = imageUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
+    val context = LocalContext.current
+    val prefetchMod =
+        if (resolvedUrl != null) {
+            Modifier.onFocusChanged { focusState ->
+                if (focusState.isFocused) {
+                    context.imageLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(resolvedUrl)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                    )
+                }
+            }
+        } else {
+            Modifier
+        }
 
     Surface(
         onClick = onClick,
-        modifier = modifier.width(width),
+        modifier = modifier.width(width).then(prefetchMod),
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(

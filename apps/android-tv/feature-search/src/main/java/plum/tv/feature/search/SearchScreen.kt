@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import plum.tv.core.network.SearchResultJson
 import plum.tv.core.ui.LocalServerBaseUrl
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumPosterCard
@@ -36,9 +37,11 @@ fun SearchRoute(
 ) {
     val state by viewModel.state.collectAsState()
     val trimmedQuery = state.query.trim()
+    val metrics = PlumTheme.metrics
+    val minCell = metrics.posterWidth + metrics.cardGap + 8.dp
 
     LazyVerticalGrid(
-        columns = GridCells.Fixed(6),
+        columns = GridCells.Adaptive(minSize = minCell),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PlumScreenPadding(),
         horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap),
@@ -125,7 +128,7 @@ private fun SearchResultCard(result: SearchResultJson, onClick: () -> Unit) {
     PlumPosterCard(
         title = result.title,
         subtitle = result.subtitle,
-        imageUrl = resolveArtworkUrl(serverBase, result.posterUrl, result.posterPath, "w200"),
+        imageUrl = resolveArtworkUrl(serverBase, result.posterUrl, result.posterPath, PlumImageSizes.POSTER_GRID),
         onClick = onClick,
     )
 }

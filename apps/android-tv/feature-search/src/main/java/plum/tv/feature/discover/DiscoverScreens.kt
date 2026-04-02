@@ -47,6 +47,7 @@ import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumMetadataChips
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumPanel
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
@@ -220,7 +221,7 @@ private fun DiscoverPosterCard(
     serverBase: String,
     onClick: () -> Unit,
 ) {
-    val posterUrl = resolveArtworkUrl(serverBase, null, item.posterPath, "w200")
+    val posterUrl = resolveArtworkUrl(serverBase, null, item.posterPath, PlumImageSizes.POSTER_GRID)
     PlumPosterCard(
         title = item.title,
         subtitle = discoverItemSubtitle(item),
@@ -411,8 +412,9 @@ fun DiscoverDetailRoute(
         }
         is DiscoverDetailUiState.Ready -> {
             val d = s.details
-            val backdropUrl = resolveArtworkUrl(serverBase, null, d.backdropPath, "w780")
-            val posterUrl = resolveArtworkUrl(serverBase, null, d.posterPath, "w500")
+            val backdropUrl = resolveArtworkUrl(serverBase, null, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
+            val posterUrl = resolveArtworkUrl(serverBase, null, d.posterPath, PlumImageSizes.POSTER_DETAIL)
+            val detailMetrics = PlumTheme.metrics
             val primaryMatch = d.libraryMatches.firstOrNull()
             val isConfigured = d.acquisition?.isConfigured != false
             val canAdd = d.acquisition?.canAdd == true
@@ -458,8 +460,8 @@ fun DiscoverDetailRoute(
                                 model = posterUrl,
                                 contentDescription = d.title,
                                 modifier = Modifier
-                                    .width(180.dp)
-                                    .height(270.dp)
+                                    .width(detailMetrics.heroPosterWidth)
+                                    .height(detailMetrics.heroPosterHeight)
                                     .clip(RoundedCornerShape(10.dp)),
                                 contentScale = ContentScale.Crop,
                             )

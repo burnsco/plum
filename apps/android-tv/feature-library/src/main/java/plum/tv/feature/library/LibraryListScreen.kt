@@ -50,7 +50,7 @@ fun LibraryListRoute(
             }
         }
         is LibraryListUiState.Ready -> {
-            val libraries = filterLibraries(s.libraries, libraryType)
+            val libraries = filterLibrariesByType(s.libraries, libraryType)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize(),
@@ -81,22 +81,6 @@ fun LibraryListRoute(
                     }
                 }
             }
-        }
-    }
-}
-
-private fun filterLibraries(
-    libraries: List<LibraryJson>,
-    libraryType: String?,
-): List<LibraryJson> {
-    if (libraryType.isNullOrBlank()) return libraries
-    return libraries.filter { lib ->
-        when (libraryType) {
-            "movie" -> lib.type == "movie"
-            "music" -> lib.type == "music"
-            "anime" -> lib.type == "anime" || (lib.type == "tv" && lib.name.contains("anime", ignoreCase = true))
-            "tv" -> lib.type == "tv" && !lib.name.contains("anime", ignoreCase = true)
-            else -> true
         }
     }
 }

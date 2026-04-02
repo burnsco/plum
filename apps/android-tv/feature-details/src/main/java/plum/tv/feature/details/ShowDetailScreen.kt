@@ -40,6 +40,7 @@ import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumPanel
 import plum.tv.core.ui.PlumSectionHeader
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -70,8 +71,10 @@ fun ShowDetailRoute(
         is ShowDetailUiState.Ready -> {
             val d = s.details
             val selectedEpisodes = s.seasons.getOrNull(s.selectedSeasonIndex)?.episodes.orEmpty()
-            val backdropUrl = resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, "w780")
-            val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, "w500")
+            val backdropUrl =
+                resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
+            val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
+            val metrics = PlumTheme.metrics
 
             Box(modifier = Modifier.fillMaxSize()) {
                 // Full-bleed backdrop
@@ -109,8 +112,8 @@ fun ShowDetailRoute(
                                 model = posterUrl,
                                 contentDescription = d.name,
                                 modifier = Modifier
-                                    .width(180.dp)
-                                    .height(270.dp)
+                                    .width(metrics.heroPosterWidth)
+                                    .height(metrics.heroPosterHeight)
                                     .clip(RoundedCornerShape(10.dp)),
                                 contentScale = ContentScale.Crop,
                             )
@@ -158,8 +161,10 @@ fun ShowDetailRoute(
                             contentPadding = PaddingValues(vertical = 4.dp),
                         ) {
                             itemsIndexed(s.seasons) { index, season ->
+                                val count = season.episodes.size
+                                val suffix = if (count == 1) "1 ep" else "$count eps"
                                 PlumActionButton(
-                                    label = season.label,
+                                    label = "${season.label} · $suffix",
                                     onClick = { viewModel.selectSeason(index) },
                                     variant = if (index == s.selectedSeasonIndex) PlumButtonVariant.Primary else PlumButtonVariant.Ghost,
                                 )
@@ -204,9 +209,9 @@ private fun EpisodeRow(
 ) {
     val palette = PlumTheme.palette
     val thumbUrl =
-        resolveArtworkUrl(serverBase, ep.thumbnailUrl, ep.thumbnailPath, "w200")
-            ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, "w200")
-            ?: resolveArtworkUrl(serverBase, ep.showPosterUrl, ep.showPosterPath, "w200")
+        resolveArtworkUrl(serverBase, ep.thumbnailUrl, ep.thumbnailPath, PlumImageSizes.THUMB_SMALL)
+            ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, PlumImageSizes.POSTER_GRID)
+            ?: resolveArtworkUrl(serverBase, ep.showPosterUrl, ep.showPosterPath, PlumImageSizes.POSTER_GRID)
 
     Row(
         modifier = Modifier

@@ -1,6 +1,7 @@
 package plum.tv.app
 
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,11 +10,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -23,6 +30,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.launch
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
@@ -68,6 +76,18 @@ fun MainNavHost(
     val currentLibraryType = navBackStackEntry?.arguments?.getString("libraryType")
     val hideSideRail = currentRoute == Routes.PLAY
     val scope = rememberCoroutineScope()
+    val activity = LocalContext.current as ComponentActivity
+    val mainNavVm: MainNavViewModel = hiltViewModel(viewModelStoreOwner = activity)
+    var browseRailType by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(navBackStackEntry) {
+        val entry = navBackStackEntry
+        if (entry?.destination?.route == Routes.LIBRARY_BROWSE) {
+            val id = entry.arguments?.getInt("libraryId")
+            browseRailType = if (id != null) mainNavVm.railTypeForBrowseLibraryId(id) else null
+        } else {
+            browseRailType = null
+        }
+    }
 
     DisposableEffect(webSocketManager) {
         webSocketManager.start(scope)
@@ -106,29 +126,73 @@ fun MainNavHost(
                 key = "library-tv",
                 label = "TV",
                 badge = "TV",
-                selected = currentRoute.startsWith("libraries/type/") && currentLibraryType == "tv",
-                onClick = { goToRoot(navController, "libraries/type/tv") },
+                selected =
+                    (currentRoute.startsWith("libraries/type/") && currentLibraryType == "tv") ||
+                        browseRailType == "tv",
+                onClick = {
+                    scope.launch {
+                        val id = mainNavVm.firstLibraryIdForType("tv")
+                        if (id != null) {
+                            goToLibraryBrowse(navController, id)
+                        } else {
+                            goToRoot(navController, "libraries/type/tv")
+                        }
+                    }
+                },
             ),
             PlumRailItem(
                 key = "library-movies",
                 label = "Movies",
                 badge = "MV",
-                selected = currentRoute.startsWith("libraries/type/") && currentLibraryType == "movie",
-                onClick = { goToRoot(navController, "libraries/type/movie") },
+                selected =
+                    (currentRoute.startsWith("libraries/type/") && currentLibraryType == "movie") ||
+                        browseRailType == "movie",
+                onClick = {
+                    scope.launch {
+                        val id = mainNavVm.firstLibraryIdForType("movie")
+                        if (id != null) {
+                            goToLibraryBrowse(navController, id)
+                        } else {
+                            goToRoot(navController, "libraries/type/movie")
+                        }
+                    }
+                },
             ),
             PlumRailItem(
                 key = "library-anime",
                 label = "Anime",
                 badge = "AN",
-                selected = currentRoute.startsWith("libraries/type/") && currentLibraryType == "anime",
-                onClick = { goToRoot(navController, "libraries/type/anime") },
+                selected =
+                    (currentRoute.startsWith("libraries/type/") && currentLibraryType == "anime") ||
+                        browseRailType == "anime",
+                onClick = {
+                    scope.launch {
+                        val id = mainNavVm.firstLibraryIdForType("anime")
+                        if (id != null) {
+                            goToLibraryBrowse(navController, id)
+                        } else {
+                            goToRoot(navController, "libraries/type/anime")
+                        }
+                    }
+                },
             ),
             PlumRailItem(
                 key = "library-music",
                 label = "Music",
                 badge = "MU",
-                selected = currentRoute.startsWith("libraries/type/") && currentLibraryType == "music",
-                onClick = { goToRoot(navController, "libraries/type/music") },
+                selected =
+                    (currentRoute.startsWith("libraries/type/") && currentLibraryType == "music") ||
+                        browseRailType == "music",
+                onClick = {
+                    scope.launch {
+                        val id = mainNavVm.firstLibraryIdForType("music")
+                        if (id != null) {
+                            goToLibraryBrowse(navController, id)
+                        } else {
+                            goToRoot(navController, "libraries/type/music")
+                        }
+                    }
+                },
             ),
         )
 
@@ -350,6 +414,16 @@ private fun buildDiscoverBrowseRoute(
 
 private fun goToRoot(navController: NavHostController, route: String) {
     navController.navigate(route) {
+        popUpTo(navController.graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+private fun goToLibraryBrowse(navController: NavHostController, libraryId: Int) {
+    navController.navigate("library/$libraryId/browse") {
         popUpTo(navController.graph.findStartDestination().id) {
             saveState = true
         }

@@ -22,7 +22,6 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
-import org.json.JSONObject
 import plum.tv.core.network.AttachPlaybackSessionCommandJson
 import plum.tv.core.network.DetachPlaybackSessionCommandJson
 import plum.tv.core.network.PlaybackSessionUpdateEventJson
@@ -35,6 +34,12 @@ class PlumWebSocketManager @Inject constructor(
     private val tokenBridge: AuthTokenBridge,
     private val moshi: Moshi,
 ) {
+    private val socketLock = Any()
+    private val playbackUpdateAdapter = moshi.adapter(PlaybackSessionUpdateEventJson::class.java)
+    private val attachCommandAdapter = moshi.adapter(AttachPlaybackSessionCommandJson::class.java)
+    private val detachCommandAdapter = moshi.adapter(DetachPlaybackSessionCommandJson::class.java)
+    private val attachedSessionIds = linkedSetOf<String>()
+
     private var socket: WebSocket? = null
     private var loopJob: Job? = null
 
@@ -65,8 +70,13 @@ class PlumWebSocketManager @Inject constructor(
     fun stop() {
         loopJob?.cancel()
         loopJob = null
-        socket?.close(1000, "app stop")
-        socket = null
+        val currentSocket =
+            synchronized(socketLock) {
+                val activeSocket = socket
+                socket = null
+                activeSocket
+            }
+        currentSocket?.close(1000, "app stop")
     }
 
     private suspend fun awaitSocketSession(httpBase: String, token: String) {
@@ -82,7 +92,14 @@ class PlumWebSocketManager @Inject constructor(
                     req,
                     object : WebSocketListener() {
                         override fun onOpen(webSocket: WebSocket, response: Response) {
-                            socket = webSocket
+                            synchronized(socketLock) {
+                                socket = webSocket
+                            }
+                            snapshotAttachedSessions().forEach { sessionId ->
+                                if (shouldSendTo(webSocket, sessionId)) {
+                                    webSocket.send(attachCommandJson(sessionId))
+                                }
+                            }
                         }
 
                         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -90,18 +107,18 @@ class PlumWebSocketManager @Inject constructor(
                         }
 
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                            socket = null
+                            clearSocket(webSocket)
                         }
 
                         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                            socket = null
+                            clearSocket(webSocket)
                             if (cont.isActive) {
                                 cont.resume(Unit)
                             }
                         }
 
                         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                            socket = null
+                            clearSocket(webSocket)
                             if (cont.isActive) {
                                 cont.resume(Unit)
                             }
@@ -113,40 +130,50 @@ class PlumWebSocketManager @Inject constructor(
     }
 
     private fun parseUpdate(text: String): PlaybackSessionUpdateEventJson? {
-        return try {
-            val o = JSONObject(text)
-            if (o.optString("type") != "playback_session_update") {
-                null
-            } else {
-                PlaybackSessionUpdateEventJson(
-                    type = o.getString("type"),
-                    sessionId = o.getString("sessionId"),
-                    delivery = o.getString("delivery"),
-                    mediaId = o.getInt("mediaId"),
-                    revision = o.getInt("revision"),
-                    audioIndex = o.getInt("audioIndex"),
-                    status = o.getString("status"),
-                    streamUrl = o.getString("streamUrl"),
-                    durationSeconds = o.getDouble("durationSeconds"),
-                    error = if (o.has("error") && !o.isNull("error")) o.getString("error") else null,
-                )
-            }
-        } catch (_: Exception) {
-            null
+        return runCatching { playbackUpdateAdapter.fromJson(text) }.getOrNull()?.takeIf {
+            it.type == "playback_session_update"
         }
     }
 
     fun sendAttach(sessionId: String) {
-        val json = moshi.adapter(AttachPlaybackSessionCommandJson::class.java).toJson(
-            AttachPlaybackSessionCommandJson(sessionId = sessionId),
-        )
-        socket?.send(json)
+        val sendNow =
+            synchronized(socketLock) {
+                attachedSessionIds += sessionId
+                socket?.let { activeSocket -> activeSocket to attachCommandJson(sessionId) }
+            }
+        sendNow?.let { (activeSocket, json) -> activeSocket.send(json) }
     }
 
     fun sendDetach(sessionId: String) {
-        val json = moshi.adapter(DetachPlaybackSessionCommandJson::class.java).toJson(
-            DetachPlaybackSessionCommandJson(sessionId = sessionId),
-        )
-        socket?.send(json)
+        val sendNow =
+            synchronized(socketLock) {
+                attachedSessionIds -= sessionId
+                socket?.let { activeSocket -> activeSocket to detachCommandJson(sessionId) }
+            }
+        sendNow?.let { (activeSocket, json) -> activeSocket.send(json) }
     }
+
+    private fun clearSocket(webSocket: WebSocket) {
+        synchronized(socketLock) {
+            if (socket === webSocket) {
+                socket = null
+            }
+        }
+    }
+
+    private fun snapshotAttachedSessions(): List<String> =
+        synchronized(socketLock) {
+            attachedSessionIds.toList()
+        }
+
+    private fun shouldSendTo(webSocket: WebSocket, sessionId: String): Boolean =
+        synchronized(socketLock) {
+            socket === webSocket && sessionId in attachedSessionIds
+        }
+
+    private fun attachCommandJson(sessionId: String): String =
+        attachCommandAdapter.toJson(AttachPlaybackSessionCommandJson(sessionId = sessionId))
+
+    private fun detachCommandJson(sessionId: String): String =
+        detachCommandAdapter.toJson(DetachPlaybackSessionCommandJson(sessionId = sessionId))
 }

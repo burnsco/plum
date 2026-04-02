@@ -4,6 +4,6 @@
 sdk.dir=/path/to/Android/sdk
 
 # Optional Plum TV dev defaults.
-# plumTv.defaultServerUrl=http://192.168.2.15:8080
+# plumTv.defaultServerUrl=http://YOUR_PLUM_SERVER:8080
 # plumTv.defaultAdminEmail=admin@example.com
 # plumTv.defaultAdminPassword=

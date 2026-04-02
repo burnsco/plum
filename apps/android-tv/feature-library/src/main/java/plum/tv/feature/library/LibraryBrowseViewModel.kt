@@ -11,11 +11,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.network.LibraryBrowseItemJson
+import plum.tv.core.network.groupLibraryBrowseItemsByShow
+import plum.tv.core.network.isShowOnlyBrowseLibrary
 
 sealed interface LibraryBrowseUiState {
     data object Loading : LibraryBrowseUiState
     data class Ready(
-        val items: List<LibraryBrowseItemJson>,
+        val rows: List<LibraryBrowseGridRow>,
         val hasMore: Boolean,
         val loadingMore: Boolean,
     ) : LibraryBrowseUiState
@@ -36,19 +38,32 @@ class LibraryBrowseViewModel @Inject constructor(
 
     private var nextOffset: Int? = null
     private val pageSize = 60
+    private val accumulatedItems = mutableListOf<LibraryBrowseItemJson>()
 
     init {
         loadInitial()
     }
 
+    private fun rebuildRows(): List<LibraryBrowseGridRow> {
+        val items = accumulatedItems.toList()
+        if (items.isEmpty()) return emptyList()
+        return if (isShowOnlyBrowseLibrary(items)) {
+            groupLibraryBrowseItemsByShow(items).map { LibraryBrowseGridRow.Show(it) }
+        } else {
+            items.map { LibraryBrowseGridRow.Movie(it) }
+        }
+    }
+
     fun loadInitial() {
         viewModelScope.launch {
             _state.value = LibraryBrowseUiState.Loading
+            accumulatedItems.clear()
             browseRepository.libraryMedia(libraryId, offset = 0, limit = pageSize).fold(
                 onSuccess = { page ->
                     nextOffset = page.nextOffset
+                    accumulatedItems.addAll(page.items)
                     _state.value = LibraryBrowseUiState.Ready(
-                        items = page.items,
+                        rows = rebuildRows(),
                         hasMore = page.hasMore,
                         loadingMore = false,
                     )
@@ -69,13 +84,14 @@ class LibraryBrowseViewModel @Inject constructor(
             browseRepository.libraryMedia(libraryId, offset = offset, limit = pageSize).fold(
                 onSuccess = { page ->
                     nextOffset = page.nextOffset
+                    accumulatedItems.addAll(page.items)
                     _state.value = LibraryBrowseUiState.Ready(
-                        items = cur.items + page.items,
+                        rows = rebuildRows(),
                         hasMore = page.hasMore,
                         loadingMore = false,
                     )
                 },
-                onFailure = { e ->
+                onFailure = {
                     _state.value = cur.copy(loadingMore = false)
                 },
             )

@@ -36,6 +36,7 @@ import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumPanel
 import plum.tv.core.ui.PlumSectionHeader
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -65,8 +66,10 @@ fun MovieDetailRoute(
         }
         is MovieDetailUiState.Ready -> {
             val d = s.details
-            val backdropUrl = resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, "w780")
-            val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, "w500")
+            val backdropUrl =
+                resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
+            val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
+            val metrics = PlumTheme.metrics
 
             Box(modifier = Modifier.fillMaxSize()) {
                 // Full-bleed backdrop
@@ -107,8 +110,8 @@ fun MovieDetailRoute(
                                 model = posterUrl,
                                 contentDescription = d.title,
                                 modifier = Modifier
-                                    .width(200.dp)
-                                    .height(300.dp)
+                                    .width(metrics.heroPosterWidth)
+                                    .height(metrics.heroPosterHeight)
                                     .clip(RoundedCornerShape(10.dp)),
                                 contentScale = ContentScale.Crop,
                             )

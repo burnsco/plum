@@ -8,6 +8,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.network.LibraryMovieDetailsJson
@@ -29,18 +30,21 @@ class MovieDetailViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<MovieDetailUiState>(MovieDetailUiState.Loading)
     val state: StateFlow<MovieDetailUiState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     init {
         load()
     }
 
     fun load() {
-        viewModelScope.launch {
-            _state.value = MovieDetailUiState.Loading
-            browseRepository.movieDetails(libraryId, mediaId).fold(
-                onSuccess = { _state.value = MovieDetailUiState.Ready(it) },
-                onFailure = { e -> _state.value = MovieDetailUiState.Error(e.message ?: "Failed to load") },
-            )
-        }
+        loadJob?.cancel()
+        loadJob =
+            viewModelScope.launch {
+                _state.value = MovieDetailUiState.Loading
+                browseRepository.movieDetails(libraryId, mediaId).fold(
+                    onSuccess = { _state.value = MovieDetailUiState.Ready(it) },
+                    onFailure = { e -> _state.value = MovieDetailUiState.Error(e.message ?: "Failed to load") },
+                )
+            }
     }
 }

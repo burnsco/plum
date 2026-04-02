@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.SessionRepository
 import javax.inject.Inject
 
@@ -19,6 +20,7 @@ enum class StartupState {
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
+    private val browseRepository: BrowseRepository,
 ) : ViewModel() {
 
     val serverUrl = sessionRepository.serverUrl.stateIn(
@@ -37,6 +39,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             val hadToken = sessionRepository.sessionToken.first().isNullOrBlank().not()
             sessionRepository.setServerUrl(url)
+            browseRepository.invalidateLibrariesCache()
             val still = sessionRepository.sessionToken.first().isNullOrBlank().not()
             if (hadToken && !still) {
                 onUrlChangedInvalidate?.invoke()
@@ -66,13 +69,18 @@ class AuthViewModel @Inject constructor(
 
     fun login(email: String, password: String, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
-            onResult(sessionRepository.login(email, password).map { })
+            onResult(
+                sessionRepository.login(email, password)
+                    .onSuccess { browseRepository.invalidateLibrariesCache() }
+                    .map { },
+            )
         }
     }
 
     fun logout(onDone: () -> Unit) {
         viewModelScope.launch {
             sessionRepository.logout()
+            browseRepository.invalidateLibrariesCache()
             onDone()
         }
     }

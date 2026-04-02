@@ -26,13 +26,24 @@ class LibraryListViewModel @Inject constructor(
     val state: StateFlow<LibraryListUiState> = _state.asStateFlow()
 
     init {
-        refresh()
+        loadInitial()
+    }
+
+    /** Uses cached libraries when available (e.g. after rail shortcut). */
+    private fun loadInitial() {
+        viewModelScope.launch {
+            _state.value = LibraryListUiState.Loading
+            browseRepository.libraries(forceRefresh = false).fold(
+                onSuccess = { libs -> _state.value = LibraryListUiState.Ready(libs) },
+                onFailure = { e -> _state.value = LibraryListUiState.Error(e.message ?: "Failed to load libraries") },
+            )
+        }
     }
 
     fun refresh() {
         viewModelScope.launch {
             _state.value = LibraryListUiState.Loading
-            browseRepository.libraries().fold(
+            browseRepository.libraries(forceRefresh = true).fold(
                 onSuccess = { libs -> _state.value = LibraryListUiState.Ready(libs) },
                 onFailure = { e -> _state.value = LibraryListUiState.Error(e.message ?: "Failed to load libraries") },
             )
