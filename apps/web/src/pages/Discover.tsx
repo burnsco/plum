@@ -4,11 +4,10 @@ import { Sparkles } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverBrowseCategory, DiscoverGenre, DiscoverItem, DiscoverResponse } from "@/api";
 import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
-import MediaCard from "@/components/MediaCard";
+import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { HorizontalScrollRail } from "@/components/ui/page";
 import { useAuthState } from "@/contexts/AuthContext";
 import {
   DISCOVER_CATEGORY_OPTIONS,
@@ -483,18 +482,7 @@ function DiscoverCardRail({
     [addTitle, isAdmin, items, onOpenSettings],
   );
 
-  return (
-    <HorizontalScrollRail
-      label={title}
-      contentClassName="gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-    >
-      {posterItems.map((item, index) => (
-        <div key={item.key} className="w-44 shrink-0">
-          <MediaCard item={item} index={index} />
-        </div>
-      ))}
-    </HorizontalScrollRail>
-  );
+  return <PosterScrollRail label={title} items={posterItems} />;
 }
 
 export function mapDiscoverItemToPosterGridItem(

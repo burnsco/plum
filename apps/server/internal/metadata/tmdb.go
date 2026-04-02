@@ -332,6 +332,7 @@ func (c *TMDBClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesD
 		PosterPath:       tmdbImageURL(detail.PosterPath, "w500"),
 		BackdropPath:     tmdbImageURL(detail.BackdropPath, "w500"),
 		FirstAirDate:     detail.FirstAirDate,
+		VoteAverage:      detail.VoteAverage,
 		IMDbID:           imdbID,
 		Genres:           tmdbGenresToNames(detail.Genres),
 		Cast:             tmdbCreditsToCast(detail.Credits),

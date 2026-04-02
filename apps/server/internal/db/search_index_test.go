@@ -83,8 +83,8 @@ func TestGetLibraryMovieDetails_ConvertsRuntimeToMinutes(t *testing.T) {
 
 	libraryID := getLibraryID(t, dbConn, LibraryTypeMovie)
 	var refID int
-	if err := dbConn.QueryRow(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
-		libraryID, "Runtime Test", "/movies/runtime-test.mp4", 7200, MatchStatusIdentified).Scan(&refID); err != nil {
+	if err := dbConn.QueryRow(`INSERT INTO movies (library_id, title, path, duration, match_status, vote_average) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Runtime Test", "/movies/runtime-test.mp4", 7200, MatchStatusIdentified, 7.4).Scan(&refID); err != nil {
 		t.Fatalf("insert movie: %v", err)
 	}
 	var mediaID int
@@ -101,5 +101,8 @@ func TestGetLibraryMovieDetails_ConvertsRuntimeToMinutes(t *testing.T) {
 	}
 	if details.Runtime != 120 {
 		t.Fatalf("expected 120 minute runtime, got %d", details.Runtime)
+	}
+	if details.VoteAverage != 7.4 {
+		t.Fatalf("expected vote average 7.4, got %.1f", details.VoteAverage)
 	}
 }

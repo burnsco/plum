@@ -87,6 +87,7 @@ export interface MediaItem {
   show_poster_path?: string;
   show_poster_url?: string;
   release_date?: string;
+  show_vote_average?: number;
   vote_average?: number;
   imdb_id?: string;
   imdb_rating?: number;
@@ -138,6 +139,7 @@ export const MediaItemSchema = Schema.Struct({
   show_poster_path: Schema.optional(Schema.String),
   show_poster_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
+  show_vote_average: Schema.optional(Schema.Number),
   vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
@@ -183,6 +185,7 @@ export interface LibraryBrowseItem {
   show_poster_path?: string;
   show_poster_url?: string;
   release_date?: string;
+  show_vote_average?: number;
   vote_average?: number;
   imdb_id?: string;
   imdb_rating?: number;
@@ -226,6 +229,7 @@ export const LibraryBrowseItemSchema = Schema.Struct({
   show_poster_path: Schema.optional(Schema.String),
   show_poster_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
+  show_vote_average: Schema.optional(Schema.Number),
   vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
@@ -771,6 +775,7 @@ export interface MovieDetails {
   backdrop_path?: string;
   backdrop_url?: string;
   release_date?: string;
+  vote_average?: number;
   imdb_id?: string;
   imdb_rating?: number;
   runtime?: number;
@@ -791,6 +796,7 @@ export const MovieDetailsSchema = Schema.Struct({
   backdrop_path: Schema.optional(Schema.String),
   backdrop_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
+  vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
   runtime: Schema.optional(Schema.Number),
@@ -811,6 +817,7 @@ export interface ShowDetails {
   backdrop_path?: string;
   backdrop_url?: string;
   first_air_date?: string;
+  vote_average?: number;
   imdb_id?: string;
   imdb_rating?: number;
   runtime?: number;
@@ -830,6 +837,7 @@ export const ShowDetailsSchema = Schema.Struct({
   backdrop_path: Schema.optional(Schema.String),
   backdrop_url: Schema.optional(Schema.String),
   first_air_date: Schema.optional(Schema.String),
+  vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
   runtime: Schema.optional(Schema.Number),

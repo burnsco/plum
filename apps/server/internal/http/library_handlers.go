@@ -200,6 +200,7 @@ type libraryBrowseItemResponse struct {
 	ShowPosterPath       string  `json:"show_poster_path,omitempty"`
 	ShowPosterURL        string  `json:"show_poster_url,omitempty"`
 	ReleaseDate          string  `json:"release_date,omitempty"`
+	ShowVoteAverage      float64 `json:"show_vote_average,omitempty"`
 	VoteAverage          float64 `json:"vote_average,omitempty"`
 	IMDbID               string  `json:"imdb_id,omitempty"`
 	IMDbRating           float64 `json:"imdb_rating,omitempty"`
@@ -251,6 +252,7 @@ func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse
 		ShowPosterPath:       item.ShowPosterPath,
 		ShowPosterURL:        item.ShowPosterURL,
 		ReleaseDate:          item.ReleaseDate,
+		ShowVoteAverage:      item.ShowVoteAverage,
 		VoteAverage:          item.VoteAverage,
 		IMDbID:               item.IMDbID,
 		IMDbRating:           item.IMDbRating,
@@ -1954,6 +1956,7 @@ func updateMetadataWithRetry(
 	canonical db.CanonicalMetadata,
 	metadataReviewNeeded bool,
 	metadataConfirmed bool,
+	updateShowVoteAverage bool,
 ) error {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -1976,6 +1979,7 @@ func updateMetadataWithRetry(
 			canonical,
 			metadataReviewNeeded,
 			metadataConfirmed,
+			updateShowVoteAverage,
 		)
 		if lastErr == nil || !isSQLiteBusyError(lastErr) {
 			return lastErr
@@ -2134,6 +2138,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 		Overview:     res.Overview,
 		BackdropPath: res.BackdropURL,
 		ReleaseDate:  res.ReleaseDate,
+		VoteAverage:  res.VoteAverage,
 		IMDbID:       res.IMDbID,
 		IMDbRating:   res.IMDbRating,
 		Genres:       res.Genres,
@@ -2191,7 +2196,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 			res.Provider,
 		)
 	}
-	if err := updateMetadataWithRetry(h.DB, tbl, row.RefID, res.Title, res.Overview, posterPath, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, seasonNumber, episodeNumber, canonical, false, false); err != nil {
+	if err := updateMetadataWithRetry(h.DB, tbl, row.RefID, res.Title, res.Overview, posterPath, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, seasonNumber, episodeNumber, canonical, false, false, true); err != nil {
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
 	h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
@@ -2313,6 +2318,7 @@ func (h *LibraryHandler) applySeriesToRefs(
 				PosterPath:   details.PosterPath,
 				BackdropPath: details.BackdropPath,
 				ReleaseDate:  details.FirstAirDate,
+				VoteAverage:  details.VoteAverage,
 				IMDbID:       details.IMDbID,
 				IMDbRating:   details.IMDbRating,
 				Genres:       details.Genres,
@@ -2390,6 +2396,7 @@ func (h *LibraryHandler) applySeriesToRefs(
 				fallbackCanonical,
 				metadataReviewNeeded,
 				metadataConfirmed,
+				true,
 			); err != nil {
 				continue
 			}
@@ -2437,7 +2444,7 @@ func (h *LibraryHandler) applySeriesToRefs(
 			ep.PosterURL,
 			ep.Provider,
 		)
-		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, episodePosterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, episodeCanonical, metadataReviewNeeded, metadataConfirmed); err != nil {
+		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, episodePosterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, episodeCanonical, metadataReviewNeeded, metadataConfirmed, true); err != nil {
 			continue
 		}
 		updatedRefIDs = append(updatedRefIDs, ref.RefID)
@@ -2526,12 +2533,14 @@ func (h *LibraryHandler) applySeriesMatchToRefs(
 			SeasonPosterPath: posterPath,
 			BackdropPath:     ep.BackdropURL,
 			ReleaseDate:      ep.ReleaseDate,
-			IMDbID:           ep.IMDbID,
-			IMDbRating:       ep.IMDbRating,
-			Genres:           ep.Genres,
-			Runtime:          ep.Runtime,
+			// Show vote_average must come from provider series metadata (see migration 23), not per-episode scores.
+			VoteAverage: 0,
+			IMDbID:      ep.IMDbID,
+			IMDbRating:  ep.IMDbRating,
+			Genres:      ep.Genres,
+			Runtime:     ep.Runtime,
 		}
-		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, posterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, tmdbID, tvdbID, ref.Season, ref.Episode, canonical, metadataReviewNeeded, metadataConfirmed); err != nil {
+		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, posterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, tmdbID, tvdbID, ref.Season, ref.Episode, canonical, metadataReviewNeeded, metadataConfirmed, false); err != nil {
 			continue
 		}
 		updatedRefIDs = append(updatedRefIDs, ref.RefID)
@@ -3377,6 +3386,7 @@ func (h *LibraryHandler) IdentifyMovie(w http.ResponseWriter, r *http.Request) {
 		PosterPath:   posterPath,
 		BackdropPath: match.BackdropURL,
 		ReleaseDate:  match.ReleaseDate,
+		VoteAverage:  match.VoteAverage,
 		IMDbID:       match.IMDbID,
 		IMDbRating:   match.IMDbRating,
 		Genres:       match.Genres,
@@ -3401,6 +3411,7 @@ func (h *LibraryHandler) IdentifyMovie(w http.ResponseWriter, r *http.Request) {
 		0,
 		canonical,
 		false,
+		true,
 		true,
 	); err != nil {
 		http.Error(w, "identify failed", http.StatusInternalServerError)

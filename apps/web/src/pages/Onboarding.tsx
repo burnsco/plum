@@ -280,7 +280,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
   };
 
   return (
-    <div className="auth-screen">
+    <main className="auth-screen">
       <div className="onboarding-wizard">
         <div className="wizard-progress">
           <span className={step === "admin" ? "active" : "done"}>1. Admin</span>
@@ -454,6 +454,6 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

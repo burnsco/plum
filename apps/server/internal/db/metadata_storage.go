@@ -78,6 +78,7 @@ type CanonicalMetadata struct {
 	SeasonPosterPath string
 	BackdropPath     string
 	ReleaseDate      string
+	VoteAverage      float64
 	IMDbID           string
 	IMDbRating       float64
 	Genres           []string
@@ -118,9 +119,10 @@ func upsertShowAndSeasonForEpisodeTx(
 		PosterPath:   posterPath,
 		BackdropPath: backdropPath,
 		ReleaseDate:  releaseDate,
+		VoteAverage:  0,
 		IMDbID:       imdbID,
 		IMDbRating:   imdbRating,
-	}, seasonNumber)
+	}, seasonNumber, false)
 }
 
 func upsertShowAndSeasonTx(
@@ -132,6 +134,7 @@ func upsertShowAndSeasonTx(
 	tvdbID string,
 	canonical CanonicalMetadata,
 	seasonNumber int,
+	updateShowVoteAverage bool,
 ) (int, int, error) {
 	kind := showKindForTable(table)
 	if kind == "" {
@@ -147,17 +150,6 @@ func upsertShowAndSeasonTx(
 		titleKey = "unknown"
 	}
 
-	showHash := metadataHash(
-		strconvInt(tmdbID),
-		tvdbID,
-		showTitle,
-		canonical.Overview,
-		canonical.PosterPath,
-		canonical.BackdropPath,
-		canonical.ReleaseDate,
-		canonical.IMDbID,
-		fmt.Sprintf("%.3f", canonical.IMDbRating),
-	)
 	seasonPosterPath := strings.TrimSpace(canonical.SeasonPosterPath)
 	if seasonPosterPath == "" {
 		seasonPosterPath = canonical.PosterPath
@@ -167,10 +159,25 @@ func upsertShowAndSeasonTx(
 	if err != nil {
 		return 0, 0, err
 	}
+	showHashParts := func(voteForHash float64) string {
+		return metadataHash(
+			strconvInt(tmdbID),
+			tvdbID,
+			showTitle,
+			canonical.Overview,
+			canonical.PosterPath,
+			canonical.BackdropPath,
+			canonical.ReleaseDate,
+			fmt.Sprintf("%.3f", voteForHash),
+			canonical.IMDbID,
+			fmt.Sprintf("%.3f", canonical.IMDbRating),
+		)
+	}
 	if showID == 0 {
+		showHash := showHashParts(canonical.VoteAverage)
 		if err := tx.QueryRowContext(ctx, `INSERT INTO shows (
-library_id, kind, tmdb_id, tvdb_id, title, title_key, overview, poster_path, backdrop_path, first_air_date, imdb_id, imdb_rating, metadata_version, metadata_hash, last_refreshed_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?) RETURNING id`,
+library_id, kind, tmdb_id, tvdb_id, title, title_key, overview, poster_path, backdrop_path, first_air_date, vote_average, imdb_id, imdb_rating, metadata_version, metadata_hash, last_refreshed_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?) RETURNING id`,
 			libraryID,
 			kind,
 			nullInt(tmdbID),
@@ -181,6 +188,7 @@ library_id, kind, tmdb_id, tvdb_id, title, title_key, overview, poster_path, bac
 			nullStr(canonical.PosterPath),
 			nullStr(canonical.BackdropPath),
 			nullStr(canonical.ReleaseDate),
+			nullFloat64(canonical.VoteAverage),
 			nullStr(canonical.IMDbID),
 			nullFloat64(canonical.IMDbRating),
 			showHash,
@@ -192,16 +200,26 @@ library_id, kind, tmdb_id, tvdb_id, title, title_key, overview, poster_path, bac
 		}
 	} else {
 		var (
+			existingVoteAvg    float64
 			existingPosterPath string
 			posterLocked       int
 		)
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(poster_path, ''), COALESCE(poster_locked, 0) FROM shows WHERE id = ?`, showID).
-			Scan(&existingPosterPath, &posterLocked); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(vote_average, 0), COALESCE(poster_path, ''), COALESCE(poster_locked, 0) FROM shows WHERE id = ?`, showID).
+			Scan(&existingVoteAvg, &existingPosterPath, &posterLocked); err != nil {
 			return 0, 0, err
 		}
+		voteForHash := canonical.VoteAverage
+		if !updateShowVoteAverage {
+			voteForHash = existingVoteAvg
+		}
+		showHash := showHashParts(voteForHash)
 		showPosterPath := canonical.PosterPath
 		if posterLocked != 0 {
 			showPosterPath = existingPosterPath
+		}
+		var updateVoteFlag int
+		if updateShowVoteAverage {
+			updateVoteFlag = 1
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE shows SET
 tmdb_id = ?,
@@ -212,6 +230,7 @@ overview = ?,
 poster_path = ?,
 backdrop_path = ?,
 first_air_date = ?,
+vote_average = CASE WHEN ? != 0 THEN ? ELSE vote_average END,
 imdb_id = ?,
 imdb_rating = ?,
 metadata_version = CASE WHEN COALESCE(metadata_hash, '') != ? THEN COALESCE(metadata_version, 1) + 1 ELSE COALESCE(metadata_version, 1) END,
@@ -227,6 +246,8 @@ WHERE id = ?`,
 			nullStr(showPosterPath),
 			nullStr(canonical.BackdropPath),
 			nullStr(canonical.ReleaseDate),
+			updateVoteFlag,
+			nullFloat64(canonical.VoteAverage),
 			nullStr(canonical.IMDbID),
 			nullFloat64(canonical.IMDbRating),
 			showHash,

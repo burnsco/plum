@@ -331,6 +331,8 @@ describe("App library and player wiring", () => {
       poster_path: "/poster.jpg",
       backdrop_path: "/backdrop.jpg",
       release_date: "2025-01-01",
+      vote_average: 7.4,
+      imdb_rating: 8.1,
       runtime: 120,
       subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
       embeddedAudioTracks: [
@@ -347,6 +349,10 @@ describe("App library and player wiring", () => {
       expect(api.getMovieDetails).toHaveBeenCalledWith(2, 99);
     });
     expect(fetchLibraryMediaSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText("IMDb")).toBeTruthy();
+    expect(screen.getByText("tmdb")).toBeTruthy();
+    expect(screen.getByText("8.1")).toBeTruthy();
+    expect(screen.getByText("7.4")).toBeTruthy();
 
     fireEvent.click(await screen.findByRole("button", { name: /^Play$/i }));
 
@@ -435,8 +441,7 @@ describe("App library and player wiring", () => {
 
     await renderApp("/");
 
-    const card = await screen.findByRole("button", { name: /^Space Show$/i });
-    fireEvent.click(card);
+    fireEvent.click(await screen.findByRole("button", { name: /Play Space Show/i }));
 
     await waitFor(() => {
       expect(api.createPlaybackSession).toHaveBeenCalledWith(55, expect.anything());
@@ -485,11 +490,12 @@ describe("App library and player wiring", () => {
 
     await renderApp("/");
 
-    expect(await screen.findByText("Recently added")).toBeTruthy();
-    expect(await screen.findByRole("button", { name: /^Space Show$/i })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: /^Die My Love$/i })).toBeTruthy();
+    expect(await screen.findByTestId("dashboard-recent-tv-heading")).toBeTruthy();
+    expect(await screen.findByTestId("dashboard-recent-movies-heading")).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /^Space Show$/i })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /^Die My Love$/i })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Die My Love$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Play Die My Love/i }));
 
     await waitFor(() => {
       expect(api.createPlaybackSession).toHaveBeenCalledWith(99, expect.anything());
@@ -1833,6 +1839,7 @@ describe("App library and player wiring", () => {
         duration: 7200,
         type: "movie",
         match_status: "identified",
+        vote_average: 7.1,
         imdb_rating: 8.3,
         release_date: "2025-01-01",
       },
@@ -1843,6 +1850,31 @@ describe("App library and player wiring", () => {
     expect(await screen.findByRole("link", { name: /^Movie Badge$/i })).toBeTruthy();
     expect(screen.getByText("IMDb")).toBeTruthy();
     expect(screen.getByText("8.3")).toBeTruthy();
+    expect(screen.queryByText("tmdb")).not.toBeInTheDocument();
+  });
+
+  it("falls back to TMDb badges on movie cards when IMDb is missing", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValue([
+      {
+        id: 100,
+        title: "TMDb Only",
+        path: "/movies/TMDb Only (2025)/TMDb Only.mkv",
+        duration: 7200,
+        type: "movie",
+        match_status: "identified",
+        vote_average: 7.6,
+        release_date: "2025-01-01",
+      },
+    ]);
+
+    await renderApp("/library/2");
+
+    expect(await screen.findByRole("link", { name: /^TMDb Only$/i })).toBeTruthy();
+    expect(screen.getByText("tmdb")).toBeTruthy();
+    expect(screen.getByText("7.6")).toBeTruthy();
   });
 
   it("keeps incomplete anime cards hidden until they have a review prompt or real match", async () => {

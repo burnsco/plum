@@ -40,6 +40,7 @@ export type ShowGroup = {
   posterUrl: string | undefined;
   backdropPath: string | undefined;
   backdropUrl: string | undefined;
+  showVoteAverage: number | undefined;
   voteAverage: number | undefined;
   unmatchedCount: number;
   localCount: number;
@@ -82,6 +83,7 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       posterUrl: posterEpisode?.show_poster_url ?? posterEpisode?.poster_url,
       backdropPath: backdropEpisode?.backdrop_path,
       backdropUrl: backdropEpisode?.backdrop_url,
+      showVoteAverage: episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average,
       voteAverage: ratingEpisode?.vote_average,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
       localCount: episodes.filter((episode) => episode.match_status === "local").length,

@@ -31,16 +31,16 @@ export function Login() {
 
   if (loading) {
     return (
-      <div className="auth-screen">
+      <main className="auth-screen">
         <div className="auth-card">
           <p className="auth-muted">Loading…</p>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="auth-screen">
+    <main className="auth-screen">
       <div className="auth-card">
         <h1 className="auth-title">Sign in</h1>
         <p className="auth-sub">You’re already set up. Sign in to continue.</p>
@@ -71,6 +71,6 @@ export function Login() {
           </button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }

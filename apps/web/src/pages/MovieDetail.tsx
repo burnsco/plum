@@ -62,6 +62,7 @@ export function MovieDetail() {
     backdrop_path: details.backdrop_path,
     backdrop_url: details.backdrop_url,
     release_date: details.release_date,
+    vote_average: details.vote_average,
     imdb_id: details.imdb_id,
     imdb_rating: details.imdb_rating,
     subtitles: details.subtitles,
@@ -107,7 +108,12 @@ export function MovieDetail() {
               {year ? <span>{year}</span> : null}
               {runtime ? <span>{runtime}</span> : null}
             </div>
-            <RatingBadge label="IMDb" value={details.imdb_rating} size="md" />
+            {(details.imdb_rating ?? 0) > 0 || (details.vote_average ?? 0) > 0 ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <RatingBadge label="IMDb" value={details.imdb_rating} size="md" />
+                <RatingBadge label="TMDb" value={details.vote_average} size="md" />
+              </div>
+            ) : null}
           </div>
 
           {details.overview ? (

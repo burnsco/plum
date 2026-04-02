@@ -126,6 +126,7 @@ type SeriesDetails struct {
 	PosterPath       string       `json:"poster_path"`   // full URL or path
 	BackdropPath     string       `json:"backdrop_path"` // full URL or path
 	FirstAirDate     string       `json:"first_air_date"`
+	VoteAverage      float64      `json:"vote_average,omitempty"`
 	IMDbID           string       `json:"imdb_id,omitempty"`
 	IMDbRating       float64      `json:"imdb_rating,omitempty"`
 	Genres           []string     `json:"genres"`

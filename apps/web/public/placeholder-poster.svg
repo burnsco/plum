@@ -8,13 +8,13 @@
       <stop offset="100%" stop-color="#0b0a12" />
     </linearGradient>
     <linearGradient id="beam" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffd666" stop-opacity=".9" />
-      <stop offset="100%" stop-color="#f45aa0" stop-opacity=".9" />
+      <stop offset="0%" stop-color="#c4b5fd" stop-opacity=".85" />
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity=".9" />
     </linearGradient>
   </defs>
   <rect width="600" height="900" fill="url(#bg)" />
-  <circle cx="470" cy="180" r="150" fill="#f45aa0" fill-opacity=".14" />
-  <circle cx="140" cy="760" r="180" fill="#ffd666" fill-opacity=".12" />
+  <circle cx="470" cy="180" r="150" fill="#8b5cf6" fill-opacity=".14" />
+  <circle cx="140" cy="760" r="180" fill="#6d28d9" fill-opacity=".1" />
   <path d="M90 700 L250 260 L345 480 L470 180 L540 700 Z" fill="url(#beam)" fill-opacity=".2" />
   <rect x="94" y="96" width="412" height="568" rx="28" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="8" />
   <rect x="138" y="728" width="324" height="24" rx="12" fill="#ffffff" fill-opacity=".12" />

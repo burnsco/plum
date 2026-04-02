@@ -76,7 +76,7 @@ export function TopBar() {
 
   return (
     <header
-      className="sticky top-0 z-40 shrink-0 border-b border-[rgba(181,123,255,0.1)] bg-[rgba(10,8,18,0.97)] shadow-[0_1px_0_rgba(181,123,255,0.06),0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      className="sticky top-0 z-40 shrink-0 border-b border-(--plum-chrome-border) bg-(--plum-topbar-bg) shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-xl"
       style={{ backdropFilter: "blur(24px) saturate(1.5)" }}
     >
       <div className="mx-auto flex w-full max-w-(--page-max-width) items-center gap-3 px-4 py-3 md:h-16 md:gap-4 md:px-6 xl:px-8 flex-wrap">
@@ -121,7 +121,7 @@ export function TopBar() {
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search libraries, shows, and movies"
-              className="h-8 md:h-10 border-[rgba(181,123,255,0.12)] bg-[rgba(181,123,255,0.05)] pl-8 md:pl-9 placeholder:text-(--plum-muted) focus-visible:border-[rgba(181,123,255,0.32)] focus-visible:ring-0 focus-visible:shadow-[0_0_0_3px_rgba(139,92,246,0.15)]"
+              className="h-8 md:h-10 border-(--plum-chrome-border) bg-(--plum-field-fill) pl-8 md:pl-9 placeholder:text-(--plum-muted) focus-visible:border-(--plum-border-strong) focus-visible:ring-0 focus-visible:shadow-[0_0_0_3px_var(--plum-accent-subtle)]"
             />
           </div>
         </div>

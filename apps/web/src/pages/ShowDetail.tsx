@@ -71,6 +71,8 @@ export function ShowDetail() {
     details?.imdb_rating ??
     episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating;
   const showTmdbRating =
+    details?.vote_average ??
+    episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average ??
     episodes.find((episode) => (episode.vote_average ?? 0) > 0)?.vote_average;
 
   useEffect(() => {

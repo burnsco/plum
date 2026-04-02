@@ -21,6 +21,7 @@ type LibraryMovieDetails struct {
 	BackdropPath        string               `json:"backdrop_path,omitempty"`
 	BackdropURL         string               `json:"backdrop_url,omitempty"`
 	ReleaseDate         string               `json:"release_date,omitempty"`
+	VoteAverage         float64              `json:"vote_average,omitempty"`
 	IMDbID              string               `json:"imdb_id,omitempty"`
 	IMDbRating          float64              `json:"imdb_rating,omitempty"`
 	Runtime             int                  `json:"runtime,omitempty"`
@@ -41,6 +42,7 @@ type LibraryShowDetails struct {
 	BackdropPath     string            `json:"backdrop_path,omitempty"`
 	BackdropURL      string            `json:"backdrop_url,omitempty"`
 	FirstAirDate     string            `json:"first_air_date,omitempty"`
+	VoteAverage      float64           `json:"vote_average,omitempty"`
 	IMDbID           string            `json:"imdb_id,omitempty"`
 	IMDbRating       float64           `json:"imdb_rating,omitempty"`
 	Runtime          int               `json:"runtime,omitempty"`
@@ -465,7 +467,7 @@ func buildSearchDocuments(db *sql.DB, libraryID int, libraryName, libraryType st
 	docs := make([]searchDocument, 0, len(keys))
 	for _, showKey := range keys {
 		agg := showMap[showKey]
-		showID, showTitle, overview, posterPath, backdropPath, airDate, imdbID, imdbRating, genres, cast, err := getShowCanonicalMetadata(db, libraryID, libraryType, showKey)
+		showID, showTitle, overview, posterPath, backdropPath, airDate, _, imdbID, imdbRating, genres, cast, err := getShowCanonicalMetadata(db, libraryID, libraryType, showKey)
 		if err != nil {
 			return nil, err
 		}
@@ -527,15 +529,15 @@ func releaseYearFromDate(value string) int {
 	return year
 }
 
-func getShowCanonicalMetadata(db *sql.DB, libraryID int, libraryType string, showKey string) (showID int, title string, overview string, posterPath string, backdropPath string, airDate string, imdbID string, imdbRating float64, genres []string, cast []TitleCastMember, err error) {
-	query := `SELECT id, title, COALESCE(overview, ''), COALESCE(poster_path, ''), COALESCE(backdrop_path, ''), COALESCE(first_air_date, ''), COALESCE(imdb_id, ''), COALESCE(imdb_rating, 0)
+func getShowCanonicalMetadata(db *sql.DB, libraryID int, libraryType string, showKey string) (showID int, title string, overview string, posterPath string, backdropPath string, airDate string, voteAverage float64, imdbID string, imdbRating float64, genres []string, cast []TitleCastMember, err error) {
+	query := `SELECT id, title, COALESCE(overview, ''), COALESCE(poster_path, ''), COALESCE(backdrop_path, ''), COALESCE(first_air_date, ''), COALESCE(vote_average, 0), COALESCE(imdb_id, ''), COALESCE(imdb_rating, 0)
 FROM shows
 WHERE library_id = ? AND kind = ?`
 	args := []interface{}{libraryID, libraryType}
 	if strings.HasPrefix(showKey, "tmdb-") {
 		tmdbID, parseErr := strconv.Atoi(strings.TrimPrefix(showKey, "tmdb-"))
 		if parseErr != nil {
-			return 0, "", "", "", "", "", "", 0, nil, nil, nil
+			return 0, "", "", "", "", "", 0, "", 0, nil, nil, nil
 		}
 		query += ` AND tmdb_id = ? LIMIT 1`
 		args = append(args, tmdbID)
@@ -543,36 +545,36 @@ WHERE library_id = ? AND kind = ?`
 		query += ` AND title_key = ? LIMIT 1`
 		args = append(args, strings.TrimPrefix(showKey, "title-"))
 	}
-	err = db.QueryRow(query, args...).Scan(&showID, &title, &overview, &posterPath, &backdropPath, &airDate, &imdbID, &imdbRating)
+	err = db.QueryRow(query, args...).Scan(&showID, &title, &overview, &posterPath, &backdropPath, &airDate, &voteAverage, &imdbID, &imdbRating)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, "", "", "", "", "", "", 0, nil, nil, nil
+			return 0, "", "", "", "", "", 0, "", 0, nil, nil, nil
 		}
-		return 0, "", "", "", "", "", "", 0, nil, nil, err
+		return 0, "", "", "", "", "", 0, "", 0, nil, nil, err
 	}
 	genreRows, err := loadTitleGenres(db, "show", showID)
 	if err != nil {
-		return 0, "", "", "", "", "", "", 0, nil, nil, err
+		return 0, "", "", "", "", "", 0, "", 0, nil, nil, err
 	}
 	cast, err = loadTitleCast(db, "show", showID)
 	if err != nil {
-		return 0, "", "", "", "", "", "", 0, nil, nil, err
+		return 0, "", "", "", "", "", 0, "", 0, nil, nil, err
 	}
-	return showID, title, overview, posterPath, backdropPath, airDate, imdbID, imdbRating, titleGenreNames(genreRows), cast, nil
+	return showID, title, overview, posterPath, backdropPath, airDate, voteAverage, imdbID, imdbRating, titleGenreNames(genreRows), cast, nil
 }
 
 func GetLibraryMovieDetails(db *sql.DB, libraryID int, mediaID int) (*LibraryMovieDetails, error) {
 	var details LibraryMovieDetails
 	var refID int
-	err := db.QueryRow(`SELECT m.id, m.library_id, g.ref_id, m.title, COALESCE(m.overview, ''), COALESCE(m.poster_path, ''), COALESCE(m.poster_url, ''), COALESCE(m.backdrop_path, ''), COALESCE(m.backdrop_url, ''), COALESCE(m.release_date, ''), COALESCE(m.imdb_id, ''), COALESCE(m.imdb_rating, 0), COALESCE(m.duration, 0)
+	err := db.QueryRow(`SELECT m.id, m.library_id, g.ref_id, m.title, COALESCE(m.overview, ''), COALESCE(m.poster_path, ''), COALESCE(m.poster_url, ''), COALESCE(m.backdrop_path, ''), COALESCE(m.backdrop_url, ''), COALESCE(m.release_date, ''), COALESCE(m.vote_average, 0), COALESCE(m.imdb_id, ''), COALESCE(m.imdb_rating, 0), COALESCE(m.duration, 0)
 FROM (
-  SELECT mg.id, movies.id AS ref_id, movies.library_id, movies.title, movies.overview, movies.poster_path, '' AS poster_url, movies.backdrop_path, '' AS backdrop_url, movies.release_date, movies.imdb_id, movies.imdb_rating, movies.duration
+  SELECT mg.id, movies.id AS ref_id, movies.library_id, movies.title, movies.overview, movies.poster_path, '' AS poster_url, movies.backdrop_path, '' AS backdrop_url, movies.release_date, movies.vote_average, movies.imdb_id, movies.imdb_rating, movies.duration
   FROM media_global mg
   JOIN movies ON mg.kind = 'movie' AND mg.ref_id = movies.id
 ) m
 JOIN media_global g ON g.id = m.id
 WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
-		Scan(&details.MediaID, &details.LibraryID, &refID, &details.Title, &details.Overview, &details.PosterPath, &details.PosterURL, &details.BackdropPath, &details.BackdropURL, &details.ReleaseDate, &details.IMDbID, &details.IMDbRating, &details.Runtime)
+		Scan(&details.MediaID, &details.LibraryID, &refID, &details.Title, &details.Overview, &details.PosterPath, &details.PosterURL, &details.BackdropPath, &details.BackdropURL, &details.ReleaseDate, &details.VoteAverage, &details.IMDbID, &details.IMDbRating, &details.Runtime)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -631,7 +633,7 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 	if len(filtered) == 0 {
 		return nil, nil
 	}
-	showID, title, overview, posterPath, backdropPath, airDate, imdbID, imdbRating, genres, cast, err := getShowCanonicalMetadata(db, libraryID, libraryType, showKey)
+	showID, title, overview, posterPath, backdropPath, airDate, voteAverage, imdbID, imdbRating, genres, cast, err := getShowCanonicalMetadata(db, libraryID, libraryType, showKey)
 	if err != nil {
 		return nil, err
 	}
@@ -643,6 +645,7 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 		PosterPath:   first.ShowPosterPath,
 		BackdropPath: first.BackdropPath,
 		FirstAirDate: first.ReleaseDate,
+		VoteAverage:  first.ShowVoteAverage,
 		IMDbID:       first.IMDbID,
 		IMDbRating:   first.IMDbRating,
 		Runtime:      first.Duration / 60,
@@ -668,6 +671,9 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 	}
 	if airDate != "" {
 		details.FirstAirDate = airDate
+	}
+	if voteAverage > 0 {
+		details.VoteAverage = voteAverage
 	}
 	if imdbID != "" {
 		details.IMDbID = imdbID

@@ -12,7 +12,8 @@
     "format": "oxfmt",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@plum/contracts": "workspace:*",

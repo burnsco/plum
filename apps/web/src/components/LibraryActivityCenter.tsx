@@ -148,7 +148,9 @@ export function LibraryActivityCenter() {
         <Button
           variant="icon"
           size="icon"
-          aria-label="Server activity"
+          aria-label={
+            activeCount > 0 ? `Server activity ${activeCount} active` : "Server activity"
+          }
           className={cn(
             "relative transition-all duration-500",
             hasUpdates &&
@@ -162,6 +164,7 @@ export function LibraryActivityCenter() {
             <span
               className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-(--plum-accent) px-1.5 py-0.5 text-[10px] font-semibold text-white"
               data-testid="library-activity-badge"
+              aria-hidden="true"
             >
               {activeCount}
             </span>

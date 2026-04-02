@@ -628,6 +628,7 @@ func (p *Pipeline) lookupTMDBTV(ctx context.Context, info MediaInfo) *MatchResul
 		PosterURL:   details.PosterPath,
 		BackdropURL: details.BackdropPath,
 		ReleaseDate: details.FirstAirDate,
+		VoteAverage: details.VoteAverage,
 		IMDbID:      details.IMDbID,
 		IMDbRating:  details.IMDbRating,
 		Provider:    "tmdb",

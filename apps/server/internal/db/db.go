@@ -145,6 +145,7 @@ type MediaItem struct {
 	ShowPosterPath            string               `json:"show_poster_path,omitempty"`
 	ShowPosterURL             string               `json:"show_poster_url,omitempty"`
 	ReleaseDate               string               `json:"release_date"`
+	ShowVoteAverage           float64              `json:"show_vote_average,omitempty"`
 	VoteAverage               float64              `json:"vote_average"`
 	IMDbID                    string               `json:"imdb_id,omitempty"`
 	IMDbRating                float64              `json:"imdb_rating,omitempty"`
@@ -362,6 +363,7 @@ CREATE TABLE IF NOT EXISTS shows (
   poster_locked INTEGER NOT NULL DEFAULT 0,
   backdrop_path TEXT,
   first_air_date TEXT,
+  vote_average REAL DEFAULT 0,
   imdb_id TEXT,
   imdb_rating REAL DEFAULT 0,
   metadata_version INTEGER NOT NULL DEFAULT 1,
@@ -933,6 +935,7 @@ var schemaMigrations = []schemaMigration{
   poster_path TEXT,
   backdrop_path TEXT,
   first_air_date TEXT,
+  vote_average REAL DEFAULT 0,
   imdb_id TEXT,
   imdb_rating REAL DEFAULT 0,
   metadata_version INTEGER NOT NULL DEFAULT 1,
@@ -1236,14 +1239,6 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 22,
-		name:    "enable_watcher_for_existing_libraries",
-		apply: func(ctx context.Context, tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `UPDATE libraries SET watcher_enabled = 1 WHERE watcher_enabled = 0`)
-			return err
-		},
-	},
-	{
 		version: 21,
 		name:    "library_job_enrichment_phase",
 		apply: func(ctx context.Context, tx *sql.Tx) error {
@@ -1261,6 +1256,23 @@ var schemaMigrations = []schemaMigration{
 				return err
 			}
 			return nil
+		},
+	},
+	{
+		version: 22,
+		name:    "enable_watcher_for_existing_libraries",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `UPDATE libraries SET watcher_enabled = 1 WHERE watcher_enabled = 0`)
+			return err
+		},
+	},
+	{
+		version: 23,
+		name:    "show_vote_average",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			// Series vote_average must come from provider show metadata, not MAX(episode),
+			// or the UI would show misleading scores until a full show refresh.
+			return addColumnIfMissingTx(ctx, tx, "shows", "vote_average", "REAL DEFAULT 0")
 		},
 	},
 }
@@ -1762,13 +1774,16 @@ func UpdateMediaMetadataWithState(db *sql.DB, table string, refID int, title str
 		PosterPath:   posterPath,
 		BackdropPath: backdropPath,
 		ReleaseDate:  releaseDate,
+		VoteAverage:  voteAvg,
 		IMDbID:       imdbID,
 		IMDbRating:   imdbRating,
-	}, metadataReviewNeeded, metadataConfirmed)
+	}, metadataReviewNeeded, metadataConfirmed, true)
 }
 
 // UpdateMediaMetadataWithCanonicalState updates a single category row with separate canonical show/season metadata.
-func UpdateMediaMetadataWithCanonicalState(db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, canonical CanonicalMetadata, metadataReviewNeeded bool, metadataConfirmed bool) error {
+// When updateShowVoteAverage is false, the shows.vote_average column is left unchanged (e.g. episode-only identify flows
+// that do not have provider show-level scores).
+func UpdateMediaMetadataWithCanonicalState(db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, canonical CanonicalMetadata, metadataReviewNeeded bool, metadataConfirmed bool, updateShowVoteAverage bool) error {
 	if strings.TrimSpace(canonical.Title) == "" {
 		canonical.Title = title
 	}
@@ -1813,7 +1828,7 @@ func UpdateMediaMetadataWithCanonicalState(db *sql.DB, table string, refID int, 
 			_ = tx.Rollback()
 			return err
 		}
-		showID, seasonID, err := upsertShowAndSeasonTx(ctx, tx, libraryID, table, tmdbID, tvdbID, canonical, season)
+		showID, seasonID, err := upsertShowAndSeasonTx(ctx, tx, libraryID, table, tmdbID, tvdbID, canonical, season, updateShowVoteAverage)
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -2454,7 +2469,7 @@ JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
 	} else if table == "tv_episodes" || table == "anime_episodes" {
-		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, '')
+		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
@@ -2496,7 +2511,7 @@ ORDER BY g.id`
 		m.LibraryID = libraryID
 		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
 		var showPosterPath sql.NullString
-		var voteAvg, imdbRating sql.NullFloat64
+		var voteAvg, showVoteAvg, imdbRating sql.NullFloat64
 		var tmdbID sql.NullInt64
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
@@ -2518,7 +2533,7 @@ ORDER BY g.id`
 				m.PosterPath = musicPosterPath.String
 			}
 		} else if table == "tv_episodes" || table == "anime_episodes" {
-			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath)
+			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
 			m.TMDBID = int(tmdbID.Int64)
 			if tvdbID.Valid {
 				m.TVDBID = tvdbID.String
@@ -2555,6 +2570,9 @@ ORDER BY g.id`
 			}
 			if showPosterPath.Valid {
 				m.ShowPosterPath = showPosterPath.String
+			}
+			if showVoteAvg.Valid {
+				m.ShowVoteAverage = showVoteAvg.Float64
 			}
 		} else {
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)

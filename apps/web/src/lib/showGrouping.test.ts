@@ -60,4 +60,24 @@ describe("groupMediaByShow", () => {
       }),
     ).toBe("title-battlestargalactica2004");
   });
+
+  it("prefers canonical show TMDb scores when episode scores are missing", () => {
+    const groups = groupMediaByShow([
+      {
+        id: 1,
+        title: "Slow Horses - S01E01 - Failure's Contagious",
+        path: "/tv/Slow Horses/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "identified",
+        tmdb_id: 321,
+        show_vote_average: 8.2,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+
+    expect(groups[0]?.showVoteAverage).toBe(8.2);
+    expect(groups[0]?.voteAverage).toBeUndefined();
+  });
 });

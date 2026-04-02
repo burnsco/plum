@@ -34,10 +34,10 @@
   width: 40px;
   height: 40px;
   border-radius: 999px;
-  background: conic-gradient(from 210deg, #f45aa0, #f8a63a, #f45aa0);
+  background: conic-gradient(from 210deg, #7c3aed, #b57bff, #a78bfa, #7c3aed);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.16),
-    0 0 30px rgba(244, 90, 160, 0.66);
+    0 0 30px rgba(124, 58, 237, 0.45);
 }
 
 .brand-text {
@@ -634,7 +634,7 @@
 
 .auth-error {
   font-size: 0.85rem;
-  color: #f45a7a;
+  color: var(--plum-error);
   margin: 0;
 }
 
@@ -2419,7 +2419,7 @@
   justify-content: center;
   width: 1.1rem;
   font-size: 0.72rem;
-  color: var(--plum-accent, #f45aa0);
+  color: var(--plum-accent, #b57bff);
   flex-shrink: 0;
 }
 

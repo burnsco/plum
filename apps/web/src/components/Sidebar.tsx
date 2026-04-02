@@ -38,13 +38,16 @@ export function Sidebar() {
   const navItemActive =
     "text-[var(--plum-text)] bg-[rgba(181,123,255,0.1)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-[var(--plum-accent)] before:content-[''] shadow-[0_0_20px_rgba(139,92,246,0.08)]";
   const navItemInactive =
-    "text-[var(--plum-muted)] hover:text-[var(--plum-text)] hover:bg-[rgba(181,123,255,0.06)]";
+    "text-[var(--plum-text-2)] hover:text-[var(--plum-text)] hover:bg-[var(--plum-accent-subtle)]";
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-[rgba(181,123,255,0.1)] bg-[rgba(10,8,18,0.98)] md:flex md:flex-col" style={{boxShadow: "inset -1px 0 0 rgba(181,123,255,0.06)", backdropFilter: "blur(16px)"}}>
+    <aside
+      className="hidden w-60 shrink-0 border-r border-(--plum-chrome-border) bg-(--plum-sidebar-bg) md:flex md:flex-col"
+      style={{ boxShadow: "inset -1px 0 0 var(--plum-chrome-border)" }}
+    >
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-4" aria-label="Libraries">
         {/* Section: Browse */}
-        <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(181,123,255,0.45)]">
+        <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-(--plum-text-2)">
           Browse
         </div>
         <Link
@@ -70,14 +73,14 @@ export function Sidebar() {
         </Link>
 
         {/* Divider */}
-        <div className="mx-4 my-3 h-px bg-[rgba(181,123,255,0.1)]" />
+        <div className="mx-4 my-3 h-px bg-(--plum-chrome-border)" />
 
         {/* Section: Libraries */}
-        <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(181,123,255,0.45)]">
+        <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-(--plum-text-2)">
           Libraries
         </div>
         {isLoading ? (
-          <div className="px-4 py-2 text-sm text-(--plum-muted) italic">Loading…</div>
+          <div className="px-4 py-2 text-sm text-(--plum-text-2) italic">Loading…</div>
         ) : (
           libraries.map((lib) => {
             const isActive = activeId === lib.id;

@@ -15,15 +15,22 @@
 }
 
 :root {
+  /* App shell (Plex-like: darker rail, grey main) */
+  --plum-sidebar-bg: #1f1f1f;
+  --plum-main-bg: #2b2b2b;
+  --plum-topbar-bg: #1f1f1f;
+  --plum-chrome-border: rgba(255, 255, 255, 0.08);
+  --plum-field-fill: rgba(255, 255, 255, 0.06);
+
   /* Core palette */
-  --plum-bg: #080810;
+  --plum-bg: #2b2b2b;
   --plum-panel: rgba(14, 13, 22, 0.97);
   --plum-panel-alt: rgba(18, 17, 28, 0.95);
   --plum-surface: rgba(22, 20, 36, 0.9);
   --plum-surface-hover: rgba(28, 26, 46, 0.92);
 
   /* Accent — rich violet */
-  --plum-accent: #b57bff;
+  --plum-accent: #cfb1ff;
   --plum-accent-2: #e879c0;
   --plum-accent-soft: rgba(181, 123, 255, 0.18);
   --plum-accent-glow: rgba(181, 123, 255, 0.28);
@@ -31,8 +38,8 @@
 
   /* Text */
   --plum-text: #f0eeff;
-  --plum-text-2: #c9c4e8;
-  --plum-muted: #8880aa;
+  --plum-text-2: #d8d3f2;
+  --plum-muted: #b3acd2;
 
   /* Borders */
   --plum-border: rgba(181, 123, 255, 0.1);
@@ -52,19 +59,25 @@
 }
 
 [data-theme="light"] {
+  --plum-sidebar-bg: #fafafa;
+  --plum-main-bg: #f0f0f2;
+  --plum-topbar-bg: #fafafa;
+  --plum-chrome-border: rgba(0, 0, 0, 0.08);
+  --plum-field-fill: rgba(0, 0, 0, 0.04);
+
   --plum-bg: #f4f2ff;
   --plum-panel: #ffffff;
   --plum-panel-alt: #f0eeff;
   --plum-surface: #f8f6ff;
   --plum-surface-hover: #ece8ff;
-  --plum-accent: #7c3aed;
+  --plum-accent: #6b21d9;
   --plum-accent-2: #c026d3;
   --plum-accent-soft: rgba(124, 58, 237, 0.14);
   --plum-accent-glow: rgba(124, 58, 237, 0.2);
   --plum-accent-subtle: rgba(124, 58, 237, 0.07);
   --plum-text: #1a1030;
-  --plum-text-2: #3d2f60;
-  --plum-muted: #7060a0;
+  --plum-text-2: #31224f;
+  --plum-muted: #5a4a87;
   --plum-border: rgba(124, 58, 237, 0.14);
   --plum-border-strong: rgba(124, 58, 237, 0.28);
   --plum-ring: rgba(124, 58, 237, 0.4);
@@ -74,19 +87,25 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
+    --plum-sidebar-bg: #fafafa;
+    --plum-main-bg: #f0f0f2;
+    --plum-topbar-bg: #fafafa;
+    --plum-chrome-border: rgba(0, 0, 0, 0.08);
+    --plum-field-fill: rgba(0, 0, 0, 0.04);
+
     --plum-bg: #f4f2ff;
     --plum-panel: #ffffff;
     --plum-panel-alt: #f0eeff;
     --plum-surface: #f8f6ff;
     --plum-surface-hover: #ece8ff;
-    --plum-accent: #7c3aed;
+    --plum-accent: #6b21d9;
     --plum-accent-2: #c026d3;
     --plum-accent-soft: rgba(124, 58, 237, 0.14);
     --plum-accent-glow: rgba(124, 58, 237, 0.2);
     --plum-accent-subtle: rgba(124, 58, 237, 0.07);
     --plum-text: #1a1030;
-    --plum-text-2: #3d2f60;
-    --plum-muted: #7060a0;
+    --plum-text-2: #31224f;
+    --plum-muted: #5a4a87;
     --plum-border: rgba(124, 58, 237, 0.14);
     --plum-border-strong: rgba(124, 58, 237, 0.28);
     --plum-ring: rgba(124, 58, 237, 0.4);
@@ -97,19 +116,25 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --plum-bg: #080810;
+    --plum-sidebar-bg: #1f1f1f;
+    --plum-main-bg: #2b2b2b;
+    --plum-topbar-bg: #1f1f1f;
+    --plum-chrome-border: rgba(255, 255, 255, 0.08);
+    --plum-field-fill: rgba(255, 255, 255, 0.06);
+
+    --plum-bg: #2b2b2b;
     --plum-panel: rgba(14, 13, 22, 0.97);
     --plum-panel-alt: rgba(18, 17, 28, 0.95);
     --plum-surface: rgba(22, 20, 36, 0.9);
     --plum-surface-hover: rgba(28, 26, 46, 0.92);
-    --plum-accent: #b57bff;
+    --plum-accent: #cfb1ff;
     --plum-accent-2: #e879c0;
     --plum-accent-soft: rgba(181, 123, 255, 0.18);
     --plum-accent-glow: rgba(181, 123, 255, 0.28);
     --plum-accent-subtle: rgba(181, 123, 255, 0.08);
     --plum-text: #f0eeff;
-    --plum-text-2: #c9c4e8;
-    --plum-muted: #8880aa;
+    --plum-text-2: #d8d3f2;
+    --plum-muted: #b3acd2;
     --plum-border: rgba(181, 123, 255, 0.1);
     --plum-border-strong: rgba(181, 123, 255, 0.22);
     --plum-ring: rgba(181, 123, 255, 0.5);
@@ -130,13 +155,50 @@
   body {
     margin: 0;
     min-height: 100vh;
-    background-color: var(--plum-bg);
-    background-image:
-      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(139, 92, 246, 0.18) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 40% at -10% 60%, rgba(139, 92, 246, 0.1) 0%, transparent 55%),
-      radial-gradient(ellipse 50% 50% at 110% 80%, rgba(232, 121, 192, 0.08) 0%, transparent 55%);
+    background-color: var(--plum-main-bg);
+    background-image: radial-gradient(
+      ellipse 120% 80% at 50% 0%,
+      rgba(139, 92, 246, 0.06) 0%,
+      transparent 55%
+    );
     background-attachment: fixed;
     color: var(--plum-text);
+  }
+
+  :root[data-theme="light"] body {
+    background-color: var(--plum-bg);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 58, 237, 0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at -10% 60%, rgba(124, 58, 237, 0.05) 0%, transparent 55%);
+  }
+
+  :root[data-theme="dark"] body {
+    background-color: var(--plum-main-bg);
+    background-image: radial-gradient(
+      ellipse 120% 80% at 50% 0%,
+      rgba(139, 92, 246, 0.06) 0%,
+      transparent 55%
+    );
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) body {
+      background-color: var(--plum-bg);
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 58, 237, 0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at -10% 60%, rgba(124, 58, 237, 0.05) 0%, transparent 55%);
+    }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) body {
+      background-color: var(--plum-main-bg);
+      background-image: radial-gradient(
+        ellipse 120% 80% at 50% 0%,
+        rgba(139, 92, 246, 0.06) 0%,
+        transparent 55%
+      );
+    }
   }
 
   * {

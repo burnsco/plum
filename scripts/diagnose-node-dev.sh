@@ -3,7 +3,8 @@
 set -euo pipefail
 
 echo "Expected from a single \`bun dev\`: ~2 Node processes (concurrently + Vite)."
-echo "Extra large Node PIDs usually mean a second dev server, Vitest, or IDE tooling."
+echo "Extra large Node PIDs usually mean Vitest (\`bun run test:watch\` forks workers), a second dev server, or IDE tooling."
+echo "One-shot tests: \`bun run --cwd apps/web test\` (vitest run). Watch UI: \`bun run --cwd apps/web test:watch\`."
 echo ""
 if command -v ps >/dev/null 2>&1; then
   if ps -C node -o pid= >/dev/null 2>&1; then

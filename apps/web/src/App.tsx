@@ -31,11 +31,11 @@ function AppRouter({ queryClient }: { queryClient: QueryClient }) {
 
   if (loading) {
     return (
-      <div className="auth-screen">
+      <main className="auth-screen">
         <div className="auth-card">
           <p className="auth-muted">Loading…</p>
         </div>
-      </div>
+      </main>
     );
   }
 

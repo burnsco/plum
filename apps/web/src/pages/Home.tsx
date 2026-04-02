@@ -15,6 +15,7 @@ import { usePlayer } from "../contexts/PlayerContext";
 import { useScanQueue } from "../contexts/ScanQueueContext";
 import { getEnrichmentPhase, getLibraryActivity } from "../lib/libraryActivity";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
+import { getPreferredMovieRating } from "../lib/ratings";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
 import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
@@ -39,13 +40,13 @@ const isActiveIdentifyState = (identifyState?: ItemIdentifyState) =>
 function canShowFailureState(
   identifyPhase: IdentifyLibraryPhase | undefined,
   isProcessing: boolean,
-  isFetching: boolean,
   hasActiveIdentifyItems: boolean,
   identifyFailedCount: number,
 ) {
   const explicitFailure = identifyPhase === "identify-failed";
+  // Do not gate on react-query isFetching: background refetches (e.g. identify poll) would
+  // briefly hide failure and flip cards back to "Searching…", which looks like a glitch.
   return (
-    !isFetching &&
     !hasActiveIdentifyItems &&
     (explicitFailure || (!isProcessing && identifyPhase === "complete" && identifyFailedCount > 0))
   );
@@ -122,7 +123,11 @@ function getGroupIdentifyState(group: ShowGroup): ItemIdentifyState {
   return undefined;
 }
 
-function getPreferredEpisodeRating(episodes: ShowGroup["episodes"]) {
+function getPreferredEpisodeRating(group: ShowGroup) {
+  if ((group.showVoteAverage ?? 0) > 0) {
+    return { label: "TMDb", value: group.showVoteAverage };
+  }
+  const episodes = group.episodes;
   const imdbEpisode = episodes.find((episode) => (episode.imdb_rating ?? 0) > 0);
   if (imdbEpisode?.imdb_rating) {
     return { label: "IMDb", value: imdbEpisode.imdb_rating };
@@ -189,7 +194,6 @@ export function Home() {
     selectedLib?.type === "music" ? 100 : layoutMode === "grid" ? 60 : 75;
   const {
     data: selectedLibraryData,
-    isFetching: selectedFetching,
     isLoading: selectedLoading,
     isFetchingNextPage: selectedFetchingNextPage,
     hasNextPage,
@@ -235,7 +239,6 @@ export function Home() {
   const selectedLibraryCanShowFailure = canShowFailureState(
     selectedLibraryIdentifyPhase,
     isSelectedLibraryScanning,
-    selectedFetching,
     hasActiveIdentifyItems,
     selectedLibraryScanStatus?.identifyFailed ?? 0,
   );
@@ -282,7 +285,7 @@ export function Home() {
         !needsMetadataReview &&
         !isActiveIdentifyState(identifyState) &&
         (identifyState === "failed" || selectedLibraryCanShowFailure);
-      const rating = getPreferredEpisodeRating(group.episodes);
+      const rating = getPreferredEpisodeRating(group);
 
       return [
         {
@@ -402,6 +405,7 @@ export function Home() {
     const visibleCards = selectedItems.flatMap((item) => {
       const year =
         item.release_date?.split("-")[0] || item.title.match(/\((\d{4})\)$/)?.[1] || "Unknown year";
+      const rating = getPreferredMovieRating(item);
       const status =
         item.match_status && item.match_status !== "identified" ? ` • ${item.match_status}` : "";
       const isIncomplete = isMovieIncomplete(item);
@@ -428,8 +432,8 @@ export function Home() {
           metaLine: formatRemainingTime(item.remaining_seconds),
           posterPath: item.poster_path,
           posterUrl: item.poster_url,
-          ratingLabel: item.imdb_rating ? "IMDb" : undefined,
-          ratingValue: item.imdb_rating,
+          ratingLabel: rating.label,
+          ratingValue: rating.value,
           progressPercent: shouldShowProgress(item) ? item.progress_percent : undefined,
           cardState: showSearching ? "identifying" : showFailure ? "identify-failed" : "default",
           statusLabel: showSearching
