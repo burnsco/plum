@@ -1,8 +1,10 @@
 package plum.tv.core.player
 
 import android.content.Context
+import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -14,17 +16,55 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.PlaybackRepository
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.network.EmbeddedAudioTrackJson
+import plum.tv.core.network.EmbeddedSubtitleJson
+import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.PlaybackSessionJson
 import plum.tv.core.network.PlaybackSessionUpdateEventJson
+import plum.tv.core.network.ShowEpisodesResponseJson
+
+data class PlayerQueueItem(
+    val mediaId: Int,
+    val title: String,
+    val subtitle: String? = null,
+)
+
+data class PlayerUiState(
+    val title: String = "Playing",
+    val subtitle: String? = null,
+    val status: String = "Starting…",
+    val error: String? = null,
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
+    val canPrev: Boolean = false,
+    val canNext: Boolean = false,
+    val canCycleAudio: Boolean = false,
+    val canCycleSubtitles: Boolean = false,
+    val audioTrackLabel: String? = null,
+    val subtitleTrackLabel: String? = null,
+    val queueIndex: Int = -1,
+    val queueSize: Int = 0,
+) {
+    val progressFraction: Float
+        get() = if (durationMs > 0) (positionMs.coerceAtMost(durationMs).toDouble() / durationMs).toFloat() else 0f
+
+    val remainingMs: Long
+        get() = (durationMs - positionMs).coerceAtLeast(0)
+}
+
+private const val RESTART_PREVIOUS_THRESHOLD_MS = 10_000L
 
 /**
  * Core playback controller used by the TV app.
@@ -35,15 +75,19 @@ import plum.tv.core.network.PlaybackSessionUpdateEventJson
  * - audio cycling for server-provided transcoded tracks
  * - subtitle cycling for embedded text tracks
  * - resume seek when we start playback with a non-zero resumeSec
+ * - optional TV episode queue with prev/next switching
  */
 class PlumPlayerController(
     private val appContext: Context,
     private val dataSourceFactory: DataSource.Factory,
     private val playbackRepository: PlaybackRepository,
+    private val browseRepository: BrowseRepository,
     private val wsManager: PlumWebSocketManager,
     private val scope: CoroutineScope,
-    private val mediaId: Int,
+    private var mediaId: Int,
     private val resumeSec: Float,
+    private val libraryId: Int? = null,
+    private val showKey: String? = null,
 ) {
     private var hlsSessionId: String? = null
     private var activeStreamUrl: String? = null
@@ -53,13 +97,30 @@ class PlumPlayerController(
     private var embeddedAudioTracks: List<EmbeddedAudioTrackJson> = emptyList()
 
     @Volatile
+    private var embeddedSubtitleTracks: List<EmbeddedSubtitleJson> = emptyList()
+
+    @Volatile
     private var serverAudioIndex: Int = -1
+
+    @Volatile
+    private var episodeQueue: List<PlayerQueueItem> = emptyList()
+
+    @Volatile
+    private var queueIndex: Int = -1
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private val _status = MutableStateFlow("Starting…")
     val status: StateFlow<String> = _status.asStateFlow()
+
+    private val _uiState =
+        MutableStateFlow(
+            PlayerUiState(
+                status = "Starting…",
+            ),
+        )
+    val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     val player: ExoPlayer =
         ExoPlayer.Builder(appContext)
@@ -68,19 +129,25 @@ class PlumPlayerController(
 
     private var wsCollectJob: Job? = null
     private var progressJob: Job? = null
+    private var queueLoadJob: Job? = null
 
     init {
-        // Player listeners should live on Main because ExoPlayer reads require it.
         scope.launch(Dispatchers.Main) {
             player.addListener(
                 object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) {
-                            scope.launch { persistProgressAsync(completed = true) }
+                        when (playbackState) {
+                            Player.STATE_ENDED -> {
+                                scope.launch { persistProgressAsync(completed = true) }
+                                updateStatus("Ended")
+                            }
+                            Player.STATE_BUFFERING -> refreshUiState()
+                            Player.STATE_READY -> refreshUiState()
                         }
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        refreshUiState()
                         if (!isPlaying &&
                             player.playbackState != Player.STATE_ENDED &&
                             player.mediaItemCount > 0 &&
@@ -89,18 +156,32 @@ class PlumPlayerController(
                             scope.launch { persistProgressAsync(completed = false) }
                         }
                     }
+
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        refreshUiState()
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        refreshUiState()
+                    }
+
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        updateError(error.message ?: "Playback error")
+                        updateStatus("Error")
+                    }
                 },
             )
         }
 
         scope.launch {
-            playbackRepository.createSession(mediaId, audioIndex = -1).fold(
-                onSuccess = { applyInitialSession(it) },
-                onFailure = { e ->
-                    _error.value = e.message ?: "Playback failed"
-                    _status.value = "Error"
-                },
-            )
+            openMedia(mediaId = mediaId, resumeSec = resumeSec)
+        }
+
+        if (libraryId != null && !showKey.isNullOrBlank()) {
+            queueLoadJob =
+                scope.launch {
+                    loadEpisodeQueue(libraryId, showKey)
+                }
         }
 
         wsCollectJob =
@@ -115,7 +196,8 @@ class PlumPlayerController(
         progressJob =
             scope.launch {
                 while (isActive) {
-                    delay(10_000)
+                    delay(1_000)
+                    refreshUiState()
                     if (player.isPlaying) {
                         launch { persistProgressAsync(completed = false) }
                     }
@@ -123,46 +205,235 @@ class PlumPlayerController(
             }
     }
 
+    private fun updateStatus(value: String) {
+        _status.value = value
+        refreshUiState(statusOverride = value)
+    }
+
+    private fun updateError(value: String?) {
+        _error.value = value
+        refreshUiState(errorOverride = value)
+    }
+
+    private fun currentQueueItem(): PlayerQueueItem? =
+        episodeQueue.getOrNull(queueIndex)
+
+    private fun currentDurationMs(): Long {
+        val durationMs = player.duration
+        if (durationMs > 0 && durationMs != C.TIME_UNSET) return durationMs
+        return if (lastDurationSec > 0) (lastDurationSec * 1000).toLong() else 0L
+    }
+
+    private fun refreshUiState(
+        statusOverride: String? = null,
+        errorOverride: String? = null,
+    ) {
+        val item = currentQueueItem()
+        val title = item?.title ?: "Playing"
+        val subtitle = item?.subtitle
+        val durationMs = currentDurationMs()
+        val positionMs = player.currentPosition.coerceAtLeast(0)
+        val status = statusOverride ?: _status.value
+        val error = errorOverride ?: _error.value
+        _uiState.value =
+            PlayerUiState(
+                title = title,
+                subtitle = subtitle,
+                status = status,
+                error = error,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                isPlaying = player.isPlaying,
+                isBuffering = player.playbackState == Player.STATE_BUFFERING,
+                canPrev = queueIndex > 0 || positionMs > 0,
+                canNext = queueIndex >= 0 && queueIndex < episodeQueue.lastIndex,
+                canCycleAudio = findFirstTrackGroup(C.TRACK_TYPE_AUDIO)?.length?.let { it > 1 } == true || embeddedAudioTracks.size > 1,
+                canCycleSubtitles = embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT)?.length?.let { it > 0 } == true,
+                audioTrackLabel = currentAudioTrackLabel(),
+                subtitleTrackLabel = currentSubtitleTrackLabel(),
+                queueIndex = queueIndex,
+                queueSize = episodeQueue.size,
+            )
+    }
+
+    private fun buildEpisodeQueue(response: ShowEpisodesResponseJson): List<PlayerQueueItem> {
+        return response.seasons.flatMap { season ->
+            season.episodes.map { episode ->
+                val seasonNo = episode.season
+                val episodeNo = episode.episode
+                val label =
+                    when {
+                        seasonNo != null && episodeNo != null ->
+                            "S${seasonNo.toString().padStart(2, '0')}E${episodeNo.toString().padStart(2, '0')}"
+                        seasonNo != null -> "Season $seasonNo"
+                        else -> null
+                    }
+                PlayerQueueItem(
+                    mediaId = episode.id,
+                    title = episode.title,
+                    subtitle = label,
+                )
+            }
+        }
+    }
+
+    private suspend fun loadEpisodeQueue(libraryId: Int, showKey: String) {
+        browseRepository.showEpisodes(libraryId, showKey).fold(
+            onSuccess = { response ->
+                episodeQueue = buildEpisodeQueue(response)
+                queueIndex = episodeQueue.indexOfFirst { it.mediaId == mediaId }
+                refreshUiState()
+            },
+            onFailure = {
+                episodeQueue = emptyList()
+                queueIndex = -1
+                refreshUiState()
+            },
+        )
+    }
+
     private fun applyTrackMetadata(session: PlaybackSessionJson) {
         embeddedAudioTracks = session.embeddedAudioTracks.orEmpty()
+        embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
     }
 
-    private suspend fun applyInitialSession(session: PlaybackSessionJson) {
-        applyTrackMetadata(session)
-        when {
-            session.delivery == "direct" -> {
-                hlsSessionId = null
-                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                activeStreamUrl = url
-                lastDurationSec = session.durationSeconds
-                loadAndPlay(url)
-                _status.value = "Playing"
-            }
+    private fun currentAudioTrackLabel(): String? {
+        val sid = hlsSessionId
+        if (sid != null && embeddedAudioTracks.isNotEmpty()) {
+            val current = embeddedAudioTracks.firstOrNull { it.streamIndex == serverAudioIndex } ?: embeddedAudioTracks.firstOrNull()
+            return current?.displayLabel() ?: "Track ${serverAudioIndex + 1}"
+        }
 
-            session.delivery == "remux" || session.delivery == "transcode" -> {
-                val sid =
-                    session.sessionId ?: run {
-                        _error.value = "Missing session id"
-                        return
-                    }
-                hlsSessionId = sid
-                wsManager.sendAttach(sid)
-                if (session.status == "ready") {
-                    val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                    activeStreamUrl = url
-                    lastDurationSec = session.durationSeconds
-                    loadAndPlay(url)
-                    _status.value = "Playing"
-                } else {
-                    _status.value = "Preparing stream…"
-                }
-            }
-
-            else -> {
-                _error.value = "Unknown delivery: ${session.delivery}"
+        val group = findFirstTrackGroup(C.TRACK_TYPE_AUDIO) ?: return null
+        for (j in 0 until group.length) {
+            if (group.isTrackSelected(j)) {
+                return group.mediaTrackGroup.getFormat(j).displayLabel() ?: "Track ${j + 1}"
             }
         }
+        return null
+    }
+
+    private fun currentSubtitleTrackLabel(): String? {
+        if (embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT) != null) {
+            val group = findFirstTrackGroup(C.TRACK_TYPE_TEXT)
+            if (group != null) {
+                for (j in 0 until group.length) {
+                    if (group.isTrackSelected(j)) {
+                        return group.mediaTrackGroup.getFormat(j).displayLabel() ?: "Track ${j + 1}"
+                    }
+                }
+            }
+            return "Off"
+        }
+        return null
+    }
+
+    private fun EmbeddedAudioTrackJson.displayLabel(): String? =
+        listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+
+    private fun EmbeddedSubtitleJson.displayLabel(): String? =
+        listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+
+    private fun androidx.media3.common.Format.displayLabel(): String? =
+        listOfNotNull(label?.trim()?.takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+
+    private fun languageLabel(language: String?): String? {
+        val trimmed = language?.trim().orEmpty()
+        if (trimmed.isEmpty()) return null
+        return trimmed.uppercase()
+    }
+
+    private suspend fun buildMediaItem(streamUrl: String): MediaItem {
+        val subtitleConfigurations =
+            embeddedSubtitleTracks.map { subtitle ->
+                val subtitleUrl =
+                    playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+                val builder =
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                        .setMimeType(MimeTypes.TEXT_VTT)
+                if (subtitle.language.isNotBlank()) {
+                    builder.setLanguage(subtitle.language)
+                }
+                if (subtitle.title.isNotBlank()) {
+                    builder.setLabel(subtitle.title)
+                }
+                builder.build()
+            }
+
+        return MediaItem.Builder()
+            .setUri(streamUrl)
+            .setSubtitleConfigurations(subtitleConfigurations)
+            .build()
+    }
+
+    private suspend fun createAndLoadMedia(mediaId: Int, resumeSec: Float) {
+        val audioIndex = serverAudioIndex.takeIf { it >= 0 }
+        playbackRepository.createSession(mediaId, audioIndex = audioIndex).fold(
+            onSuccess = { session ->
+                applyTrackMetadata(session)
+                when (session.delivery) {
+                    "direct" -> {
+                        hlsSessionId = null
+                        val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                        activeStreamUrl = url
+                        lastDurationSec = session.durationSeconds
+                        loadAndPlay(url, resumeSec)
+                        updateStatus("Playing")
+                    }
+                    "remux", "transcode" -> {
+                        val sid =
+                            session.sessionId ?: run {
+                                updateError("Missing session id")
+                                updateStatus("Error")
+                                return
+                            }
+                        hlsSessionId = sid
+                        wsManager.sendAttach(sid)
+                        if (session.status == "ready") {
+                            val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                            activeStreamUrl = url
+                            lastDurationSec = session.durationSeconds
+                            loadAndPlay(url, resumeSec)
+                            updateStatus("Playing")
+                        } else {
+                            updateStatus("Preparing stream…")
+                        }
+                    }
+                    else -> {
+                        updateError("Unknown delivery: ${session.delivery}")
+                        updateStatus("Error")
+                    }
+                }
+            },
+            onFailure = { e ->
+                updateError(e.message ?: "Playback failed")
+                updateStatus("Error")
+            },
+        )
+        refreshUiState()
+    }
+
+    private suspend fun openMedia(mediaId: Int, resumeSec: Float) {
+        updateError(null)
+        refreshUiState(statusOverride = "Preparing stream…", errorOverride = null)
+        createAndLoadMedia(mediaId, resumeSec)
+    }
+
+    private suspend fun switchToMedia(mediaId: Int, resumeSec: Float = 0f) {
+        if (this.mediaId == mediaId && hlsSessionId != null) return
+        val previousMediaId = this.mediaId
+        val previousSessionId = hlsSessionId
+        persistProgressAsync(completed = false, mediaIdOverride = previousMediaId)
+        previousSessionId?.let { sid ->
+            runCatching { wsManager.sendDetach(sid) }
+            runCatching { playbackRepository.closeSession(sid) }
+        }
+        this.mediaId = mediaId
+        queueIndex = episodeQueue.indexOfFirst { it.mediaId == mediaId }
+        activeStreamUrl = null
+        hlsSessionId = null
+        openMedia(mediaId, resumeSec)
     }
 
     private suspend fun handleSessionUpdate(ev: PlaybackSessionUpdateEventJson) {
@@ -173,11 +444,12 @@ class PlumPlayerController(
                 if (url != activeStreamUrl) {
                     activeStreamUrl = url
                     lastDurationSec = ev.durationSeconds
+                    val mediaItem = buildMediaItem(url)
                     withContext(Dispatchers.Main) {
                         val hadMedia = player.mediaItemCount > 0
                         val wasPlaying = player.isPlaying || player.playWhenReady
                         val pos = player.currentPosition
-                        player.setMediaItem(MediaItem.fromUri(url))
+                        player.setMediaItem(mediaItem)
                         player.prepare()
                         if (hadMedia) {
                             player.seekTo(pos)
@@ -190,34 +462,37 @@ class PlumPlayerController(
                         }
                     }
                 }
-                _status.value = "Playing"
+                updateStatus("Playing")
             }
-
             "error" -> {
-                _error.value = ev.error ?: "Playback error"
-                _status.value = "Error"
+                updateError(ev.error ?: "Playback error")
+                updateStatus("Error")
             }
-
             "closed" -> {
-                _status.value = "Ended"
+                updateStatus("Ended")
             }
-
-            else -> _status.value = "Preparing…"
+            else -> updateStatus("Preparing…")
         }
     }
 
-    private suspend fun loadAndPlay(url: String) {
+    private suspend fun loadAndPlay(url: String, resumeSec: Float) {
+        val mediaItem = buildMediaItem(url)
         withContext(Dispatchers.Main) {
-            player.setMediaItem(MediaItem.fromUri(url))
+            player.setMediaItem(mediaItem)
             player.prepare()
             if (resumeSec > 0f) {
                 player.seekTo((resumeSec * 1000).toLong())
             }
             player.playWhenReady = true
         }
+        refreshUiState()
     }
 
-    private suspend fun persistProgressAsync(completed: Boolean) {
+    private suspend fun persistProgressAsync(
+        completed: Boolean,
+        mediaIdOverride: Int? = null,
+    ) {
+        val targetMediaId = mediaIdOverride ?: mediaId
         val (posMs, durMs) =
             withContext(Dispatchers.Main) { player.currentPosition to player.duration }
 
@@ -232,11 +507,67 @@ class PlumPlayerController(
         withContext(Dispatchers.IO) {
             runCatching {
                 playbackRepository.updateProgress(
-                    mediaId,
+                    targetMediaId,
                     positionSec = posSec,
                     durationSec = durSec,
                     completed = completed,
                 )
+            }
+        }
+    }
+
+    fun togglePlayPause() {
+        scope.launch(Dispatchers.Main) {
+            if (player.isPlaying) {
+                player.pause()
+            } else {
+                player.play()
+            }
+            refreshUiState()
+        }
+    }
+
+    fun seekBy(deltaMs: Long) {
+        scope.launch(Dispatchers.Main) {
+            val duration = currentDurationMs()
+            val next = (player.currentPosition + deltaMs).coerceIn(0L, duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
+            player.seekTo(next)
+            refreshUiState()
+        }
+    }
+
+    fun rewind10() {
+        seekBy(-10_000)
+    }
+
+    fun forward10() {
+        seekBy(10_000)
+    }
+
+    fun previousEpisode() {
+        scope.launch {
+            val currentPosition = withContext(Dispatchers.Main) { player.currentPosition }
+            val prev = if (queueIndex > 0 && currentPosition <= RESTART_PREVIOUS_THRESHOLD_MS) {
+                episodeQueue.getOrNull(queueIndex - 1)
+            } else {
+                null
+            }
+            if (prev != null) {
+                switchToMedia(prev.mediaId, 0f)
+            } else {
+                scope.launch(Dispatchers.Main) {
+                    player.seekTo(0)
+                    refreshUiState()
+                }
+            }
+        }
+    }
+
+    fun nextEpisode() {
+        scope.launch {
+            val next = if (queueIndex >= 0 && queueIndex < episodeQueue.lastIndex) episodeQueue.getOrNull(queueIndex + 1) else null
+            if (next != null) {
+                switchToMedia(next.mediaId, 0f)
             }
         }
     }
@@ -261,11 +592,13 @@ class PlumPlayerController(
 
                 val result = withContext(Dispatchers.IO) { playbackRepository.updateSessionAudio(sid, next) }
                 result.onFailure { e ->
-                    _error.value = e.message ?: "Audio switch failed"
+                    updateError(e.message ?: "Audio switch failed")
                 }
+                refreshUiState()
                 return@launch
             }
             cycleExoPlayerTrackType(C.TRACK_TYPE_AUDIO)
+            refreshUiState()
         }
     }
 
@@ -301,6 +634,7 @@ class PlumPlayerController(
                 builder.addOverride(TrackSelectionOverride(mg, listOf(next)))
             }
             player.trackSelectionParameters = builder.build()
+            refreshUiState()
         }
     }
 
@@ -341,9 +675,11 @@ class PlumPlayerController(
     fun close() {
         progressJob?.cancel()
         wsCollectJob?.cancel()
+        queueLoadJob?.cancel()
 
         hlsSessionId?.let { wsManager.sendDetach(it) }
         val sid = hlsSessionId
+        val closingMediaId = mediaId
 
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             val (posMs, durMs, state) =
@@ -363,7 +699,7 @@ class PlumPlayerController(
                 val ended = state == Player.STATE_ENDED
 
                 withContext(Dispatchers.IO) {
-                    runCatching { playbackRepository.updateProgress(mediaId, posSec, durSec, ended) }
+                    runCatching { playbackRepository.updateProgress(closingMediaId, posSec, durSec, ended) }
                     runCatching { sid?.let { playbackRepository.closeSession(it) } }
                 }
             }

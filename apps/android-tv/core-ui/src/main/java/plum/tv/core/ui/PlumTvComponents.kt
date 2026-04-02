@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class PlumButtonVariant {
     Primary,
@@ -47,7 +49,7 @@ enum class PlumButtonVariant {
 data class PlumRailItem(
     val key: String,
     val label: String,
-    val badge: String,
+    val icon: ImageVector,
     val selected: Boolean,
     val onClick: () -> Unit,
     val dividerAfter: Boolean = false,
@@ -144,12 +146,41 @@ fun PlumPanel(
 }
 
 @Composable
+fun PlumStatePanel(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    actions: @Composable (() -> Unit)? = null,
+) {
+    PlumPanel(
+        modifier = modifier,
+        contentPadding = PaddingValues(18.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = title,
+                style = PlumTheme.typography.titleLarge,
+                color = PlumTheme.palette.text,
+            )
+            Text(
+                text = message,
+                style = PlumTheme.typography.bodyMedium,
+                color = PlumTheme.palette.muted,
+            )
+            actions?.invoke()
+        }
+    }
+}
+
+@Composable
 fun PlumActionButton(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     variant: PlumButtonVariant = PlumButtonVariant.Primary,
+    leadingIcon: ImageVector? = null,
     leadingBadge: String? = null,
+    enabled: Boolean = true,
 ) {
     val palette = PlumTheme.palette
     val shape = RoundedCornerShape(PlumTheme.metrics.buttonRadius)
@@ -179,6 +210,7 @@ fun PlumActionButton(
         }
     Surface(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.wrapContentHeight(),
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
@@ -191,35 +223,45 @@ fun PlumActionButton(
                 pressedContentColor = focusedContentColor,
                 disabledContainerColor = palette.surface,
                 disabledContentColor = palette.muted,
-            ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(if (variant == PlumButtonVariant.Ghost) Color.Transparent else palette.border, if (variant == PlumButtonVariant.Ghost) 0.dp else 1.dp, shape),
                 focusedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
                 pressedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accentGlow, 14.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            if (leadingBadge != null) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(24.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (variant == PlumButtonVariant.Primary) palette.panelAlt else palette.accentSoft),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = leadingBadge,
-                        style = PlumTheme.typography.labelSmall,
-                        color = palette.textSecondary,
+            when {
+                leadingIcon != null -> {
+                    Icon(
+                        imageVector = leadingIcon,
+                        contentDescription = null,
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(17.dp),
                     )
+                }
+                leadingBadge != null -> {
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(24.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (variant == PlumButtonVariant.Primary) palette.panelAlt else palette.accentSoft),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = leadingBadge,
+                            style = PlumTheme.typography.labelSmall,
+                            color = palette.textSecondary,
+                        )
+                    }
                 }
             }
             Text(
@@ -286,14 +328,14 @@ fun PlumPosterCard(
                 disabledContainerColor = palette.panel,
                 disabledContentColor = palette.muted,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
                 focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 2.dp, shape),
                 pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 2.dp, shape),
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accentGlow, 22.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
         Box(
             modifier = Modifier
@@ -490,13 +532,13 @@ private fun PlumRailButton(item: PlumRailItem) {
                 pressedContainerColor = palette.surfaceHover,
                 pressedContentColor = palette.text,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
                 focusedBorder = plumBorder(palette.borderStrong, 1.5.dp, shape),
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accentGlow, 12.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
         Box(
             modifier = Modifier
@@ -517,11 +559,11 @@ private fun PlumRailButton(item: PlumRailItem) {
                             .background(if (item.selected) palette.accentSoft else palette.surface),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = item.badge,
-                        style = PlumTheme.typography.labelSmall,
-                        fontWeight = if (item.selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (item.selected) palette.accent else palette.muted,
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
+                        tint = if (item.selected) palette.accent else palette.muted,
+                        modifier = Modifier.size(15.dp),
                     )
                 }
                 Text(

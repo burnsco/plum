@@ -22,6 +22,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Tv
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -60,7 +68,7 @@ private object Routes {
     const val LIBRARY_BROWSE = "library/{libraryId}/browse"
     const val MOVIE = "movie/{libraryId}/{mediaId}"
     const val SHOW = "show/{libraryId}/{showKey}"
-    const val PLAY = "play/{mediaId}?resume={resume}"
+    const val PLAY = "play/{mediaId}?resume={resume}&libraryId={libraryId}&showKey={showKey}"
 }
 
 @UnstableApi
@@ -94,8 +102,18 @@ fun MainNavHost(
         onDispose { webSocketManager.stop() }
     }
 
-    fun navigatePlay(mediaId: Int, resumeSec: Float = 0f) {
-        navController.navigate("play/$mediaId?resume=$resumeSec")
+    fun navigatePlay(
+        mediaId: Int,
+        resumeSec: Float = 0f,
+        libraryId: Int? = null,
+        showKey: String? = null,
+    ) {
+        val params = buildList {
+            add("resume=$resumeSec")
+            add("libraryId=${libraryId ?: -1}")
+            add("showKey=${Uri.encode(showKey.orEmpty())}")
+        }
+        navController.navigate("play/$mediaId?${params.joinToString("&")}")
     }
 
     val railItems =
@@ -103,21 +121,21 @@ fun MainNavHost(
             PlumRailItem(
                 key = Routes.HOME,
                 label = "Home",
-                badge = "H",
+                icon = Icons.Filled.Home,
                 selected = currentRoute == Routes.HOME,
                 onClick = { goToRoot(navController, Routes.HOME) },
             ),
             PlumRailItem(
                 key = Routes.DISCOVER,
                 label = "Discover",
-                badge = "D",
+                icon = Icons.Filled.Explore,
                 selected = currentRoute == Routes.DISCOVER || currentRoute.startsWith("discover/"),
                 onClick = { goToRoot(navController, Routes.DISCOVER) },
             ),
             PlumRailItem(
                 key = Routes.DOWNLOADS,
                 label = "Downloads",
-                badge = "DL",
+                icon = Icons.Filled.Download,
                 selected = currentRoute == Routes.DOWNLOADS || currentRoute.startsWith("downloads"),
                 onClick = { goToRoot(navController, Routes.DOWNLOADS) },
                 dividerAfter = true,
@@ -125,7 +143,7 @@ fun MainNavHost(
             PlumRailItem(
                 key = "library-tv",
                 label = "TV",
-                badge = "TV",
+                icon = Icons.Filled.Tv,
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "tv") ||
                         browseRailType == "tv",
@@ -143,7 +161,7 @@ fun MainNavHost(
             PlumRailItem(
                 key = "library-movies",
                 label = "Movies",
-                badge = "MV",
+                icon = Icons.Filled.Movie,
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "movie") ||
                         browseRailType == "movie",
@@ -161,7 +179,7 @@ fun MainNavHost(
             PlumRailItem(
                 key = "library-anime",
                 label = "Anime",
-                badge = "AN",
+                icon = Icons.Filled.Animation,
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "anime") ||
                         browseRailType == "anime",
@@ -179,7 +197,7 @@ fun MainNavHost(
             PlumRailItem(
                 key = "library-music",
                 label = "Music",
-                badge = "MU",
+                icon = Icons.Filled.MusicNote,
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "music") ||
                         browseRailType == "music",
@@ -353,7 +371,9 @@ fun MainNavHost(
                     ) {
                         ShowDetailRoute(
                             onBack = { navController.popBackStack() },
-                            onPlayEpisode = { mediaId, resumeSec -> navigatePlay(mediaId, resumeSec) },
+                            onPlayEpisode = { mediaId, resumeSec, showLibraryId, showKey ->
+                                navigatePlay(mediaId, resumeSec, libraryId = showLibraryId, showKey = showKey)
+                            },
                         )
                     }
                     composable(
@@ -363,6 +383,14 @@ fun MainNavHost(
                             navArgument("resume") {
                                 type = NavType.FloatType
                                 defaultValue = 0f
+                            },
+                            navArgument("libraryId") {
+                                type = NavType.IntType
+                                defaultValue = -1
+                            },
+                            navArgument("showKey") {
+                                type = NavType.StringType
+                                defaultValue = ""
                             },
                         ),
                     ) {

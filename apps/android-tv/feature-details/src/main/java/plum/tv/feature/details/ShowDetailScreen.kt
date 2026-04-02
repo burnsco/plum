@@ -47,7 +47,7 @@ import plum.tv.core.ui.resolveArtworkUrl
 @Composable
 fun ShowDetailRoute(
     onBack: () -> Unit,
-    onPlayEpisode: (mediaId: Int, resumeSec: Float) -> Unit,
+    onPlayEpisode: (mediaId: Int, resumeSec: Float, libraryId: Int, showKey: String) -> Unit,
     viewModel: ShowDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -177,16 +177,16 @@ fun ShowDetailRoute(
                         PlumSectionHeader("Episodes")
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             selectedEpisodes.forEach { ep ->
-                                EpisodeRow(
-                                    ep = ep,
-                                    serverBase = serverBase,
-                                    onPlay = {
-                                        val resume = (ep.progressSeconds ?: 0.0).toFloat()
-                                        onPlayEpisode(ep.id, resume)
-                                    },
-                                )
+                                    EpisodeRow(
+                                        ep = ep,
+                                        serverBase = serverBase,
+                                        onPlay = {
+                                            val resume = (ep.progressSeconds ?: 0.0).toFloat()
+                                            onPlayEpisode(ep.id, resume, d.libraryId, d.showKey)
+                                        },
+                                    )
+                                }
                             }
-                        }
                     }
 
                     // Cast section

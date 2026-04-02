@@ -1,7 +1,9 @@
 package plum.tv.feature.library
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -13,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,6 +32,7 @@ import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
 import plum.tv.core.ui.PlumTheme
+import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.resolveImageUrl
 
@@ -41,7 +45,7 @@ fun LibraryBrowseRoute(
     val state by viewModel.state.collectAsState()
     val gridState = rememberLazyGridState()
     val metrics = PlumTheme.metrics
-    val minCell = metrics.posterWidth + metrics.cardGap + 8.dp
+    val minCell = metrics.posterCompactWidth + metrics.cardGap + 6.dp
 
     LaunchedEffect(gridState, state) {
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
@@ -57,44 +61,49 @@ fun LibraryBrowseRoute(
     }
 
     when (val s = state) {
-        is LibraryBrowseUiState.Loading -> Text("Loading...", modifier = Modifier.padding(48.dp))
-        is LibraryBrowseUiState.Error -> {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(1),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PlumScreenPadding(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                item {
-                    PlumScreenTitle("Library", "We could not load this library right now.")
-                }
-                item {
-                    Text(s.message, color = PlumTheme.palette.muted)
-                }
-                item {
+        is LibraryBrowseUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Loading library",
+                message = "Scanning the shelf and grouping titles.",
+            )
+        }
+        is LibraryBrowseUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Could not load this library",
+                message = s.message,
+                actions = {
                     PlumActionButton(
                         label = "Retry",
                         onClick = { viewModel.loadInitial() },
                         variant = PlumButtonVariant.Primary,
                         leadingBadge = "R",
                     )
-                }
-            }
+                },
+            )
         }
         is LibraryBrowseUiState.Ready -> LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = minCell),
             state = gridState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PlumScreenPadding(),
-            horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap),
-            verticalArrangement = Arrangement.spacedBy(PlumTheme.metrics.sectionGap),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 PlumScreenTitle(
                     title = "Library",
-                    subtitle = "Browse your collection in the same refined Plum style as the web app.",
-                    modifier = Modifier.padding(bottom = 8.dp),
+                    subtitle = "Browse your collection with a tighter poster grid.",
+                    modifier = Modifier.padding(bottom = 4.dp),
                 )
+            }
+            if (s.rows.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    PlumStatePanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = "No titles in this library",
+                        message = "This shelf is empty or still syncing from the server.",
+                    )
+                }
             }
             itemsIndexed(
                 s.rows,
@@ -142,6 +151,7 @@ private fun BrowseMoviePosterCard(
                 ?: item.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: item.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
+        compact = true,
     )
 }
 
@@ -162,5 +172,6 @@ private fun BrowseShowPosterCard(
                 ?: ep.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: ep.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
+        compact = true,
     )
 }

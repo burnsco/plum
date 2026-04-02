@@ -54,6 +54,7 @@ import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
 import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumTheme
+import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.plumOutlinedFieldColors
 
@@ -81,19 +82,26 @@ fun DiscoverRoute(
 
     when (val s = state) {
         is DiscoverUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading discover...", color = PlumTheme.palette.muted)
+            PlumStatePanel(
+                title = "Loading discover",
+                message = "Pulling in shelves, genres, and featured titles.",
+            )
         }
-        is DiscoverUiState.Error -> Column(
-            modifier = Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton("Retry", onClick = { viewModel.refresh() }, leadingBadge = "R")
+        is DiscoverUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Could not load discover",
+                message = s.message,
+                actions = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PlumActionButton("Retry", onClick = { viewModel.refresh() }, leadingBadge = "R")
+                    }
+                },
+            )
         }
         is DiscoverUiState.Ready -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PlumScreenPadding(),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
                 DiscoverHeader(onOpenBrowse = onOpenBrowse)
@@ -119,13 +127,13 @@ fun DiscoverRoute(
 
 @Composable
 private fun DiscoverHeader(onOpenBrowse: (String?, String?, Int?) -> Unit) {
-    PlumPanel {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    PlumPanel(contentPadding = PaddingValues(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PlumScreenTitle(
                 title = "Discover",
-                subtitle = "Browse TMDb shelves, filter by genre, and open title detail pages.",
+                subtitle = "Browse shelves, filter genres, and jump into title detail.",
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PlumActionButton("Browse All", onClick = { onOpenBrowse(null, null, null) }, leadingBadge = "B")
                 discoverCategoryOptions.take(3).forEach { option ->
                     PlumActionButton(
@@ -149,8 +157,8 @@ private fun DiscoverGenres(
     val hasTv = tvGenres.isNotEmpty()
     if (!hasMovie && !hasTv) return
 
-    PlumPanel {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    PlumPanel(contentPadding = PaddingValues(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PlumSectionHeader(title = "Browse by Genre", subtitle = "Jump straight into a catalog slice.")
             if (hasMovie) {
                 DiscoverGenreRow("Movies", movieGenres, "movie", onOpenBrowse)
@@ -169,13 +177,13 @@ private fun DiscoverGenreRow(
     mediaType: String,
     onOpenBrowse: (String?, String?, Int?) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = title,
             style = PlumTheme.typography.labelLarge,
             color = PlumTheme.palette.textSecondary,
         )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(genres, key = { it.id }) { genre ->
                 PlumActionButton(
                     label = genre.name,
@@ -195,15 +203,9 @@ private fun DiscoverShelfRow(
     onOpenTitle: (mediaType: String, tmdbId: Int) -> Unit,
 ) {
     if (items.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PlumSectionHeader(title = title)
-        }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        PlumSectionHeader(title = title)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
                 DiscoverPosterCard(
                     item = item,
@@ -249,26 +251,33 @@ fun DiscoverBrowseRoute(
 
     when (val s = state) {
         is DiscoverBrowseUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading browse...", color = PlumTheme.palette.muted)
+            PlumStatePanel(
+                title = "Loading browse",
+                message = "Sharpening the filter set and loading titles.",
+            )
         }
-        is DiscoverBrowseUiState.Error -> Column(
-            modifier = Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton("Retry", onClick = { viewModel.refresh(category, mediaType, genreId) }, leadingBadge = "R")
+        is DiscoverBrowseUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Could not load browse",
+                message = s.message,
+                actions = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PlumActionButton("Retry", onClick = { viewModel.refresh(category, mediaType, genreId) }, leadingBadge = "R")
+                    }
+                },
+            )
         }
         is DiscoverBrowseUiState.Ready -> Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            PlumPanel {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            PlumPanel(contentPadding = PaddingValues(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PlumScreenTitle(
                         title = s.title,
                         subtitle = "${s.totalResults} titles",
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
                     }
                 }
@@ -285,9 +294,11 @@ fun DiscoverBrowseRoute(
             )
 
             if (s.items.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No titles found.", color = PlumTheme.palette.muted)
-                }
+                PlumStatePanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    title = "No titles found",
+                    message = "Try a different category, media type, or genre filter.",
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -319,66 +330,86 @@ private fun DiscoverBrowseFilters(
     genres: List<DiscoverGenreJson>,
     onChange: (String?, String?, Int?) -> Unit,
 ) {
-    PlumPanel {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(
-                text = "Filters",
-                style = PlumTheme.typography.labelLarge,
-                color = PlumTheme.palette.textSecondary,
+    PlumPanel(contentPadding = PaddingValues(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            PlumSectionHeader(
+                title = "Browse filters",
+                subtitle = "Refine the shelf without losing your place.",
             )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    PlumActionButton(
-                        label = "All",
-                        onClick = { onChange(null, mediaType, null) },
-                        variant = if (category == null && genre == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
-                    )
-                }
-                discoverCategoryOptions.forEach { option ->
+            DiscoverFilterGroup(title = "Catalog") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         PlumActionButton(
-                            label = option.label,
-                            onClick = { onChange(option.id, mediaType, null) },
-                            variant = if (category == option.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                            label = "All",
+                            onClick = { onChange(null, mediaType, null) },
+                            variant = if (category == null && genre == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                        )
+                    }
+                    discoverCategoryOptions.forEach { option ->
+                        item {
+                            PlumActionButton(
+                                label = option.label,
+                                onClick = { onChange(option.id, mediaType, null) },
+                                variant = if (category == option.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                            )
+                        }
+                    }
+                }
+            }
+            DiscoverFilterGroup(title = "Media") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        PlumActionButton(
+                            label = "Movies",
+                            onClick = { onChange(category, "movie", genre?.id) },
+                            variant = if (mediaType == "movie") PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                        )
+                    }
+                    item {
+                        PlumActionButton(
+                            label = "TV",
+                            onClick = { onChange(category, "tv", genre?.id) },
+                            variant = if (mediaType == "tv") PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                        )
+                    }
+                    item {
+                        PlumActionButton(
+                            label = "Clear Genre",
+                            onClick = { onChange(category, mediaType, null) },
+                            variant = if (genre == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
                         )
                     }
                 }
             }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    PlumActionButton(
-                        label = "Movies",
-                        onClick = { onChange(category, "movie", genre?.id) },
-                        variant = if (mediaType == "movie") PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
-                    )
-                }
-                item {
-                    PlumActionButton(
-                        label = "TV",
-                        onClick = { onChange(category, "tv", genre?.id) },
-                        variant = if (mediaType == "tv") PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
-                    )
-                }
-                item {
-                    PlumActionButton(
-                        label = "Clear Genre",
-                        onClick = { onChange(category, mediaType, null) },
-                        variant = if (genre == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
-                    )
-                }
-            }
             if (genres.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(genres, key = { it.id }) { g ->
-                        PlumActionButton(
-                            label = g.name,
-                            onClick = { onChange(category, mediaType, g.id) },
-                            variant = if (genre?.id == g.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
-                        )
+                DiscoverFilterGroup(title = "Genre") {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(genres, key = { it.id }) { g ->
+                            PlumActionButton(
+                                label = g.name,
+                                onClick = { onChange(category, mediaType, g.id) },
+                                variant = if (genre?.id == g.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DiscoverFilterGroup(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            style = PlumTheme.typography.labelLarge,
+            color = PlumTheme.palette.textSecondary,
+        )
+        content()
     }
 }
 
@@ -400,15 +431,22 @@ fun DiscoverDetailRoute(
 
     when (val s = state) {
         is DiscoverDetailUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading title...", color = PlumTheme.palette.muted)
+            PlumStatePanel(
+                title = "Loading title",
+                message = "Fetching artwork, metadata, and library matches.",
+            )
         }
-        is DiscoverDetailUiState.Error -> Column(
-            modifier = Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton("Retry", onClick = { viewModel.refresh(mediaType, tmdbId) }, leadingBadge = "R")
-            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
+        is DiscoverDetailUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Could not load title",
+                message = s.message,
+                actions = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PlumActionButton("Retry", onClick = { viewModel.refresh(mediaType, tmdbId) }, leadingBadge = "R")
+                        PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
+                    }
+                },
+            )
         }
         is DiscoverDetailUiState.Ready -> {
             val d = s.details
@@ -555,14 +593,19 @@ fun DownloadsRoute(
 
     when (val s = state) {
         is DownloadsUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading downloads...", color = PlumTheme.palette.muted)
+            PlumStatePanel(
+                title = "Loading downloads",
+                message = "Checking the Radarr and Sonarr queues.",
+            )
         }
-        is DownloadsUiState.Error -> Column(
-            modifier = Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton("Retry", onClick = { viewModel.refresh() }, leadingBadge = "R")
+        is DownloadsUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Could not load downloads",
+                message = s.message,
+                actions = {
+                    PlumActionButton("Retry", onClick = { viewModel.refresh() }, leadingBadge = "R")
+                },
+            )
         }
         is DownloadsUiState.Ready -> Column(
             modifier = Modifier.fillMaxSize(),
@@ -579,25 +622,17 @@ fun DownloadsRoute(
             }
 
             when {
-                !s.configured -> PlumPanel {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Media stack not configured", color = PlumTheme.palette.text)
-                        Text(
-                            "Connect Radarr and Sonarr TV on the server to see download activity.",
-                            color = PlumTheme.palette.muted,
-                        )
+                !s.configured -> PlumStatePanel(
+                    title = "Media stack not configured",
+                    message = "Connect Radarr and Sonarr TV on the server to see download activity.",
+                    actions = {
                         PlumActionButton("Open Settings", onClick = onOpenSettings)
-                    }
-                }
-                s.items.isEmpty() -> PlumPanel {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("No active downloads", color = PlumTheme.palette.text)
-                        Text(
-                            "New items you add from Discover will show up here while the stack is working on them.",
-                            color = PlumTheme.palette.muted,
-                        )
-                    }
-                }
+                    },
+                )
+                s.items.isEmpty() -> PlumStatePanel(
+                    title = "No active downloads",
+                    message = "New items you add from Discover will show up here while the stack is working on them.",
+                )
                 else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     s.items.forEach { item ->
                         DownloadRow(item)

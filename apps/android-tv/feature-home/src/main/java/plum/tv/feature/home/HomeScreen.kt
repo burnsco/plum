@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -221,10 +222,10 @@ private fun HomeRail(
             top = metrics.sectionGap,
             bottom = if (isLast) metrics.sectionGap else 0.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(end = 36.dp),
+            modifier = Modifier.fillMaxWidth().padding(end = 28.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -237,7 +238,7 @@ private fun HomeRail(
         }
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
-            contentPadding = PaddingValues(end = 36.dp),
+            contentPadding = PaddingValues(end = 28.dp),
         ) {
             content()
         }
@@ -262,7 +263,7 @@ private fun HeroSection(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(300.dp),
+            .height(272.dp),
     ) {
         // Background artwork
         if (heroImageUrl != null) {
@@ -297,13 +298,20 @@ private fun HeroSection(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(horizontal = 36.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 28.dp, vertical = 20.dp)
+                .widthIn(max = 620.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            Text(
+                text = "Continue watching",
+                style = PlumTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.78f),
+                fontWeight = FontWeight.SemiBold,
+            )
             // Show title
             Text(
                 text = media.title,
-                style = PlumTheme.typography.headlineMedium,
+                style = PlumTheme.typography.displaySmall,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
             )
@@ -313,8 +321,8 @@ private fun HeroSection(
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
-                    style = PlumTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.7f),
+                    style = PlumTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.76f),
                 )
             }
 
