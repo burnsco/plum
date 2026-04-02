@@ -172,10 +172,10 @@ Goal: watch media.
 
 ### Transcode Decision Engine
 
-- [ ] client capability detection
-- [ ] transcode decision engine
+- [x] client capability detection
+- [x] transcode decision engine
 - [ ] bitrate adaptation
-- [ ] container compatibility
+- [x] container compatibility
 
 ### Video streaming
 
@@ -392,6 +392,6 @@ Goal: make the system feel professional.
 ### UX improvements
 
 - [ ] keyboard navigation
-- [ ] TV remote navigation
-- [ ] loading states
-- [ ] error states
+- [x] TV remote navigation
+- [x] loading states
+- [x] error states

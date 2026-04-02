@@ -196,6 +196,117 @@ data class ShowEpisodesResponseJson(
     @Json(name = "seasons") val seasons: List<ShowSeasonEpisodesJson> = emptyList(),
 )
 
+data class DiscoverLibraryMatchJson(
+    @Json(name = "library_id") val libraryId: Int,
+    @Json(name = "library_name") val libraryName: String,
+    @Json(name = "library_type") val libraryType: String,
+    @Json(name = "kind") val kind: String,
+    @Json(name = "show_key") val showKey: String? = null,
+)
+
+data class DiscoverAcquisitionJson(
+    @Json(name = "state") val state: String,
+    @Json(name = "source") val source: String? = null,
+    @Json(name = "can_add") val canAdd: Boolean? = null,
+    @Json(name = "is_configured") val isConfigured: Boolean? = null,
+)
+
+data class DiscoverItemJson(
+    @Json(name = "media_type") val mediaType: String,
+    @Json(name = "tmdb_id") val tmdbId: Int,
+    @Json(name = "title") val title: String,
+    @Json(name = "overview") val overview: String? = null,
+    @Json(name = "poster_path") val posterPath: String? = null,
+    @Json(name = "backdrop_path") val backdropPath: String? = null,
+    @Json(name = "release_date") val releaseDate: String? = null,
+    @Json(name = "first_air_date") val firstAirDate: String? = null,
+    @Json(name = "vote_average") val voteAverage: Double? = null,
+    @Json(name = "library_matches") val libraryMatches: List<DiscoverLibraryMatchJson> = emptyList(),
+    @Json(name = "acquisition") val acquisition: DiscoverAcquisitionJson? = null,
+)
+
+data class DiscoverShelfJson(
+    @Json(name = "id") val id: String,
+    @Json(name = "title") val title: String,
+    @Json(name = "items") val items: List<DiscoverItemJson> = emptyList(),
+)
+
+data class DiscoverResponseJson(
+    @Json(name = "shelves") val shelves: List<DiscoverShelfJson> = emptyList(),
+)
+
+data class DiscoverGenreJson(
+    @Json(name = "id") val id: Int,
+    @Json(name = "name") val name: String,
+)
+
+data class DiscoverGenresResponseJson(
+    @Json(name = "movie_genres") val movieGenres: List<DiscoverGenreJson> = emptyList(),
+    @Json(name = "tv_genres") val tvGenres: List<DiscoverGenreJson> = emptyList(),
+)
+
+data class DiscoverSearchResponseJson(
+    @Json(name = "movies") val movies: List<DiscoverItemJson> = emptyList(),
+    @Json(name = "tv") val tv: List<DiscoverItemJson> = emptyList(),
+)
+
+data class DiscoverBrowseResponseJson(
+    @Json(name = "items") val items: List<DiscoverItemJson> = emptyList(),
+    @Json(name = "page") val page: Int,
+    @Json(name = "total_pages") val totalPages: Int,
+    @Json(name = "total_results") val totalResults: Int,
+    @Json(name = "media_type") val mediaType: String? = null,
+    @Json(name = "genre") val genre: DiscoverGenreJson? = null,
+    @Json(name = "category") val category: String? = null,
+)
+
+data class DiscoverTitleVideoJson(
+    @Json(name = "name") val name: String,
+    @Json(name = "site") val site: String,
+    @Json(name = "key") val key: String,
+    @Json(name = "type") val type: String,
+    @Json(name = "official") val official: Boolean? = null,
+)
+
+data class DiscoverTitleDetailsJson(
+    @Json(name = "media_type") val mediaType: String,
+    @Json(name = "tmdb_id") val tmdbId: Int,
+    @Json(name = "title") val title: String,
+    @Json(name = "overview") val overview: String,
+    @Json(name = "poster_path") val posterPath: String? = null,
+    @Json(name = "backdrop_path") val backdropPath: String? = null,
+    @Json(name = "release_date") val releaseDate: String? = null,
+    @Json(name = "first_air_date") val firstAirDate: String? = null,
+    @Json(name = "vote_average") val voteAverage: Double? = null,
+    @Json(name = "imdb_id") val imdbId: String? = null,
+    @Json(name = "imdb_rating") val imdbRating: Double? = null,
+    @Json(name = "status") val status: String? = null,
+    @Json(name = "genres") val genres: List<String> = emptyList(),
+    @Json(name = "runtime") val runtime: Int? = null,
+    @Json(name = "number_of_seasons") val numberOfSeasons: Int? = null,
+    @Json(name = "number_of_episodes") val numberOfEpisodes: Int? = null,
+    @Json(name = "videos") val videos: List<DiscoverTitleVideoJson> = emptyList(),
+    @Json(name = "library_matches") val libraryMatches: List<DiscoverLibraryMatchJson> = emptyList(),
+    @Json(name = "acquisition") val acquisition: DiscoverAcquisitionJson? = null,
+)
+
+data class DownloadItemJson(
+    @Json(name = "id") val id: String,
+    @Json(name = "title") val title: String,
+    @Json(name = "media_type") val mediaType: String,
+    @Json(name = "source") val source: String,
+    @Json(name = "status_text") val statusText: String,
+    @Json(name = "progress") val progress: Double? = null,
+    @Json(name = "size_left_bytes") val sizeLeftBytes: Long? = null,
+    @Json(name = "eta_seconds") val etaSeconds: Double? = null,
+    @Json(name = "error_message") val errorMessage: String? = null,
+)
+
+data class DownloadsResponseJson(
+    @Json(name = "configured") val configured: Boolean,
+    @Json(name = "items") val items: List<DownloadItemJson> = emptyList(),
+)
+
 data class SearchFacetValueJson(
     @Json(name = "value") val value: String,
     @Json(name = "label") val label: String,

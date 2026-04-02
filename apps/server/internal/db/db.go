@@ -1459,11 +1459,12 @@ func queryAllMediaByKind(db *sql.DB, userID int, kind string) ([]MediaItem, erro
 		var args []interface{}
 		args = append(args, k)
 
-		if table == "music_tracks" {
+		switch table {
+		case "music_tracks":
 			q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.artist, m.album, m.album_artist, m.poster_path, COALESCE(m.disc_number, 0), COALESCE(m.track_number, 0), COALESCE(m.release_year, 0) FROM music_tracks m JOIN media_global g ON g.kind = ? AND g.ref_id = m.id `
-		} else if table == "tv_episodes" || table == "anime_episodes" {
+		case "tv_episodes", "anime_episodes":
 			q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path FROM ` + table + ` m JOIN media_global g ON g.kind = ? AND g.ref_id = m.id `
-		} else {
+		default:
 			q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating FROM ` + table + ` m JOIN media_global g ON g.kind = ? AND g.ref_id = m.id `
 		}
 
@@ -1490,7 +1491,8 @@ func queryAllMediaByKind(db *sql.DB, userID int, kind string) ([]MediaItem, erro
 			var metadataConfirmed sql.NullBool
 			var artist, album, albumArtist sql.NullString
 			var musicPosterPath sql.NullString
-			if table == "music_tracks" {
+			switch table {
+			case "music_tracks":
 				err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &artist, &album, &albumArtist, &musicPosterPath, &m.DiscNumber, &m.TrackNumber, &m.ReleaseYear)
 				if artist.Valid {
 					m.Artist = artist.String
@@ -1504,7 +1506,7 @@ func queryAllMediaByKind(db *sql.DB, userID int, kind string) ([]MediaItem, erro
 				if musicPosterPath.Valid {
 					m.PosterPath = musicPosterPath.String
 				}
-			} else if table == "tv_episodes" || table == "anime_episodes" {
+			case "tv_episodes", "anime_episodes":
 				err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath)
 				m.TMDBID = int(tmdbID.Int64)
 				if tvdbID.Valid {
@@ -1540,7 +1542,7 @@ func queryAllMediaByKind(db *sql.DB, userID int, kind string) ([]MediaItem, erro
 				if thumbnailPath.Valid {
 					m.ThumbnailPath = thumbnailPath.String
 				}
-			} else {
+			default:
 				err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)
 				m.TMDBID = int(tmdbID.Int64)
 				if tvdbID.Valid {
@@ -2242,13 +2244,14 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 	var discNumber, trackNumber, releaseYear int
 	var fileSizeBytes int64
 	var fileModTime, fileHash, fileHashKind, missingSince string
-	if table == "music_tracks" {
+	switch table {
+	case "music_tracks":
 		err = db.QueryRow(`SELECT m.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.artist, m.album, m.album_artist, m.poster_path, COALESCE(m.disc_number, 0), COALESCE(m.track_number, 0), COALESCE(m.release_year, 0) FROM music_tracks m WHERE m.id = ?`, refID).
 			Scan(&refID, &libID, &title, &path, &duration, &fileSizeBytes, &fileModTime, &fileHash, &fileHashKind, &missingSince, &matchStatus, &artist, &album, &albumArtist, &musicPosterPath, &discNumber, &trackNumber, &releaseYear)
-	} else if table == "tv_episodes" || table == "anime_episodes" {
+	case "tv_episodes", "anime_episodes":
 		err = db.QueryRow(`SELECT m.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path FROM `+table+` m WHERE m.id = ?`, refID).
 			Scan(&refID, &libID, &title, &path, &duration, &fileSizeBytes, &fileModTime, &fileHash, &fileHashKind, &missingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &season, &episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath)
-	} else {
+	default:
 		err = db.QueryRow(`SELECT m.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating FROM `+table+` m WHERE m.id = ?`, refID).
 			Scan(&refID, &libID, &title, &path, &duration, &fileSizeBytes, &fileModTime, &fileHash, &fileHashKind, &missingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)
 	}
@@ -2275,7 +2278,8 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 		m.MatchStatus = matchStatus.String
 	}
 	m.Missing = m.MissingSince != ""
-	if table == "tv_episodes" || table == "anime_episodes" {
+	switch table {
+	case "tv_episodes", "anime_episodes":
 		m.Season = season
 		m.Episode = episode
 		if metadataReviewNeeded.Valid {
@@ -2287,7 +2291,7 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 		if thumbnailPath.Valid {
 			m.ThumbnailPath = thumbnailPath.String
 		}
-	} else if table == "music_tracks" {
+	case "music_tracks":
 		if artist.Valid {
 			m.Artist = artist.String
 		}
@@ -2462,20 +2466,21 @@ FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
-	if table == "music_tracks" {
+	switch table {
+	case "music_tracks":
 		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.artist, m.album, m.album_artist, m.poster_path, COALESCE(m.disc_number, 0), COALESCE(m.track_number, 0), COALESCE(m.release_year, 0)
 FROM music_tracks m
 JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
-	} else if table == "tv_episodes" || table == "anime_episodes" {
+	case "tv_episodes", "anime_episodes":
 		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
-	} else {
+	default:
 		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
@@ -2518,7 +2523,8 @@ ORDER BY g.id`
 		var metadataConfirmed sql.NullBool
 		var artist, album, albumArtist sql.NullString
 		var musicPosterPath sql.NullString
-		if table == "music_tracks" {
+		switch table {
+		case "music_tracks":
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &artist, &album, &albumArtist, &musicPosterPath, &m.DiscNumber, &m.TrackNumber, &m.ReleaseYear)
 			if artist.Valid {
 				m.Artist = artist.String
@@ -2532,7 +2538,7 @@ ORDER BY g.id`
 			if musicPosterPath.Valid {
 				m.PosterPath = musicPosterPath.String
 			}
-		} else if table == "tv_episodes" || table == "anime_episodes" {
+		case "tv_episodes", "anime_episodes":
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
 			m.TMDBID = int(tmdbID.Int64)
 			if tvdbID.Valid {
@@ -2574,7 +2580,7 @@ ORDER BY g.id`
 			if showVoteAvg.Valid {
 				m.ShowVoteAverage = showVoteAvg.Float64
 			}
-		} else {
+		default:
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)
 			m.TMDBID = int(tmdbID.Int64)
 			if tvdbID.Valid {
@@ -3273,9 +3279,10 @@ func flushPendingDiscoveredInserts(
 	}()
 
 	insertSQL := `INSERT INTO ` + table + ` (library_id, title, path, duration, file_size_bytes, file_mod_time, file_hash, file_hash_kind, last_seen_at, missing_since, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-	if table == "music_tracks" {
+	switch table {
+	case "music_tracks":
 		insertSQL = `INSERT INTO music_tracks (library_id, title, path, duration, file_size_bytes, file_mod_time, file_hash, file_hash_kind, last_seen_at, missing_since, match_status, artist, album, album_artist, poster_path, musicbrainz_artist_id, musicbrainz_release_group_id, musicbrainz_release_id, musicbrainz_recording_id, disc_number, track_number, release_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-	} else if table == "tv_episodes" || table == "anime_episodes" {
+	case "tv_episodes", "anime_episodes":
 		insertSQL = `INSERT INTO ` + table + ` (library_id, title, path, duration, file_size_bytes, file_mod_time, file_hash, file_hash_kind, last_seen_at, missing_since, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating, season, episode, metadata_review_needed, metadata_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
 	}
 	insertStmt, err := tx.PrepareContext(ctx, insertSQL)
@@ -3314,15 +3321,16 @@ updated_at = excluded.updated_at`)
 	for _, pendingInsert := range pending {
 		item := pendingInsert.Item
 		var refID int
-		if table == "music_tracks" {
+		switch table {
+		case "music_tracks":
 			err = insertStmt.QueryRowContext(ctx,
 				libraryID, item.Title, item.Path, item.Duration, item.FileSizeBytes, nullStr(item.FileModTime), nullStr(item.FileHash), nullStr(item.FileHashKind), nullStr(seenAt), item.MatchStatus, nullStr(item.Artist), nullStr(item.Album), nullStr(item.AlbumArtist), nullStr(item.PosterPath), nullStr(item.MusicBrainzArtistID), nullStr(item.MusicBrainzReleaseGroupID), nullStr(item.MusicBrainzReleaseID), nullStr(item.MusicBrainzRecordingID), item.DiscNumber, item.TrackNumber, item.ReleaseYear,
 			).Scan(&refID)
-		} else if table == "tv_episodes" || table == "anime_episodes" {
+		case "tv_episodes", "anime_episodes":
 			err = insertStmt.QueryRowContext(ctx,
 				libraryID, item.Title, item.Path, item.Duration, item.FileSizeBytes, nullStr(item.FileModTime), nullStr(item.FileHash), nullStr(item.FileHashKind), nullStr(seenAt), item.MatchStatus, item.TMDBID, nullStr(item.TVDBID), nullStr(item.Overview), nullStr(item.PosterPath), nullStr(item.BackdropPath), nullStr(item.ReleaseDate), nullFloat64(item.VoteAverage), nullStr(item.IMDbID), nullFloat64(item.IMDbRating), item.Season, item.Episode, item.MetadataReviewNeeded, item.MetadataConfirmed,
 			).Scan(&refID)
-		} else {
+		default:
 			err = insertStmt.QueryRowContext(ctx,
 				libraryID, item.Title, item.Path, item.Duration, item.FileSizeBytes, nullStr(item.FileModTime), nullStr(item.FileHash), nullStr(item.FileHashKind), nullStr(seenAt), item.MatchStatus, item.TMDBID, nullStr(item.TVDBID), nullStr(item.Overview), nullStr(item.PosterPath), nullStr(item.BackdropPath), nullStr(item.ReleaseDate), nullFloat64(item.VoteAverage), nullStr(item.IMDbID), nullFloat64(item.IMDbRating),
 			).Scan(&refID)
@@ -4188,12 +4196,13 @@ func applyMatchResultToMediaItem(item *MediaItem, res *metadata.MatchResult) {
 	item.VoteAverage = res.VoteAverage
 	item.IMDbID = res.IMDbID
 	item.IMDbRating = res.IMDbRating
-	if res.Provider == "tmdb" {
+	switch res.Provider {
+	case "tmdb":
 		if id, err := parseInt(res.ExternalID); err == nil {
 			item.TMDBID = id
 			item.TVDBID = ""
 		}
-	} else if res.Provider == "tvdb" {
+	case "tvdb":
 		item.TVDBID = res.ExternalID
 	}
 }
@@ -4458,15 +4467,16 @@ WHERE m.library_id = ?`
 	out := make(map[string]existingMediaRow)
 	for rows.Next() {
 		var row existingMediaRow
-		if table == "music_tracks" {
+		switch table {
+		case "music_tracks":
 			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID); err != nil {
 				return nil, err
 			}
-		} else if table == "tv_episodes" || table == "anime_episodes" {
+		case "tv_episodes", "anime_episodes":
 			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed); err != nil {
 				return nil, err
 			}
-		} else {
+		default:
 			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus); err != nil {
 				return nil, err
 			}
@@ -4530,21 +4540,22 @@ func insertScannedItem(ctx context.Context, dbConn *sql.DB, table, kind string, 
 	}
 
 	var refID int
-	if table == "music_tracks" {
+	switch table {
+	case "music_tracks":
 		err = tx.QueryRowContext(ctx, `INSERT INTO music_tracks (library_id, title, path, duration, file_size_bytes, file_mod_time, file_hash, file_hash_kind, last_seen_at, missing_since, match_status, artist, album, album_artist, poster_path, musicbrainz_artist_id, musicbrainz_release_group_id, musicbrainz_release_id, musicbrainz_recording_id, disc_number, track_number, release_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.FileSizeBytes, nullStr(mItem.FileModTime), nullStr(mItem.FileHash), nullStr(mItem.FileHashKind), nullStr(seenAt), mItem.MatchStatus, nullStr(mItem.Artist), nullStr(mItem.Album), nullStr(mItem.AlbumArtist), nullStr(mItem.PosterPath), nullStr(mItem.MusicBrainzArtistID), nullStr(mItem.MusicBrainzReleaseGroupID), nullStr(mItem.MusicBrainzReleaseID), nullStr(mItem.MusicBrainzRecordingID), mItem.DiscNumber, mItem.TrackNumber, mItem.ReleaseYear).Scan(&refID)
 		if err != nil {
 			_ = tx.Rollback()
 			return 0, 0, err
 		}
-	} else if table == "tv_episodes" || table == "anime_episodes" {
+	case "tv_episodes", "anime_episodes":
 		err = tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, file_size_bytes, file_mod_time, file_hash, file_hash_kind, last_seen_at, missing_since, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating, season, episode, metadata_review_needed, metadata_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.FileSizeBytes, nullStr(mItem.FileModTime), nullStr(mItem.FileHash), nullStr(mItem.FileHashKind), nullStr(seenAt), mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating), mItem.Season, mItem.Episode, mItem.MetadataReviewNeeded, mItem.MetadataConfirmed).Scan(&refID)
 		if err != nil {
 			_ = tx.Rollback()
 			return 0, 0, err
 		}
-	} else {
+	default:
 		err = tx.QueryRowContext(ctx, `INSERT INTO `+table+` (library_id, title, path, duration, file_size_bytes, file_mod_time, file_hash, file_hash_kind, last_seen_at, missing_since, match_status, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, release_date, vote_average, imdb_id, imdb_rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			libraryID, mItem.Title, mItem.Path, mItem.Duration, mItem.FileSizeBytes, nullStr(mItem.FileModTime), nullStr(mItem.FileHash), nullStr(mItem.FileHashKind), nullStr(seenAt), mItem.MatchStatus, mItem.TMDBID, nullStr(mItem.TVDBID), nullStr(mItem.Overview), nullStr(mItem.PosterPath), nullStr(mItem.BackdropPath), nullStr(mItem.ReleaseDate), nullFloat64(mItem.VoteAverage), nullStr(mItem.IMDbID), nullFloat64(mItem.IMDbRating)).Scan(&refID)
 		if err != nil {

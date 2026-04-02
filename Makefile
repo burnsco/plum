@@ -11,7 +11,7 @@ YELLOW := \033[1;33m
 RED := \033[1;31m
 NC := \033[0m # No Color
 
-.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint fmt test
+.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint fmt test android-tv-build deploy-tv
 
 # Default target
 help:
@@ -41,6 +41,10 @@ help:
 	@echo ""
 	@echo "$(GREEN)Testing:$(NC)"
 	@echo "  make test        - 🧪 Run backend tests"
+	@echo ""
+	@echo "$(GREEN)Android TV:$(NC)"
+	@echo "  make android-tv-build - 🔨 Build the Android TV debug APK"
+	@echo "  make deploy-tv   - 📺 Build, install, and launch the Android TV app"
 	@echo ""
 	@echo "$(GREEN)Cleanup:$(NC)"
 	@echo "  make clean       - 🧹 Remove containers, volumes, and temp files"
@@ -107,6 +111,12 @@ fmt-frontend:
 
 test:
 	cd apps/server && go test -v ./...
+
+android-tv-build:
+	./scripts/android-tv.sh :app:assembleDebug
+
+deploy-tv: android-tv-build
+	bash ./scripts/android-tv-deploy.sh
 
 clean:
 	$(DOCKER_COMPOSE) down -v

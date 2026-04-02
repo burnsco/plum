@@ -44,6 +44,26 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    suspend fun bootstrap(
+        defaultServerUrl: String,
+        defaultAdminEmail: String,
+        defaultAdminPassword: String,
+    ): StartupState {
+        sessionRepository.hydrateTokenFromStore()
+        val currentServerUrl = sessionRepository.serverUrl.first()?.trim()?.trimEnd('/')
+        if (currentServerUrl.isNullOrBlank() && defaultServerUrl.isNotBlank()) {
+            sessionRepository.setServerUrl(defaultServerUrl)
+        }
+
+        val serverUrl = sessionRepository.serverUrl.first()?.trim()?.trimEnd('/')
+        val sessionToken = sessionRepository.sessionToken.first()
+        if (!serverUrl.isNullOrBlank() && sessionToken.isNullOrBlank() && defaultAdminEmail.isNotBlank() && defaultAdminPassword.isNotBlank()) {
+            sessionRepository.login(defaultAdminEmail, defaultAdminPassword).getOrNull()
+        }
+
+        return readStartupState()
+    }
+
     fun login(email: String, password: String, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             onResult(sessionRepository.login(email, password).map { })

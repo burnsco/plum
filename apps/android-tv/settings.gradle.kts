@@ -21,6 +21,7 @@ include(
     ":core-model",
     ":core-network",
     ":core-data",
+    ":core-ui",
     ":core-player",
     ":feature-auth",
     ":feature-home",

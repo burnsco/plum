@@ -2,3 +2,8 @@
 # Linux typical: /home/YOU/Android/Sdk
 # macOS typical: /Users/YOU/Library/Android/sdk
 sdk.dir=/path/to/Android/sdk
+
+# Optional Plum TV dev defaults.
+# plumTv.defaultServerUrl=http://192.168.2.15:8080
+# plumTv.defaultAdminEmail=admin@example.com
+# plumTv.defaultAdminPassword=
