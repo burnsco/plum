@@ -6,7 +6,6 @@ import * as api from "./api";
 import App from "./App";
 import { IdentifyShowDialog } from "./components/IdentifyShowDialog";
 import * as IdentifyQueueContext from "./contexts/IdentifyQueueContext";
-import { playerControlsAppearanceStorageKey } from "./lib/playbackPreferences";
 
 vi.mock("@plum/shared", async () => {
   const actual = await import("@plum/shared");
@@ -2342,38 +2341,6 @@ describe("App library and player wiring", () => {
     });
 
     expect(await screen.findByText(/Playback defaults saved./i)).toBeTruthy();
-  });
-
-  it("updates the player controls appearance from settings", async () => {
-    vi.spyOn(api, "listLibraries").mockResolvedValue([
-      {
-        id: 14,
-        name: "Anime",
-        type: "anime",
-        path: "/anime",
-        user_id: 1,
-        preferred_audio_language: "ja",
-        preferred_subtitle_language: "en",
-        subtitles_enabled_by_default: true,
-      },
-    ]);
-    vi.spyOn(api, "getTranscodingSettings").mockResolvedValue({
-      settings: defaultTranscodingSettings,
-      warnings: [],
-    });
-
-    await renderApp("/settings");
-
-    await screen.findByText(/Player controls look/i);
-    fireEvent.click(screen.getByRole("button", { name: /Minimal/i }));
-
-    await waitFor(() => {
-      expect(window.localStorage.getItem(playerControlsAppearanceStorageKey)).toBe("minimal");
-      expect(screen.getByRole("button", { name: /Minimal/i })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
-    });
   });
 
   it("cancels transcode when dismissing a video player", async () => {

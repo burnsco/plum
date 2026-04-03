@@ -14,14 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthState } from "@/contexts/AuthContext";
 import {
-  playerControlsAppearanceOptions,
   languagePreferenceOptions,
   normalizeLanguagePreference,
-  readStoredPlayerControlsAppearance,
   resolveLibraryPlaybackPreferences,
-  subscribeToPlayerControlsAppearance,
-  writeStoredPlayerControlsAppearance,
-  type PlayerControlsAppearance,
 } from "@/lib/playbackPreferences";
 import {
   useMetadataArtworkSettings,
@@ -285,8 +280,6 @@ export function Settings() {
   const [libraryForms, setLibraryForms] = useState<Record<number, LibraryPlaybackPreferencesForm>>(
     {},
   );
-  const [playerControlsAppearance, setPlayerControlsAppearance] =
-    useState<PlayerControlsAppearance>(() => readStoredPlayerControlsAppearance());
   const [librarySaveMessages, setLibrarySaveMessages] = useState<Record<number, string | null>>({});
   const [savingLibraryId, setSavingLibraryId] = useState<number | null>(null);
   const [warnings, setWarnings] = useState<TranscodingSettingsWarning[]>([]);
@@ -335,18 +328,6 @@ export function Settings() {
       return next;
     });
   }, [librariesQuery.data]);
-
-  useEffect(() => {
-    writeStoredPlayerControlsAppearance(playerControlsAppearance);
-  }, [playerControlsAppearance]);
-
-  useEffect(
-    () =>
-      subscribeToPlayerControlsAppearance((preference) => {
-        setPlayerControlsAppearance((current) => (current === preference ? current : preference));
-      }),
-    [],
-  );
 
   const libraries = librariesQuery.data ?? [];
   const getLibraryFormFallback = (libraryId: number) => {
@@ -586,43 +567,6 @@ export function Settings() {
           default to Japanese audio with English subtitles; TV and movie libraries default to
           English for both when available.
         </p>
-      </div>
-
-      <div className="mt-6 rounded-md border border-(--plum-border) bg-(--plum-panel-alt)/60 p-5">
-        <div className="flex flex-col gap-2">
-          <h3 className="text-base font-medium text-(--plum-text)">Player controls look</h3>
-          <p className="text-sm text-(--plum-muted)">
-            Pick the default video-player controls style for docked and fullscreen playback. The
-            quick switch inside the player updates this same preference.
-          </p>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {playerControlsAppearanceOptions.map((option) => {
-            const isActive = playerControlsAppearance === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className={`rounded-md border p-4 text-left transition-colors ${
-                  isActive
-                    ? "border-(--plum-accent-soft) bg-[color-mix(in_srgb,var(--plum-accent)_18%,transparent)] text-(--plum-text)"
-                    : "border-(--plum-border) bg-(--plum-panel)/70 text-(--plum-text) hover:border-(--plum-accent-soft)"
-                }`}
-                onClick={() => setPlayerControlsAppearance(option.value)}
-                aria-pressed={isActive}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium">{option.label}</span>
-                  <span className="text-xs uppercase tracking-[0.16em] text-(--plum-muted)">
-                    {isActive ? "Active" : "Available"}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-(--plum-muted)">{option.description}</p>
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {librariesQuery.isLoading ? (

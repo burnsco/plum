@@ -9,8 +9,6 @@ export type SubtitleAppearance = {
   color: string;
 };
 
-export type PlayerControlsAppearance = "default" | "minimal";
-
 export type ResolvedLibraryPlaybackPreferences = {
   preferredAudioLanguage: string;
   preferredSubtitleLanguage: string;
@@ -18,8 +16,6 @@ export type ResolvedLibraryPlaybackPreferences = {
 };
 
 export const subtitleAppearanceStorageKey = "plum:subtitle-appearance";
-export const playerControlsAppearanceStorageKey = "plum:player-controls-appearance";
-export const playerControlsAppearanceChangedEvent = "plum:player-controls-appearance-changed";
 export const videoAutoplayStorageKey = "plum:video-autoplay-next";
 
 export const defaultSubtitleAppearance: SubtitleAppearance = {
@@ -28,7 +24,6 @@ export const defaultSubtitleAppearance: SubtitleAppearance = {
   color: "#ffffff",
 };
 
-export const defaultPlayerControlsAppearance: PlayerControlsAppearance = "default";
 export const defaultVideoAutoplayEnabled = true;
 
 export const subtitleSizeOptions: Array<{ value: SubtitleSize; label: string }> = [
@@ -40,23 +35,6 @@ export const subtitleSizeOptions: Array<{ value: SubtitleSize; label: string }> 
 export const subtitlePositionOptions: Array<{ value: SubtitlePosition; label: string }> = [
   { value: "bottom", label: "Bottom" },
   { value: "top", label: "Top" },
-];
-
-export const playerControlsAppearanceOptions: Array<{
-  value: PlayerControlsAppearance;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: "default",
-    label: "Default",
-    description: "Icons with text labels for faster scanning.",
-  },
-  {
-    value: "minimal",
-    label: "Minimal",
-    description: "Icon-first controls with less on-screen chrome.",
-  },
 ];
 
 export const languagePreferenceOptions: Array<{ value: string; label: string }> = [
@@ -189,21 +167,6 @@ export function writeStoredSubtitleAppearance(preferences: SubtitleAppearance) {
   window.localStorage.setItem(subtitleAppearanceStorageKey, JSON.stringify(preferences));
 }
 
-export function readStoredPlayerControlsAppearance(): PlayerControlsAppearance {
-  if (typeof window === "undefined") return defaultPlayerControlsAppearance;
-  const stored = window.localStorage.getItem(playerControlsAppearanceStorageKey);
-  return stored === "minimal" ? "minimal" : defaultPlayerControlsAppearance;
-}
-
-export function writeStoredPlayerControlsAppearance(preference: PlayerControlsAppearance) {
-  if (typeof window === "undefined") return;
-  if (window.localStorage.getItem(playerControlsAppearanceStorageKey) === preference) return;
-  window.localStorage.setItem(playerControlsAppearanceStorageKey, preference);
-  window.dispatchEvent(new CustomEvent<PlayerControlsAppearance>(playerControlsAppearanceChangedEvent, {
-    detail: preference,
-  }));
-}
-
 export function readStoredVideoAutoplayEnabled(): boolean {
   if (typeof window === "undefined") return defaultVideoAutoplayEnabled;
   const stored = window.localStorage.getItem(videoAutoplayStorageKey);
@@ -214,29 +177,6 @@ export function readStoredVideoAutoplayEnabled(): boolean {
 export function writeStoredVideoAutoplayEnabled(enabled: boolean) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(videoAutoplayStorageKey, String(enabled));
-}
-
-export function subscribeToPlayerControlsAppearance(
-  onChange: (preference: PlayerControlsAppearance) => void,
-): () => void {
-  if (typeof window === "undefined") return () => {};
-
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key !== playerControlsAppearanceStorageKey) return;
-    onChange(event.newValue === "minimal" ? "minimal" : defaultPlayerControlsAppearance);
-  };
-  const handleLocalChange = (event: Event) => {
-    if (!(event instanceof CustomEvent)) return;
-    onChange(event.detail === "minimal" ? "minimal" : defaultPlayerControlsAppearance);
-  };
-
-  window.addEventListener("storage", handleStorage);
-  window.addEventListener(playerControlsAppearanceChangedEvent, handleLocalChange);
-
-  return () => {
-    window.removeEventListener("storage", handleStorage);
-    window.removeEventListener(playerControlsAppearanceChangedEvent, handleLocalChange);
-  };
 }
 
 export function subtitleFontSizeValue(size: SubtitleSize): string {

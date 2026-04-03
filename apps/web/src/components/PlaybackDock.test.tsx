@@ -2,11 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
-import {
-  playerControlsAppearanceChangedEvent,
-  playerControlsAppearanceStorageKey,
-  videoAutoplayStorageKey,
-} from "../lib/playbackPreferences";
+import { videoAutoplayStorageKey } from "../lib/playbackPreferences";
 import { PlaybackDock } from "./PlaybackDock";
 
 type MockHlsInstance = {
@@ -434,47 +430,6 @@ describe("PlaybackDock audio track selection", () => {
     });
     expect(mockHlsInstances).toHaveLength(1);
     expect(firstHls.destroy).not.toHaveBeenCalled();
-  });
-
-  it("reads and updates the player controls appearance preference", async () => {
-    window.localStorage.setItem(playerControlsAppearanceStorageKey, "minimal");
-
-    renderDock();
-
-    const dock = screen.getByLabelText("Playback dock");
-    expect(dock.className).toContain("playback-dock--controls-minimal");
-
-    fireEvent.click(screen.getByRole("button", { name: "Subtitle settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Default" }));
-
-    await waitFor(() => {
-      expect(window.localStorage.getItem(playerControlsAppearanceStorageKey)).toBe("default");
-      expect(screen.getByLabelText("Playback dock").className).toContain(
-        "playback-dock--controls-default",
-      );
-    });
-  });
-
-  it("syncs the player controls appearance when settings change it externally", async () => {
-    window.localStorage.setItem(playerControlsAppearanceStorageKey, "minimal");
-    renderDock();
-
-    expect(screen.getByLabelText("Playback dock").className).toContain(
-      "playback-dock--controls-minimal",
-    );
-
-    act(() => {
-      window.localStorage.setItem(playerControlsAppearanceStorageKey, "default");
-      window.dispatchEvent(
-        new CustomEvent(playerControlsAppearanceChangedEvent, { detail: "default" }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Playback dock").className).toContain(
-        "playback-dock--controls-default",
-      );
-    });
   });
 
   it("restarts loading on fatal HLS network errors", async () => {

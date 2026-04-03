@@ -27,6 +27,42 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Shapes
 import androidx.tv.material3.Typography
 
+/**
+ * Centralized scrim gradient constants for cinematic detail and hero layouts.
+ * Using shared constants prevents divergence between screens.
+ */
+object PlumScrims {
+    /** Vertical dark-at-bottom scrim for show/discover detail backdrops. */
+    val backdropVertical: Brush = Brush.verticalGradient(
+        0.0f to Color(0xCC000000),
+        0.35f to Color(0xDD000000),
+        1.0f to Color(0xF5000000),
+    )
+
+    /** Left-heavy horizontal scrim for movie detail — keeps right side semi-visible. */
+    val backdropHorizontal: Brush = Brush.horizontalGradient(
+        0.0f to Color(0xF2000000),
+        0.55f to Color(0xCC000000),
+        1.0f to Color(0x44000000),
+    )
+
+    /** Bottom-heavy vertical scrim for the home hero section. */
+    val heroBottom: Brush = Brush.verticalGradient(
+        0.0f to Color(0x44000000),
+        0.45f to Color(0x88000000),
+        1.0f to Color(0xEE000000),
+    )
+
+    /** Player controls overlay — darker at top and bottom, lighter in the middle. */
+    val playerControls: Brush = Brush.verticalGradient(
+        0.0f to Color(0xCC000000),
+        0.25f to Color(0x44000000),
+        0.6f to Color(0x22000000),
+        0.8f to Color(0x66000000),
+        1.0f to Color(0xDD000000),
+    )
+}
+
 /** Provides the server base URL so composables can resolve relative image paths. */
 val LocalServerBaseUrl = compositionLocalOf { "" }
 
@@ -67,6 +103,8 @@ data class PlumTvMetrics(
     val posterCompactHeight: Dp,
     val heroPosterWidth: Dp,
     val heroPosterHeight: Dp,
+    /** Home hero section height — tall enough to feel cinematic at couch distance. */
+    val heroHeight: Dp,
     val thumbnailWidth: Dp,
     val thumbnailHeight: Dp,
     val panelRadius: Dp,
@@ -113,6 +151,7 @@ private val plumMetrics =
         posterCompactHeight = 186.dp,
         heroPosterWidth = 220.dp,
         heroPosterHeight = 330.dp,
+        heroHeight = 340.dp,
         thumbnailWidth = 160.dp,
         thumbnailHeight = 90.dp,
         panelRadius = 14.dp,

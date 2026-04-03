@@ -21,8 +21,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,6 +34,7 @@ import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumPosterCard
+import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.PlumTvMetrics
@@ -267,10 +266,11 @@ private fun HeroSection(
             ?: resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_DETAIL)
             ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_DETAIL)
 
+    val metrics = PlumTheme.metrics
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(272.dp),
+            .height(metrics.heroHeight),
     ) {
         // Background artwork
         if (heroImageUrl != null) {
@@ -292,13 +292,7 @@ private fun HeroSection(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.0f to Color(0x44000000),
-                        0.45f to Color(0x88000000),
-                        1.0f to Color(0xEE000000),
-                    ),
-                ),
+                .background(PlumScrims.heroBottom),
         )
 
         // Left-side content: title + metadata + play button

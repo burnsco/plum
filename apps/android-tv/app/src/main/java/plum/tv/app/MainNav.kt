@@ -2,12 +2,10 @@ package plum.tv.app
 
 import android.net.Uri
 import androidx.activity.ComponentActivity
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.compose.material.icons.Icons
@@ -27,8 +26,10 @@ import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -43,7 +44,6 @@ import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumRailItem
-import plum.tv.core.ui.PlumScreenTitle
 import plum.tv.core.ui.PlumSideRail
 import plum.tv.core.ui.PlumTvScaffold
 import plum.tv.feature.discover.DiscoverBrowseRoute
@@ -55,10 +55,12 @@ import plum.tv.feature.details.ShowDetailRoute
 import plum.tv.feature.home.HomeRoute
 import plum.tv.feature.library.LibraryBrowseRoute
 import plum.tv.feature.library.LibraryListRoute
+import plum.tv.feature.search.SearchRoute
 import plum.tv.feature.settings.SettingsRoute
 
 private object Routes {
     const val HOME = "home"
+    const val SEARCH = "search"
     /** Not `discover` alone — must not collide with `discover/{mediaType}/{tmdbId}` in NavHost matching. */
     const val DISCOVER = "discover/main"
     const val DISCOVER_BROWSE = "discover/browse?category={category}&mediaType={mediaType}&genre={genre}"
@@ -125,6 +127,13 @@ fun MainNavHost(
                 icon = Icons.Filled.Home,
                 selected = currentRoute == Routes.HOME,
                 onClick = { goToRoot(navController, Routes.HOME) },
+            ),
+            PlumRailItem(
+                key = Routes.SEARCH,
+                label = "Search",
+                icon = Icons.Filled.Search,
+                selected = currentRoute == Routes.SEARCH,
+                onClick = { goToRoot(navController, Routes.SEARCH) },
             ),
             PlumRailItem(
                 key = Routes.DISCOVER,
@@ -219,32 +228,32 @@ fun MainNavHost(
         )
 
     PlumTvScaffold {
-        Row(Modifier.fillMaxSize()) {
-            if (!hideSideRail) {
-                PlumSideRail(
-                    items = railItems,
-                    footer = {
-                        PlumActionButton(
-                            label = "OUT",
-                            onClick = onLogout,
-                            variant = PlumButtonVariant.Ghost,
-                        )
-                    },
-                )
-            }
+        Box(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize()) {
+                if (!hideSideRail) {
+                    PlumSideRail(
+                        items = railItems,
+                        footer = {
+                            PlumActionButton(
+                                label = "Log Out",
+                                onClick = onLogout,
+                                variant = PlumButtonVariant.Ghost,
+                                leadingIcon = Icons.Filled.Logout,
+                            )
+                        },
+                    )
+                }
 
-            Box(
-                modifier =
-                    if (hideSideRail) {
-                        Modifier.fillMaxSize()
-                    } else {
+                // Keep weight + padding stable for every route. Toggling them for `play/...` made the
+                // NavHost bounds jump (felt like zoom in/out around enter/exit playback).
+                // No outer padding here — each screen owns its own padding via PlumScreenPadding().
+                Box(
+                    modifier =
                         Modifier
                             .weight(1f)
-                            .fillMaxSize()
-                            .padding(end = 20.dp, top = 24.dp, bottom = 24.dp)
-                    },
-            ) {
-                NavHost(
+                            .fillMaxSize(),
+                ) {
+                    NavHost(
                     navController = navController,
                     startDestination = Routes.HOME,
                     modifier = Modifier.fillMaxSize(),
@@ -257,6 +266,16 @@ fun MainNavHost(
                             onOpenShow = { libraryId, showKey ->
                                 val enc = Uri.encode(showKey)
                                 navController.navigate("show/$libraryId/$enc")
+                            },
+                        )
+                    }
+                    composable(Routes.SEARCH) {
+                        SearchRoute(
+                            onOpenMovie = { libraryId, mediaId ->
+                                navController.navigate("movie/$libraryId/$mediaId")
+                            },
+                            onOpenShow = { libraryId, showKey ->
+                                navController.navigate("show/$libraryId/${Uri.encode(showKey)}")
                             },
                         )
                     }
@@ -398,7 +417,9 @@ fun MainNavHost(
                             },
                         ),
                     ) {
-                        PlayerRoute(onClose = { navController.popBackStack() })
+                        // Real UI is the fullscreen overlay below so this destination does not resize
+                        // when the side rail is hidden for playback.
+                        Spacer(Modifier.fillMaxSize())
                     }
                     composable("settings") {
                         SettingsRoute(
@@ -407,26 +428,21 @@ fun MainNavHost(
                         )
                     }
                 }
+                }
             }
-        }
-    }
-}
 
-@Composable
-private fun PlaceholderRoute(
-    title: String,
-    subtitle: String,
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(24.dp),
-        ) {
-            PlumScreenTitle(title = title, subtitle = subtitle)
+            navBackStackEntry?.takeIf { hideSideRail }?.let { playEntry ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .zIndex(1f),
+                ) {
+                    PlayerRoute(
+                        onClose = { navController.popBackStack() },
+                        viewModel = hiltViewModel(playEntry),
+                    )
+                }
+            }
         }
     }
 }

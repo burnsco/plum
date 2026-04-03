@@ -12,24 +12,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Glow
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import plum.tv.core.network.LibraryBrowseItemJson
@@ -38,10 +40,15 @@ import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumDetailBackground
+import plum.tv.core.ui.PlumDetailHeroHeader
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumImageSizes
+import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumSectionHeader
+import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.PlumTheme
+import plum.tv.core.ui.plumBorder
 import plum.tv.core.ui.resolveArtworkUrl
 
 @Composable
@@ -58,15 +65,25 @@ fun ShowDetailRoute(
             Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Loading…", color = PlumTheme.palette.muted)
+            PlumStatePanel(
+                title = "Loading",
+                message = "Fetching show details…",
+            )
         }
-        is ShowDetailUiState.Error -> Column(
-            Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        is ShowDetailUiState.Error -> Box(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton("Retry", onClick = { viewModel.load() }, leadingBadge = "R")
-            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
+            PlumStatePanel(
+                title = "Could not load show",
+                message = s.message,
+                actions = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PlumActionButton("Retry", onClick = { viewModel.load() }, leadingBadge = "R")
+                        PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
+                    }
+                },
+            )
         }
         is ShowDetailUiState.Ready -> {
             val d = s.details
@@ -74,55 +91,19 @@ fun ShowDetailRoute(
             val backdropUrl =
                 resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
-            val metrics = PlumTheme.metrics
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Full-bleed backdrop
-                if (backdropUrl != null) {
-                    AsyncImage(
-                        model = backdropUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.0f to Color(0xCC000000),
-                                0.35f to Color(0xDD000000),
-                                1.0f to Color(0xF5000000),
-                            ),
-                        ),
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 36.dp, vertical = 28.dp),
+            PlumDetailBackground(
+                backdropUrl = backdropUrl,
+                scrim = PlumScrims.backdropVertical,
+            ) {
+                // LazyColumn avoids rendering all episodes upfront for long seasons.
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 36.dp, vertical = 28.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    // Header: poster + info
-                    Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                        if (posterUrl != null) {
-                            AsyncImage(
-                                model = posterUrl,
-                                contentDescription = d.name,
-                                modifier = Modifier
-                                    .width(metrics.heroPosterWidth)
-                                    .height(metrics.heroPosterHeight)
-                                    .clip(RoundedCornerShape(10.dp)),
-                                contentScale = ContentScale.Crop,
-                            )
-                        }
-
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
+                    item {
+                        PlumDetailHeroHeader(posterUrl = posterUrl) {
                             Text(
                                 text = d.name,
                                 style = PlumTheme.typography.headlineLarge,
@@ -153,55 +134,58 @@ fun ShowDetailRoute(
                         }
                     }
 
-                    // Season picker
                     if (s.seasons.isNotEmpty()) {
-                        PlumSectionHeader("Seasons")
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(vertical = 4.dp),
-                        ) {
-                            itemsIndexed(s.seasons) { index, season ->
-                                val count = season.episodes.size
-                                val suffix = if (count == 1) "1 ep" else "$count eps"
-                                PlumActionButton(
-                                    label = "${season.label} · $suffix",
-                                    onClick = { viewModel.selectSeason(index) },
-                                    variant = if (index == s.selectedSeasonIndex) PlumButtonVariant.Primary else PlumButtonVariant.Ghost,
-                                )
+                        item {
+                            PlumSectionHeader("Seasons")
+                        }
+                        item {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = PaddingValues(vertical = 4.dp),
+                            ) {
+                                itemsIndexed(s.seasons) { index, season ->
+                                    val count = season.episodes.size
+                                    val suffix = if (count == 1) "1 ep" else "$count eps"
+                                    PlumActionButton(
+                                        label = "${season.label} · $suffix",
+                                        onClick = { viewModel.selectSeason(index) },
+                                        variant = if (index == s.selectedSeasonIndex) PlumButtonVariant.Primary else PlumButtonVariant.Ghost,
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // Episode list
                     if (selectedEpisodes.isNotEmpty()) {
-                        PlumSectionHeader("Episodes")
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            selectedEpisodes.forEach { ep ->
-                                EpisodeRow(
-                                    ep = ep,
-                                    serverBase = serverBase,
-                                    onPlay = {
-                                        val resume = (ep.progressSeconds ?: 0.0).toFloat()
-                                        onPlayEpisode(ep.id, resume, d.libraryId, d.showKey)
-                                    },
-                                )
-                            }
+                        item {
+                            PlumSectionHeader("Episodes")
+                        }
+                        items(selectedEpisodes, key = { it.id }) { ep ->
+                            EpisodeRow(
+                                ep = ep,
+                                serverBase = serverBase,
+                                onPlay = {
+                                    val resume = (ep.progressSeconds ?: 0.0).toFloat()
+                                    onPlayEpisode(ep.id, resume, d.libraryId, d.showKey)
+                                },
+                            )
                         }
                     }
 
-                    // Cast section
                     if (!d.cast.isNullOrEmpty()) {
-                        PlumCastSection(
-                            cast = d.cast.orEmpty().map { member ->
-                                PlumCastMember(
-                                    name = member.name,
-                                    character = member.character,
-                                )
-                            },
-                        )
+                        item {
+                            PlumCastSection(
+                                cast = d.cast.orEmpty().map { member ->
+                                    PlumCastMember(
+                                        name = member.name,
+                                        character = member.character,
+                                    )
+                                },
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
             }
         }
@@ -215,63 +199,80 @@ private fun EpisodeRow(
     onPlay: () -> Unit,
 ) {
     val palette = PlumTheme.palette
+    val metrics = PlumTheme.metrics
+    val shape = RoundedCornerShape(metrics.tileRadius)
     val thumbUrl =
         resolveArtworkUrl(serverBase, ep.thumbnailUrl, ep.thumbnailPath, PlumImageSizes.THUMB_SMALL)
             ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, PlumImageSizes.POSTER_GRID)
             ?: resolveArtworkUrl(serverBase, ep.showPosterUrl, ep.showPosterPath, PlumImageSizes.POSTER_GRID)
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                color = palette.panel,
-                shape = RoundedCornerShape(10.dp),
-            )
-            .clip(RoundedCornerShape(10.dp)),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
+    // The whole row is a TV Surface so the user can focus it and press OK to play —
+    // no need for a nested Play button.
+    Surface(
+        onClick = onPlay,
+        modifier = Modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = palette.panel,
+            contentColor = palette.text,
+            focusedContainerColor = palette.panelAlt,
+            focusedContentColor = palette.text,
+            pressedContainerColor = palette.panelAlt,
+            pressedContentColor = palette.text,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        border = ClickableSurfaceDefaults.border(
+            border = plumBorder(Color.Transparent, 0.dp, shape),
+            focusedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
+            pressedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
+        ),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
-        // Thumbnail
-        Box(
-            modifier = Modifier
-                .width(180.dp)
-                .height(100.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (thumbUrl != null) {
-                AsyncImage(
-                    model = thumbUrl,
-                    contentDescription = ep.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(palette.surface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val se = ep.season
-                    val epn = ep.episode
-                    if (se != null && epn != null) {
-                        Text(
-                            text = "S${se.toString().padStart(2, '0')}E${epn.toString().padStart(2, '0')}",
-                            style = PlumTheme.typography.labelMedium,
-                            color = palette.muted,
-                        )
+            // Thumbnail
+            Box(
+                modifier = Modifier
+                    .width(metrics.thumbnailWidth)
+                    .height(metrics.thumbnailHeight)
+                    .clip(RoundedCornerShape(topStart = metrics.tileRadius, bottomStart = metrics.tileRadius)),
+            ) {
+                if (thumbUrl != null) {
+                    AsyncImage(
+                        model = thumbUrl,
+                        contentDescription = ep.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(palette.surface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val se = ep.season
+                        val epn = ep.episode
+                        if (se != null && epn != null) {
+                            Text(
+                                text = "S${se.toString().padStart(2, '0')}E${epn.toString().padStart(2, '0')}",
+                                style = PlumTheme.typography.labelMedium,
+                                color = palette.muted,
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        // Episode info + play button
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
+            // Episode info + play icon indicator
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
@@ -293,22 +294,24 @@ private fun EpisodeRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    ep.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                        Text(
+                            text = overview,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = PlumTheme.typography.bodySmall,
+                            color = palette.muted,
+                        )
+                    }
                 }
-                PlumActionButton(
-                    label = "Play",
-                    onClick = onPlay,
-                    variant = PlumButtonVariant.Primary,
-                    leadingBadge = "▶",
-                )
-            }
 
-            ep.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                // Focused border on the Surface already signals this row is playable;
+                // no redundant play button needed.
                 Text(
-                    text = overview,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    style = PlumTheme.typography.bodySmall,
+                    text = "▶",
+                    style = PlumTheme.typography.labelMedium,
                     color = palette.muted,
+                    modifier = Modifier.padding(start = 12.dp),
                 )
             }
         }

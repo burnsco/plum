@@ -19,6 +19,7 @@ import {
 } from "@plum/shared";
 import {
   Expand,
+  Maximize2,
   Settings,
   Minimize2,
   Pause,
@@ -44,19 +45,14 @@ import {
 import { usePlayer } from "../contexts/PlayerContext";
 import {
   readStoredSubtitleAppearance,
-  readStoredPlayerControlsAppearance,
   readStoredVideoAutoplayEnabled,
   languageMatchesPreference,
   resolveLibraryPlaybackPreferences,
-  subscribeToPlayerControlsAppearance,
   subtitleFontSizeValue,
   subtitlePositionOptions,
   subtitleSizeOptions,
-  playerControlsAppearanceOptions,
   writeStoredSubtitleAppearance,
-  writeStoredPlayerControlsAppearance,
   writeStoredVideoAutoplayEnabled,
-  type PlayerControlsAppearance,
   type SubtitleAppearance,
 } from "../lib/playbackPreferences";
 import {
@@ -183,18 +179,14 @@ function TrackMenu({
 function PlayerSettingsMenu({
   menuRef,
   preferences,
-  controlsAppearance,
   videoAutoplayEnabled,
   onChange,
-  onControlsAppearanceChange,
   onVideoAutoplayChange,
 }: {
   menuRef: RefObject<HTMLDivElement | null>;
   preferences: SubtitleAppearance;
-  controlsAppearance: PlayerControlsAppearance;
   videoAutoplayEnabled: boolean;
   onChange: (value: SubtitleAppearance) => void;
-  onControlsAppearanceChange: (value: PlayerControlsAppearance) => void;
   onVideoAutoplayChange: (enabled: boolean) => void;
 }) {
   return (
@@ -202,7 +194,7 @@ function PlayerSettingsMenu({
       ref={menuRef}
       className="player-settings-menu"
       role="dialog"
-      aria-label="Subtitle settings"
+      aria-label="Player settings"
     >
       <label className="player-settings-menu__field">
         <span>Subtitle size</span>
@@ -255,28 +247,6 @@ function PlayerSettingsMenu({
           }
         />
       </label>
-
-      <div className="player-settings-menu__field">
-        <span>Controls look</span>
-        <div
-          className="player-settings-menu__choice-row"
-          role="group"
-          aria-label="Player controls look"
-        >
-          {playerControlsAppearanceOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`player-settings-menu__choice${controlsAppearance === option.value ? " is-active" : ""}`}
-              onClick={() => onControlsAppearanceChange(option.value)}
-              aria-pressed={controlsAppearance === option.value}
-              title={option.description}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <label className="player-settings-menu__field">
         <span>Autoplay next</span>
@@ -367,8 +337,6 @@ export function PlaybackDock() {
   const [subtitleAppearance, setSubtitleAppearance] = useState<SubtitleAppearance>(() =>
     readStoredSubtitleAppearance(),
   );
-  const [playerControlsAppearance, setPlayerControlsAppearance] =
-    useState<PlayerControlsAppearance>(() => readStoredPlayerControlsAppearance());
   const [videoAutoplayEnabled, setVideoAutoplayEnabled] = useState<boolean>(() =>
     readStoredVideoAutoplayEnabled(),
   );
@@ -1082,20 +1050,8 @@ export function PlaybackDock() {
   }, [subtitleAppearance]);
 
   useEffect(() => {
-    writeStoredPlayerControlsAppearance(playerControlsAppearance);
-  }, [playerControlsAppearance]);
-
-  useEffect(() => {
     writeStoredVideoAutoplayEnabled(videoAutoplayEnabled);
   }, [videoAutoplayEnabled]);
-
-  useEffect(
-    () =>
-      subscribeToPlayerControlsAppearance((preference) => {
-        setPlayerControlsAppearance((current) => (current === preference ? current : preference));
-      }),
-    [],
-  );
 
   useEffect(() => {
     if (!isVideo || !activeItem) return;
@@ -1687,8 +1643,6 @@ export function PlaybackDock() {
     playbackState.duration > 0 ? playbackState.duration : Math.max(playbackDurationSeconds, 0);
   const repeatLabel =
     repeatMode === "one" ? "Repeat track" : repeatMode === "all" ? "Repeat queue" : "Repeat off";
-  const showDefaultControls = isVideo && playerControlsAppearance === "default";
-  const playButtonLabel = playbackState.isPlaying ? "Pause" : "Play";
   const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
   const autoplayButtonLabel = videoAutoplayEnabled ? "Disable autoplay next" : "Enable autoplay next";
   const handleOpenFullscreen = () => {
@@ -1723,7 +1677,7 @@ export function PlaybackDock() {
         ref={(node) => {
           playerRootRef.current = node;
         }}
-        className={`fullscreen-player fullscreen-player--controls-${playerControlsAppearance}${controlsVisible ? "" : " fullscreen-player--hidden"}`}
+        className={`fullscreen-player${controlsVisible ? "" : " fullscreen-player--hidden"}`}
         aria-label="Fullscreen video player"
         aria-busy={showPlayerLoadingOverlay}
         role="button"
@@ -1860,16 +1814,16 @@ export function PlaybackDock() {
             <div className="fullscreen-player__controls-left">
               <button
                 type="button"
-                className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                className="fullscreen-player__ctrl-btn"
                 onClick={togglePlayPause}
                 aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
+                title={playbackState.isPlaying ? "Pause" : "Play"}
               >
                 {playbackState.isPlaying ? (
-                  <Pause className="size-5" />
+                  <Pause className="size-[1.125rem]" strokeWidth={2.25} />
                 ) : (
-                  <Play className="size-5" />
+                  <Play className="size-[1.125rem]" strokeWidth={2.25} />
                 )}
-                {showDefaultControls && <span>{playButtonLabel}</span>}
               </button>
               <span className="fullscreen-player__time">
                 {formatClock(playbackState.currentTime)} / {formatClock(progressMax)}
@@ -1883,13 +1837,12 @@ export function PlaybackDock() {
                   <button
                     ref={subtitleBtnRef}
                     type="button"
-                    className={`fullscreen-player__ctrl-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    className={`fullscreen-player__ctrl-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}`}
                     aria-label="Subtitles"
                     title="Subtitles"
                     onClick={toggleSubtitleMenu}
                   >
-                    <Subtitles className="size-5" />
-                    {showDefaultControls && <span>Subtitles</span>}
+                    <Subtitles className="size-[1.125rem]" strokeWidth={2.25} />
                   </button>
                   {subtitleMenuOpen && (
                     <TrackMenu
@@ -1912,17 +1865,16 @@ export function PlaybackDock() {
                   <button
                     ref={audioBtnRef}
                     type="button"
-                    className={`fullscreen-player__ctrl-btn fullscreen-player__ctrl-btn--text${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    className="fullscreen-player__ctrl-btn"
                     aria-label={`Audio track: ${selectedAudioLabel}`}
-                    title={`Audio track: ${selectedAudioLabel}`}
+                    title={`Audio: ${selectedAudioLabel}`}
                     onClick={() => {
                       setAudioMenuOpen((value) => !value);
                       setSubtitleMenuOpen(false);
                       setPlayerSettingsOpen(false);
                     }}
                   >
-                    <Volume2 className="size-5" />
-                    {showDefaultControls && <span>Audio</span>}
+                    <Volume2 className="size-[1.125rem]" strokeWidth={2.25} />
                   </button>
                   {audioMenuOpen && (
                     <TrackMenu
@@ -1944,26 +1896,23 @@ export function PlaybackDock() {
                   <button
                     ref={playerSettingsBtnRef}
                     type="button"
-                    className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
-                    aria-label="Subtitle settings"
-                    title="Subtitle settings"
+                    className="fullscreen-player__ctrl-btn"
+                    aria-label="Player settings"
+                    title="Player settings"
                     onClick={() => {
                       setPlayerSettingsOpen((value) => !value);
                       setSubtitleMenuOpen(false);
                       setAudioMenuOpen(false);
                     }}
                   >
-                    <Settings className="size-5" />
-                    {showDefaultControls && <span>Player</span>}
+                    <Settings className="size-[1.125rem]" strokeWidth={2.25} />
                   </button>
                   {playerSettingsOpen && (
                     <PlayerSettingsMenu
                       menuRef={playerSettingsMenuRef}
                       preferences={subtitleAppearance}
-                      controlsAppearance={playerControlsAppearance}
                       videoAutoplayEnabled={videoAutoplayEnabled}
                       onChange={setSubtitleAppearance}
-                      onControlsAppearanceChange={setPlayerControlsAppearance}
                       onVideoAutoplayChange={setVideoAutoplayEnabled}
                     />
                   )}
@@ -1974,37 +1923,34 @@ export function PlaybackDock() {
                 <>
                   <button
                     type="button"
-                    className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    className="fullscreen-player__ctrl-btn"
                     onClick={handleVideoPrevious}
                     aria-label="Previous episode"
                     title="Previous episode"
                   >
-                    <SkipBack className="size-5" />
-                    {showDefaultControls && <span>Previous</span>}
+                    <SkipBack className="size-[1.125rem]" strokeWidth={2.25} />
                   </button>
 
                   <button
                     type="button"
-                    className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    className="fullscreen-player__ctrl-btn"
                     onClick={playNextInQueue}
                     aria-label="Next episode"
                     title="Next episode"
                     disabled={!hasNextQueueItem}
                   >
-                    <SkipForward className="size-5" />
-                    {showDefaultControls && <span>Next</span>}
+                    <SkipForward className="size-[1.125rem]" strokeWidth={2.25} />
                   </button>
 
                   <button
                     type="button"
-                    className={`fullscreen-player__ctrl-btn${videoAutoplayEnabled ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                    className={`fullscreen-player__ctrl-btn${videoAutoplayEnabled ? " is-active" : ""}`}
                     onClick={() => setVideoAutoplayEnabled((value) => !value)}
                     aria-label="Autoplay next episode"
                     title={autoplayButtonLabel}
                     aria-pressed={videoAutoplayEnabled}
                   >
-                    <Repeat className="size-5" />
-                    {showDefaultControls && <span>Autoplay</span>}
+                    <Repeat className="size-[1.125rem]" strokeWidth={2.25} />
                   </button>
                 </>
               )}
@@ -2012,16 +1958,16 @@ export function PlaybackDock() {
               <div className="fullscreen-player__volume-group">
                 <button
                   type="button"
-                  className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                  className="fullscreen-player__ctrl-btn"
                   onClick={() => setMuted(!muted)}
                   aria-label={muteButtonLabel}
+                  title={muteButtonLabel}
                 >
                   {muted || volume === 0 ? (
-                    <VolumeX className="size-5" />
+                    <VolumeX className="size-[1.125rem]" strokeWidth={2.25} />
                   ) : (
-                    <Volume2 className="size-5" />
+                    <Volume2 className="size-[1.125rem]" strokeWidth={2.25} />
                   )}
-                  {showDefaultControls && <span>{muteButtonLabel}</span>}
                 </button>
                 <input
                   type="range"
@@ -2037,30 +1983,30 @@ export function PlaybackDock() {
 
               <button
                 type="button"
-                className={`fullscreen-player__ctrl-btn${browserFullscreenActive ? " is-active" : ""}${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                className={`fullscreen-player__ctrl-btn${browserFullscreenActive ? " is-active" : ""}`}
                 onClick={() => {
                   void toggleBrowserFullscreen();
                 }}
                 aria-label={
                   browserFullscreenActive ? "Exit true fullscreen" : "Enter true fullscreen"
                 }
-                title={browserFullscreenActive ? "Exit true fullscreen" : "Enter true fullscreen"}
+                title={browserFullscreenActive ? "Exit browser fullscreen" : "Browser fullscreen"}
               >
-                <span className="player-fullscreen-icon" aria-hidden="true" />
-                {showDefaultControls && (
-                  <span>{browserFullscreenActive ? "Window" : "Fullscreen"}</span>
+                {browserFullscreenActive ? (
+                  <Minimize2 className="size-[1.125rem]" strokeWidth={2.25} />
+                ) : (
+                  <Maximize2 className="size-[1.125rem]" strokeWidth={2.25} />
                 )}
               </button>
 
               <button
                 type="button"
-                className={`fullscreen-player__ctrl-btn${showDefaultControls ? " fullscreen-player__ctrl-btn--labeled" : ""}`}
+                className="fullscreen-player__ctrl-btn"
                 onClick={handleReturnToDocked}
                 aria-label="Return to docked player"
                 title="Return to docked player"
               >
-                <Minimize2 className="size-4" />
-                {showDefaultControls && <span>Docked</span>}
+                <Minimize2 className="size-[1.125rem]" strokeWidth={2.25} />
               </button>
             </div>
           </div>
@@ -2075,7 +2021,7 @@ export function PlaybackDock() {
       ref={(node) => {
         playerRootRef.current = node;
       }}
-      className={`playback-dock playback-dock--${activeMode} playback-dock--${viewMode} playback-dock--controls-${playerControlsAppearance}`}
+      className={`playback-dock playback-dock--${activeMode} playback-dock--${viewMode}`}
       aria-label={isMusic ? "Music player" : "Playback dock"}
       aria-busy={showPlayerLoadingOverlay}
     >
@@ -2156,8 +2102,7 @@ export function PlaybackDock() {
                     onClick={toggleSubtitleMenu}
                     aria-label="Subtitles"
                   >
-                    <Subtitles className="size-4" />
-                    {showDefaultControls && <span>Subtitles</span>}
+                    <Subtitles className="size-4" strokeWidth={2.25} />
                   </button>
                   {subtitleMenuOpen && (
                     <TrackMenu
@@ -2188,8 +2133,7 @@ export function PlaybackDock() {
                     }}
                     aria-label={`Audio track: ${selectedAudioLabel}`}
                   >
-                    <Volume2 className="size-4" />
-                    {showDefaultControls ? <span>{selectedAudioLabel}</span> : null}
+                    <Volume2 className="size-4" strokeWidth={2.25} />
                   </button>
                   {audioMenuOpen && (
                     <TrackMenu
@@ -2217,19 +2161,17 @@ export function PlaybackDock() {
                       setSubtitleMenuOpen(false);
                       setAudioMenuOpen(false);
                     }}
-                    aria-label="Subtitle settings"
+                    aria-label="Player settings"
+                    title="Player settings"
                   >
-                    <Settings className="size-4" />
-                    {showDefaultControls && <span>Player</span>}
+                    <Settings className="size-4" strokeWidth={2.25} />
                   </button>
                   {playerSettingsOpen && (
                     <PlayerSettingsMenu
                       menuRef={playerSettingsMenuRef}
                       preferences={subtitleAppearance}
-                      controlsAppearance={playerControlsAppearance}
                       videoAutoplayEnabled={videoAutoplayEnabled}
                       onChange={setSubtitleAppearance}
-                      onControlsAppearanceChange={setPlayerControlsAppearance}
                       onVideoAutoplayChange={setVideoAutoplayEnabled}
                     />
                   )}
@@ -2327,7 +2269,7 @@ export function PlaybackDock() {
                   setPendingBrowserFullscreen(true);
                 }}
               >
-                <span className="player-fullscreen-icon" aria-hidden="true" />
+                <Maximize2 className="size-4" strokeWidth={2.25} />
               </button>
               <span className="playback-dock__surface-hint">Click video to expand</span>
             </div>
@@ -2395,12 +2337,16 @@ export function PlaybackDock() {
 
             <button
               type="button"
-              className={`playback-dock__play-button${showDefaultControls ? " playback-dock__play-button--labeled" : ""}`}
+              className="playback-dock__play-button"
               onClick={togglePlayPause}
               aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
+              title={playbackState.isPlaying ? "Pause" : "Play"}
             >
-              {playbackState.isPlaying ? <Pause className="size-5" /> : <Play className="size-5" />}
-              {showDefaultControls && <span>{playButtonLabel}</span>}
+              {playbackState.isPlaying ? (
+                <Pause className="size-5" strokeWidth={2.25} />
+              ) : (
+                <Play className="size-5" strokeWidth={2.25} />
+              )}
             </button>
 
             {isMusic && (
@@ -2471,16 +2417,16 @@ export function PlaybackDock() {
           <div className="playback-dock__volume">
             <button
               type="button"
-              className={`playback-dock__icon-button${showDefaultControls ? " playback-dock__icon-button--labeled" : ""}`}
+              className="playback-dock__icon-button"
               onClick={() => setMuted(!muted)}
               aria-label={muteButtonLabel}
+              title={muteButtonLabel}
             >
               {muted || volume === 0 ? (
-                <VolumeX className="size-4" />
+                <VolumeX className="size-4" strokeWidth={2.25} />
               ) : (
-                <Volume2 className="size-4" />
+                <Volume2 className="size-4" strokeWidth={2.25} />
               )}
-              {showDefaultControls && <span>{muteButtonLabel}</span>}
             </button>
             <input
               type="range"

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -155,6 +156,8 @@ class DiscoverDetailViewModel @Inject constructor(
     }
 }
 
+private const val DOWNLOADS_POLL_INTERVAL_MS = 5_000L
+
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     private val repository: DiscoverRepository,
@@ -163,20 +166,33 @@ class DownloadsViewModel @Inject constructor(
     val state: StateFlow<DownloadsUiState> = _state.asStateFlow()
 
     init {
-        refresh()
+        startPolling()
     }
 
     fun refresh() {
         viewModelScope.launch {
             _state.value = DownloadsUiState.Loading
-            val downloads = repository.downloads().getOrElse {
-                _state.value = DownloadsUiState.Error(it.message ?: "Failed to load downloads")
-                return@launch
-            }
-            _state.value = DownloadsUiState.Ready(
-                configured = downloads.configured,
-                items = downloads.items,
-            )
+            fetchOnce()
         }
+    }
+
+    private fun startPolling() {
+        viewModelScope.launch {
+            while (true) {
+                fetchOnce()
+                delay(DOWNLOADS_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private suspend fun fetchOnce() {
+        val downloads = repository.downloads().getOrElse {
+            _state.value = DownloadsUiState.Error(it.message ?: "Failed to load downloads")
+            return
+        }
+        _state.value = DownloadsUiState.Ready(
+            configured = downloads.configured,
+            items = downloads.items,
+        )
     }
 }

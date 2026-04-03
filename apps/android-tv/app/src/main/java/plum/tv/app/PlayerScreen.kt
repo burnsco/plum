@@ -57,7 +57,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -86,6 +85,7 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
 import plum.tv.core.player.TrackPicker
 import plum.tv.core.player.TrackPickerOption
+import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.plumBorder
 
@@ -238,15 +238,7 @@ fun PlayerRoute(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.0f to Color(0xCC000000),
-                            0.25f to Color(0x44000000),
-                            0.6f to Color(0x22000000),
-                            0.8f to Color(0x66000000),
-                            1.0f to Color(0xDD000000),
-                        ),
-                    ),
+                    .background(PlumScrims.playerControls),
             )
         }
 
@@ -463,7 +455,7 @@ private fun TrackPickerOverlay(
                     .widthIn(max = 520.dp)
                     .fillMaxWidth(0.92f)
                     .clip(shape)
-                    .background(Color(0xFF1A1824))
+                    .background(PlumTheme.palette.panel)
                     .padding(horizontal = 28.dp, vertical = 24.dp),
         ) {
             Text(
@@ -790,7 +782,9 @@ private fun PlayerControlButton(
             focusedBorder = plumBorder(palette.accent.copy(alpha = 0.70f), 1.5.dp, shape),
             pressedBorder = plumBorder(palette.accent.copy(alpha = 0.70f), 1.5.dp, shape),
         ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = if (primary) Glow(palette.accent.copy(alpha = 0.35f), 10.dp) else Glow(Color.Transparent, 0.dp),
+        ),
     ) {
         Box(
             modifier = Modifier.size(buttonSize),

@@ -6,20 +6,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -28,35 +27,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import kotlinx.coroutines.delay
-import plum.tv.core.network.DiscoverBrowseResponseJson
 import plum.tv.core.network.DiscoverGenreJson
 import plum.tv.core.network.DiscoverItemJson
-import plum.tv.core.network.DiscoverTitleDetailsJson
 import plum.tv.core.network.DownloadItemJson
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumDetailBackground
+import plum.tv.core.ui.PlumDetailHeroHeader
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumPanel
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
+import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.resolveArtworkUrl
-import plum.tv.core.ui.plumOutlinedFieldColors
 
 private val discoverCategoryOptions =
     listOf(
@@ -267,55 +262,63 @@ fun DiscoverBrowseRoute(
                 },
             )
         }
-        is DiscoverBrowseUiState.Ready -> Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            PlumPanel(contentPadding = PaddingValues(16.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PlumScreenTitle(
-                        title = s.title,
-                        subtitle = "${s.totalResults} titles",
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
-                    }
-                }
-            }
+        is DiscoverBrowseUiState.Ready -> {
+            val metrics = PlumTheme.metrics
+            // Adaptive grid: same approach as LibraryBrowseScreen so column count responds to width.
+            val minCell = remember(metrics) { metrics.posterCompactWidth + metrics.cardGap }
 
-            DiscoverBrowseFilters(
-                category = s.category,
-                mediaType = s.mediaType,
-                genre = s.genre,
-                genres = s.genres,
-                onChange = { nextCategory, nextMediaType, nextGenreId ->
-                    viewModel.refresh(nextCategory, nextMediaType, nextGenreId)
-                },
-            )
-
-            if (s.items.isEmpty()) {
-                PlumStatePanel(
-                    modifier = Modifier.fillMaxWidth(),
-                    title = "No titles found",
-                    message = "Try a different category, media type, or genre filter.",
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    itemsIndexed(s.items.chunked(5)) { _, row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap)) {
-                            row.forEach { item ->
-                                DiscoverPosterCard(
-                                    item = item,
-                                    serverBase = serverBase,
-                                    onClick = { onOpenTitle(item.mediaType, item.tmdbId) },
-                                )
-                            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(PlumScreenPadding()),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                PlumPanel(contentPadding = PaddingValues(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PlumScreenTitle(
+                            title = s.title,
+                            subtitle = "${s.totalResults} titles",
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
+
+                DiscoverBrowseFilters(
+                    category = s.category,
+                    mediaType = s.mediaType,
+                    genre = s.genre,
+                    genres = s.genres,
+                    onChange = { nextCategory, nextMediaType, nextGenreId ->
+                        viewModel.refresh(nextCategory, nextMediaType, nextGenreId)
+                    },
+                )
+
+                if (s.items.isEmpty()) {
+                    PlumStatePanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = "No titles found",
+                        message = "Try a different category, media type, or genre filter.",
+                    )
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = minCell),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
+                        verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
+                        contentPadding = PaddingValues(bottom = 24.dp),
+                    ) {
+                        items(s.items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
+                            DiscoverPosterCard(
+                                item = item,
+                                serverBase = serverBase,
+                                onClick = { onOpenTitle(item.mediaType, item.tmdbId) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -452,7 +455,6 @@ fun DiscoverDetailRoute(
             val d = s.details
             val backdropUrl = resolveArtworkUrl(serverBase, null, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, null, d.posterPath, PlumImageSizes.POSTER_DETAIL)
-            val detailMetrics = PlumTheme.metrics
             val primaryMatch = d.libraryMatches.firstOrNull()
             val isConfigured = d.acquisition?.isConfigured != false
             val canAdd = d.acquisition?.canAdd == true
@@ -464,27 +466,10 @@ fun DiscoverDetailRoute(
                     else -> if (isConfigured) "Add" else "Unavailable"
                 }
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (backdropUrl != null) {
-                    AsyncImage(
-                        model = backdropUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.0f to Color(0xCC000000),
-                                0.4f to Color(0xDD000000),
-                                1.0f to Color(0xF5000000),
-                            ),
-                        ),
-                )
-
+            PlumDetailBackground(
+                backdropUrl = backdropUrl,
+                scrim = PlumScrims.backdropVertical,
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -492,69 +477,53 @@ fun DiscoverDetailRoute(
                         .padding(horizontal = 36.dp, vertical = 28.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        if (posterUrl != null) {
-                            AsyncImage(
-                                model = posterUrl,
-                                contentDescription = d.title,
-                                modifier = Modifier
-                                    .width(detailMetrics.heroPosterWidth)
-                                    .height(detailMetrics.heroPosterHeight)
-                                    .clip(RoundedCornerShape(10.dp)),
-                                contentScale = ContentScale.Crop,
+                    PlumDetailHeroHeader(posterUrl = posterUrl) {
+                        Text(
+                            text = d.title,
+                            style = PlumTheme.typography.headlineLarge,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        PlumMetadataChips(
+                            values = buildList {
+                                val year = d.releaseDate?.take(4) ?: d.firstAirDate?.take(4)
+                                if (!year.isNullOrBlank()) add(year)
+                                d.runtime?.takeIf { it > 0 }?.let { add("$it min") }
+                                d.numberOfSeasons?.takeIf { it > 0 }?.let { add("$it seasons") }
+                                d.voteAverage?.let { add("TMDb ${"%.1f".format(it)}") }
+                                d.imdbRating?.let { add("IMDb ${"%.1f".format(it)}") }
+                                addAll(d.genres.take(4))
+                            },
+                        )
+                        if (d.overview.isNotBlank()) {
+                            Text(
+                                text = d.overview,
+                                maxLines = 8,
+                                overflow = TextOverflow.Ellipsis,
+                                style = PlumTheme.typography.bodyLarge,
+                                color = Color.White.copy(alpha = 0.85f),
                             )
                         }
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Text(
-                                text = d.title,
-                                style = PlumTheme.typography.headlineLarge,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            PlumMetadataChips(
-                                values = buildList {
-                                    val year = d.releaseDate?.take(4) ?: d.firstAirDate?.take(4)
-                                    if (!year.isNullOrBlank()) add(year)
-                                    d.runtime?.takeIf { it > 0 }?.let { add("$it min") }
-                                    d.numberOfSeasons?.takeIf { it > 0 }?.let { add("$it seasons") }
-                                    d.voteAverage?.let { add("TMDb ${"%.1f".format(it)}") }
-                                    d.imdbRating?.let { add("IMDb ${"%.1f".format(it)}") }
-                                    addAll(d.genres.take(4))
-                                },
-                            )
-                            if (d.overview.isNotBlank()) {
-                                Text(
-                                    text = d.overview,
-                                    maxLines = 8,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = PlumTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.85f),
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (primaryMatch != null) {
+                                PlumActionButton(
+                                    label = "Open in Library",
+                                    onClick = { onOpenLibrary(primaryMatch.libraryId, primaryMatch.showKey) },
+                                )
+                            } else {
+                                PlumActionButton(
+                                    label = addLabel,
+                                    onClick = {
+                                        if (!isConfigured) {
+                                            onOpenSettings()
+                                        } else if (canAdd) {
+                                            viewModel.addTitle(mediaType, tmdbId)
+                                        }
+                                    },
+                                    variant = PlumButtonVariant.Primary,
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                if (primaryMatch != null) {
-                                    PlumActionButton(
-                                        label = "Open in Library",
-                                        onClick = { onOpenLibrary(primaryMatch.libraryId, primaryMatch.showKey) },
-                                    )
-                                } else {
-                                    PlumActionButton(
-                                        label = addLabel,
-                                        onClick = {
-                                            if (!isConfigured) {
-                                                onOpenSettings()
-                                            } else if (canAdd) {
-                                                viewModel.addTitle(mediaType, tmdbId)
-                                            }
-                                        },
-                                        variant = PlumButtonVariant.Primary,
-                                    )
-                                }
-                                PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
-                            }
+                            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
                         }
                     }
                     if (d.libraryMatches.isNotEmpty()) {
@@ -584,13 +553,6 @@ fun DownloadsRoute(
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(5_000)
-            viewModel.refresh()
-        }
-    }
-
     when (val s = state) {
         is DownloadsUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PlumStatePanel(
@@ -608,7 +570,9 @@ fun DownloadsRoute(
             )
         }
         is DownloadsUiState.Ready -> Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(PlumScreenPadding()),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             PlumPanel {
@@ -650,10 +614,10 @@ private fun DownloadRow(item: DownloadItemJson) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(item.title, color = PlumTheme.palette.text)
-                    Text(item.statusText, color = PlumTheme.palette.muted)
+                    Text(item.title, style = PlumTheme.typography.titleSmall, color = PlumTheme.palette.text)
+                    Text(item.statusText, style = PlumTheme.typography.bodySmall, color = PlumTheme.palette.muted)
                 }
-                Text("${progress.toInt()}%", color = PlumTheme.palette.textSecondary)
+                Text("${progress.toInt()}%", style = PlumTheme.typography.labelLarge, color = PlumTheme.palette.textSecondary)
             }
             Box(
                 modifier =
@@ -682,7 +646,7 @@ private fun DownloadRow(item: DownloadItemJson) {
                 )
             }
             item.errorMessage?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = PlumTheme.palette.error)
+                Text(it, style = PlumTheme.typography.bodySmall, color = PlumTheme.palette.error)
             }
         }
     }

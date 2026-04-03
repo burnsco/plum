@@ -1,41 +1,37 @@
 package plum.tv.feature.details
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
 import plum.tv.core.ui.PlumCastMember
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumDetailBackground
+import plum.tv.core.ui.PlumDetailHeroHeader
 import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.PlumMetadataChips
+import plum.tv.core.ui.PlumScrims
+import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -53,47 +49,36 @@ fun MovieDetailRoute(
             Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Loading…", color = PlumTheme.palette.muted)
+            PlumStatePanel(
+                title = "Loading",
+                message = "Fetching movie details…",
+            )
         }
-        is MovieDetailUiState.Error -> Column(
-            Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        is MovieDetailUiState.Error -> Box(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton("Retry", onClick = { viewModel.load() }, leadingBadge = "R")
-            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost, leadingBadge = "B")
+            PlumStatePanel(
+                title = "Could not load movie",
+                message = s.message,
+                actions = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PlumActionButton("Retry", onClick = { viewModel.load() }, leadingBadge = "R")
+                        PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
+                    }
+                },
+            )
         }
         is MovieDetailUiState.Ready -> {
             val d = s.details
             val backdropUrl =
                 resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
-            val metrics = PlumTheme.metrics
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Full-bleed backdrop
-                if (backdropUrl != null) {
-                    AsyncImage(
-                        model = backdropUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                // Scrim over backdrop so text is readable
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                0.0f to Color(0xF2000000),
-                                0.55f to Color(0xCC000000),
-                                1.0f to Color(0x44000000),
-                            ),
-                        ),
-                )
-
-                // Content layer
+            PlumDetailBackground(
+                backdropUrl = backdropUrl,
+                scrim = PlumScrims.backdropHorizontal,
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -101,62 +86,41 @@ fun MovieDetailRoute(
                         .padding(horizontal = 36.dp, vertical = 32.dp),
                     verticalArrangement = Arrangement.spacedBy(28.dp),
                 ) {
-                    // Header: poster + info side by side
-                    Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-                        // Poster
-                        if (posterUrl != null) {
-                            AsyncImage(
-                                model = posterUrl,
-                                contentDescription = d.title,
-                                modifier = Modifier
-                                    .width(metrics.heroPosterWidth)
-                                    .height(metrics.heroPosterHeight)
-                                    .clip(RoundedCornerShape(10.dp)),
-                                contentScale = ContentScale.Crop,
+                    PlumDetailHeroHeader(posterUrl = posterUrl) {
+                        Text(
+                            text = d.title,
+                            style = PlumTheme.typography.headlineLarge,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                        )
+
+                        PlumMetadataChips(
+                            values = buildList {
+                                d.releaseDate?.take(4)?.takeIf { it.isNotBlank() }?.let(::add)
+                                d.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
+                                d.imdbRating?.let { add("★ ${"%.1f".format(it)}") }
+                                addAll(d.genres.take(4))
+                            },
+                        )
+
+                        if (d.overview.isNotBlank()) {
+                            Text(
+                                text = d.overview,
+                                maxLines = 8,
+                                overflow = TextOverflow.Ellipsis,
+                                style = PlumTheme.typography.bodyLarge,
+                                color = Color.White.copy(alpha = 0.85f),
                             )
                         }
 
-                        // Info column
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            Text(
-                                text = d.title,
-                                style = PlumTheme.typography.headlineLarge,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                            )
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                            PlumMetadataChips(
-                                values = buildList {
-                                    d.releaseDate?.take(4)?.takeIf { it.isNotBlank() }?.let(::add)
-                                    d.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
-                                    d.imdbRating?.let { add("★ ${"%.1f".format(it)}") }
-                                    addAll(d.genres.take(4))
-                                },
-                            )
-
-                            if (d.overview.isNotBlank()) {
-                                Text(
-                                    text = d.overview,
-                                    maxLines = 8,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = PlumTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.85f),
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                PlumActionButton("Play", onClick = { onPlay(d.mediaId) }, leadingBadge = "▶")
-                                PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
-                            }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PlumActionButton("Play", onClick = { onPlay(d.mediaId) }, leadingBadge = "▶")
+                            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
                         }
                     }
 
-                    // Cast section
                     if (!d.cast.isNullOrEmpty()) {
                         PlumCastSection(
                             cast = d.cast.orEmpty().map { member ->

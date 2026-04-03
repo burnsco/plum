@@ -6,7 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -215,6 +217,70 @@ fun PlumStatePanel(
             )
             actions?.invoke()
         }
+    }
+}
+
+/**
+ * Full-bleed backdrop + scrim background for cinematic detail screens.
+ * Renders an optional backdrop image behind a solid scrim, then layers [content] on top.
+ * The backdrop is fixed (non-scrolling); scroll the content inside [content] as needed.
+ */
+@Composable
+fun PlumDetailBackground(
+    backdropUrl: String?,
+    scrim: Brush = PlumScrims.backdropVertical,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        if (backdropUrl != null) {
+            AsyncImage(
+                model = backdropUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scrim),
+        )
+        content()
+    }
+}
+
+/**
+ * Standard detail-page header row: optional poster image on the left, info column on the right.
+ * Adopting this in all detail screens keeps poster sizing and spacing consistent.
+ */
+@Composable
+fun PlumDetailHeroHeader(
+    posterUrl: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val metrics = PlumTheme.metrics
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(28.dp),
+    ) {
+        if (posterUrl != null) {
+            AsyncImage(
+                model = posterUrl,
+                contentDescription = null,
+                modifier = Modifier
+                    .width(metrics.heroPosterWidth)
+                    .height(metrics.heroPosterHeight)
+                    .clip(RoundedCornerShape(metrics.tileRadius)),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            content = content,
+        )
     }
 }
 
@@ -484,7 +550,7 @@ fun PlumPosterCard(
             ) {
                 Text(
                     text = title,
-                    style = PlumTheme.typography.labelMedium,
+                    style = PlumTheme.typography.labelLarge,
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
@@ -493,7 +559,7 @@ fun PlumPosterCard(
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
-                        style = PlumTheme.typography.labelSmall,
+                        style = PlumTheme.typography.labelMedium,
                         color = Color.White.copy(alpha = 0.65f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -587,7 +653,8 @@ fun PlumSideRail(
 @Composable
 private fun PlumRailButton(item: PlumRailItem) {
     val palette = PlumTheme.palette
-    val shape = RoundedCornerShape(12.dp)
+    val metrics = PlumTheme.metrics
+    val shape = RoundedCornerShape(metrics.tileRadius)
     Surface(
         onClick = item.onClick,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
@@ -623,7 +690,7 @@ private fun PlumRailButton(item: PlumRailItem) {
                 Box(
                     modifier =
                         Modifier
-                            .size(24.dp)
+                            .size(28.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (item.selected) palette.accentSoft else palette.surface),
                     contentAlignment = Alignment.Center,
@@ -632,7 +699,7 @@ private fun PlumRailButton(item: PlumRailItem) {
                         imageVector = item.icon,
                         contentDescription = item.label,
                         tint = if (item.selected) palette.accent else palette.muted,
-                        modifier = Modifier.size(15.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
                 Text(
