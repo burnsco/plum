@@ -10,6 +10,8 @@ This guide covers building and sideloading the Plum Android TV app onto your dev
 
 You need **JDK 17 or 21**. JDK 22+ causes an `IllegalArgumentException` in the Kotlin/Gradle DSL and will not work.
 
+The Android TV Gradle wrapper auto-selects Android Studio’s bundled JBR when it is installed, so on Linux or macOS you usually do not need to set `JAVA_HOME` manually.
+
 ```bash
 # Check your version
 java -version
@@ -24,7 +26,7 @@ sudo apt install openjdk-17-jdk
 brew install openjdk@17
 ```
 
-If you have multiple JDKs, set `JAVA_HOME` before running Gradle:
+If you want to override the auto-selection, set `JAVA_HOME` before running Gradle:
 
 ```bash
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
@@ -167,9 +169,46 @@ After a successful login, you land on the main library view.
 | `adb devices` | List connected devices |
 | `adb install -r <apk>` | Reinstall/update the app |
 | `adb uninstall plum.tv.app` | Remove the app |
-| `adb logcat -s PlumTV` | Stream app logs |
+| `adb logcat -s PlumTV` | Stream Android TV app logs |
 | `adb shell am start -n plum.tv.app/.MainActivity` | Launch the app from the terminal |
 | `adb disconnect` | Disconnect a network ADB session |
+
+### Log filtering
+
+Use these when troubleshooting startup, Discover, login, or playback:
+
+```bash
+# Android TV app logs only
+adb logcat -s PlumTV
+
+# Android TV logs plus common crash markers
+adb logcat | grep -E "PlumTV|AndroidRuntime|FATAL"
+
+# Server startup and request logs
+bun run dev:server 2>&1 | grep -E '"component":"server"|"startup config"|PlumTV'
+
+# Just startup or just request events
+bun run dev:server 2>&1 | grep '"event":"startup"'
+bun run dev:server 2>&1 | grep '"event":"request"'
+
+# Pretty-print JSON server lines if jq is installed
+bun run dev:server 2>&1 | grep '"component":"server"' | jq -c .
+
+# Count startup vs request events
+bun run dev:server 2>&1 | grep '"component":"server"' | jq -r '.event' | sort | uniq -c
+
+# Bucket request status codes by class
+bun run dev:server 2>&1 | grep '"event":"request"' | jq -r '.status / 100 | floor' | sort | uniq -c
+
+# Show only failed requests
+bun run dev:server 2>&1 | grep '"event":"request"' | jq -c 'select(.status >= 400)'
+```
+
+What to look for:
+
+- Android TV lines tagged `PlumTV` show app startup, HTTP requests, login/logout, and WebSocket activity.
+- Server lines with `"component":"server"` show startup config and per-request summaries.
+- Missing Discover metadata usually shows `metadata.tmdb=false` or a server startup line with `env_loaded=false`.
 
 ---
 

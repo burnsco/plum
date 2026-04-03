@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -51,7 +52,7 @@ fun HomeRoute(
     val state by viewModel.state.collectAsState()
     when (val s = state) {
         is HomeUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Loading…", color = PlumTheme.palette.muted)
+            CircularProgressIndicator(color = PlumTheme.palette.accent)
         }
         is HomeUiState.Error -> Column(
             modifier = Modifier.fillMaxSize().padding(48.dp),

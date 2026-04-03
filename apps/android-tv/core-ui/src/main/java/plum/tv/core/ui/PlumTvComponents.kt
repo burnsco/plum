@@ -1,6 +1,9 @@
 package plum.tv.core.ui
 
+import android.app.ActivityManager
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,10 +22,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -81,6 +89,22 @@ fun resolveArtworkUrl(
     if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) return resolvedPath
     return "$TMDB_IMAGE_BASE/$tmdbSize$resolvedPath"
 }
+
+private fun buildArtworkRequest(
+    context: android.content.Context,
+    url: String,
+    widthPx: Int,
+    heightPx: Int,
+    allowHardware: Boolean,
+): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(url)
+        .size(widthPx, heightPx)
+        .allowHardware(allowHardware)
+        .crossfade(false)
+        .memoryCachePolicy(CachePolicy.ENABLED)
+        .diskCachePolicy(CachePolicy.ENABLED)
+    .build()
 
 @Composable
 fun PlumScreenTitle(
@@ -224,7 +248,7 @@ fun PlumActionButton(
                 disabledContainerColor = palette.surface,
                 disabledContentColor = palette.muted,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(if (variant == PlumButtonVariant.Ghost) Color.Transparent else palette.border, if (variant == PlumButtonVariant.Ghost) 0.dp else 1.dp, shape),
@@ -296,55 +320,79 @@ fun PlumPosterCard(
 
     val resolvedUrl = imageUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
     val context = LocalContext.current
-    val prefetchMod =
-        if (resolvedUrl != null) {
-            Modifier.onFocusChanged { focusState ->
-                if (focusState.isFocused) {
-                    context.imageLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(resolvedUrl)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .build(),
-                    )
-                }
+    val density = LocalDensity.current
+    val widthPx = remember(width, density) { with(density) { width.roundToPx().coerceAtLeast(1) } }
+    val heightPx = remember(height, density) { with(density) { height.roundToPx().coerceAtLeast(1) } }
+    val allowHardware = remember(context) {
+        context.getSystemService(ActivityManager::class.java)?.isLowRamDevice != true
+    }
+    val posterRequest =
+        remember(resolvedUrl, widthPx, heightPx, allowHardware) {
+            if (resolvedUrl == null) {
+                null
+            } else {
+                buildArtworkRequest(context, resolvedUrl, widthPx, heightPx, allowHardware)
             }
-        } else {
-            Modifier
         }
+
+    var isFocused by remember { mutableStateOf(false) }
+    val animatedProgress by animateFloatAsState(
+        targetValue = ((progressPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat(),
+        label = "progress",
+    )
 
     Surface(
         onClick = onClick,
-        modifier = modifier.width(width).then(prefetchMod),
+        modifier =
+            modifier
+                .width(width)
+                .height(height)
+                .onFocusChanged { fs ->
+                    isFocused = fs.isFocused
+                    if (fs.isFocused && resolvedUrl != null) {
+                        context.imageLoader.enqueue(
+                            buildArtworkRequest(context, resolvedUrl, widthPx, heightPx, allowHardware),
+                        )
+                    }
+                },
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(
-                containerColor = palette.panel,
+                containerColor = Color.Transparent,
                 contentColor = palette.text,
-                focusedContainerColor = palette.panel,
+                focusedContainerColor = Color.Transparent,
                 focusedContentColor = palette.text,
-                pressedContainerColor = palette.surfaceHover,
+                pressedContainerColor = Color.Transparent,
                 pressedContentColor = palette.text,
-                disabledContainerColor = palette.panel,
+                disabledContainerColor = Color.Transparent,
                 disabledContentColor = palette.muted,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
-                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 2.dp, shape),
-                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 2.dp, shape),
+                focusedBorder = plumBorder(Color.Transparent, 0.dp, shape),
+                pressedBorder = plumBorder(Color.Transparent, 0.dp, shape),
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
+        // Border lives here so it wraps only the poster image, not a larger Surface area
         Box(
-            modifier = Modifier
-                .width(width)
-                .height(height),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+                    .then(
+                        if (isFocused) {
+                            Modifier.border(2.dp, palette.accent.copy(alpha = 0.9f), shape)
+                        } else {
+                            Modifier
+                        },
+                    ),
         ) {
-            if (resolvedUrl != null) {
+            if (posterRequest != null) {
                 AsyncImage(
-                    model = resolvedUrl,
+                    model = posterRequest,
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
@@ -383,9 +431,8 @@ fun PlumPosterCard(
                     ),
             )
 
-            // Progress bar for continue-watching items
-            val pct = progressPercent
-            if (pct != null && pct > 0.0) {
+            // Animated progress bar for continue-watching items
+            if (animatedProgress > 0f) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -394,13 +441,12 @@ fun PlumPosterCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight()
+                            .fillMaxSize()
                             .background(Color.White.copy(alpha = 0.2f)),
                     )
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction = (pct / 100.0).coerceIn(0.0, 1.0).toFloat())
+                            .fillMaxWidth(animatedProgress)
                             .fillMaxHeight()
                             .background(palette.accent),
                     )
@@ -411,7 +457,7 @@ fun PlumPosterCard(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 10.dp, vertical = if (progressPercent != null && progressPercent > 0.0) 6.dp else 10.dp),
+                    .padding(horizontal = 10.dp, vertical = if (animatedProgress > 0f) 6.dp else 10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
@@ -527,16 +573,17 @@ private fun PlumRailButton(item: PlumRailItem) {
             ClickableSurfaceDefaults.colors(
                 containerColor = if (item.selected) palette.accentSoft else Color.Transparent,
                 contentColor = if (item.selected) palette.accent else palette.muted,
-                focusedContainerColor = palette.surfaceHover,
-                focusedContentColor = palette.text,
-                pressedContainerColor = palette.surfaceHover,
-                pressedContentColor = palette.text,
+                focusedContainerColor = if (item.selected) palette.accentSoft else Color.Transparent,
+                focusedContentColor = if (item.selected) palette.accent else palette.text,
+                pressedContainerColor = if (item.selected) palette.accentSoft else Color.Transparent,
+                pressedContentColor = if (item.selected) palette.accent else palette.text,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
-                focusedBorder = plumBorder(palette.borderStrong, 1.5.dp, shape),
+                focusedBorder = plumBorder(palette.accent, 2.dp, shape),
+                pressedBorder = plumBorder(palette.accent, 2.dp, shape),
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {

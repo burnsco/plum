@@ -108,8 +108,9 @@ private val plumMetrics =
         chipGap = 8.dp,
         posterWidth = 160.dp,
         posterHeight = 240.dp,
-        posterCompactWidth = 128.dp,
-        posterCompactHeight = 192.dp,
+        // Slightly shorter than strict 2:3 so grid rows + focus ring fit typical TV safe areas.
+        posterCompactWidth = 124.dp,
+        posterCompactHeight = 186.dp,
         heroPosterWidth = 220.dp,
         heroPosterHeight = 330.dp,
         thumbnailWidth = 160.dp,

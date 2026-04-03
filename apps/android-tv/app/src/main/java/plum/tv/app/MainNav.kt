@@ -455,7 +455,9 @@ private fun goToLibraryBrowse(navController: NavHostController, libraryId: Int) 
         popUpTo(navController.graph.findStartDestination().id) {
             saveState = true
         }
-        launchSingleTop = true
-        restoreState = true
+        // Same graph destination for every libraryId; singleTop + restoreState can block a switch
+        // or re-apply the wrong SavedState for another library's browse screen.
+        launchSingleTop = false
+        restoreState = false
     }
 }

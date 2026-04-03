@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -24,6 +26,8 @@ import (
 )
 
 func main() {
+	envLoaded := loadDotEnv()
+
 	addr := getEnv("PLUM_ADDR", ":8080")
 	conn := getEnv("PLUM_DATABASE_URL", getEnv("PLUM_DB_PATH", "./data/plum.db"))
 	tmdbKey := getEnv("TMDB_API_KEY", "")
@@ -41,6 +45,42 @@ func main() {
 		log.Fatalf("init db: %v", err)
 	}
 	defer sqlDB.Close()
+
+	startup := startupConfig{
+		Component: "server",
+		Event:     "startup",
+		EnvLoaded: envLoaded,
+		Addr:      addr,
+		DB:        conn,
+		Metadata: metadataConfig{
+			TMDB:               tmdbKey != "",
+			TVDB:               tvdbKey != "",
+			OMDB:               omdbKey != "",
+			Fanart:             fanartKey != "",
+			MusicBrainzContact: musicBrainzContact != "",
+		},
+	}
+
+	if mediaStackSettings, err := db.GetEffectiveMediaStackSettings(sqlDB); err != nil {
+		startup.MediaStack = mediaStackConfig{
+			Available: false,
+			Error:     err.Error(),
+		}
+	} else {
+		mediaStackAny := arr.IsConfigured(mediaStackSettings.Radarr) || arr.IsConfigured(mediaStackSettings.SonarrTV)
+		startup.MediaStack = mediaStackConfig{
+			Available: true,
+			Radarr:    arr.IsConfigured(mediaStackSettings.Radarr),
+			SonarrTV:  arr.IsConfigured(mediaStackSettings.SonarrTV),
+			Any:       mediaStackAny,
+		}
+	}
+
+	if raw, err := json.Marshal(startup); err != nil {
+		log.Printf(`{"component":"server","event":"startup_log_marshal_error","error":%q}`, err.Error())
+	} else {
+		log.Print(string(raw))
+	}
 
 	pipeline := metadata.NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact)
 	pipeline.SetIMDbRatingProvider(&db.IMDbRatingStore{DB: sqlDB})
@@ -110,8 +150,79 @@ func getEnv(key, def string) string {
 	return def
 }
 
+func loadDotEnv() bool {
+	loaded := false
+	candidates := []string{".env", "../.env"}
+	for _, path := range candidates {
+		file, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		loaded = true
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.HasPrefix(line, "export ") {
+				line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+			}
+			key, value, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			key = strings.TrimSpace(key)
+			value = strings.TrimSpace(value)
+			if key == "" {
+				continue
+			}
+			if _, exists := os.LookupEnv(key); exists {
+				continue
+			}
+			if len(value) >= 2 {
+				if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+					(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+					value = value[1 : len(value)-1]
+				}
+			}
+			_ = os.Setenv(key, value)
+		}
+		_ = file.Close()
+	}
+	return loaded
+}
+
+type startupConfig struct {
+	Component  string           `json:"component"`
+	Event      string           `json:"event"`
+	EnvLoaded  bool             `json:"env_loaded"`
+	Addr       string           `json:"addr"`
+	DB         string           `json:"db"`
+	Metadata   metadataConfig   `json:"metadata"`
+	MediaStack mediaStackConfig `json:"media_stack"`
+}
+
+type metadataConfig struct {
+	TMDB               bool `json:"tmdb"`
+	TVDB               bool `json:"tvdb"`
+	OMDB               bool `json:"omdb"`
+	Fanart             bool `json:"fanart"`
+	MusicBrainzContact bool `json:"musicbrainz_contact"`
+}
+
+type mediaStackConfig struct {
+	Available bool   `json:"available"`
+	Radarr    bool   `json:"radarr,omitempty"`
+	SonarrTV  bool   `json:"sonarr_tv,omitempty"`
+	Any       bool   `json:"any,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string, artDir string) http.Handler {
 	r := chi.NewRouter()
+	r.Use(httpapi.RequestLoggingMiddleware())
 	allowedOrigins := httpapi.AllowedOriginsFromEnv(os.Getenv("PLUM_ALLOWED_ORIGINS"))
 	r.Use(httpapi.CORSMiddleware(allowedOrigins))
 	r.Use(httpapi.RequestBodyLimitMiddleware(httpapi.RequestBodyLimitBytes()))

@@ -1,5 +1,6 @@
 package plum.tv.core.data
 
+import android.util.Log
 import com.squareup.moshi.Moshi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,6 +21,10 @@ class SessionRepository @Inject constructor(
     private val tokenBridge: AuthTokenBridge,
     private val okHttpClient: OkHttpClient,
 ) {
+    private companion object {
+        const val TAG = "PlumTV"
+    }
+
     val serverUrl: Flow<String?> get() = prefs.serverUrl
     val sessionToken: Flow<String?> get() = prefs.sessionToken
 
@@ -39,8 +44,11 @@ class SessionRepository @Inject constructor(
         val prev = prefs.serverUrl.first()?.trim()?.trimEnd('/')
         val next = url.trim().trimEnd('/')
         if (prev != null && prev.isNotEmpty() && prev != next) {
+            Log.i(TAG, "server url changed old=$prev new=$next")
             prefs.clearSession()
             tokenBridge.setToken(null)
+        } else {
+            Log.i(TAG, "server url set url=$next")
         }
         prefs.setServerUrl(url)
         apiMutex.withLock {
@@ -63,27 +71,35 @@ class SessionRepository @Inject constructor(
         }
     }
 
-    suspend fun login(email: String, password: String): Result<DeviceLoginResult> = runCatching {
-        val api = getPlumApi()
-        val res = api.deviceLogin(DeviceLoginRequest(email = email, password = password))
-        if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Login failed (${res.code()})")
+    suspend fun login(email: String, password: String): Result<DeviceLoginResult> =
+        runCatching {
+            Log.i(TAG, "login start")
+            val api = getPlumApi()
+            val res = api.deviceLogin(DeviceLoginRequest(email = email, password = password))
+            if (!res.isSuccessful) {
+                error(res.errorBody()?.string() ?: "Login failed (${res.code()})")
+            }
+            val body = res.body() ?: error("Empty login response")
+            prefs.setSessionToken(body.sessionToken)
+            tokenBridge.setToken(body.sessionToken)
+            Log.i(TAG, "login success userId=${body.user.id}")
+            DeviceLoginResult(
+                userId = body.user.id,
+                email = body.user.email,
+                sessionToken = body.sessionToken,
+                expiresAtIso = body.expiresAt,
+            )
+        }.onFailure {
+            Log.w(TAG, "login failure error=${it.message}", it)
         }
-        val body = res.body() ?: error("Empty login response")
-        prefs.setSessionToken(body.sessionToken)
-        tokenBridge.setToken(body.sessionToken)
-        DeviceLoginResult(
-            userId = body.user.id,
-            email = body.user.email,
-            sessionToken = body.sessionToken,
-            expiresAtIso = body.expiresAt,
-        )
-    }
 
     suspend fun logout() {
+        Log.i(TAG, "logout start")
         runCatching {
             val api = getPlumApi()
             api.logout()
+        }.onFailure {
+            Log.w(TAG, "logout failure error=${it.message}", it)
         }
         prefs.clearSession()
         tokenBridge.setToken(null)
@@ -91,5 +107,6 @@ class SessionRepository @Inject constructor(
             cachedApi = null
             cachedBaseUrl = null
         }
+        Log.i(TAG, "logout complete")
     }
 }

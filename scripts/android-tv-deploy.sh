@@ -1,64 +1,55 @@
 #!/usr/bin/env bash
+# Install debug Plum TV APK on a connected ADB device and bring the app to the foreground.
+# Use JAVA_HOME=Android Studio JBR and ANDROID_HOME=SDK (see apps/android-tv/AGENT_DEPLOY.md).
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APK_PATH="$ROOT_DIR/apps/android-tv/app/build/outputs/apk/debug/app-debug.apk"
-COMPONENT="com.plum.android.tv/plum.tv.app.MainActivity"
-ADB_BIN="${ADB:-}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_ID="com.plum.android.tv"
+ACTIVITY="plum.tv.app.MainActivity"
 
-resolve_adb() {
-  if [[ -n "$ADB_BIN" ]]; then
-    return
+# Match android-tv.sh: prefer Android Studio JBR when JAVA_HOME is unset.
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  if [[ -x /opt/android-studio/jbr/bin/java ]]; then
+    export JAVA_HOME=/opt/android-studio/jbr
+  elif [[ -x "${HOME}/android-studio/jbr/bin/java" ]]; then
+    export JAVA_HOME="${HOME}/android-studio/jbr"
+  elif [[ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]]; then
+    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+  elif [[ -x /usr/lib/jvm/java-21-openjdk/bin/java ]]; then
+    export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+  elif [[ -x /usr/lib/jvm/java-17-openjdk/bin/java ]]; then
+    export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
   fi
-
-  if command -v adb >/dev/null 2>&1; then
-    ADB_BIN="$(command -v adb)"
-    return
-  fi
-
-  if [[ -n "${ANDROID_HOME:-}" && -x "${ANDROID_HOME}/platform-tools/adb" ]]; then
-    ADB_BIN="${ANDROID_HOME}/platform-tools/adb"
-    return
-  fi
-
-  for sdk_dir in "$HOME/Android/Sdk" /opt/android-sdk /usr/lib/android-sdk; do
-    if [[ -x "$sdk_dir/platform-tools/adb" ]]; then
-      ADB_BIN="$sdk_dir/platform-tools/adb"
-      return
-    fi
-  done
-
-  echo "android-tv-deploy: unable to find adb; set ADB or ANDROID_HOME" >&2
-  exit 1
-}
-
-resolve_serial() {
-  if [[ -n "${ADB_SERIAL:-}" ]]; then
-    echo "$ADB_SERIAL"
-    return
-  fi
-
-  local serial
-  serial="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" { print $1; exit }')"
-  if [[ -z "$serial" ]]; then
-    echo "android-tv-deploy: no connected adb devices found; set ADB_SERIAL or connect your TV" >&2
-    exit 1
-  fi
-
-  echo "$serial"
-}
-
-resolve_adb
-
-if [[ ! -f "$APK_PATH" ]]; then
-  echo "android-tv-deploy: missing APK at $APK_PATH; run make android-tv-build first" >&2
-  exit 1
 fi
 
-SERIAL="$(resolve_serial)"
+adb_bin() {
+  if [[ -n "${ANDROID_HOME:-}" && -x "${ANDROID_HOME}/platform-tools/adb" ]]; then
+    echo "${ANDROID_HOME}/platform-tools/adb"
+    return
+  fi
+  local props="${ROOT}/apps/android-tv/local.properties"
+  if [[ -f "$props" ]] && grep -q '^sdk.dir=' "$props"; then
+    local sdk
+    sdk="$(grep '^sdk.dir=' "$props" | head -1 | cut -d= -f2- | tr -d '\r')"
+    if [[ -x "${sdk}/platform-tools/adb" ]]; then
+      echo "${sdk}/platform-tools/adb"
+      return
+    fi
+  fi
+  command -v adb
+}
 
-echo "Installing Plum on $SERIAL..."
-"$ADB_BIN" -s "$SERIAL" install -r "$APK_PATH"
+ADB="$(adb_bin)"
+echo "android-tv-deploy: using adb: $ADB"
+"$ADB" devices -l
 
-echo "Launching Plum on $SERIAL..."
-"$ADB_BIN" -s "$SERIAL" shell am start -n "$COMPONENT" -a android.intent.action.MAIN -c android.intent.category.LAUNCHER
+echo "android-tv-deploy: installDebug (Gradle)…"
+bash "${ROOT}/scripts/android-tv.sh" :app:installDebug
+
+echo "android-tv-deploy: launching ${APP_ID}/${ACTIVITY}…"
+"$ADB" shell am start -a android.intent.action.MAIN \
+  -c android.intent.category.LEANBACK_LAUNCHER \
+  -n "${APP_ID}/${ACTIVITY}" \
+  || "$ADB" shell am start -n "${APP_ID}/${ACTIVITY}"
+
+echo "android-tv-deploy: done."

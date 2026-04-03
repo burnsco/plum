@@ -22,6 +22,7 @@
     "validate": "bun lint && bun typecheck && bun run server:test",
     "android:assemble": "bash ./scripts/android-tv.sh :app:assembleDebug",
     "android:install": "bash ./scripts/android-tv.sh :app:installDebug",
+    "android:deploy": "bash ./scripts/android-tv-deploy.sh",
     "android:lint": "bash ./scripts/android-tv.sh :app:lintDebug"
   },
   "dependencies": {

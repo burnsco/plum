@@ -1,14 +1,20 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"plum/internal/db"
 )
@@ -50,6 +56,112 @@ func AuthViaBearerFromContext(ctx context.Context) bool {
 		return b
 	}
 	return false
+}
+
+type requestLogEntry struct {
+	Component     string `json:"component"`
+	Event         string `json:"event"`
+	Method        string `json:"method"`
+	Path          string `json:"path"`
+	Route         string `json:"route,omitempty"`
+	Status        int    `json:"status"`
+	DurationMS    int64  `json:"duration_ms"`
+	BytesWritten  int    `json:"bytes_written"`
+	RemoteIP      string `json:"remote_ip,omitempty"`
+	UserID        int    `json:"user_id,omitempty"`
+	AuthViaBearer bool   `json:"auth_via_bearer,omitempty"`
+}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status       int
+	bytesWritten int
+}
+
+func (w *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return hj.Hijack()
+}
+
+func (w *loggingResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *loggingResponseWriter) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := w.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+func (w *loggingResponseWriter) ReadFrom(r io.Reader) (int64, error) {
+	if readerFrom, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		n, err := readerFrom.ReadFrom(r)
+		w.bytesWritten += int(n)
+		return n, err
+	}
+	n, err := io.Copy(w.ResponseWriter, r)
+	w.bytesWritten += int(n)
+	return n, err
+}
+
+func (w *loggingResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *loggingResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(p)
+	w.bytesWritten += n
+	return n, err
+}
+
+func RequestLoggingMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rw := &loggingResponseWriter{ResponseWriter: w}
+			next.ServeHTTP(rw, r)
+			status := rw.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			route := r.URL.Path
+			if rc := chi.RouteContext(r.Context()); rc != nil {
+				if pattern := strings.TrimSpace(rc.RoutePattern()); pattern != "" {
+					route = pattern
+				}
+			}
+			entry := requestLogEntry{
+				Component:     "server",
+				Event:         "request",
+				Method:        r.Method,
+				Path:          r.URL.Path,
+				Route:         route,
+				Status:        status,
+				DurationMS:    time.Since(start).Milliseconds(),
+				BytesWritten:  rw.bytesWritten,
+				RemoteIP:      clientIP(r),
+				AuthViaBearer: AuthViaBearerFromContext(r.Context()),
+			}
+			if user := UserFromContext(r.Context()); user != nil {
+				entry.UserID = user.ID
+			}
+			if raw, err := json.Marshal(entry); err != nil {
+				log.Printf(`{"component":"server","event":"request_log_marshal_error","error":%q}`, err.Error())
+			} else {
+				log.Print(string(raw))
+			}
+		})
+	}
 }
 
 func withSessionAuth(ctx context.Context, sessionID string, viaBearer bool) context.Context {

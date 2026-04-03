@@ -47,15 +47,25 @@ fun LibraryBrowseRoute(
     val metrics = PlumTheme.metrics
     val minCell = metrics.posterCompactWidth + metrics.cardGap + 6.dp
 
-    LaunchedEffect(gridState, state) {
-        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+    // Observe scroll and UI state in one snapshotFlow so row counts / flags stay in sync
+    // with the visible index (LaunchedEffect(gridState) alone would freeze `state` in the collector).
+    LaunchedEffect(gridState) {
+        snapshotFlow {
+            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+            when (val s = state) {
+                is LibraryBrowseUiState.Ready ->
+                    Triple(
+                        lastVisible,
+                        s.rows.size,
+                        s.hasMore && !s.loadingMore,
+                    )
+                else -> Triple(lastVisible, 0, false)
+            }
+        }
             .distinctUntilChanged()
-            .collect { last ->
-                if (last != null && state is LibraryBrowseUiState.Ready) {
-                    val ready = state as LibraryBrowseUiState.Ready
-                    if (last >= ready.rows.size - 12) {
-                        viewModel.loadMore()
-                    }
+            .collect { (lastVisible, rowCount, canLoadMore) ->
+                if (lastVisible != null && canLoadMore && lastVisible >= rowCount - 24) {
+                    viewModel.loadMore()
                 }
             }
     }
@@ -74,7 +84,7 @@ fun LibraryBrowseRoute(
                 actions = {
                     PlumActionButton(
                         label = "Retry",
-                        onClick = { viewModel.loadInitial() },
+                        onClick = { viewModel.loadInitial(forceNetwork = true) },
                         variant = PlumButtonVariant.Primary,
                         leadingBadge = "R",
                     )
@@ -151,6 +161,7 @@ private fun BrowseMoviePosterCard(
                 ?: item.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: item.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
+        modifier = Modifier.padding(4.dp),
         compact = true,
     )
 }
@@ -172,6 +183,7 @@ private fun BrowseShowPosterCard(
                 ?: ep.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: ep.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
+        modifier = Modifier.padding(4.dp),
         compact = true,
     )
 }

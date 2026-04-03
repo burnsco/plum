@@ -114,6 +114,34 @@ case "$( uname )" in                #(
   NONSTOP* )        nonstop=true ;;
 esac
 
+java_major_from_home () {
+    "$1/bin/java" -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\)\..*/\1/p' | head -n 1
+}
+
+is_supported_java_home () {
+    major=$(java_major_from_home "$1")
+    case "$major" in
+      17|21) return 0 ;;
+    esac
+    return 1
+}
+
+if [ -z "$JAVA_HOME" ] || ! is_supported_java_home "$JAVA_HOME" ; then
+    for candidate in \
+        "/opt/android-studio/jbr" \
+        "$HOME/android-studio/jbr" \
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+        "/usr/lib/jvm/java-21-openjdk" \
+        "/usr/lib/jvm/java-17-openjdk"
+    do
+        if [ -x "$candidate/bin/java" ] && is_supported_java_home "$candidate" ; then
+            JAVA_HOME=$candidate
+            export JAVA_HOME
+            break
+        fi
+    done
+fi
+
 
 
 # Determine the Java command to use to start the JVM.

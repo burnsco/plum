@@ -36,6 +36,7 @@ data class PlaybackSessionJson(
     @Json(name = "streamUrl") val streamUrl: String,
     @Json(name = "durationSeconds") val durationSeconds: Double,
     @Json(name = "error") val error: String? = null,
+    @Json(name = "subtitles") val subtitles: List<SubtitleJson>? = null,
     @Json(name = "embeddedAudioTracks") val embeddedAudioTracks: List<EmbeddedAudioTrackJson>? = null,
     @Json(name = "embeddedSubtitles") val embeddedSubtitles: List<EmbeddedSubtitleJson>? = null,
 )

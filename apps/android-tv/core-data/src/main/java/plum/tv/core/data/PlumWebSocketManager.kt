@@ -1,5 +1,6 @@
 package plum.tv.core.data
 
+import android.util.Log
 import com.squareup.moshi.Moshi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +35,10 @@ class PlumWebSocketManager @Inject constructor(
     private val tokenBridge: AuthTokenBridge,
     private val moshi: Moshi,
 ) {
+    private companion object {
+        const val TAG = "PlumTV"
+    }
+
     private val socketLock = Any()
     private val playbackUpdateAdapter = moshi.adapter(PlaybackSessionUpdateEventJson::class.java)
     private val attachCommandAdapter = moshi.adapter(AttachPlaybackSessionCommandJson::class.java)
@@ -56,6 +61,7 @@ class PlumWebSocketManager @Inject constructor(
                 while (isActive) {
                     val base = prefs.serverUrl.first()?.trim()?.trimEnd('/') ?: break
                     val token = tokenBridge.bearerToken() ?: break
+                    Log.d(TAG, "ws connect start base=$base")
                     try {
                         awaitSocketSession(base, token)
                     } catch (cancelled: CancellationException) {
@@ -81,6 +87,7 @@ class PlumWebSocketManager @Inject constructor(
 
     private suspend fun awaitSocketSession(httpBase: String, token: String) {
         val wsUrl = buildPlumWebSocketUrl(httpBase)
+        Log.d(TAG, "ws connect url=$wsUrl")
         val req =
             Request.Builder()
                 .url(wsUrl)
@@ -95,6 +102,7 @@ class PlumWebSocketManager @Inject constructor(
                             synchronized(socketLock) {
                                 socket = webSocket
                             }
+                            Log.i(TAG, "ws open url=$wsUrl")
                             snapshotAttachedSessions().forEach { sessionId ->
                                 if (shouldSendTo(webSocket, sessionId)) {
                                     webSocket.send(attachCommandJson(sessionId))
@@ -107,10 +115,12 @@ class PlumWebSocketManager @Inject constructor(
                         }
 
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                            Log.i(TAG, "ws closing code=$code reason=$reason")
                             clearSocket(webSocket)
                         }
 
                         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                            Log.i(TAG, "ws closed code=$code reason=$reason")
                             clearSocket(webSocket)
                             if (cont.isActive) {
                                 cont.resume(Unit)
@@ -118,6 +128,7 @@ class PlumWebSocketManager @Inject constructor(
                         }
 
                         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                            Log.w(TAG, "ws failure error=${t.message}", t)
                             clearSocket(webSocket)
                             if (cont.isActive) {
                                 cont.resume(Unit)
@@ -136,6 +147,7 @@ class PlumWebSocketManager @Inject constructor(
     }
 
     fun sendAttach(sessionId: String) {
+        Log.d(TAG, "ws attach session=$sessionId")
         val sendNow =
             synchronized(socketLock) {
                 attachedSessionIds += sessionId
@@ -145,6 +157,7 @@ class PlumWebSocketManager @Inject constructor(
     }
 
     fun sendDetach(sessionId: String) {
+        Log.d(TAG, "ws detach session=$sessionId")
         val sendNow =
             synchronized(socketLock) {
                 attachedSessionIds -= sessionId

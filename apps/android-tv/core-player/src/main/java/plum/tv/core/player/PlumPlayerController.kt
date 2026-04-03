@@ -2,6 +2,7 @@ package plum.tv.core.player
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -31,12 +32,23 @@ import plum.tv.core.network.EmbeddedSubtitleJson
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.PlaybackSessionJson
 import plum.tv.core.network.PlaybackSessionUpdateEventJson
+import plum.tv.core.network.SubtitleJson
 import plum.tv.core.network.ShowEpisodesResponseJson
+import kotlin.math.roundToLong
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class PlayerQueueItem(
     val mediaId: Int,
     val title: String,
     val subtitle: String? = null,
+)
+
+private data class ProgressPersistSnapshot(
+    val mediaId: Int,
+    val positionSec: Long,
+    val durationSec: Long,
+    val completed: Boolean,
 )
 
 data class PlayerUiState(
@@ -65,6 +77,8 @@ data class PlayerUiState(
 }
 
 private const val RESTART_PREVIOUS_THRESHOLD_MS = 10_000L
+private const val PROGRESS_HEARTBEAT_MS = 10_000L
+private const val PROGRESS_DUPLICATE_WINDOW_MS = 3_000L
 
 /**
  * Core playback controller used by the TV app.
@@ -100,6 +114,9 @@ class PlumPlayerController(
     private var embeddedSubtitleTracks: List<EmbeddedSubtitleJson> = emptyList()
 
     @Volatile
+    private var externalSubtitles: List<SubtitleJson> = emptyList()
+
+    @Volatile
     private var serverAudioIndex: Int = -1
 
     @Volatile
@@ -130,48 +147,57 @@ class PlumPlayerController(
     private var wsCollectJob: Job? = null
     private var progressJob: Job? = null
     private var queueLoadJob: Job? = null
+    private val progressPersistMutex = Mutex()
+
+    @Volatile
+    private var lastPersistedProgress: ProgressPersistSnapshot? = null
+
+    @Volatile
+    private var lastPersistedAtMs: Long = 0L
 
     init {
-        scope.launch(Dispatchers.Main) {
-            player.addListener(
-                object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        when (playbackState) {
-                            Player.STATE_ENDED -> {
-                                scope.launch { persistProgressAsync(completed = true) }
-                                updateStatus("Ended")
-                            }
-                            Player.STATE_BUFFERING -> refreshUiState()
-                            Player.STATE_READY -> refreshUiState()
+        // Register the listener synchronously. The constructor is always invoked on the main thread
+        // (via PlayerViewModel which Hilt creates on the main thread), so this is safe without a
+        // coroutine dispatch. Registering it synchronously eliminates the race where early playback
+        // events (e.g. an immediate error) could fire before the listener was attached.
+        player.addListener(
+            object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_ENDED -> {
+                            scope.launch { persistProgressAsync(completed = true) }
+                            updateStatus("Ended")
                         }
+                        Player.STATE_BUFFERING -> refreshUiState()
+                        Player.STATE_READY -> refreshUiState()
                     }
+                }
 
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        refreshUiState()
-                        if (!isPlaying &&
-                            player.playbackState != Player.STATE_ENDED &&
-                            player.mediaItemCount > 0 &&
-                            player.currentPosition > 0
-                        ) {
-                            scope.launch { persistProgressAsync(completed = false) }
-                        }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    refreshUiState()
+                    if (!isPlaying &&
+                        player.playbackState != Player.STATE_ENDED &&
+                        player.mediaItemCount > 0 &&
+                        player.currentPosition > 0
+                    ) {
+                        scope.launch { persistProgressAsync(completed = false) }
                     }
+                }
 
-                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        refreshUiState()
-                    }
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    refreshUiState()
+                }
 
-                    override fun onTracksChanged(tracks: Tracks) {
-                        refreshUiState()
-                    }
+                override fun onTracksChanged(tracks: Tracks) {
+                    refreshUiState()
+                }
 
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                        updateError(error.message ?: "Playback error")
-                        updateStatus("Error")
-                    }
-                },
-            )
-        }
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    updateError(error.message ?: "Playback error")
+                    updateStatus("Error")
+                }
+            },
+        )
 
         scope.launch {
             openMedia(mediaId = mediaId, resumeSec = resumeSec)
@@ -195,11 +221,24 @@ class PlumPlayerController(
 
         progressJob =
             scope.launch {
+                // Refresh UI every second, but persist progress less frequently
+                var ticks = 0
+                val heartbeatSeconds = (PROGRESS_HEARTBEAT_MS / 1000).toInt().coerceAtLeast(1)
                 while (isActive) {
                     delay(1_000)
                     refreshUiState()
                     if (player.isPlaying) {
-                        launch { persistProgressAsync(completed = false) }
+                        ticks++
+                        if (ticks >= heartbeatSeconds) {
+                            ticks = 0
+                            // Run the persist call here (synchronously) to avoid overlapping network calls
+                            try {
+                                persistProgressAsync(completed = false)
+                            } catch (_: Throwable) {
+                            }
+                        }
+                    } else {
+                        ticks = 0
                     }
                 }
             }
@@ -248,7 +287,7 @@ class PlumPlayerController(
                 canPrev = queueIndex > 0 || positionMs > 0,
                 canNext = queueIndex >= 0 && queueIndex < episodeQueue.lastIndex,
                 canCycleAudio = findFirstTrackGroup(C.TRACK_TYPE_AUDIO)?.length?.let { it > 1 } == true || embeddedAudioTracks.size > 1,
-                canCycleSubtitles = embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT)?.length?.let { it > 0 } == true,
+                canCycleSubtitles = externalSubtitles.isNotEmpty() || embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT)?.length?.let { it > 0 } == true,
                 audioTrackLabel = currentAudioTrackLabel(),
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
                 queueIndex = queueIndex,
@@ -293,6 +332,7 @@ class PlumPlayerController(
     }
 
     private fun applyTrackMetadata(session: PlaybackSessionJson) {
+        externalSubtitles = session.subtitles.orEmpty()
         embeddedAudioTracks = session.embeddedAudioTracks.orEmpty()
         embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
@@ -315,7 +355,7 @@ class PlumPlayerController(
     }
 
     private fun currentSubtitleTrackLabel(): String? {
-        if (embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT) != null) {
+        if (externalSubtitles.isNotEmpty() || embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT) != null) {
             val group = findFirstTrackGroup(C.TRACK_TYPE_TEXT)
             if (group != null) {
                 for (j in 0 until group.length) {
@@ -345,21 +385,36 @@ class PlumPlayerController(
     }
 
     private suspend fun buildMediaItem(streamUrl: String): MediaItem {
-        val subtitleConfigurations =
-            embeddedSubtitleTracks.map { subtitle ->
-                val subtitleUrl =
-                    playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
-                val builder =
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                        .setMimeType(MimeTypes.TEXT_VTT)
-                if (subtitle.language.isNotBlank()) {
-                    builder.setLanguage(subtitle.language)
-                }
-                if (subtitle.title.isNotBlank()) {
-                    builder.setLabel(subtitle.title)
-                }
-                builder.build()
+        val subtitleConfigurations = mutableListOf<MediaItem.SubtitleConfiguration>()
+
+        externalSubtitles.forEach { subtitle ->
+            val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
+            val builder =
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                    .setMimeType(MimeTypes.TEXT_VTT)
+            if (subtitle.language.isNotBlank()) {
+                builder.setLanguage(subtitle.language)
             }
+            if (subtitle.title.isNotBlank()) {
+                builder.setLabel(subtitle.title)
+            }
+            subtitleConfigurations += builder.build()
+        }
+
+        embeddedSubtitleTracks.forEach { subtitle ->
+            val subtitleUrl =
+                playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+            val builder =
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                    .setMimeType(MimeTypes.TEXT_VTT)
+            if (subtitle.language.isNotBlank()) {
+                builder.setLanguage(subtitle.language)
+            }
+            if (subtitle.title.isNotBlank()) {
+                builder.setLabel(subtitle.title)
+            }
+            subtitleConfigurations += builder.build()
+        }
 
         return MediaItem.Builder()
             .setUri(streamUrl)
@@ -504,14 +559,36 @@ class PlumPlayerController(
             }
 
         val posSec = posMs.coerceAtLeast(0) / 1000.0
-        withContext(Dispatchers.IO) {
-            runCatching {
-                playbackRepository.updateProgress(
-                    targetMediaId,
-                    positionSec = posSec,
-                    durationSec = durSec,
-                    completed = completed,
-                )
+        val snapshot =
+            ProgressPersistSnapshot(
+                mediaId = targetMediaId,
+                positionSec = posSec.roundToLong(),
+                durationSec = durSec.roundToLong(),
+                completed = completed,
+            )
+
+        progressPersistMutex.withLock {
+            val now = SystemClock.elapsedRealtime()
+            val lastSnapshot = lastPersistedProgress
+            if (lastSnapshot == snapshot && now - lastPersistedAtMs < PROGRESS_DUPLICATE_WINDOW_MS) {
+                return
+            }
+
+            val success =
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        playbackRepository.updateProgress(
+                            targetMediaId,
+                            positionSec = posSec,
+                            durationSec = durSec,
+                            completed = completed,
+                        )
+                    }
+                }.isSuccess
+
+            if (success) {
+                lastPersistedProgress = snapshot
+                lastPersistedAtMs = now
             }
         }
     }
@@ -591,6 +668,7 @@ class PlumPlayerController(
                 val next = indices[(pos + 1) % indices.size]
 
                 val result = withContext(Dispatchers.IO) { playbackRepository.updateSessionAudio(sid, next) }
+                result.getOrNull()?.let { applyTrackMetadata(it) }
                 result.onFailure { e ->
                     updateError(e.message ?: "Audio switch failed")
                 }
@@ -695,11 +773,13 @@ class PlumPlayerController(
                 }
 
             if (durSec > 0) {
-                val posSec = posMs.coerceAtLeast(0) / 1000.0
                 val ended = state == Player.STATE_ENDED
 
+                try {
+                    persistProgressAsync(completed = ended, mediaIdOverride = closingMediaId)
+                } catch (_: Throwable) {
+                }
                 withContext(Dispatchers.IO) {
-                    runCatching { playbackRepository.updateProgress(closingMediaId, posSec, durSec, ended) }
                     runCatching { sid?.let { playbackRepository.closeSession(it) } }
                 }
             }

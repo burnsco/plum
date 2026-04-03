@@ -4,12 +4,21 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import plum.tv.core.network.HomeDashboardJson
 import plum.tv.core.network.LibraryJson
 import plum.tv.core.network.LibraryMediaPageJson
 import plum.tv.core.network.LibraryMovieDetailsJson
 import plum.tv.core.network.LibraryShowDetailsJson
 import plum.tv.core.network.ShowEpisodesResponseJson
+
+private data class LibraryMediaCacheKey(val libraryId: Int, val offset: Int, val limit: Int)
 
 @Singleton
 class BrowseRepository @Inject constructor(
@@ -19,10 +28,34 @@ class BrowseRepository @Inject constructor(
     @Volatile
     private var cachedLibraries: List<LibraryJson>? = null
 
+    private val prefetchMutex = Mutex()
+
+    private val mediaCacheLock = Any()
+    private val mediaPageCache =
+        object : LinkedHashMap<LibraryMediaCacheKey, LibraryMediaPageJson>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LibraryMediaCacheKey, LibraryMediaPageJson>?): Boolean =
+                size > 48
+        }
+
+    /** Synchronous read for instant UI when [libraryMedia] was fetched earlier in the session. */
+    fun peekLibraryMediaPage(libraryId: Int, offset: Int, limit: Int): LibraryMediaPageJson? {
+        val key = LibraryMediaCacheKey(libraryId, offset, limit)
+        synchronized(mediaCacheLock) {
+            return mediaPageCache[key]
+        }
+    }
+
+    fun invalidateLibraryMediaCache() {
+        synchronized(mediaCacheLock) {
+            mediaPageCache.clear()
+        }
+    }
+
     fun invalidateLibrariesCache() {
         synchronized(librariesCacheLock) {
             cachedLibraries = null
         }
+        invalidateLibraryMediaCache()
     }
     suspend fun homeDashboard(): Result<HomeDashboardJson> = runCatching {
         val res = sessionRepository.getPlumApi().homeDashboard()
@@ -51,14 +84,57 @@ class BrowseRepository @Inject constructor(
         }
     }
 
-    suspend fun libraryMedia(libraryId: Int, offset: Int? = null, limit: Int? = null): Result<LibraryMediaPageJson> =
-        runCatching {
+    suspend fun libraryMedia(
+        libraryId: Int,
+        offset: Int? = null,
+        limit: Int? = null,
+        forceRefresh: Boolean = false,
+    ): Result<LibraryMediaPageJson> {
+        val cacheOffset = offset ?: 0
+        val cacheLimit = limit ?: 0
+        val cacheKey = LibraryMediaCacheKey(libraryId, cacheOffset, cacheLimit)
+        if (!forceRefresh) {
+            synchronized(mediaCacheLock) {
+                mediaPageCache[cacheKey]?.let { return Result.success(it) }
+            }
+        }
+        return runCatching {
             val res = sessionRepository.getPlumApi().libraryMedia(libraryId, offset, limit)
             if (!res.isSuccessful) {
                 error(res.errorBody()?.string() ?: "Library media: HTTP ${res.code()}")
             }
-            res.body() ?: error("Empty library media")
+            val body = res.body() ?: error("Empty library media")
+            synchronized(mediaCacheLock) {
+                mediaPageCache[cacheKey] = body
+            }
+            body
         }
+    }
+
+    /**
+     * Warms the [libraryMedia] cache with the first page of every library so TV / Movies / Anime
+     * shelves are instant on first open. Skips IDs already cached; uses limited parallelism.
+     */
+    suspend fun prefetchFirstLibraryMediaPages(
+        firstPageLimit: Int = 60,
+        maxConcurrent: Int = 2,
+    ) {
+        prefetchMutex.withLock {
+            coroutineScope {
+                val libs = libraries(forceRefresh = false).getOrElse { return@coroutineScope }
+                if (libs.isEmpty()) return@coroutineScope
+                val sem = Semaphore(maxConcurrent)
+                for (lib in libs) {
+                    launch(Dispatchers.IO) {
+                        if (peekLibraryMediaPage(lib.id, offset = 0, limit = firstPageLimit) != null) return@launch
+                        sem.withPermit {
+                            libraryMedia(lib.id, offset = 0, limit = firstPageLimit, forceRefresh = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     suspend fun movieDetails(libraryId: Int, mediaId: Int): Result<LibraryMovieDetailsJson> = runCatching {
         val res = sessionRepository.getPlumApi().movieDetails(libraryId, mediaId)

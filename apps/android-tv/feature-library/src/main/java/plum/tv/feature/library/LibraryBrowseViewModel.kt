@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.groupLibraryBrowseItemsByShow
@@ -39,9 +41,24 @@ class LibraryBrowseViewModel @Inject constructor(
     private var nextOffset: Int? = null
     private val pageSize = 60
     private val accumulatedItems = mutableListOf<LibraryBrowseItemJson>()
+    private val listingMutex = Mutex()
 
     init {
-        loadInitial()
+        viewModelScope.launch {
+            listingMutex.withLock {
+                browseRepository.peekLibraryMediaPage(libraryId, offset = 0, limit = pageSize)?.let { page ->
+                    nextOffset = page.nextOffset
+                    accumulatedItems.addAll(page.items)
+                    _state.value =
+                        LibraryBrowseUiState.Ready(
+                            rows = rebuildRows(),
+                            hasMore = page.hasMore,
+                            loadingMore = false,
+                        )
+                }
+                refreshInitialFromNetwork(forceRefresh = false)
+            }
+        }
     }
 
     private fun rebuildRows(): List<LibraryBrowseGridRow> {
@@ -54,25 +71,41 @@ class LibraryBrowseViewModel @Inject constructor(
         }
     }
 
-    fun loadInitial() {
+    fun loadInitial(forceNetwork: Boolean = false) {
         viewModelScope.launch {
-            _state.value = LibraryBrowseUiState.Loading
-            accumulatedItems.clear()
-            browseRepository.libraryMedia(libraryId, offset = 0, limit = pageSize).fold(
-                onSuccess = { page ->
-                    nextOffset = page.nextOffset
-                    accumulatedItems.addAll(page.items)
-                    _state.value = LibraryBrowseUiState.Ready(
+            listingMutex.withLock {
+                if (forceNetwork) {
+                    _state.value = LibraryBrowseUiState.Loading
+                    accumulatedItems.clear()
+                }
+                refreshInitialFromNetwork(forceRefresh = forceNetwork)
+            }
+        }
+    }
+
+    private suspend fun refreshInitialFromNetwork(forceRefresh: Boolean) {
+        browseRepository.libraryMedia(libraryId, offset = 0, limit = pageSize, forceRefresh = forceRefresh).fold(
+            onSuccess = { page ->
+                // loadMore() may finish before this initial refresh; do not wipe extra pages.
+                if (accumulatedItems.size > page.items.size) {
+                    return@fold
+                }
+                nextOffset = page.nextOffset
+                accumulatedItems.clear()
+                accumulatedItems.addAll(page.items)
+                _state.value =
+                    LibraryBrowseUiState.Ready(
                         rows = rebuildRows(),
                         hasMore = page.hasMore,
                         loadingMore = false,
                     )
-                },
-                onFailure = { e ->
+            },
+            onFailure = { e ->
+                if (_state.value !is LibraryBrowseUiState.Ready) {
                     _state.value = LibraryBrowseUiState.Error(e.message ?: "Failed to load library")
-                },
-            )
-        }
+                }
+            },
+        )
     }
 
     fun loadMore() {
@@ -80,21 +113,26 @@ class LibraryBrowseViewModel @Inject constructor(
         if (cur !is LibraryBrowseUiState.Ready || !cur.hasMore || cur.loadingMore) return
         val offset = nextOffset ?: return
         viewModelScope.launch {
-            _state.value = cur.copy(loadingMore = true)
-            browseRepository.libraryMedia(libraryId, offset = offset, limit = pageSize).fold(
-                onSuccess = { page ->
-                    nextOffset = page.nextOffset
-                    accumulatedItems.addAll(page.items)
-                    _state.value = LibraryBrowseUiState.Ready(
-                        rows = rebuildRows(),
-                        hasMore = page.hasMore,
-                        loadingMore = false,
-                    )
-                },
-                onFailure = {
-                    _state.value = cur.copy(loadingMore = false)
-                },
-            )
+            listingMutex.withLock {
+                val latest = _state.value
+                if (latest !is LibraryBrowseUiState.Ready || !latest.hasMore || latest.loadingMore) return@withLock
+                _state.value = latest.copy(loadingMore = true)
+                browseRepository.libraryMedia(libraryId, offset = offset, limit = pageSize, forceRefresh = false).fold(
+                    onSuccess = { page ->
+                        nextOffset = page.nextOffset
+                        accumulatedItems.addAll(page.items)
+                        _state.value =
+                            LibraryBrowseUiState.Ready(
+                                rows = rebuildRows(),
+                                hasMore = page.hasMore,
+                                loadingMore = false,
+                            )
+                    },
+                    onFailure = {
+                        _state.value = latest.copy(loadingMore = false)
+                    },
+                )
+            }
         }
     }
 }

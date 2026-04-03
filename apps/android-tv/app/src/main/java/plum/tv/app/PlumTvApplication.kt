@@ -1,6 +1,8 @@
 package plum.tv.app
 
 import android.app.Application
+import android.app.ActivityManager
+import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -16,6 +18,10 @@ import okio.Path.Companion.toOkioPath
 
 @HiltAndroidApp
 class PlumTvApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        Log.i("PlumTV", "application start")
+    }
 
     @EntryPoint
     @InstallIn(SingletonComponent::class)
@@ -25,17 +31,22 @@ class PlumTvApplication : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader {
         val ep = EntryPoints.get(this, CoilEntryPoint::class.java)
+        val lowRam = getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+        val memoryCachePercent = if (lowRam) 0.12 else 0.22
+        val diskCacheSizeBytes = if (lowRam) 128L * 1024 * 1024 else 256L * 1024 * 1024
+        val allowHardwareBitmaps = !lowRam
         return ImageLoader.Builder(this)
-            .callFactory(ep.okHttpClient())
+            .okHttpClient(ep.okHttpClient())
+            .allowHardware(allowHardwareBitmaps)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.22)
+                    .maxSizePercent(memoryCachePercent)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(File(cacheDir, "plum_coil_disk").apply { mkdirs() }.toOkioPath())
-                    .maxSizeBytes(256L * 1024 * 1024)
+                    .maxSizeBytes(diskCacheSizeBytes)
                     .build()
             }
             .crossfade(durationMillis = 100)
