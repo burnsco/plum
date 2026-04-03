@@ -193,6 +193,7 @@ func ListLibraryEnrichmentTasks(
 	dbConn *sql.DB,
 	libraryID int,
 	libraryType string,
+	identifyRequested bool,
 ) ([]EnrichmentTask, error) {
 	var table string
 	switch libraryType {
@@ -208,6 +209,14 @@ func ListLibraryEnrichmentTasks(
 		return nil, fmt.Errorf("unsupported library type %q", libraryType)
 	}
 
+	// Recovery must not replay enrichment for every row in the library. Only rows that still
+	// need analyzer work (deferred hash, changed file metadata) or, for music with identify,
+	// tracks not yet matched to a provider.
+	needsWork := `(COALESCE(t.file_hash, '') = '' OR COALESCE(t.file_hash_kind, '') = '')`
+	if libraryType == LibraryTypeMusic && identifyRequested {
+		needsWork = `(` + needsWork + ` OR COALESCE(t.match_status, 'local') != 'identified')`
+	}
+
 	rows, err := dbConn.QueryContext(
 		ctx,
 		fmt.Sprintf(
@@ -216,8 +225,10 @@ func ListLibraryEnrichmentTasks(
 			   LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = t.id
 			  WHERE t.library_id = ?
 			    AND COALESCE(t.missing_since, '') = ''
+			    AND %s
 			  ORDER BY t.id`,
 			table,
+			needsWork,
 		),
 		libraryType,
 		libraryID,

@@ -59,7 +59,8 @@ import plum.tv.feature.settings.SettingsRoute
 
 private object Routes {
     const val HOME = "home"
-    const val DISCOVER = "discover"
+    /** Not `discover` alone — must not collide with `discover/{mediaType}/{tmdbId}` in NavHost matching. */
+    const val DISCOVER = "discover/main"
     const val DISCOVER_BROWSE = "discover/browse?category={category}&mediaType={mediaType}&genre={genre}"
     const val DISCOVER_DETAIL = "discover/{mediaType}/{tmdbId}"
     const val DOWNLOADS = "downloads"
@@ -129,7 +130,10 @@ fun MainNavHost(
                 key = Routes.DISCOVER,
                 label = "Discover",
                 icon = Icons.Filled.Explore,
-                selected = currentRoute == Routes.DISCOVER || currentRoute.startsWith("discover/"),
+                selected =
+                    currentRoute == Routes.DISCOVER ||
+                        currentRoute.startsWith("discover/browse") ||
+                        currentRoute == Routes.DISCOVER_DETAIL,
                 onClick = { goToRoot(navController, Routes.DISCOVER) },
             ),
             PlumRailItem(
@@ -247,22 +251,12 @@ fun MainNavHost(
                 ) {
                     composable(Routes.HOME) {
                         HomeRoute(
-                            onPlayMovie = { mediaId, resumeSec ->
-                                navigatePlay(mediaId, resumeSec)
+                            onPlayMedia = { mediaId, resumeSec, libraryId, showKey ->
+                                navigatePlay(mediaId, resumeSec, libraryId, showKey)
                             },
                             onOpenShow = { libraryId, showKey ->
                                 val enc = Uri.encode(showKey)
                                 navController.navigate("show/$libraryId/$enc")
-                            },
-                        )
-                    }
-                    composable(Routes.DISCOVER) {
-                        DiscoverRoute(
-                            onOpenBrowse = { category, mediaType, genreId ->
-                                navController.navigate(buildDiscoverBrowseRoute(category, mediaType, genreId))
-                            },
-                            onOpenTitle = { mediaType, tmdbId ->
-                                navController.navigate("discover/$mediaType/$tmdbId")
                             },
                         )
                     }
@@ -313,6 +307,16 @@ fun MainNavHost(
                             },
                             onBack = { navController.popBackStack() },
                             onOpenSettings = { navController.navigate("settings") },
+                        )
+                    }
+                    composable(Routes.DISCOVER) {
+                        DiscoverRoute(
+                            onOpenBrowse = { category, mediaType, genreId ->
+                                navController.navigate(buildDiscoverBrowseRoute(category, mediaType, genreId))
+                            },
+                            onOpenTitle = { mediaType, tmdbId ->
+                                navController.navigate("discover/$mediaType/$tmdbId")
+                            },
                         )
                     }
                     composable(Routes.DOWNLOADS) {

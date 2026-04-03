@@ -141,9 +141,12 @@ class PlumWebSocketManager @Inject constructor(
     }
 
     private fun parseUpdate(text: String): PlaybackSessionUpdateEventJson? {
-        return runCatching { playbackUpdateAdapter.fromJson(text) }.getOrNull()?.takeIf {
-            it.type == "playback_session_update"
-        }
+        return runCatching { playbackUpdateAdapter.fromJson(text) }
+            .onFailure { e ->
+                Log.w(TAG, "ws playback_session_update parse failed: ${e.message} text=${text.take(256)}")
+            }
+            .getOrNull()
+            ?.takeIf { it.type == "playback_session_update" }
     }
 
     fun sendAttach(sessionId: String) {

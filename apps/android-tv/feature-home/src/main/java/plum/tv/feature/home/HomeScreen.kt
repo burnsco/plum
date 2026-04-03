@@ -45,7 +45,7 @@ import plum.tv.core.ui.resolveImageUrl
 
 @Composable
 fun HomeRoute(
-    onPlayMovie: (mediaId: Int, resumeSec: Float) -> Unit,
+    onPlayMedia: (mediaId: Int, resumeSec: Float, libraryId: Int?, showKey: String?) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -68,7 +68,7 @@ fun HomeRoute(
         is HomeUiState.Ready -> HomeContent(
             continueWatching = s.continueWatching,
             recentlyAdded = s.recentlyAdded,
-            onPlayMovie = onPlayMovie,
+            onPlayMedia = onPlayMedia,
             onOpenShow = onOpenShow,
         )
     }
@@ -88,7 +88,7 @@ private fun formatRemainingTime(remainingSeconds: Double?): String? {
 private fun HomeContent(
     continueWatching: List<ContinueWatchingEntryJson>,
     recentlyAdded: List<RecentlyAddedEntryJson>,
-    onPlayMovie: (mediaId: Int, resumeSec: Float) -> Unit,
+    onPlayMedia: (mediaId: Int, resumeSec: Float, libraryId: Int?, showKey: String?) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
 ) {
     val metrics = PlumTheme.metrics
@@ -107,13 +107,16 @@ private fun HomeContent(
                 HeroSection(
                     entry = hero,
                     onPlay = {
+                        val resume = (hero.media.progressSeconds ?: 0.0).toFloat()
                         when (hero.kind) {
-                            "movie" -> onPlayMovie(hero.media.id, (hero.media.progressSeconds ?: 0.0).toFloat())
-                            "show" -> {
-                                val key = hero.showKey
-                                val lib = hero.media.libraryId ?: 0
-                                if (key != null) onOpenShow(lib, key)
-                            }
+                            "movie" -> onPlayMedia(hero.media.id, resume, null, null)
+                            "show" ->
+                                onPlayMedia(
+                                    hero.media.id,
+                                    resume,
+                                    hero.media.libraryId,
+                                    hero.showKey,
+                                )
                         }
                     },
                 )
@@ -140,13 +143,16 @@ private fun HomeContent(
                             subtitle = subtitle.ifBlank { null },
                             progressPercent = entry.media.progressPercent,
                             onClick = {
+                                val resume = (entry.media.progressSeconds ?: 0.0).toFloat()
                                 when (entry.kind) {
-                                    "movie" -> onPlayMovie(entry.media.id, (entry.media.progressSeconds ?: 0.0).toFloat())
-                                    "show" -> {
-                                        val key = entry.showKey
-                                        val lib = entry.media.libraryId ?: 0
-                                        if (key != null) onOpenShow(lib, key)
-                                    }
+                                    "movie" -> onPlayMedia(entry.media.id, resume, null, null)
+                                    "show" ->
+                                        onPlayMedia(
+                                            entry.media.id,
+                                            resume,
+                                            entry.media.libraryId,
+                                            entry.showKey,
+                                        )
                                 }
                             },
                         )
@@ -197,7 +203,7 @@ private fun HomeContent(
                             subtitle = entry.media.releaseDate?.take(4),
                             progressPercent = null,
                             onClick = {
-                                onPlayMovie(entry.media.id, 0f)
+                                onPlayMedia(entry.media.id, 0f, null, null)
                             },
                         )
                     }

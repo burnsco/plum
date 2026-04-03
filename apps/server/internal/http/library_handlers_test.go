@@ -3433,6 +3433,113 @@ func TestLibraryScanManager_RecoverResumesEnrichmentWithoutRescanning(t *testing
 	}
 }
 
+func TestLibraryScanManager_RecoverSkipsEnrichmentWhenNothingPending(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "Artist", "Album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatalf("mkdir album dir: %v", err)
+	}
+	trackPath := filepath.Join(albumDir, "01 - Track.flac")
+	if err := os.WriteFile(trackPath, []byte("not real audio"), 0o644); err != nil {
+		t.Fatalf("write track: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Music", db.LibraryTypeMusic, root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	if _, err := db.HandleScanLibraryWithOptions(context.Background(), dbConn, root, db.LibraryTypeMusic, libraryID, db.ScanOptions{
+		ProbeMedia:             false,
+		ProbeEmbeddedSubtitles: false,
+		ScanSidecarSubtitles:   false,
+		HashMode:               db.ScanHashModeInline,
+	}); err != nil {
+		t.Fatalf("seed music library: %v", err)
+	}
+
+	if err := db.UpsertLibraryJobStatus(dbConn, db.LibraryJobStatus{
+		LibraryID:         libraryID,
+		Path:              root,
+		Type:              db.LibraryTypeMusic,
+		Phase:             libraryScanPhaseCompleted,
+		EnrichmentPhase:   libraryEnrichmentPhaseRunning,
+		Enriching:         true,
+		IdentifyPhase:     libraryIdentifyPhaseIdle,
+		IdentifyRequested: false,
+		StartedAt:         now.Add(-1 * time.Minute).Format(time.RFC3339),
+		FinishedAt:        now.Add(-30 * time.Second).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("seed library job status: %v", err)
+	}
+
+	originalDiscovery := scanLibraryDiscovery
+	originalEnrichment := enrichLibraryTasks
+	var discoveryCalls atomic.Int32
+	var enrichmentCalls atomic.Int32
+	scanLibraryDiscovery = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		options db.ScanOptions,
+	) (db.ScanDelta, error) {
+		discoveryCalls.Add(1)
+		return db.ScanDelta{}, nil
+	}
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		enrichmentCalls.Add(1)
+		t.Fatalf("enrichment should not run when every row is already hashed; got %d tasks", len(tasks))
+		return nil
+	}
+	t.Cleanup(func() {
+		scanLibraryDiscovery = originalDiscovery
+		enrichLibraryTasks = originalEnrichment
+	})
+
+	scanJobs := NewLibraryScanManager(dbConn, nil, nil)
+	if err := scanJobs.Recover(); err != nil {
+		t.Fatalf("recover scan jobs: %v", err)
+	}
+
+	if got := discoveryCalls.Load(); got != 0 {
+		t.Fatalf("expected recovery to skip discovery rescan, got %d calls", got)
+	}
+	if got := enrichmentCalls.Load(); got != 0 {
+		t.Fatalf("expected recovery to skip enrichment, got %d calls", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := scanJobs.status(libraryID)
+		if status.Phase == libraryScanPhaseCompleted && status.EnrichmentPhase == libraryEnrichmentPhaseIdle && !status.Enriching {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected enrichment recovery to settle, got %+v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestLibraryScanManager_RequeueDoesNotDuplicateQueuedJob(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {

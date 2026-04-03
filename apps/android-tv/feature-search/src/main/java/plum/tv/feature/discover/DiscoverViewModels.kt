@@ -123,10 +123,6 @@ class DiscoverBrowseViewModel @Inject constructor(
                 else -> "Browse Everything"
             }
         }
-
-    fun goBack() {
-        // no-op placeholder; navigation callback handles back
-    }
 }
 
 @HiltViewModel

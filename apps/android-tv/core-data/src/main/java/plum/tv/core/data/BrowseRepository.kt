@@ -7,9 +7,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import plum.tv.core.network.HomeDashboardJson
 import plum.tv.core.network.LibraryJson
@@ -28,7 +26,9 @@ class BrowseRepository @Inject constructor(
     @Volatile
     private var cachedLibraries: List<LibraryJson>? = null
 
-    private val prefetchMutex = Mutex()
+    private val prefetchLock = Any()
+    @Volatile
+    private var prefetchInProgress = false
 
     private val mediaCacheLock = Any()
     private val mediaPageCache =
@@ -119,11 +119,15 @@ class BrowseRepository @Inject constructor(
         firstPageLimit: Int = 60,
         maxConcurrent: Int = 2,
     ) {
-        prefetchMutex.withLock {
+        synchronized(prefetchLock) {
+            if (prefetchInProgress) return
+            prefetchInProgress = true
+        }
+        try {
             coroutineScope {
                 val libs = libraries(forceRefresh = false).getOrElse { return@coroutineScope }
                 if (libs.isEmpty()) return@coroutineScope
-                val sem = Semaphore(maxConcurrent)
+                val sem = Semaphore(maxConcurrent.coerceAtLeast(1))
                 for (lib in libs) {
                     launch(Dispatchers.IO) {
                         if (peekLibraryMediaPage(lib.id, offset = 0, limit = firstPageLimit) != null) return@launch
@@ -132,6 +136,10 @@ class BrowseRepository @Inject constructor(
                         }
                     }
                 }
+            }
+        } finally {
+            synchronized(prefetchLock) {
+                prefetchInProgress = false
             }
         }
     }

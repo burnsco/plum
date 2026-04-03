@@ -1,7 +1,9 @@
 package plum.tv.core.network
 
 import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 
+@JsonClass(generateAdapter = true)
 data class ClientPlaybackCapabilitiesJson(
     @Json(name = "supportsNativeHls") val supportsNativeHls: Boolean,
     @Json(name = "supportsMseHls") val supportsMseHls: Boolean,
@@ -10,15 +12,18 @@ data class ClientPlaybackCapabilitiesJson(
     @Json(name = "containers") val containers: List<String>,
 )
 
+@JsonClass(generateAdapter = true)
 data class CreatePlaybackSessionPayloadJson(
     @Json(name = "audioIndex") val audioIndex: Int? = null,
     @Json(name = "clientCapabilities") val clientCapabilities: ClientPlaybackCapabilitiesJson? = null,
 )
 
+@JsonClass(generateAdapter = true)
 data class UpdatePlaybackSessionAudioPayloadJson(
     @Json(name = "audioIndex") val audioIndex: Int,
 )
 
+@JsonClass(generateAdapter = true)
 data class UpdateMediaProgressPayloadJson(
     @Json(name = "position_seconds") val positionSeconds: Double,
     @Json(name = "duration_seconds") val durationSeconds: Double,
@@ -26,6 +31,7 @@ data class UpdateMediaProgressPayloadJson(
 )
 
 /** Server returns either direct or HLS session in one shape; optional fields differ by delivery. */
+@JsonClass(generateAdapter = true)
 data class PlaybackSessionJson(
     @Json(name = "delivery") val delivery: String,
     @Json(name = "mediaId") val mediaId: Int,
@@ -41,12 +47,13 @@ data class PlaybackSessionJson(
     @Json(name = "embeddedSubtitles") val embeddedSubtitles: List<EmbeddedSubtitleJson>? = null,
 )
 
+@JsonClass(generateAdapter = true)
 data class PlaybackSessionUpdateEventJson(
     @Json(name = "type") val type: String,
     @Json(name = "sessionId") val sessionId: String,
     @Json(name = "delivery") val delivery: String,
     @Json(name = "mediaId") val mediaId: Int,
-    @Json(name = "revision") val revision: Int,
+    @Json(name = "revision") val revision: Int? = null,
     @Json(name = "audioIndex") val audioIndex: Int,
     @Json(name = "status") val status: String,
     @Json(name = "streamUrl") val streamUrl: String,
@@ -54,11 +61,13 @@ data class PlaybackSessionUpdateEventJson(
     @Json(name = "error") val error: String? = null,
 )
 
+@JsonClass(generateAdapter = true)
 data class AttachPlaybackSessionCommandJson(
     @Json(name = "action") val action: String = "attach_playback_session",
     @Json(name = "sessionId") val sessionId: String,
 )
 
+@JsonClass(generateAdapter = true)
 data class DetachPlaybackSessionCommandJson(
     @Json(name = "action") val action: String = "detach_playback_session",
     @Json(name = "sessionId") val sessionId: String,

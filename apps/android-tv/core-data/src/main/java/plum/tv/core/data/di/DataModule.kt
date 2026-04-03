@@ -1,7 +1,6 @@
 package plum.tv.core.data.di
 
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,7 +13,5 @@ object DataModule {
     @Provides
     @Singleton
     fun provideMoshi(): Moshi =
-        Moshi.Builder()
-            .addLast(KotlinJsonAdapterFactory())
-            .build()
+        Moshi.Builder().build()
 }

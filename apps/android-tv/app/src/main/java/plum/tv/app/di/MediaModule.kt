@@ -21,6 +21,10 @@ import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import plum.tv.core.data.di.ApplicationScope
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -28,6 +32,12 @@ import java.util.concurrent.TimeUnit
 object MediaModule {
     private const val MEDIA_CACHE_SIZE_LOW_RAM_BYTES = 128L * 1024 * 1024
     private const val MEDIA_CACHE_SIZE_NORMAL_BYTES = 256L * 1024 * 1024
+
+    @Provides
+    @Singleton
+    @ApplicationScope
+    fun provideApplicationScope(): CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Provides
     @Singleton

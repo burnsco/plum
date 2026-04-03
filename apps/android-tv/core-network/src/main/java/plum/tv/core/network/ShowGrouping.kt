@@ -1,14 +1,5 @@
 package plum.tv.core.network
 
-/** Extract display show name from episode title (e.g. "Show Name - S01E05 - …" → "Show Name"). */
-fun getShowName(title: String): String {
-    val match = Regex("^(.+?)\\s*-\\s*S\\d+", RegexOption.IGNORE_CASE).find(title)
-    return match?.groupValues?.getOrNull(1)?.trim() ?: title
-}
-
-private fun normalizeShowKeyTitle(title: String): String =
-    getShowName(title).lowercase().replace(Regex("[^a-z0-9]+"), "")
-
 /**
  * Builds a map from normalized episode title → `tmdb-…` key for episodes that have TMDb id,
  * so unmatched episodes with the same title normalize can merge into the same show (web parity).

@@ -318,7 +318,7 @@ func (m *LibraryScanManager) resumeRecoveredEnrichment(
 	libraryType string,
 	identifyRequested bool,
 ) {
-	tasks, err := db.ListLibraryEnrichmentTasks(context.Background(), m.db, libraryID, libraryType)
+	tasks, err := db.ListLibraryEnrichmentTasks(context.Background(), m.db, libraryID, libraryType, identifyRequested)
 	if err != nil {
 		log.Printf("recover enrichment library=%d type=%s: %v", libraryID, libraryType, err)
 		return

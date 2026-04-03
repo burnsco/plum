@@ -10,16 +10,20 @@ import androidx.media3.exoplayer.ExoPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.PlaybackRepository
 import plum.tv.core.data.PlumWebSocketManager
+import plum.tv.core.data.di.ApplicationScope
 import plum.tv.core.player.PlayerUiState
 import plum.tv.core.player.PlumPlayerController
+import plum.tv.core.player.TrackPicker
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
+    @ApplicationScope private val applicationScope: CoroutineScope,
     private val dataSourceFactory: DataSource.Factory,
     private val browseRepository: BrowseRepository,
     private val playbackRepository: PlaybackRepository,
@@ -43,6 +47,7 @@ class PlayerViewModel @Inject constructor(
             playbackRepository = playbackRepository,
             wsManager = wsManager,
             scope = viewModelScope,
+            applicationScope = applicationScope,
             mediaId = mediaId,
             resumeSec = resumeSec,
             libraryId = libraryId,
@@ -51,6 +56,7 @@ class PlayerViewModel @Inject constructor(
 
     val player: ExoPlayer = controller.player
     val uiState: StateFlow<PlayerUiState> = controller.uiState
+    val trackPicker: StateFlow<TrackPicker?> = controller.trackPicker
     val error: StateFlow<String?> = controller.error
     val status: StateFlow<String> = controller.status
 
@@ -66,6 +72,17 @@ class PlayerViewModel @Inject constructor(
         controller.forward10()
     }
 
+    fun seekTimelineBySteps(steps: Int) {
+        val durationMs = uiState.value.durationMs
+        val step =
+            if (durationMs <= 0) {
+                10_000L
+            } else {
+                (durationMs / 100).coerceIn(5_000L, 60_000L)
+            }
+        controller.seekBy(step * steps)
+    }
+
     fun previousEpisode() {
         controller.previousEpisode()
     }
@@ -74,12 +91,20 @@ class PlayerViewModel @Inject constructor(
         controller.nextEpisode()
     }
 
-    fun cycleAudioTrack() {
-        controller.cycleAudioTrack()
+    fun openAudioPicker() {
+        controller.openAudioPicker()
     }
 
-    fun cycleSubtitles() {
-        controller.cycleSubtitles()
+    fun openSubtitlePicker() {
+        controller.openSubtitlePicker()
+    }
+
+    fun dismissTrackPicker() {
+        controller.dismissTrackPicker()
+    }
+
+    fun selectTrackPickerOption(id: String) {
+        controller.selectTrackPickerOption(id)
     }
 
     override fun onCleared() {

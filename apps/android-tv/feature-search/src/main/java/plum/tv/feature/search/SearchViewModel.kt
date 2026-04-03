@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,8 +43,6 @@ class SearchViewModel @Inject constructor(
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
-    private var inFlightJob: Job? = null
-
     init {
         observeSearch()
     }
@@ -64,58 +61,52 @@ class SearchViewModel @Inject constructor(
 
     @OptIn(FlowPreview::class)
     private fun observeSearch() {
-        inFlightJob =
-            viewModelScope.launch {
-                combine(_query, _type, _retryTick) { q, t, r -> Triple(q, t, r) }
-                    .debounce(350)
-                    .map { (q, t, r) -> Triple(q.trim(), t, r) }
-                    .distinctUntilChanged()
-                    .collectLatest { (trimmedQuery, type, _) ->
-                        _state.update {
-                            it.copy(
-                                query = trimmedQuery,
-                                type = type,
-                                loading = false,
-                                error = null,
-                                results = emptyList(),
-                            )
-                        }
-                        if (trimmedQuery.length < 2) {
-                            return@collectLatest
-                        }
-                        _state.update { it.copy(loading = true, error = null) }
-                        val res =
-                            searchRepository.searchLibraryMedia(
-                                query = trimmedQuery,
-                                type = type?.queryParamValue,
-                                limit = 30,
-                            )
-                        res.fold(
-                            onSuccess = { response ->
-                                _state.update {
-                                    it.copy(
-                                        loading = false,
-                                        error = null,
-                                        results = response.results,
-                                    )
-                                }
-                            },
-                            onFailure = { e ->
-                                _state.update {
-                                    it.copy(
-                                        loading = false,
-                                        error = e.message ?: "Search failed",
-                                        results = emptyList(),
-                                    )
-                                }
-                            },
+        viewModelScope.launch {
+            combine(_query, _type, _retryTick) { q, t, r -> Triple(q, t, r) }
+                .debounce(350)
+                .map { (q, t, r) -> Triple(q.trim(), t, r) }
+                .distinctUntilChanged()
+                .collectLatest { (trimmedQuery, type, _) ->
+                    _state.update {
+                        it.copy(
+                            query = trimmedQuery,
+                            type = type,
+                            loading = false,
+                            error = null,
+                            results = emptyList(),
                         )
                     }
-            }
-    }
-
-    override fun onCleared() {
-        inFlightJob?.cancel()
-        super.onCleared()
+                    if (trimmedQuery.length < 2) {
+                        return@collectLatest
+                    }
+                    _state.update { it.copy(loading = true, error = null) }
+                    val res =
+                        searchRepository.searchLibraryMedia(
+                            query = trimmedQuery,
+                            type = type?.queryParamValue,
+                            limit = 30,
+                        )
+                    res.fold(
+                        onSuccess = { response ->
+                            _state.update {
+                                it.copy(
+                                    loading = false,
+                                    error = null,
+                                    results = response.results,
+                                )
+                            }
+                        },
+                        onFailure = { e ->
+                            _state.update {
+                                it.copy(
+                                    loading = false,
+                                    error = e.message ?: "Search failed",
+                                    results = emptyList(),
+                                )
+                            }
+                        },
+                    )
+                }
+        }
     }
 }

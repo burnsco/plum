@@ -73,6 +73,18 @@ fun resolveImageUrl(base: String, path: String): String {
 
 private const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 
+/**
+ * TMDb poster/backdrop paths are a single segment, e.g. `/abc.jpg`.
+ * Prefer loading these from the public CDN before `/api/media/.../artwork/*` so movie posters
+ * still show if the server artwork proxy fails; TV rows often used show artwork URLs instead.
+ */
+private fun isLikelyTmdbRelativePath(path: String): Boolean {
+    if (!path.startsWith("/") || path.length < 2) return false
+    if (path.startsWith("/api")) return false
+    if (path.contains("//")) return false
+    return path.indexOf('/', startIndex = 1) < 0
+}
+
 /** Resolves artwork from the authenticated backend or a TMDb poster/backdrop path. */
 fun resolveArtworkUrl(
     base: String,
@@ -80,12 +92,22 @@ fun resolveArtworkUrl(
     artworkPath: String?,
     tmdbSize: String,
 ): String? {
-    val resolvedUrl = artworkUrl?.trim()?.takeIf { it.isNotEmpty() }
-    if (resolvedUrl != null) {
-        return resolveImageUrl(base, resolvedUrl)
+    val pathTrim = artworkPath?.trim()?.takeIf { it.isNotEmpty() }
+    val urlTrim = artworkUrl?.trim()?.takeIf { it.isNotEmpty() }
+
+    if (pathTrim != null) {
+        when {
+            pathTrim.startsWith("http://", ignoreCase = true) ||
+                pathTrim.startsWith("https://", ignoreCase = true) -> return pathTrim
+            isLikelyTmdbRelativePath(pathTrim) -> return "$TMDB_IMAGE_BASE/$tmdbSize$pathTrim"
+        }
     }
 
-    val resolvedPath = artworkPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    if (urlTrim != null) {
+        return resolveImageUrl(base, urlTrim)
+    }
+
+    val resolvedPath = pathTrim ?: return null
     if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) return resolvedPath
     return "$TMDB_IMAGE_BASE/$tmdbSize$resolvedPath"
 }

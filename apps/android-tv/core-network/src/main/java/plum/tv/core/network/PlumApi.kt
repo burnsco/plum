@@ -1,6 +1,7 @@
 package plum.tv.core.network
 
 import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -11,17 +12,20 @@ import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
+@JsonClass(generateAdapter = true)
 data class DeviceLoginRequest(
     @Json(name = "email") val email: String,
     @Json(name = "password") val password: String,
 )
 
+@JsonClass(generateAdapter = true)
 data class UserJson(
     @Json(name = "id") val id: Int,
     @Json(name = "email") val email: String,
     @Json(name = "is_admin") val isAdmin: Boolean,
 )
 
+@JsonClass(generateAdapter = true)
 data class DeviceLoginResponseJson(
     @Json(name = "user") val user: UserJson,
     @Json(name = "sessionToken") val sessionToken: String,

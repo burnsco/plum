@@ -4,18 +4,23 @@ import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.datasource.DataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.text.TextOutput
+import androidx.media3.exoplayer.text.TextRenderer
+import java.util.ArrayList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.PlaybackRepository
 import plum.tv.core.data.PlumWebSocketManager
@@ -49,6 +55,13 @@ private data class ProgressPersistSnapshot(
     val positionSec: Long,
     val durationSec: Long,
     val completed: Boolean,
+)
+
+/** Preserves subtitle choice across [setMediaItem] when audio switch replaces the HLS timeline. */
+private data class SubtitleRestoreState(
+    val disabled: Boolean,
+    val language: String?,
+    val label: String?,
 )
 
 data class PlayerUiState(
@@ -98,6 +111,7 @@ class PlumPlayerController(
     private val browseRepository: BrowseRepository,
     private val wsManager: PlumWebSocketManager,
     private val scope: CoroutineScope,
+    private val applicationScope: CoroutineScope,
     private var mediaId: Int,
     private val resumeSec: Float,
     private val libraryId: Int? = null,
@@ -106,6 +120,9 @@ class PlumPlayerController(
     private var hlsSessionId: String? = null
     private var activeStreamUrl: String? = null
     private var lastDurationSec: Double = 0.0
+
+    /** Last HLS revision we applied; audio switches bump revision even when URL normalization matches. */
+    private var lastAppliedStreamRevision: Int = -1
 
     @Volatile
     private var embeddedAudioTracks: List<EmbeddedAudioTrackJson> = emptyList()
@@ -139,8 +156,39 @@ class PlumPlayerController(
         )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
+    private val _trackPicker = MutableStateFlow<TrackPicker?>(null)
+    val trackPicker: StateFlow<TrackPicker?> = _trackPicker.asStateFlow()
+
+    /**
+     * Sideloaded WebVTT (sidecar + embedded-extract URLs) still flows through the text renderer as
+     * legacy `text/vtt` samples in common Media3/HLS merge setups; without this, tracks appear in the
+     * picker but no cues reach [androidx.media3.ui.PlayerView]'s subtitle overlay.
+     * See [androidx/media#1606](https://github.com/androidx/media/issues/1606).
+     */
+    @Suppress("DEPRECATION")
+    private val renderersFactory =
+        object : DefaultRenderersFactory(appContext) {
+            init {
+                // TVs often advertise HEVC (e.g. Main 10 in MKV) as supported but the primary
+                // hardware decoder then fails at configure/decode; allow ExoPlayer to fall back.
+                setEnableDecoderFallback(true)
+            }
+
+            override fun buildTextRenderers(
+                context: Context,
+                output: TextOutput,
+                outputLooper: android.os.Looper,
+                extensionRendererMode: Int,
+                out: ArrayList<Renderer>,
+            ) {
+                val textRenderer = TextRenderer(output, outputLooper)
+                textRenderer.experimentalSetLegacyDecodingEnabled(true)
+                out.add(textRenderer)
+            }
+        }
+
     val player: ExoPlayer =
-        ExoPlayer.Builder(appContext)
+        ExoPlayer.Builder(appContext, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
 
@@ -154,6 +202,9 @@ class PlumPlayerController(
 
     @Volatile
     private var lastPersistedAtMs: Long = 0L
+
+    @Volatile
+    private var pendingSubtitleRestore: SubtitleRestoreState? = null
 
     init {
         // Register the listener synchronously. The constructor is always invoked on the main thread
@@ -189,6 +240,7 @@ class PlumPlayerController(
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
+                    restorePendingSubtitlesIfNeeded()
                     refreshUiState()
                 }
 
@@ -286,8 +338,9 @@ class PlumPlayerController(
                 isBuffering = player.playbackState == Player.STATE_BUFFERING,
                 canPrev = queueIndex > 0 || positionMs > 0,
                 canNext = queueIndex >= 0 && queueIndex < episodeQueue.lastIndex,
-                canCycleAudio = findFirstTrackGroup(C.TRACK_TYPE_AUDIO)?.length?.let { it > 1 } == true || embeddedAudioTracks.size > 1,
-                canCycleSubtitles = externalSubtitles.isNotEmpty() || embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT)?.length?.let { it > 0 } == true,
+                canCycleAudio = serverEmbeddedAudioChoiceCount() > 1 || exoAudioTrackCount() > 1,
+                // Subtitle picker lists Exo text tracks once manifests are loaded (sidecars + embedded).
+                canCycleSubtitles = trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty(),
                 audioTrackLabel = currentAudioTrackLabel(),
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
                 queueIndex = queueIndex,
@@ -331,11 +384,51 @@ class PlumPlayerController(
         )
     }
 
-    private fun applyTrackMetadata(session: PlaybackSessionJson) {
+    /** Full replace when starting a new playback session (avoids carrying lists across [switchToMedia]). */
+    private fun replaceTrackMetadataFromSession(session: PlaybackSessionJson) {
         externalSubtitles = session.subtitles.orEmpty()
         embeddedAudioTracks = session.embeddedAudioTracks.orEmpty()
         embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
+    }
+
+    /**
+     * Partial merge for PATCH responses: Go uses `omitempty` on slices, so a missing key must not
+     * clear embedded track lists we already have for this session.
+     */
+    private fun mergeTrackMetadataFromSession(session: PlaybackSessionJson) {
+        session.subtitles?.let { externalSubtitles = it }
+        session.embeddedAudioTracks?.let { embeddedAudioTracks = it }
+        session.embeddedSubtitles?.let { embeddedSubtitleTracks = it }
+        session.audioIndex?.let { serverAudioIndex = it }
+    }
+
+    private fun trackGroups(trackType: Int): List<Tracks.Group> =
+        player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
+
+    private fun exoAudioTrackCount(): Int =
+        trackGroups(C.TRACK_TYPE_AUDIO).sumOf { it.length }
+
+    /** Distinct server-side audio stream indices (transcode/remux session). */
+    private fun serverEmbeddedAudioChoiceCount(): Int =
+        embeddedAudioTracks.map { it.streamIndex }.distinct().size
+
+    private fun selectedAudioFormat(): Format? {
+        for (g in trackGroups(C.TRACK_TYPE_AUDIO)) {
+            for (j in 0 until g.length) {
+                if (g.isTrackSelected(j)) return g.mediaTrackGroup.getFormat(j)
+            }
+        }
+        return null
+    }
+
+    private fun selectedSubtitleFormat(): Format? {
+        for (g in trackGroups(C.TRACK_TYPE_TEXT)) {
+            for (j in 0 until g.length) {
+                if (g.isTrackSelected(j)) return g.mediaTrackGroup.getFormat(j)
+            }
+        }
+        return null
     }
 
     private fun currentAudioTrackLabel(): String? {
@@ -345,28 +438,12 @@ class PlumPlayerController(
             return current?.displayLabel() ?: "Track ${serverAudioIndex + 1}"
         }
 
-        val group = findFirstTrackGroup(C.TRACK_TYPE_AUDIO) ?: return null
-        for (j in 0 until group.length) {
-            if (group.isTrackSelected(j)) {
-                return group.mediaTrackGroup.getFormat(j).displayLabel() ?: "Track ${j + 1}"
-            }
-        }
-        return null
+        return selectedAudioFormat()?.displayLabel()
     }
 
     private fun currentSubtitleTrackLabel(): String? {
-        if (externalSubtitles.isNotEmpty() || embeddedSubtitleTracks.isNotEmpty() || findFirstTrackGroup(C.TRACK_TYPE_TEXT) != null) {
-            val group = findFirstTrackGroup(C.TRACK_TYPE_TEXT)
-            if (group != null) {
-                for (j in 0 until group.length) {
-                    if (group.isTrackSelected(j)) {
-                        return group.mediaTrackGroup.getFormat(j).displayLabel() ?: "Track ${j + 1}"
-                    }
-                }
-            }
-            return "Off"
-        }
-        return null
+        if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
+        return selectedSubtitleFormat()?.displayLabel() ?: "Off"
     }
 
     private fun EmbeddedAudioTrackJson.displayLabel(): String? =
@@ -375,13 +452,224 @@ class PlumPlayerController(
     private fun EmbeddedSubtitleJson.displayLabel(): String? =
         listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
 
-    private fun androidx.media3.common.Format.displayLabel(): String? =
+    private fun Format.displayLabel(): String? =
         listOfNotNull(label?.trim()?.takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
 
     private fun languageLabel(language: String?): String? {
         val trimmed = language?.trim().orEmpty()
         if (trimmed.isEmpty()) return null
         return trimmed.uppercase()
+    }
+
+    private fun buildSubtitlePickerOptions(): List<TrackPickerOption> {
+        val options = mutableListOf<TrackPickerOption>()
+        val textDisabled =
+            player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        options += TrackPickerOption(id = "off", label = "Off", selected = textDisabled)
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                val label = fmt.displayLabel() ?: "Subtitle ${options.size}"
+                val id = "t:$gi:$j"
+                val selected = !textDisabled && g.isTrackSelected(j)
+                options += TrackPickerOption(id = id, label = label, selected = selected)
+            }
+        }
+        return options
+    }
+
+    /** Server-indexed tracks when in an HLS session with metadata; otherwise flattened Exo audio tracks. */
+    private fun buildAudioPickerOptions(): List<TrackPickerOption>? {
+        val sid = hlsSessionId
+        val embeddedDistinct = embeddedAudioTracks.distinctBy { it.streamIndex }
+        if (sid != null && embeddedDistinct.size >= 2) {
+            val sorted = embeddedDistinct.sortedBy { it.streamIndex }
+            val cur = serverAudioIndex
+            return sorted.map { t ->
+                val id = "s:${t.streamIndex}"
+                val label = t.displayLabel() ?: "Track ${t.streamIndex + 1}"
+                val selected =
+                    t.streamIndex == cur ||
+                        (cur < 0 && t.streamIndex == sorted.first().streamIndex)
+                TrackPickerOption(id = id, label = label, selected = selected)
+            }
+        }
+        val all = mutableListOf<TrackPickerOption>()
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_AUDIO || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                val label = fmt.displayLabel() ?: "Audio ${all.size + 1}"
+                val id = "a:$gi:$j"
+                val selected = g.isTrackSelected(j)
+                all += TrackPickerOption(id = id, label = label, selected = selected)
+            }
+        }
+        return all.takeIf { it.size >= 2 }
+    }
+
+    private fun disableTextTracks() {
+        val b = player.trackSelectionParameters.buildUpon()
+        b.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        player.trackSelectionParameters = b.build()
+    }
+
+    private fun applyTextTrackOverride(groupIndex: Int, trackIndex: Int) {
+        val groups = player.currentTracks.groups
+        if (groupIndex !in groups.indices) return
+        val g = groups[groupIndex]
+        if (g.type != C.TRACK_TYPE_TEXT || trackIndex !in 0 until g.length) return
+        val mg = g.mediaTrackGroup
+        val b = player.trackSelectionParameters.buildUpon()
+        b.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+        b.addOverride(TrackSelectionOverride(mg, listOf(trackIndex)))
+        player.trackSelectionParameters = b.build()
+    }
+
+    private fun captureSubtitleRestoreState(): SubtitleRestoreState? {
+        if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
+        val params = player.trackSelectionParameters
+        if (params.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
+            return SubtitleRestoreState(disabled = true, language = null, label = null)
+        }
+        val fmt = selectedSubtitleFormat() ?: return null
+        return SubtitleRestoreState(disabled = false, language = fmt.language, label = fmt.label)
+    }
+
+    private fun restorePendingSubtitlesIfNeeded() {
+        val pending = pendingSubtitleRestore ?: return
+        if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return
+        pendingSubtitleRestore = null
+        if (pending.disabled) {
+            disableTextTracks()
+            return
+        }
+        val wantLang = pending.language?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val wantLabel = pending.label?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                val lang = fmt.language?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+                val label = fmt.label?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+                val match =
+                    when {
+                        wantLang != null && lang == wantLang -> true
+                        wantLang == null && wantLabel != null && label == wantLabel -> true
+                        else -> false
+                    }
+                if (match) {
+                    applyTextTrackOverride(gi, j)
+                    return
+                }
+            }
+        }
+    }
+
+    private fun applySubtitlePickerSelection(id: String) {
+        if (id == "off") {
+            disableTextTracks()
+            return
+        }
+        if (!id.startsWith("t:")) return
+        val parts = id.removePrefix("t:").split(":")
+        if (parts.size != 2) return
+        val gi = parts[0].toIntOrNull() ?: return
+        val j = parts[1].toIntOrNull() ?: return
+        applyTextTrackOverride(gi, j)
+    }
+
+    private fun applyExoAudioSelection(groupIndex: Int, trackIndex: Int) {
+        val groups = player.currentTracks.groups
+        if (groupIndex !in groups.indices) return
+        val g = groups[groupIndex]
+        if (g.type != C.TRACK_TYPE_AUDIO || trackIndex !in 0 until g.length) return
+        val mg = g.mediaTrackGroup
+        val b = player.trackSelectionParameters.buildUpon()
+        b.clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+        b.setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+        b.addOverride(TrackSelectionOverride(mg, listOf(trackIndex)))
+        player.trackSelectionParameters = b.build()
+    }
+
+    private suspend fun applyServerAudioStream(streamIndex: Int) {
+        val sid = hlsSessionId ?: return
+        val result =
+            withContext(Dispatchers.IO) {
+                playbackRepository.updateSessionAudio(sid, streamIndex)
+            }
+        result.getOrNull()?.let { session ->
+            mergeTrackMetadataFromSession(session)
+            if (session.status == "ready") {
+                swapToReadyStream(
+                    streamUrl = session.streamUrl,
+                    revision = session.revision,
+                    durationSeconds = session.durationSeconds,
+                )
+            }
+        }
+        result.onFailure { e ->
+            updateError(e.message ?: "Audio switch failed")
+        }
+    }
+
+    fun dismissTrackPicker() {
+        _trackPicker.value = null
+    }
+
+    fun openSubtitlePicker() {
+        scope.launch(Dispatchers.Main) {
+            if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return@launch
+            val options = buildSubtitlePickerOptions()
+            if (options.size < 2) return@launch
+            _trackPicker.value = TrackPicker.Subtitles(options = options)
+        }
+    }
+
+    fun openAudioPicker() {
+        scope.launch(Dispatchers.Main) {
+            val options = buildAudioPickerOptions() ?: return@launch
+            if (options.size < 2) return@launch
+            _trackPicker.value = TrackPicker.Audio(options = options)
+        }
+    }
+
+    fun selectTrackPickerOption(id: String) {
+        val picker = _trackPicker.value ?: return
+        _trackPicker.value = null
+        when (picker) {
+            is TrackPicker.Subtitles ->
+                scope.launch(Dispatchers.Main) {
+                    applySubtitlePickerSelection(id)
+                    refreshUiState()
+                }
+            is TrackPicker.Audio ->
+                scope.launch(Dispatchers.Main) {
+                    when {
+                        id.startsWith("s:") -> {
+                            val stream = id.removePrefix("s:").toIntOrNull() ?: return@launch
+                            applyServerAudioStream(stream)
+                        }
+                        id.startsWith("a:") -> {
+                            val rest = id.removePrefix("a:").split(":")
+                            if (rest.size != 2) return@launch
+                            val gi = rest[0].toIntOrNull() ?: return@launch
+                            val j = rest[1].toIntOrNull() ?: return@launch
+                            applyExoAudioSelection(gi, j)
+                        }
+                    }
+                    refreshUiState()
+                }
+        }
     }
 
     private suspend fun buildMediaItem(streamUrl: String): MediaItem {
@@ -426,7 +714,8 @@ class PlumPlayerController(
         val audioIndex = serverAudioIndex.takeIf { it >= 0 }
         playbackRepository.createSession(mediaId, audioIndex = audioIndex).fold(
             onSuccess = { session ->
-                applyTrackMetadata(session)
+                replaceTrackMetadataFromSession(session)
+                lastAppliedStreamRevision = session.revision ?: -1
                 when (session.delivery) {
                     "direct" -> {
                         hlsSessionId = null
@@ -470,6 +759,7 @@ class PlumPlayerController(
     }
 
     private suspend fun openMedia(mediaId: Int, resumeSec: Float) {
+        pendingSubtitleRestore = null
         updateError(null)
         refreshUiState(statusOverride = "Preparing stream…", errorOverride = null)
         createAndLoadMedia(mediaId, resumeSec)
@@ -488,35 +778,56 @@ class PlumPlayerController(
         queueIndex = episodeQueue.indexOfFirst { it.mediaId == mediaId }
         activeStreamUrl = null
         hlsSessionId = null
+        lastAppliedStreamRevision = -1
         openMedia(mediaId, resumeSec)
+    }
+
+    /**
+     * Swaps the player to a new ready stream when the URL changes **or** the session revision changes.
+     * Relying on URL equality alone missed some audio-track switches (e.g. normalization quirks).
+     */
+    private suspend fun swapToReadyStream(
+        streamUrl: String,
+        revision: Int?,
+        durationSeconds: Double,
+    ) {
+        val url = playbackRepository.absoluteStreamUrl(streamUrl)
+        // When `revision` is absent (older servers), only the URL can disambiguate stream swaps.
+        if (url == activeStreamUrl && (revision == null || revision == lastAppliedStreamRevision)) return
+        if (revision != null) {
+            lastAppliedStreamRevision = revision
+        }
+        activeStreamUrl = url
+        lastDurationSec = durationSeconds
+        val mediaItem = buildMediaItem(url)
+        withContext(Dispatchers.Main) {
+            pendingSubtitleRestore = captureSubtitleRestoreState()
+            val hadMedia = player.mediaItemCount > 0
+            val wasPlaying = player.isPlaying || player.playWhenReady
+            val pos = player.currentPosition
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            if (hadMedia) {
+                player.seekTo(pos)
+                player.playWhenReady = wasPlaying
+            } else {
+                if (resumeSec > 0f) {
+                    player.seekTo((resumeSec * 1000).toLong())
+                }
+                player.playWhenReady = true
+            }
+        }
     }
 
     private suspend fun handleSessionUpdate(ev: PlaybackSessionUpdateEventJson) {
         serverAudioIndex = ev.audioIndex
         when (ev.status) {
             "ready" -> {
-                val url = playbackRepository.absoluteStreamUrl(ev.streamUrl)
-                if (url != activeStreamUrl) {
-                    activeStreamUrl = url
-                    lastDurationSec = ev.durationSeconds
-                    val mediaItem = buildMediaItem(url)
-                    withContext(Dispatchers.Main) {
-                        val hadMedia = player.mediaItemCount > 0
-                        val wasPlaying = player.isPlaying || player.playWhenReady
-                        val pos = player.currentPosition
-                        player.setMediaItem(mediaItem)
-                        player.prepare()
-                        if (hadMedia) {
-                            player.seekTo(pos)
-                            player.playWhenReady = wasPlaying
-                        } else {
-                            if (resumeSec > 0f) {
-                                player.seekTo((resumeSec * 1000).toLong())
-                            }
-                            player.playWhenReady = true
-                        }
-                    }
-                }
+                swapToReadyStream(
+                    streamUrl = ev.streamUrl,
+                    revision = ev.revision,
+                    durationSeconds = ev.durationSeconds,
+                )
                 updateStatus("Playing")
             }
             "error" -> {
@@ -649,106 +960,11 @@ class PlumPlayerController(
         }
     }
 
-    /** Cycles audio: server stream index when transcoding with multiple tracks, else ExoPlayer audio tracks. */
-    fun cycleAudioTrack() {
-        scope.launch(Dispatchers.Main) {
-            val sid = hlsSessionId
-            val tracks = embeddedAudioTracks
-            if (sid != null && tracks.size >= 2) {
-                val indices = tracks.map { it.streamIndex }.distinct().sorted()
-                if (indices.isEmpty()) return@launch
-
-                val cur =
-                    if (serverAudioIndex >= 0 && indices.contains(serverAudioIndex)) {
-                        serverAudioIndex
-                    } else {
-                        indices.first()
-                    }
-                val pos = indices.indexOf(cur).let { if (it < 0) 0 else it }
-                val next = indices[(pos + 1) % indices.size]
-
-                val result = withContext(Dispatchers.IO) { playbackRepository.updateSessionAudio(sid, next) }
-                result.getOrNull()?.let { applyTrackMetadata(it) }
-                result.onFailure { e ->
-                    updateError(e.message ?: "Audio switch failed")
-                }
-                refreshUiState()
-                return@launch
-            }
-            cycleExoPlayerTrackType(C.TRACK_TYPE_AUDIO)
-            refreshUiState()
-        }
-    }
-
-    /** Cycles embedded text tracks (off → track 0 → … → off). */
-    fun cycleSubtitles() {
-        scope.launch(Dispatchers.Main) {
-            val textGroup = findFirstTrackGroup(C.TRACK_TYPE_TEXT) ?: return@launch
-            val g = textGroup
-            val mg = g.mediaTrackGroup
-
-            var current = -1
-            for (j in 0 until g.length) {
-                if (g.isTrackSelected(j)) {
-                    current = j
-                    break
-                }
-            }
-
-            val builder = player.trackSelectionParameters.buildUpon()
-            builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
-            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-
-            val next =
-                when {
-                    current < 0 -> 0
-                    current + 1 < g.length -> current + 1
-                    else -> -1
-                }
-
-            if (next < 0) {
-                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-            } else {
-                builder.addOverride(TrackSelectionOverride(mg, listOf(next)))
-            }
-            player.trackSelectionParameters = builder.build()
-            refreshUiState()
-        }
-    }
-
-    private fun findFirstTrackGroup(trackType: Int): Tracks.Group? {
-        for (i in 0 until player.currentTracks.groups.size) {
-            val group = player.currentTracks.groups[i]
-            if (group.type == trackType && group.length > 0) return group
-        }
-        return null
-    }
-
-    private fun cycleExoPlayerTrackType(trackType: Int) {
-        val g = findFirstTrackGroup(trackType) ?: return
-        if (g.length <= 1) return
-
-        val mg = g.mediaTrackGroup
-        var sel = -1
-        for (j in 0 until g.length) {
-            if (g.isTrackSelected(j)) {
-                sel = j
-                break
-            }
-        }
-        val next = (sel + 1) % g.length
-
-        val builder = player.trackSelectionParameters.buildUpon()
-        builder.clearOverridesOfType(trackType)
-        builder.setTrackTypeDisabled(trackType, false)
-        builder.addOverride(TrackSelectionOverride(mg, listOf(next)))
-        player.trackSelectionParameters = builder.build()
-    }
-
     /**
      * Cleanup that persists progress + closes playback session, then releases ExoPlayer.
      *
-     * Uses a dedicated scope so it can complete even as the ViewModel scope is cancelled.
+     * Uses the application scope so shutdown work can finish even if the ViewModel is already
+     * being torn down.
      */
     fun close() {
         progressJob?.cancel()
@@ -759,32 +975,36 @@ class PlumPlayerController(
         val sid = hlsSessionId
         val closingMediaId = mediaId
 
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
-            val (posMs, durMs, state) =
-                withContext(Dispatchers.Main) {
-                    Triple(player.currentPosition, player.duration, player.playbackState)
-                }
+        applicationScope.launch(Dispatchers.Default) {
+            try {
+                withTimeoutOrNull(5_000) {
+                    val (_, durMs, state) =
+                        withContext(Dispatchers.Main) {
+                            Triple(player.currentPosition, player.duration, player.playbackState)
+                        }
 
-            val durSec =
-                when {
-                    durMs > 0 && durMs != C.TIME_UNSET -> durMs / 1000.0
-                    lastDurationSec > 0 -> lastDurationSec
-                    else -> 0.0
-                }
+                    val durSec =
+                        when {
+                            durMs > 0 && durMs != C.TIME_UNSET -> durMs / 1000.0
+                            lastDurationSec > 0 -> lastDurationSec
+                            else -> 0.0
+                        }
 
-            if (durSec > 0) {
-                val ended = state == Player.STATE_ENDED
+                    if (durSec > 0) {
+                        val ended = state == Player.STATE_ENDED
 
-                try {
-                    persistProgressAsync(completed = ended, mediaIdOverride = closingMediaId)
-                } catch (_: Throwable) {
+                        try {
+                            persistProgressAsync(completed = ended, mediaIdOverride = closingMediaId)
+                        } catch (_: Throwable) {
+                        }
+                        withContext(Dispatchers.IO) {
+                            runCatching { sid?.let { playbackRepository.closeSession(it) } }
+                        }
+                    }
                 }
-                withContext(Dispatchers.IO) {
-                    runCatching { sid?.let { playbackRepository.closeSession(it) } }
-                }
+            } finally {
+                withContext(Dispatchers.Main) { player.release() }
             }
-
-            withContext(Dispatchers.Main) { player.release() }
         }
     }
 }

@@ -29,14 +29,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import plum.tv.core.network.TitleCastMemberJson
+import plum.tv.core.ui.PlumCastMember
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
-import plum.tv.core.ui.PlumMetadataChips
-import plum.tv.core.ui.PlumPanel
-import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumImageSizes
+import plum.tv.core.ui.PlumCastSection
+import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -158,64 +157,17 @@ fun MovieDetailRoute(
                     }
 
                     // Cast section
-                    if (d.cast.isNotEmpty()) {
-                        CastSection(cast = d.cast)
+                    if (!d.cast.isNullOrEmpty()) {
+                        PlumCastSection(
+                            cast = d.cast.orEmpty().map { member ->
+                                PlumCastMember(
+                                    name = member.name,
+                                    character = member.character,
+                                )
+                            },
+                        )
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CastSection(cast: List<TitleCastMemberJson>) {
-    PlumPanel(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            PlumSectionHeader(title = "Cast")
-            val rows = cast.take(18).chunked(3)
-            rows.forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    rowItems.forEach { member ->
-                        CastMemberCard(member = member, modifier = Modifier.weight(1f))
-                    }
-                    // Fill remaining columns so items align left
-                    repeat(3 - rowItems.size) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CastMemberCard(member: TitleCastMemberJson, modifier: Modifier = Modifier) {
-    val palette = PlumTheme.palette
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(PlumTheme.metrics.tileRadius))
-            .background(palette.panelAlt)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = member.name,
-                style = PlumTheme.typography.titleSmall,
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            member.character?.takeIf { it.isNotBlank() }?.let { character ->
-                Text(
-                    text = character,
-                    style = PlumTheme.typography.bodySmall,
-                    color = palette.muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }

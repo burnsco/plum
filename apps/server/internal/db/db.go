@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log"
 	"os"
@@ -3635,6 +3637,19 @@ func enrichTask(
 		candidate.RelPath = relPath
 	}
 
+	needsRehash := existing.FileHash == "" ||
+		existing.FileHashKind == "" ||
+		existing.FileSizeBytes != info.Size() ||
+		existing.FileModTime != candidate.ModTime
+	// Skip redundant ffprobe/hash work when this task was already fully enriched (e.g. recovery
+	// lists were overly broad before we filtered ListLibraryEnrichmentTasks).
+	if mediaType == LibraryTypeMusic &&
+		!needsRehash &&
+		options.MusicIdentifier == nil &&
+		existing.Duration > 0 {
+		return nil
+	}
+
 	item, _, musicInfo, err := buildScannedMediaItem(root, mediaType, candidate)
 	if err != nil {
 		return err
@@ -3694,12 +3709,20 @@ func enrichTask(
 		}
 	}
 
-	hash, err := computeMediaHash(ctx, task.Path)
-	if err != nil {
-		return err
+	hash := existing.FileHash
+	hashKind := existing.FileHashKind
+	if needsRehash {
+		var hashErr error
+		hash, hashErr = computeMediaHash(ctx, task.Path)
+		if hashErr != nil {
+			return hashErr
+		}
+		hashKind = fileHashKindSampledSHA256
+	} else if hashKind == "" && hash != "" {
+		hashKind = fileHashKindSHA256
 	}
 	item.FileHash = hash
-	item.FileHashKind = fileHashKindSHA256
+	item.FileHashKind = hashKind
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := updateScannedItem(ctx, dbConn, table, existing.RefID, item, now); err != nil {
 		return err
@@ -4045,10 +4068,15 @@ func HandleScanLibraryWithOptions(
 				// Discovery scans can defer hashing so rows become visible quickly.
 				mItem.FileHash = ""
 				mItem.FileHashKind = ""
+			} else if hasStableFileState && mItem.FileHash != "" && mItem.FileHashKind != "" {
+				// Hash already valid for this size/mtime; keep existing values.
+			} else if hasStableFileState && mItem.FileHash != "" && mItem.FileHashKind == "" {
+				// Legacy row: hash computed before file_hash_kind existed.
+				mItem.FileHashKind = fileHashKindSHA256
 			} else {
 				if hash, err := computeMediaHash(ctx, path); err == nil {
 					mItem.FileHash = hash
-					mItem.FileHashKind = fileHashKindSHA256
+					mItem.FileHashKind = fileHashKindSampledSHA256
 				} else {
 					return err
 				}
@@ -4121,7 +4149,20 @@ func HandleScanLibraryWithOptions(
 	return result, nil
 }
 
-const fileHashKindSHA256 = "sha256"
+const (
+	// fileHashKindSHA256 marks a legacy full-file SHA-256 (entire byte stream).
+	fileHashKindSHA256 = "sha256"
+	// fileHashKindSampledSHA256 is SHA-256 over file size (8-byte BE) plus three 1 MiB samples:
+	// start, middle, end. For files ≤ 3 MiB the whole file is hashed (same as full-file for tiny media).
+	fileHashKindSampledSHA256 = "sampled-sha256-v1"
+)
+
+// hashSampleBlock is the size of each sampled region for sampled-sha256-v1.
+const hashSampleBlock = 1 << 20
+
+// hashReadThrottleBytesPerSec limits sequential read throughput during hashing so library scans
+// do not saturate the disk (0 disables throttling).
+const hashReadThrottleBytesPerSec = 32 * 1024 * 1024
 
 func NormalizeScanSubpaths(subpaths []string) ([]string, error) {
 	if len(subpaths) == 0 {
@@ -4260,35 +4301,114 @@ func applyExistingMetadata(item *MediaItem, existing existingMediaRow, kind stri
 	}
 }
 
-func computeFileHash(ctx context.Context, path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
+func hashThrottleAfterRead(ctx context.Context, n int) error {
+	if n <= 0 || hashReadThrottleBytesPerSec <= 0 {
+		return nil
 	}
-	defer f.Close()
+	d := time.Duration(n) * time.Second / time.Duration(hashReadThrottleBytesPerSec)
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
-	hasher := sha256.New()
-	buf := make([]byte, 1024*1024)
-	for {
+func writeFileSizeToHash(h hash.Hash, size int64) {
+	_ = binary.Write(h, binary.BigEndian, uint64(size))
+}
+
+func hashFullFileThrottled(ctx context.Context, f *os.File, h hash.Hash, size int64) error {
+	buf := make([]byte, hashSampleBlock)
+	var read int64
+	for read < size {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return ctx.Err()
 		default:
 		}
 		n, err := f.Read(buf)
 		if n > 0 {
-			if _, writeErr := hasher.Write(buf[:n]); writeErr != nil {
-				return "", writeErr
+			if _, werr := h.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			read += int64(n)
+			if err := hashThrottleAfterRead(ctx, n); err != nil {
+				return err
 			}
 		}
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
-	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+	return nil
+}
+
+func hashReadAtThrottled(ctx context.Context, f *os.File, h hash.Hash, off int64, size int64) error {
+	if off < 0 || off >= size {
+		return nil
+	}
+	n := int64(hashSampleBlock)
+	if off+n > size {
+		n = size - off
+	}
+	if n <= 0 {
+		return nil
+	}
+	buf := make([]byte, n)
+	got, err := f.ReadAt(buf, off)
+	if got > 0 {
+		if _, werr := h.Write(buf[:got]); werr != nil {
+			return werr
+		}
+		if err := hashThrottleAfterRead(ctx, got); err != nil {
+			return err
+		}
+	}
+	if err != nil && err != io.EOF {
+		return err
+	}
+	return nil
+}
+
+func computeFileHash(ctx context.Context, path string) (string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	size := fi.Size()
+
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	writeFileSizeToHash(h, size)
+
+	if size <= 3*hashSampleBlock {
+		if err := hashFullFileThrottled(ctx, f, h, size); err != nil {
+			return "", err
+		}
+	} else {
+		mid := (size - hashSampleBlock) / 2
+		for _, off := range []int64{0, mid, size - hashSampleBlock} {
+			if err := hashReadAtThrottled(ctx, f, h, off, size); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func markMediaPresent(ctx context.Context, dbConn *sql.DB, table string, refID int, fileSizeBytes int64, fileModTime, fileHash, fileHashKind, seenAt string) error {

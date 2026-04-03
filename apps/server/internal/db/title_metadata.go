@@ -189,7 +189,8 @@ ORDER BY tc.billing_order ASC, p.name ASC`, titleKind, titleID)
 		return nil, err
 	}
 	defer rows.Close()
-	var out []TitleCastMember
+	// Non-nil so JSON encodes [] not null (clients expect an array).
+	out := make([]TitleCastMember, 0)
 	for rows.Next() {
 		var castMember TitleCastMember
 		if err := rows.Scan(&castMember.Name, &castMember.Character, &castMember.Order, &castMember.ProfilePath); err != nil {

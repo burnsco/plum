@@ -33,14 +33,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import plum.tv.core.network.LibraryBrowseItemJson
-import plum.tv.core.network.TitleCastMemberJson
+import plum.tv.core.ui.PlumCastMember
+import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumMetadataChips
-import plum.tv.core.ui.PlumPanel
-import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumImageSizes
+import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -177,21 +177,28 @@ fun ShowDetailRoute(
                         PlumSectionHeader("Episodes")
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             selectedEpisodes.forEach { ep ->
-                                    EpisodeRow(
-                                        ep = ep,
-                                        serverBase = serverBase,
-                                        onPlay = {
-                                            val resume = (ep.progressSeconds ?: 0.0).toFloat()
-                                            onPlayEpisode(ep.id, resume, d.libraryId, d.showKey)
-                                        },
-                                    )
-                                }
+                                EpisodeRow(
+                                    ep = ep,
+                                    serverBase = serverBase,
+                                    onPlay = {
+                                        val resume = (ep.progressSeconds ?: 0.0).toFloat()
+                                        onPlayEpisode(ep.id, resume, d.libraryId, d.showKey)
+                                    },
+                                )
                             }
+                        }
                     }
 
                     // Cast section
-                    if (d.cast.isNotEmpty()) {
-                        ShowCastSection(cast = d.cast)
+                    if (!d.cast.isNullOrEmpty()) {
+                        PlumCastSection(
+                            cast = d.cast.orEmpty().map { member ->
+                                PlumCastMember(
+                                    name = member.name,
+                                    character = member.character,
+                                )
+                            },
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -303,55 +310,6 @@ private fun EpisodeRow(
                     style = PlumTheme.typography.bodySmall,
                     color = palette.muted,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShowCastSection(cast: List<TitleCastMemberJson>) {
-    PlumPanel(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            PlumSectionHeader(title = "Cast")
-            val palette = PlumTheme.palette
-            val rows = cast.take(18).chunked(3)
-            rows.forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    rowItems.forEach { member ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(PlumTheme.metrics.tileRadius))
-                                .background(palette.panelAlt)
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(
-                                    text = member.name,
-                                    style = PlumTheme.typography.titleSmall,
-                                    color = palette.text,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                member.character?.takeIf { it.isNotBlank() }?.let { character ->
-                                    Text(
-                                        text = character,
-                                        style = PlumTheme.typography.bodySmall,
-                                        color = palette.muted,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    repeat(3 - rowItems.size) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
             }
         }
     }

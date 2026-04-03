@@ -7,6 +7,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,10 +19,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,6 +44,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,14 +54,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
@@ -61,12 +77,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
+import plum.tv.core.player.TrackPicker
+import plum.tv.core.player.TrackPickerOption
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.plumBorder
 
@@ -79,8 +98,10 @@ fun PlayerRoute(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.uiState.collectAsState()
+    val trackPicker by viewModel.trackPicker.collectAsState()
     val rootFocusRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
+    val seekBarFocusRequester = remember { FocusRequester() }
 
     // Each time hideTimerKey changes, the LaunchedEffect restarts the hide countdown.
     var hideTimerKey by remember { mutableIntStateOf(0) }
@@ -106,7 +127,11 @@ fun PlayerRoute(
         }
     }
 
-    BackHandler {
+    BackHandler(trackPicker != null) {
+        viewModel.dismissTrackPicker()
+    }
+
+    BackHandler(trackPicker == null) {
         if (controlsVisible) {
             onClose()
         } else {
@@ -124,6 +149,20 @@ fun PlayerRoute(
         } else {
             rootFocusRequester.requestFocus()
         }
+    }
+
+    // Track picker rows hold focus; when the overlay is removed, restore focus or D-pad is stuck.
+    var hadTrackPicker by remember { mutableStateOf(false) }
+    LaunchedEffect(trackPicker) {
+        if (hadTrackPicker && trackPicker == null) {
+            withFrameNanos { }
+            if (controlsVisible) {
+                playFocusRequester.requestFocus()
+            } else {
+                rootFocusRequester.requestFocus()
+            }
+        }
+        hadTrackPicker = trackPicker != null
     }
 
     Box(
@@ -176,6 +215,7 @@ fun PlayerRoute(
                     descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     player = viewModel.player
+                    configurePlumSubtitleOverlay()
                 }
             },
             update = { view ->
@@ -185,6 +225,7 @@ fun PlayerRoute(
                 view.isFocusable = false
                 view.isFocusableInTouchMode = false
                 view.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                view.configurePlumSubtitleOverlay()
             },
         )
 
@@ -286,27 +327,15 @@ fun PlayerRoute(
                     .padding(horizontal = 40.dp, vertical = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Seek bar row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Text(
-                        text = formatPlayerTime(ui.positionMs),
-                        style = PlumTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.75f),
-                    )
-                    PlexSeekBar(
-                        fraction = ui.progressFraction,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "-${formatPlayerTime(ui.remainingMs)}",
-                        style = PlumTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.75f),
-                    )
-                }
+                TimelineSeekRow(
+                    positionMs = ui.positionMs,
+                    remainingMs = ui.remainingMs,
+                    durationMs = ui.durationMs,
+                    progressFraction = ui.progressFraction,
+                    seekBarFocusRequester = seekBarFocusRequester,
+                    playFocusRequester = playFocusRequester,
+                    onSeekStep = { viewModel.seekTimelineBySteps(it) },
+                )
 
                 // Buttons row: utility-left | center controls | utility-right
                 Row(
@@ -326,29 +355,35 @@ fun PlayerRoute(
                             contentDescription = "Previous",
                             onClick = { viewModel.previousEpisode() },
                             enabled = ui.canPrev,
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                         )
                         PlayerControlButton(
                             icon = Icons.Filled.Replay10,
                             contentDescription = "Rewind 10 seconds",
                             onClick = { viewModel.rewind10() },
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                         )
                         PlayerControlButton(
                             icon = if (ui.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (ui.isPlaying) "Pause" else "Play",
                             onClick = { viewModel.togglePlayPause() },
-                            modifier = Modifier.focusRequester(playFocusRequester),
+                            modifier =
+                                controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
+                                    .focusRequester(playFocusRequester),
                             primary = true,
                         )
                         PlayerControlButton(
                             icon = Icons.Filled.Forward10,
                             contentDescription = "Forward 10 seconds",
                             onClick = { viewModel.forward10() },
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                         )
                         PlayerControlButton(
                             icon = Icons.Filled.SkipNext,
                             contentDescription = "Next",
                             onClick = { viewModel.nextEpisode() },
                             enabled = ui.canNext,
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                         )
                     }
 
@@ -362,16 +397,18 @@ fun PlayerRoute(
                             PlayerControlButton(
                                 icon = Icons.AutoMirrored.Filled.VolumeUp,
                                 contentDescription = audioContentDescription(ui.audioTrackLabel, ui.canCycleAudio),
-                                onClick = { viewModel.cycleAudioTrack() },
+                                onClick = { viewModel.openAudioPicker() },
                                 enabled = ui.canCycleAudio,
                                 utility = true,
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                             )
                             PlayerControlButton(
                                 icon = Icons.Filled.Subtitles,
                                 contentDescription = subtitleContentDescription(ui.subtitleTrackLabel, ui.canCycleSubtitles),
-                                onClick = { viewModel.cycleSubtitles() },
+                                onClick = { viewModel.openSubtitlePicker() },
                                 enabled = ui.canCycleSubtitles,
                                 utility = true,
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                             )
                             PlayerControlButton(
                                 icon = Icons.AutoMirrored.Filled.ArrowBack,
@@ -379,10 +416,170 @@ fun PlayerRoute(
                                 onClick = onClose,
                                 ghost = true,
                                 utility = true,
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                             )
                         }
                     }
                 }
+            }
+        }
+
+        trackPicker?.let { picker ->
+            TrackPickerOverlay(
+                picker = picker,
+                onDismiss = { viewModel.dismissTrackPicker() },
+                onSelect = { viewModel.selectTrackPickerOption(it) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrackPickerOverlay(
+    picker: TrackPicker,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    val palette = PlumTheme.palette
+    val shape = RoundedCornerShape(20.dp)
+    val options = picker.options
+    val focusRequesters = remember(picker) { List(options.size) { FocusRequester() } }
+
+    LaunchedEffect(picker) {
+        val idx = options.indexOfFirst { it.selected }.let { if (it < 0) 0 else it }
+        focusRequesters.getOrNull(idx)?.requestFocus()
+    }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.75f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .widthIn(max = 520.dp)
+                    .fillMaxWidth(0.92f)
+                    .clip(shape)
+                    .background(Color(0xFF1A1824))
+                    .padding(horizontal = 28.dp, vertical = 24.dp),
+        ) {
+            Text(
+                text = picker.title,
+                style = PlumTheme.typography.titleLarge,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 18.dp),
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier =
+                    Modifier
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+            ) {
+                options.forEachIndexed { index, opt ->
+                    TrackPickerRow(
+                        option = opt,
+                        modifier = Modifier.focusRequester(focusRequesters[index]),
+                        onClick = { onSelect(opt.id) },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Surface(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(14.dp)),
+                colors =
+                    ClickableSurfaceDefaults.colors(
+                        containerColor = Color.White.copy(alpha = 0.08f),
+                        contentColor = Color.White.copy(alpha = 0.85f),
+                        focusedContainerColor = Color.White.copy(alpha = 0.18f),
+                        focusedContentColor = Color.White,
+                        pressedContainerColor = Color.White.copy(alpha = 0.18f),
+                        pressedContentColor = Color.White,
+                    ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                border =
+                    ClickableSurfaceDefaults.border(
+                        border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(14.dp)),
+                        focusedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.5.dp, RoundedCornerShape(14.dp)),
+                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.5.dp, RoundedCornerShape(14.dp)),
+                    ),
+                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp, horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Cancel",
+                        style = PlumTheme.typography.labelLarge,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackPickerRow(
+    option: TrackPickerOption,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = PlumTheme.palette
+    val shape = RoundedCornerShape(14.dp)
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors =
+            ClickableSurfaceDefaults.colors(
+                containerColor = Color.White.copy(alpha = 0.06f),
+                contentColor = Color.White,
+                focusedContainerColor = Color.White.copy(alpha = 0.14f),
+                focusedContentColor = Color.White,
+                pressedContainerColor = Color.White.copy(alpha = 0.14f),
+                pressedContentColor = Color.White,
+            ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        border =
+            ClickableSurfaceDefaults.border(
+                border = plumBorder(Color.White.copy(alpha = 0.08f), 1.dp, shape),
+                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.7f), 1.5.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.7f), 1.5.dp, shape),
+            ),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = option.label,
+                style = PlumTheme.typography.bodyLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (option.selected) {
+                Text(
+                    text = "●",
+                    style = PlumTheme.typography.labelMedium,
+                    color = palette.accent,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
             }
         }
     }
@@ -390,19 +587,118 @@ fun PlayerRoute(
 
 // ── Seek bar ─────────────────────────────────────────────────────────────────
 
+private fun controlUpToSeekBar(durationMs: Long, seekBarFocusRequester: FocusRequester): Modifier =
+    if (durationMs > 0) {
+        Modifier.focusProperties { up = seekBarFocusRequester }
+    } else {
+        Modifier
+    }
+
 @Composable
-private fun PlexSeekBar(fraction: Float, modifier: Modifier = Modifier) {
+private fun TimelineSeekRow(
+    positionMs: Long,
+    remainingMs: Long,
+    durationMs: Long,
+    progressFraction: Float,
+    seekBarFocusRequester: FocusRequester,
+    playFocusRequester: FocusRequester,
+    onSeekStep: (Int) -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val seekFocused by interactionSource.collectIsFocusedAsState()
+    val seekEnabled = durationMs > 0
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            text = formatPlayerTime(positionMs),
+            style = PlumTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.75f),
+        )
+        Box(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(52.dp)
+                    .then(
+                        if (seekEnabled) {
+                            Modifier
+                                .semantics { contentDescription = "Timeline. Left or right to seek." }
+                                .focusRequester(seekBarFocusRequester)
+                                .focusProperties { down = playFocusRequester }
+                                .focusable(interactionSource = interactionSource)
+                                .onKeyEvent { event ->
+                                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                    when (event.key) {
+                                        Key.DirectionLeft -> {
+                                            onSeekStep(-1)
+                                            true
+                                        }
+                                        Key.DirectionRight -> {
+                                            onSeekStep(1)
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                }
+                        } else {
+                            Modifier
+                        },
+                    ),
+            contentAlignment = Alignment.Center,
+        ) {
+            PlexSeekBar(
+                fraction = progressFraction,
+                focused = seekFocused && seekEnabled,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Text(
+            text = "-${formatPlayerTime(remainingMs)}",
+            style = PlumTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.75f),
+        )
+    }
+}
+
+@Composable
+private fun PlexSeekBar(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    focused: Boolean = false,
+) {
     val accent = PlumTheme.palette.accent
     val f = fraction.coerceIn(0f, 1f)
+    val barHeight = if (focused) 6.dp else 4.dp
+    val thumbSize = if (focused) 15.dp else 13.dp
+    val thumbRadius = thumbSize / 2
     BoxWithConstraints(
-        modifier = modifier.height(20.dp),
+        modifier =
+            modifier
+                .height(if (focused) 28.dp else 20.dp)
+                .then(
+                    if (focused) {
+                        Modifier
+                            .border(
+                                width = 1.5.dp,
+                                color = accent.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    } else {
+                        Modifier
+                    },
+                ),
         contentAlignment = Alignment.CenterStart,
     ) {
         // Track background
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp)
+                .height(barHeight)
                 .clip(RoundedCornerShape(999.dp))
                 .background(Color.White.copy(alpha = 0.18f)),
         )
@@ -411,19 +707,18 @@ private fun PlexSeekBar(fraction: Float, modifier: Modifier = Modifier) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = f)
-                    .height(4.dp)
+                    .height(barHeight)
                     .clip(RoundedCornerShape(999.dp))
                     .background(accent),
             )
         }
         // Thumb dot — offset to sit centered at the playhead position
         if (f > 0f) {
-            val thumbRadius = 6.5.dp
             val thumbOffset = (maxWidth * f - thumbRadius).coerceAtLeast(0.dp)
             Box(
                 modifier = Modifier
                     .padding(start = thumbOffset)
-                    .size(13.dp)
+                    .size(thumbSize)
                     .clip(CircleShape)
                     .background(Color.White),
             )
@@ -522,6 +817,22 @@ private fun subtitleContentDescription(value: String?, enabled: Boolean): String
     if (!enabled) "Subtitles unavailable"
     else if (!value.isNullOrBlank()) "Subtitles: ${value.trim()}"
     else "Change subtitles"
+
+private fun PlayerView.configurePlumSubtitleOverlay() {
+    subtitleView?.apply {
+        setStyle(
+            CaptionStyleCompat(
+                android.graphics.Color.WHITE,
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+                CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+                android.graphics.Color.BLACK,
+                null,
+            ),
+        )
+        setApplyEmbeddedStyles(false)
+    }
+}
 
 private fun formatPlayerTime(ms: Long): String {
     if (ms <= 0) return "0:00"

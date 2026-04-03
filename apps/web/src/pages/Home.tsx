@@ -37,6 +37,11 @@ const isExplicitlyUnmatched = (matchStatus?: string) =>
 const isActiveIdentifyState = (identifyState?: ItemIdentifyState) =>
   identifyState === "queued" || identifyState === "identifying";
 
+/** Once provider poster art is present, drop the "Searching…" pill — it lags behind the visible poster for partial matches. */
+function hasMetadataPoster(posterPath?: string, posterUrl?: string) {
+  return Boolean(posterPath?.trim() || posterUrl?.trim());
+}
+
 function canShowFailureState(
   identifyPhase: IdentifyLibraryPhase | undefined,
   isProcessing: boolean,
@@ -271,12 +276,14 @@ export function Home() {
         confirmShowMutation.variables?.showKey === group.showKey;
       const identifyState = getGroupIdentifyState(group);
       const isIncomplete = group.unmatchedCount > 0 || group.localCount > 0;
+      const groupHasPoster = hasMetadataPoster(group.posterPath, group.posterUrl);
       if (isIncomplete && shouldDeferIncompleteCard(identifyState, selectedLibraryIdentifyPhase)) {
         deferredGroups.push(group);
         return [];
       }
       const showSearching =
         isIncomplete &&
+        !groupHasPoster &&
         (isActiveIdentifyState(identifyState) ||
           (identifyState == null && shouldRevealSearchingCards && !selectedLibraryCanShowFailure));
       const showFailure =
@@ -416,8 +423,10 @@ export function Home() {
         deferredCount += 1;
         return [];
       }
+      const movieHasPoster = hasMetadataPoster(item.poster_path, item.poster_url);
       const showSearching =
         isIncomplete &&
+        !movieHasPoster &&
         (isActiveIdentifyState(item.identify_state) ||
           (item.identify_state == null &&
             shouldRevealSearchingCards &&
