@@ -75,7 +75,7 @@ private const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 
 /**
  * TMDb poster/backdrop paths are a single segment, e.g. `/abc.jpg`.
- * Prefer loading these from the public CDN before `/api/media/.../artwork/*` so movie posters
+ * Prefer loading these from the public CDN before proxied `/api/media/.../artwork/` paths so movie posters
  * still show if the server artwork proxy fails; TV rows often used show artwork URLs instead.
  */
 private fun isLikelyTmdbRelativePath(path: String): Boolean {
