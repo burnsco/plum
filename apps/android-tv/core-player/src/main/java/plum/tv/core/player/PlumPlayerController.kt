@@ -309,11 +309,24 @@ class PlumPlayerController(
     private fun currentQueueItem(): PlayerQueueItem? =
         episodeQueue.getOrNull(queueIndex)
 
-    private fun currentDurationMs(): Long {
-        val durationMs = player.duration
-        if (durationMs > 0 && durationMs != C.TIME_UNSET) return durationMs
-        return if (lastDurationSec > 0) (lastDurationSec * 1000).toLong() else 0L
+    /**
+     * ExoPlayer sometimes reports only the first HLS playlist window as [Player.getDuration] while
+     * transcoded/remuxed Plum sessions are full-length VOD. Prefer the longer of player vs server
+     * when both are known so the scrubber and seek bounds match the real runtime.
+     */
+    private fun resolvedDurationMs(): Long {
+        val exoMs = player.duration
+        val serverMs = (lastDurationSec * 1000.0).toLong().coerceAtLeast(0L)
+        val exoValid = exoMs > 0 && exoMs != C.TIME_UNSET
+        return when {
+            !exoValid && serverMs > 0L -> serverMs
+            exoValid && serverMs <= 0L -> exoMs
+            exoValid && serverMs > 0L -> maxOf(exoMs, serverMs)
+            else -> 0L
+        }
     }
+
+    private fun currentDurationMs(): Long = resolvedDurationMs()
 
     private fun refreshUiState(
         statusOverride: String? = null,
@@ -860,14 +873,10 @@ class PlumPlayerController(
     ) {
         val targetMediaId = mediaIdOverride ?: mediaId
         val (posMs, durMs) =
-            withContext(Dispatchers.Main) { player.currentPosition to player.duration }
+            withContext(Dispatchers.Main) { player.currentPosition to resolvedDurationMs() }
 
-        val durSec =
-            when {
-                durMs > 0 && durMs != C.TIME_UNSET -> durMs / 1000.0
-                lastDurationSec > 0 -> lastDurationSec
-                else -> return
-            }
+        val durSec = durMs / 1000.0
+        if (durSec <= 0.0) return
 
         val posSec = posMs.coerceAtLeast(0) / 1000.0
         val snapshot =
@@ -980,15 +989,10 @@ class PlumPlayerController(
                 withTimeoutOrNull(5_000) {
                     val (_, durMs, state) =
                         withContext(Dispatchers.Main) {
-                            Triple(player.currentPosition, player.duration, player.playbackState)
+                            Triple(player.currentPosition, resolvedDurationMs(), player.playbackState)
                         }
 
-                    val durSec =
-                        when {
-                            durMs > 0 && durMs != C.TIME_UNSET -> durMs / 1000.0
-                            lastDurationSec > 0 -> lastDurationSec
-                            else -> 0.0
-                        }
+                    val durSec = durMs / 1000.0
 
                     if (durSec > 0) {
                         val ended = state == Player.STATE_ENDED

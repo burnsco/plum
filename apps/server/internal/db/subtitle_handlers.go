@@ -29,15 +29,11 @@ func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 	}
 
 	if s.Format == "srt" || s.Format == "ass" || s.Format == "ssa" {
-		out, err := convertSubtitleToVTT(r.Context(), []string{"-i", s.Path, "-f", "webvtt", "-"}...)
-		if err != nil {
-			return err
-		}
-		w.Header().Set("Content-Type", "text/vtt")
-		if _, err := w.Write(out); err != nil {
-			return err
-		}
-		return nil
+		return streamFFmpegWebVTT(
+			w,
+			r,
+			[]string{"-i", s.Path, "-f", "webvtt", "-"}...,
+		)
 	}
 
 	return fmt.Errorf("unsupported subtitle format: %s", s.Format)
@@ -72,7 +68,11 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 		}
 	}
 	startedAt := time.Now()
-	out, err := convertSubtitleToVTT(r.Context(), []string{"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...)
+	err = streamFFmpegWebVTT(
+		w,
+		r,
+		[]string{"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-"}...,
+	)
 	if err != nil {
 		log.Printf(
 			"stream embedded subtitle failed media=%d stream=%d source=%q duration=%s error=%v",
@@ -85,17 +85,12 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 		return err
 	}
 	log.Printf(
-		"stream embedded subtitle served media=%d stream=%d source=%q duration=%s bytes=%d",
+		"stream embedded subtitle served media=%d stream=%d source=%q duration=%s",
 		mediaID,
 		streamIndex,
 		sourcePath,
 		time.Since(startedAt).Round(time.Millisecond),
-		len(out),
 	)
-	w.Header().Set("Content-Type", "text/vtt")
-	if _, err := w.Write(out); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -122,11 +117,13 @@ func resolveEmbeddedSubtitleForPlayback(ctx context.Context, sourcePath string, 
 	return findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex), err
 }
 
-func convertSubtitleToVTT(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	var stdout bytes.Buffer
+// streamFFmpegWebVTT runs ffmpeg with stdout wired to the response so the client receives bytes
+// while conversion runs (long embedded/sidecar extracts no longer sit behind a full-memory buffer).
+func streamFFmpegWebVTT(w http.ResponseWriter, r *http.Request, args ...string) error {
+	w.Header().Set("Content-Type", "text/vtt")
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd.Stdout = w
 	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
@@ -136,7 +133,8 @@ func convertSubtitleToVTT(ctx context.Context, args ...string) ([]byte, error) {
 		if len(msg) > 512 {
 			msg = msg[len(msg)-512:]
 		}
-		return nil, fmt.Errorf("ffmpeg error: %s", msg)
+		log.Printf("ffmpeg subtitle stream stderr_tail=%s", msg)
+		return fmt.Errorf("ffmpeg error: %s", msg)
 	}
-	return stdout.Bytes(), nil
+	return nil
 }
