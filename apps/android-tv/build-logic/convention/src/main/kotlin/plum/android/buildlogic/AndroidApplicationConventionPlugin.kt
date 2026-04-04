@@ -10,8 +10,6 @@ private const val minSdkVersion = 24
 private val lintRules =
     listOf(
         "NullSafeMutableLiveData",
-        "RememberInComposition",
-        "FrequentlyChangingValue",
     )
 
 class AndroidApplicationConventionPlugin : Plugin<Project> {

@@ -5,10 +5,9 @@ import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.supervisorScope
 import plum.tv.core.network.HomeDashboardJson
 import plum.tv.core.network.LibraryJson
 import plum.tv.core.network.LibraryMediaPageJson
@@ -34,7 +33,7 @@ class BrowseRepository @Inject constructor(
     private val mediaPageCache =
         object : LinkedHashMap<LibraryMediaCacheKey, LibraryMediaPageJson>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LibraryMediaCacheKey, LibraryMediaPageJson>?): Boolean =
-                size > 120
+                size > 60
         }
 
     /** Synchronous read for instant UI when [libraryMedia] was fetched earlier in the session. */
@@ -124,18 +123,29 @@ class BrowseRepository @Inject constructor(
             prefetchInProgress = true
         }
         try {
-            coroutineScope {
-                val libs = libraries(forceRefresh = false).getOrElse { return@coroutineScope }
-                if (libs.isEmpty()) return@coroutineScope
-                val sem = Semaphore(maxConcurrent.coerceAtLeast(1))
-                for (lib in libs) {
-                    launch(Dispatchers.IO) {
-                        if (peekLibraryMediaPage(lib.id, offset = 0, limit = firstPageLimit) != null) return@launch
-                        sem.withPermit {
-                            libraryMedia(lib.id, offset = 0, limit = firstPageLimit, forceRefresh = false)
+            supervisorScope {
+                val libs = libraries(forceRefresh = false).getOrElse { return@supervisorScope }
+                if (libs.isEmpty()) return@supervisorScope
+                val pendingIds =
+                    libs.map { it.id }.filter { libraryId ->
+                        peekLibraryMediaPage(libraryId, offset = 0, limit = firstPageLimit) == null
+                    }
+                if (pendingIds.isEmpty()) return@supervisorScope
+                val workers = maxConcurrent.coerceAtLeast(1)
+                val channel = Channel<Int>(Channel.UNLIMITED)
+                val jobs =
+                    List(workers) {
+                        launch(Dispatchers.IO) {
+                            for (libraryId in channel) {
+                                runCatching {
+                                    libraryMedia(libraryId, offset = 0, limit = firstPageLimit, forceRefresh = false)
+                                }
+                            }
                         }
                     }
-                }
+                pendingIds.forEach { channel.send(it) }
+                channel.close()
+                jobs.forEach { it.join() }
             }
         } finally {
             synchronized(prefetchLock) {

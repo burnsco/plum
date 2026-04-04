@@ -14,7 +14,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -49,7 +48,7 @@ class PlumWebSocketManager @Inject constructor(
     private var loopJob: Job? = null
 
     private val _updates = MutableSharedFlow<PlaybackSessionUpdateEventJson>(
-        extraBufferCapacity = 16,
+        extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val playbackSessionUpdates: SharedFlow<PlaybackSessionUpdateEventJson> = _updates.asSharedFlow()
@@ -58,9 +57,18 @@ class PlumWebSocketManager @Inject constructor(
         loopJob?.cancel()
         loopJob =
             scope.launch(Dispatchers.IO) {
+                var missingAuthBackoffMs = 1_000L
                 while (isActive) {
-                    val base = prefs.serverUrl.first()?.trim()?.trimEnd('/') ?: break
-                    val token = tokenBridge.bearerToken() ?: break
+                    val base =
+                        prefs.serverUrl.value?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+                    val token = tokenBridge.bearerToken()?.takeIf { it.isNotEmpty() }
+                    if (base == null || token == null) {
+                        Log.d(TAG, "ws waiting for server URL / auth token")
+                        delay(missingAuthBackoffMs)
+                        missingAuthBackoffMs = (missingAuthBackoffMs * 3 / 2).coerceAtMost(30_000L)
+                        continue
+                    }
+                    missingAuthBackoffMs = 1_000L
                     Log.d(TAG, "ws connect start base=$base")
                     try {
                         awaitSocketSession(base, token)
@@ -140,14 +148,8 @@ class PlumWebSocketManager @Inject constructor(
         }
     }
 
-    private fun parseUpdate(text: String): PlaybackSessionUpdateEventJson? {
-        return runCatching { playbackUpdateAdapter.fromJson(text) }
-            .onFailure { e ->
-                Log.w(TAG, "ws playback_session_update parse failed: ${e.message} text=${text.take(256)}")
-            }
-            .getOrNull()
-            ?.takeIf { it.type == "playback_session_update" }
-    }
+    private fun parseUpdate(text: String): PlaybackSessionUpdateEventJson? =
+        parsePlaybackSessionWsUpdate(playbackUpdateAdapter, text)
 
     fun sendAttach(sessionId: String) {
         Log.d(TAG, "ws attach session=$sessionId")

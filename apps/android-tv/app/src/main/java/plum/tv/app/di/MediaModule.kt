@@ -1,37 +1,26 @@
 package plum.tv.app.di
 
-import android.app.ActivityManager
-import android.content.Context
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.FileDataSource
-import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.CacheDataSink
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
-import okhttp3.OkHttpClient
-import java.io.File
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import plum.tv.core.data.di.ApplicationScope
 
 @Module
 @InstallIn(SingletonComponent::class)
 @UnstableApi
 object MediaModule {
-    private const val MEDIA_CACHE_SIZE_LOW_RAM_BYTES = 128L * 1024 * 1024
-    private const val MEDIA_CACHE_SIZE_NORMAL_BYTES = 256L * 1024 * 1024
+    private val mediaReadTimeoutMs = TimeUnit.MINUTES.toMillis(10)
+    private val mediaCallTimeoutMs = TimeUnit.MINUTES.toMillis(15)
 
     @Provides
     @Singleton
@@ -39,46 +28,30 @@ object MediaModule {
     fun provideApplicationScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    @Provides
-    @Singleton
-    fun providePlumMediaCache(
-        @ApplicationContext context: Context,
-    ): Cache {
-        val lowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
-        val cacheSizeBytes = if (lowRam) MEDIA_CACHE_SIZE_LOW_RAM_BYTES else MEDIA_CACHE_SIZE_NORMAL_BYTES
-        return SimpleCache(
-            File(context.cacheDir, "plum_media_cache").apply { mkdirs() },
-            LeastRecentlyUsedCacheEvictor(cacheSizeBytes),
-            StandaloneDatabaseProvider(context),
-        )
-    }
-
+    /**
+     * ExoPlayer reads HLS playlists and many segment GETs through this factory.
+     *
+     * We intentionally **do not** wrap [OkHttpDataSource] with [androidx.media3.datasource.cache.CacheDataSource]:
+     * SimpleCache + live HLS (revolving playlists, auth on every segment, varying URLs) has repeatedly
+     * surfaced as [androidx.media3.common.PlaybackException.ERROR_CODE_IO_UNSPECIFIED] in the field.
+     * OkHttp's response [okhttp3.Cache] is also disabled on the clone below — large streaming bodies
+     * must not be written to the HTTP disk cache.
+     *
+     * Read and call timeouts are long but finite so a dead TCP session cannot hang the player forever.
+     */
     @Provides
     @Singleton
     fun providePlumMediaDataSourceFactory(
         okHttpClient: OkHttpClient,
-        mediaCache: Cache,
     ): DataSource.Factory {
         val mediaClient =
             okHttpClient.newBuilder()
-                // Plum HLS/direct streams are long-lived GETs; OkHttp's response cache can corrupt or
-                // partially persist large bodies and surface as ExoPlayer ERROR_CODE_IO_UNSPECIFIED.
                 .cache(null)
-                .connectTimeout(15, TimeUnit.SECONDS)
-                // Media streams can take a while to deliver first bytes or pause between chunks.
-                .readTimeout(0, TimeUnit.MILLISECONDS)
-                .callTimeout(0, TimeUnit.MILLISECONDS)
+                .connectTimeout(20, TimeUnit.SECONDS)
+                .readTimeout(mediaReadTimeoutMs, TimeUnit.MILLISECONDS)
+                .callTimeout(mediaCallTimeoutMs, TimeUnit.MILLISECONDS)
                 .build()
 
-        val upstreamFactory = OkHttpDataSource.Factory(mediaClient)
-        val cacheWriteFactory =
-            CacheDataSink.Factory()
-                .setCache(mediaCache)
-        return CacheDataSource.Factory()
-            .setCache(mediaCache)
-            .setCacheReadDataSourceFactory(FileDataSource.Factory())
-            .setCacheWriteDataSinkFactory(cacheWriteFactory)
-            .setUpstreamDataSourceFactory(upstreamFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        return OkHttpDataSource.Factory(mediaClient)
     }
 }

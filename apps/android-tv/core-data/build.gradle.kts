@@ -10,7 +10,15 @@ android {
     defaultConfig {
         consumerProguardFiles("consumer-rules.pro")
     }
-    kotlinOptions { jvmTarget = "17" }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
@@ -24,4 +32,10 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.moshi.kotlin)
+    testImplementation(libs.mockk)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.coroutines.test)
 }

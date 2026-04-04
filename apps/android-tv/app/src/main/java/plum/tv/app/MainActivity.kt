@@ -3,7 +3,9 @@ package plum.tv.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
+import androidx.media3.common.util.UnstableApi
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun PlumTvRoot(
     webSocketManager: PlumWebSocketManager,

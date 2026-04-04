@@ -1,5 +1,6 @@
 /build
 /.kotlin
+build-logic/.gradle/
 buildSrc/.gradle/
 buildSrc/build/
 /.gradle

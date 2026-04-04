@@ -1,6 +1,7 @@
 package plum.tv.core.player
 
 import android.content.Context
+import androidx.annotation.OptIn
 import android.net.Uri
 import android.os.SystemClock
 import androidx.media3.common.C
@@ -10,6 +11,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -125,6 +127,7 @@ private const val INTRO_SKIP_TRAILING_SLACK_SEC = 0.35
  * - resume seek when we start playback with a non-zero resumeSec
  * - optional TV episode queue with prev/next switching
  */
+@OptIn(UnstableApi::class)
 class PlumPlayerController(
     private val appContext: Context,
     private val dataSourceFactory: DataSource.Factory,
@@ -196,6 +199,10 @@ class PlumPlayerController(
 
     private val _upNext = MutableStateFlow<UpNextOverlayState?>(null)
     val upNext: StateFlow<UpNextOverlayState?> = _upNext.asStateFlow()
+
+    /** Wall-clock millis for the controls overlay clock; in its own flow so uiState deduplication works during pause. */
+    private val _wallClock = MutableStateFlow(System.currentTimeMillis())
+    val wallClock: StateFlow<Long> = _wallClock.asStateFlow()
 
     /**
      * Sideloaded WebVTT (sidecar + embedded-extract URLs) still flows through the text renderer as
@@ -341,6 +348,7 @@ class PlumPlayerController(
                 val heartbeatSeconds = (PROGRESS_HEARTBEAT_MS / 1000).toInt().coerceAtLeast(1)
                 while (isActive) {
                     delay(1_000)
+                    _wallClock.value = System.currentTimeMillis()
                     maybeAutoSkipIntro()
                     refreshUiState()
                     if (player.isPlaying) {

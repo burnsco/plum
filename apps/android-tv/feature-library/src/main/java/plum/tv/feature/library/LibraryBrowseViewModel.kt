@@ -43,6 +43,9 @@ class LibraryBrowseViewModel @Inject constructor(
     private val accumulatedItems = mutableListOf<LibraryBrowseItemJson>()
     private val listingMutex = Mutex()
 
+    // Cached after first page load; null means not yet determined.
+    private var isShowLibrary: Boolean? = null
+
     init {
         // Synchronous peek avoids a one-frame "Loading" flash when prefetch or a prior visit warmed cache.
         browseRepository.peekLibraryMediaPage(libraryId, offset = 0, limit = pageSize)?.let { page ->
@@ -65,11 +68,25 @@ class LibraryBrowseViewModel @Inject constructor(
     private fun rebuildRows(): List<LibraryBrowseGridRow> {
         val items = accumulatedItems.toList()
         if (items.isEmpty()) return emptyList()
-        return if (isShowOnlyBrowseLibrary(items)) {
+        val showLib = isShowOnlyBrowseLibrary(items)
+        isShowLibrary = showLib
+        return if (showLib) {
             groupLibraryBrowseItemsByShow(items).map { LibraryBrowseGridRow.Show(it) }
         } else {
             items.map { LibraryBrowseGridRow.Movie(it) }
         }
+    }
+
+    /**
+     * For movie libraries, avoids re-wrapping all accumulated items by appending only the new rows.
+     * Show libraries still require a full rebuild because new episodes can merge into existing show rows.
+     */
+    private fun appendRows(
+        newItems: List<LibraryBrowseItemJson>,
+        existingRows: List<LibraryBrowseGridRow>,
+    ): List<LibraryBrowseGridRow> = when (isShowLibrary) {
+        false -> existingRows + newItems.map { LibraryBrowseGridRow.Movie(it) }
+        else -> rebuildRows()
     }
 
     fun loadInitial(forceNetwork: Boolean = false) {
@@ -124,7 +141,7 @@ class LibraryBrowseViewModel @Inject constructor(
                         accumulatedItems.addAll(page.items)
                         _state.value =
                             LibraryBrowseUiState.Ready(
-                                rows = rebuildRows(),
+                                rows = appendRows(page.items, latest.rows),
                                 hasMore = page.hasMore,
                                 loadingMore = false,
                             )

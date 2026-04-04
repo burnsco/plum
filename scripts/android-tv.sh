@@ -24,6 +24,14 @@ if [[ -z "${PLUM_ANDROID_USE_SYSTEM_TMPDIR:-}" ]]; then
   export TMP="$TMPDIR_ROOT"
 fi
 
+# Debug keystore + tooling metadata default to ~/.android; some environments (e.g. read-only HOME)
+# cannot create that directory. Use a repo-local fallback when the caller did not set ANDROID_USER_HOME.
+if [[ -z "${ANDROID_USER_HOME:-}" ]]; then
+  ANDROID_USER_HOME_FALLBACK="${PLUM_ANDROID_USER_HOME:-$ROOT/tmp/android-user-home}"
+  mkdir -p "$ANDROID_USER_HOME_FALLBACK"
+  export ANDROID_USER_HOME="$ANDROID_USER_HOME_FALLBACK"
+fi
+
 if [[ ! -f local.properties ]]; then
   if [[ -z "${ANDROID_HOME:-}" ]]; then
     for sdk_dir in "$HOME/Android/Sdk" /opt/android-sdk /usr/lib/android-sdk; do

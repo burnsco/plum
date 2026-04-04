@@ -43,6 +43,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         buildConfigField("String", "DEFAULT_SERVER_URL", localProperty("plumTv.defaultServerUrl").asBuildConfigString())
         buildConfigField("String", "DEFAULT_ADMIN_EMAIL", defaultAdminEmailBuildConfig())
         buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", defaultAdminPasswordBuildConfig())
@@ -58,7 +60,12 @@ android {
         }
     }
     buildFeatures { buildConfig = true }
-    kotlinOptions { jvmTarget = "17" }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
@@ -97,4 +104,12 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil)
     implementation(libs.coil.compose)
+
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation(libs.androidx.datastore.preferences)
+    androidTestImplementation(libs.coroutines.android)
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }

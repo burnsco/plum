@@ -1,6 +1,7 @@
 package plum.tv.app
 
 import android.text.format.DateFormat
+import androidx.annotation.OptIn
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -51,7 +52,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -116,6 +116,7 @@ fun PlayerRoute(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.uiState.collectAsState()
+    val wallClockMs by viewModel.wallClock.collectAsState()
     val trackPicker by viewModel.trackPicker.collectAsState()
     val upNext by viewModel.upNext.collectAsState()
     val rootFocusRequester = remember { FocusRequester() }
@@ -130,7 +131,6 @@ fun PlayerRoute(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val timeFormat = remember(context) { DateFormat.getTimeFormat(context) }
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -140,15 +140,6 @@ fun PlayerRoute(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(controlsVisible) {
-        if (!controlsVisible) return@LaunchedEffect
-        nowMs = System.currentTimeMillis()
-        while (true) {
-            delay(1_000)
-            nowMs = System.currentTimeMillis()
-        }
     }
 
     fun showControls() {
@@ -404,7 +395,7 @@ fun PlayerRoute(
             modifier = Modifier.align(Alignment.TopEnd),
         ) {
             Text(
-                text = timeFormat.format(Date(nowMs)),
+                text = timeFormat.format(Date(wallClockMs)),
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.9f),
                 fontWeight = FontWeight.Medium,
@@ -448,13 +439,14 @@ fun PlayerRoute(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        PlayerControlButton(
-                            icon = Icons.Filled.SkipPrevious,
-                            contentDescription = "Previous",
-                            onClick = { viewModel.previousEpisode() },
-                            enabled = ui.canPrev,
-                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
-                        )
+                        if (ui.canPrev) {
+                            PlayerControlButton(
+                                icon = Icons.Filled.SkipPrevious,
+                                contentDescription = "Previous",
+                                onClick = { viewModel.previousEpisode() },
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            )
+                        }
                         PlayerControlButton(
                             icon = Icons.Filled.Replay10,
                             contentDescription = "Rewind 10 seconds",
@@ -485,13 +477,14 @@ fun PlayerRoute(
                                 modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                             )
                         }
-                        PlayerControlButton(
-                            icon = Icons.Filled.SkipNext,
-                            contentDescription = "Next",
-                            onClick = { viewModel.nextEpisode() },
-                            enabled = ui.canNext,
-                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
-                        )
+                        if (ui.canNext) {
+                            PlayerControlButton(
+                                icon = Icons.Filled.SkipNext,
+                                contentDescription = "Next",
+                                onClick = { viewModel.nextEpisode() },
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            )
+                        }
                     }
 
                     // Right: utility buttons
@@ -501,22 +494,24 @@ fun PlayerRoute(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PlayerControlButton(
-                                icon = Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = audioContentDescription(ui.audioTrackLabel, ui.canCycleAudio),
-                                onClick = { viewModel.openAudioPicker() },
-                                enabled = ui.canCycleAudio,
-                                utility = true,
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
-                            )
-                            PlayerControlButton(
-                                icon = Icons.Filled.Subtitles,
-                                contentDescription = subtitleContentDescription(ui.subtitleTrackLabel, ui.canCycleSubtitles),
-                                onClick = { viewModel.openSubtitlePicker() },
-                                enabled = ui.canCycleSubtitles,
-                                utility = true,
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
-                            )
+                            if (ui.canCycleAudio) {
+                                PlayerControlButton(
+                                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = audioContentDescription(ui.audioTrackLabel),
+                                    onClick = { viewModel.openAudioPicker() },
+                                    utility = true,
+                                    modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                )
+                            }
+                            if (ui.canCycleSubtitles) {
+                                PlayerControlButton(
+                                    icon = Icons.Filled.Subtitles,
+                                    contentDescription = subtitleContentDescription(ui.subtitleTrackLabel),
+                                    onClick = { viewModel.openSubtitlePicker() },
+                                    utility = true,
+                                    modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                )
+                            }
                             PlayerControlButton(
                                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back",
@@ -1112,16 +1107,15 @@ private fun PlayerControlButton(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-private fun audioContentDescription(value: String?, enabled: Boolean): String =
-    if (!enabled) "Audio unavailable"
-    else if (!value.isNullOrBlank()) "Audio: ${value.trim()}"
+private fun audioContentDescription(value: String?): String =
+    if (!value.isNullOrBlank()) "Audio: ${value.trim()}"
     else "Change audio track"
 
-private fun subtitleContentDescription(value: String?, enabled: Boolean): String =
-    if (!enabled) "Subtitles unavailable"
-    else if (!value.isNullOrBlank()) "Subtitles: ${value.trim()}"
+private fun subtitleContentDescription(value: String?): String =
+    if (!value.isNullOrBlank()) "Subtitles: ${value.trim()}"
     else "Change subtitles"
 
+@OptIn(UnstableApi::class)
 private fun PlayerView.configurePlumSubtitleOverlay() {
     subtitleView?.apply {
         setStyle(

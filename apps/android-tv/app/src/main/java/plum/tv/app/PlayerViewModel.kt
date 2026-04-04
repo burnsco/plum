@@ -71,6 +71,7 @@ class PlayerViewModel @Inject constructor(
 
     val player: ExoPlayer = controller.player
     val uiState: StateFlow<PlayerUiState> = controller.uiState
+    val wallClock: StateFlow<Long> = controller.wallClock
     val trackPicker: StateFlow<TrackPicker?> = controller.trackPicker
     val upNext: StateFlow<UpNextOverlayState?> = controller.upNext
     val error: StateFlow<String?> = controller.error

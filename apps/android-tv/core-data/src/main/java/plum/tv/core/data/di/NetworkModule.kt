@@ -40,14 +40,25 @@ object NetworkModule {
                 }
             chain.proceed(req)
         }
+        // /api/home aggregates the full library server-side and can be slow on large collections;
+        // all other endpoints should fail fast at 30s so the UI doesn't appear hung.
+        val slowEndpoints = Interceptor { chain ->
+            val path = chain.request().url.encodedPath
+            val isSlowEndpoint = path.endsWith("/home") || path.contains("/home?")
+            if (isSlowEndpoint) {
+                chain.withReadTimeout(90, TimeUnit.SECONDS).proceed(chain.request())
+            } else {
+                chain.proceed(chain.request())
+            }
+        }
         val httpCache = buildHttpCache(context)
-        // Default OkHttp read timeout is 10s; /api/home loads the full library server-side and can exceed that on large libraries or slow disks.
         return OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .cache(httpCache)
             .addInterceptor(auth)
+            .addInterceptor(slowEndpoints)
             .apply {
                 val debugLoggingEnabled =
                     (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0

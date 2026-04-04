@@ -7,16 +7,21 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import plum.tv.core.data.di.ApplicationScope
 
 private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "plum_session")
 
 @Singleton
 class SessionPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
+    @ApplicationScope private val scope: CoroutineScope,
 ) {
     private val store get() = context.sessionDataStore
 
@@ -25,8 +30,14 @@ class SessionPreferences @Inject constructor(
         val sessionToken = stringPreferencesKey("session_token")
     }
 
-    val serverUrl: Flow<String?> = store.data.map { it[Keys.serverUrl] }
-    val sessionToken: Flow<String?> = store.data.map { it[Keys.sessionToken] }
+    // Shared StateFlow so all collectors share a single DataStore subscription and .value reads are non-blocking.
+    val serverUrl: StateFlow<String?> = store.data
+        .map { it[Keys.serverUrl] }
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val sessionToken: StateFlow<String?> = store.data
+        .map { it[Keys.sessionToken] }
+        .stateIn(scope, SharingStarted.Eagerly, null)
 
     suspend fun setServerUrl(value: String) {
         store.edit { it[Keys.serverUrl] = value.trim().trimEnd('/') }

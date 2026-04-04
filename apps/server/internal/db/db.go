@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"plum/internal/ffopts"
 	"plum/internal/metadata"
 )
 
@@ -3009,15 +3010,17 @@ type VideoProbeResult struct {
 }
 
 func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, error) {
-	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, "ffprobe",
-		"-v", "error",
+	args := []string{"-v", "error"}
+	args = append(args, ffopts.InputProbeBeforeI...)
+	args = append(args,
 		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title",
 		"-show_entries", "chapter=start_time,end_time:chapter_tags=title",
 		"-of", "json",
 		path,
 	)
+	cmd := exec.CommandContext(probeCtx, "ffprobe", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return VideoProbeResult{}, err
