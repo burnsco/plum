@@ -20,6 +20,7 @@ private data class LibraryMediaCacheKey(val libraryId: Int, val offset: Int, val
 @Singleton
 class BrowseRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
+    private val homeDashboardDiskCache: HomeDashboardDiskCache,
 ) {
     private val librariesCacheLock = Any()
     @Volatile
@@ -55,6 +56,7 @@ class BrowseRepository @Inject constructor(
             cachedLibraries = null
         }
         invalidateLibraryMediaCache()
+        homeDashboardDiskCache.clear()
     }
     suspend fun homeDashboard(): Result<HomeDashboardJson> = runCatching {
         val res = sessionRepository.getPlumApi().homeDashboard()

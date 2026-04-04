@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.HomeDashboardDiskCache
 import plum.tv.core.data.LibraryCatalogRefreshCoordinator
+import plum.tv.core.data.SessionPreferences
 import plum.tv.core.network.ContinueWatchingEntryJson
 import plum.tv.core.network.HomeDashboardJson
 import plum.tv.core.network.RecentlyAddedEntryJson
@@ -26,6 +28,8 @@ sealed interface HomeUiState {
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
+    private val homeDashboardDiskCache: HomeDashboardDiskCache,
+    private val sessionPreferences: SessionPreferences,
     catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
 
@@ -35,7 +39,7 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             catalogRefreshCoordinator.catalogRefreshEvents.collect {
-                refresh(showLoading = false)
+                refreshInternal(showLoading = false)
             }
         }
     }
@@ -46,37 +50,58 @@ class HomeViewModel @Inject constructor(
      * Coil URLs stay frozen at the first fetch while browse screens load fresher metadata.
      */
     fun onAppear() {
-        refresh(showLoading = _state.value !is HomeUiState.Ready)
+        viewModelScope.launch {
+            applyCachedHomeIfAvailable()
+            refreshInternal(showLoading = _state.value !is HomeUiState.Ready)
+        }
     }
 
     fun refresh(showLoading: Boolean = true) {
-        viewModelScope.launch {
-            val hadReadyDashboard = _state.value is HomeUiState.Ready
-            if (showLoading || !hadReadyDashboard) {
-                _state.value = HomeUiState.Loading
-            }
-            browseRepository.homeDashboard().fold(
-                onSuccess = { dash: HomeDashboardJson ->
-                    val mergedRecentlyAdded =
-                        buildList {
-                            addAll(dash.recentlyAddedTvEpisodes)
-                            addAll(dash.recentlyAddedTvShows)
-                            addAll(dash.recentlyAddedMovies)
-                            addAll(dash.recentlyAddedAnimeEpisodes)
-                            addAll(dash.recentlyAddedAnimeShows)
-                        }
-                    _state.value = HomeUiState.Ready(
-                        continueWatching = dash.continueWatching,
-                        recentlyAdded = mergedRecentlyAdded,
-                    )
-                },
-                onFailure = { e ->
-                    if (hadReadyDashboard && !showLoading) {
-                        return@fold
-                    }
-                    _state.value = HomeUiState.Error(e.message ?: "Failed to load home")
-                },
-            )
+        viewModelScope.launch { refreshInternal(showLoading) }
+    }
+
+    private suspend fun applyCachedHomeIfAvailable() {
+        if (_state.value is HomeUiState.Ready) return
+        val url = sessionPreferences.serverUrl.value?.trim()?.trimEnd('/') ?: return
+        homeDashboardDiskCache.read(url)?.let { dash ->
+            _state.value = dash.toHomeUiReady()
         }
+    }
+
+    private suspend fun refreshInternal(showLoading: Boolean) {
+        val hadReadyDashboard = _state.value is HomeUiState.Ready
+        if (showLoading || !hadReadyDashboard) {
+            _state.value = HomeUiState.Loading
+        }
+        browseRepository.homeDashboard().fold(
+            onSuccess = { dash: HomeDashboardJson ->
+                val normalizedUrl = sessionPreferences.serverUrl.value?.trim()?.trimEnd('/')
+                if (!normalizedUrl.isNullOrBlank()) {
+                    homeDashboardDiskCache.write(normalizedUrl, dash)
+                }
+                _state.value = dash.toHomeUiReady()
+            },
+            onFailure = { e ->
+                if (hadReadyDashboard && !showLoading) {
+                    return@fold
+                }
+                _state.value = HomeUiState.Error(e.message ?: "Failed to load home")
+            },
+        )
+    }
+
+    private fun HomeDashboardJson.toHomeUiReady(): HomeUiState.Ready {
+        val mergedRecentlyAdded =
+            buildList {
+                addAll(recentlyAddedTvEpisodes)
+                addAll(recentlyAddedTvShows)
+                addAll(recentlyAddedMovies)
+                addAll(recentlyAddedAnimeEpisodes)
+                addAll(recentlyAddedAnimeShows)
+            }
+        return HomeUiState.Ready(
+            continueWatching = continueWatching,
+            recentlyAdded = mergedRecentlyAdded,
+        )
     }
 }

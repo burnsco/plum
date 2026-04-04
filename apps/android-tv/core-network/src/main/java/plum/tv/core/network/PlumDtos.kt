@@ -103,6 +103,13 @@ data class HomeDashboardJson(
     @Json(name = "recentlyAddedAnimeShows") val recentlyAddedAnimeShows: List<RecentlyAddedEntryJson> = emptyList(),
 )
 
+/** Wrapper for on-disk home dashboard cache (scoped to [serverUrl]). */
+@JsonClass(generateAdapter = true)
+data class CachedHomeDashboardEnvelope(
+    @Json(name = "server_url") val serverUrl: String,
+    @Json(name = "dashboard") val dashboard: HomeDashboardJson,
+)
+
 @JsonClass(generateAdapter = true)
 data class LibraryJson(
     @Json(name = "id") val id: Int,
