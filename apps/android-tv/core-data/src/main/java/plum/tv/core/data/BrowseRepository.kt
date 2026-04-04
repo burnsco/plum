@@ -32,9 +32,9 @@ class BrowseRepository @Inject constructor(
 
     private val mediaCacheLock = Any()
     private val mediaPageCache =
-        object : LinkedHashMap<LibraryMediaCacheKey, LibraryMediaPageJson>(32, 0.75f, true) {
+        object : LinkedHashMap<LibraryMediaCacheKey, LibraryMediaPageJson>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LibraryMediaCacheKey, LibraryMediaPageJson>?): Boolean =
-                size > 48
+                size > 120
         }
 
     /** Synchronous read for instant UI when [libraryMedia] was fetched earlier in the session. */
@@ -117,7 +117,7 @@ class BrowseRepository @Inject constructor(
      */
     suspend fun prefetchFirstLibraryMediaPages(
         firstPageLimit: Int = 60,
-        maxConcurrent: Int = 2,
+        maxConcurrent: Int = 3,
     ) {
         synchronized(prefetchLock) {
             if (prefetchInProgress) return

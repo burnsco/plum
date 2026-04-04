@@ -44,6 +44,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import plum.tv.core.data.PlumWebSocketManager
@@ -128,6 +129,10 @@ fun MainNavHost(
         onDispose { webSocketManager.stop() }
     }
 
+    LaunchedEffect(Unit) {
+        mainNavVm.scheduleLibraryMediaPrefetch()
+    }
+
     fun navigatePlay(
         mediaId: Int,
         resumeSec: Float = 0f,
@@ -187,7 +192,9 @@ fun MainNavHost(
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "tv") ||
                         browseRailType == "tv",
-                onClick = { goToRoot(navController, "hub/tv") },
+                onClick = {
+                    openLibraryTypeFromRail(scope, navController, mainNavVm, "tv")
+                },
             ),
             PlumRailItem(
                 key = "library-movies",
@@ -196,7 +203,9 @@ fun MainNavHost(
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "movie") ||
                         browseRailType == "movie",
-                onClick = { goToRoot(navController, "hub/movie") },
+                onClick = {
+                    openLibraryTypeFromRail(scope, navController, mainNavVm, "movie")
+                },
             ),
             PlumRailItem(
                 key = "library-anime",
@@ -205,7 +214,9 @@ fun MainNavHost(
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "anime") ||
                         browseRailType == "anime",
-                onClick = { goToRoot(navController, "hub/anime") },
+                onClick = {
+                    openLibraryTypeFromRail(scope, navController, mainNavVm, "anime")
+                },
             ),
             PlumRailItem(
                 key = "library-music",
@@ -215,14 +226,7 @@ fun MainNavHost(
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "music") ||
                         browseRailType == "music",
                 onClick = {
-                    scope.launch {
-                        val id = mainNavVm.firstLibraryIdForType("music")
-                        if (id != null) {
-                            goToLibraryBrowse(navController, id)
-                        } else {
-                            goToRoot(navController, "libraries/type/music")
-                        }
-                    }
+                    openLibraryTypeFromRail(scope, navController, mainNavVm, "music")
                 },
             ),
         )
@@ -554,5 +558,21 @@ private fun goToLibraryBrowse(navController: NavHostController, libraryId: Int) 
         // or re-apply the wrong SavedState for another library's browse screen.
         launchSingleTop = false
         restoreState = false
+    }
+}
+
+private fun openLibraryTypeFromRail(
+    scope: CoroutineScope,
+    navController: NavHostController,
+    mainNavVm: MainNavViewModel,
+    libraryType: String,
+) {
+    scope.launch {
+        val soleId = mainNavVm.soleLibraryIdForType(libraryType)
+        if (soleId != null) {
+            goToLibraryBrowse(navController, soleId)
+        } else {
+            goToRoot(navController, "hub/$libraryType")
+        }
     }
 }

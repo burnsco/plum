@@ -228,7 +228,7 @@ private fun DiscoverShelfRow(
     if (items.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         PlumSectionHeader(title = title)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap)) {
             items(items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
                 DiscoverPosterCard(
                     item = item,

@@ -387,9 +387,12 @@ fun PlumActionButton(
     }
 }
 
+/** Plex-style focus ring: bright neutral frame that reads well on dark backdrops. */
+private val PosterFocusRing = Color(0xFFE8E8ED)
+
 /**
- * Poster card with the title overlaid on the image — no chunky text panel below.
- * When there's no image, the card shows the title centered on a surface-colored background.
+ * Portrait poster tile: full-bleed artwork with title and subtitle **below** the image (Plex-style),
+ * crisp 2:3 frame, subtle unfocused edge, and a clear focus treatment for D-pad navigation.
  */
 @Composable
 fun PlumPosterCard(
@@ -408,7 +411,10 @@ fun PlumPosterCard(
     val serverBase = LocalServerBaseUrl.current
     val width = if (compact) metrics.posterCompactWidth else metrics.posterWidth
     val height = if (compact) metrics.posterCompactHeight else metrics.posterHeight
-    val shape = RoundedCornerShape(metrics.tileRadius)
+    val shape = RoundedCornerShape(metrics.posterCornerRadius)
+    val titleGap = if (compact) 6.dp else 8.dp
+    val frameWidth = if (compact) 1.dp else 1.5.dp
+    val focusFrameWidth = if (compact) 2.5.dp else 3.dp
 
     val resolvedUrl = imageUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
     val context = LocalContext.current
@@ -433,12 +439,16 @@ fun PlumPosterCard(
         label = "progress",
     )
 
+    val titleStyle = if (compact) PlumTheme.typography.labelMedium else PlumTheme.typography.titleSmall
+    val subtitleStyle = if (compact) PlumTheme.typography.labelSmall else PlumTheme.typography.labelMedium
+    val titleWeight = if (compact) FontWeight.Medium else FontWeight.SemiBold
+
     Surface(
         onClick = onClick,
         modifier =
             modifier
                 .width(width)
-                .height(height)
+                .wrapContentHeight()
                 .onFocusChanged { fs ->
                     isFocused = fs.isFocused
                     if (fs.isFocused && resolvedUrl != null) {
@@ -459,7 +469,7 @@ fun PlumPosterCard(
                 disabledContainerColor = Color.Transparent,
                 disabledContentColor = palette.muted,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (compact) 1.055f else 1.065f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
@@ -468,122 +478,114 @@ fun PlumPosterCard(
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
-        // Border lives here so it wraps only the poster image, not a larger Surface area
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .clip(shape)
-                    .then(
-                        if (isFocused) {
-                            Modifier.border(2.dp, palette.accent.copy(alpha = 0.9f), shape)
-                        } else {
-                            Modifier
-                        },
-                    ),
-        ) {
-            if (posterRequest != null) {
-                AsyncImage(
-                    model = posterRequest,
-                    contentDescription = title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                // No-image fallback: title centered on a dark surface
-                Box(
-                    modifier = Modifier.fillMaxSize().background(palette.surface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = title,
-                        style = PlumTheme.typography.titleSmall,
-                        color = palette.textSecondary,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
-            }
-
-            // Bottom scrim — always rendered so title is readable over any image
+        Column(modifier = Modifier.fillMaxWidth()) {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.55f)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color(0xBB000000),
-                                Color(0xEE000000),
-                            ),
-                        ),
-                    ),
-            )
-
-            // Animated progress bar for continue-watching items
-            if (animatedProgress > 0f) {
-                Box(
-                    modifier = Modifier
+                modifier =
+                    Modifier
                         .fillMaxWidth()
-                        .height(3.dp)
-                        .align(Alignment.BottomCenter),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.White.copy(alpha = 0.2f)),
+                        .height(height)
+                        .clip(shape)
+                        .border(
+                            width = if (isFocused) focusFrameWidth else frameWidth,
+                            color =
+                                if (isFocused) {
+                                    PosterFocusRing
+                                } else {
+                                    Color.White.copy(alpha = 0.11f)
+                                },
+                            shape = shape,
+                        ),
+            ) {
+                if (posterRequest != null) {
+                    AsyncImage(
+                        model = posterRequest,
+                        contentDescription = title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
                     )
+                } else {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth(animatedProgress)
-                            .fillMaxHeight()
-                            .background(palette.accent),
-                    )
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .background(palette.panelAlt),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = title,
+                            style = if (compact) PlumTheme.typography.labelLarge else PlumTheme.typography.titleMedium,
+                            color = palette.muted,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+
+                if (animatedProgress > 0f) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .align(Alignment.BottomCenter)
+                                .background(Color(0xB3000000)),
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Color.White.copy(alpha = 0.12f)),
+                        )
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(animatedProgress)
+                                    .background(palette.accent),
+                        )
+                    }
+                }
+
+                if (watched) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(5.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color(0xE6000000))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "✓",
+                            style = PlumTheme.typography.labelSmall,
+                            color = PosterFocusRing,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
 
-            if (watched) {
-                Box(
-                    modifier =
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(palette.accent.copy(alpha = 0.92f))
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                ) {
-                    Text(
-                        text = "✓",
-                        style = PlumTheme.typography.labelSmall,
-                        color = Color(0xFF1A1030),
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(titleGap))
 
-            // Title + subtitle overlaid on the scrim
             Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(horizontal = 10.dp, vertical = if (animatedProgress > 0f) 6.dp else 10.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = title,
-                    style = PlumTheme.typography.labelLarge,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
+                    style = titleStyle,
+                    color = if (isFocused) palette.text else palette.textSecondary,
+                    fontWeight = titleWeight,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
-                        style = PlumTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.65f),
+                        style = subtitleStyle,
+                        color = if (isFocused) palette.muted else palette.muted.copy(alpha = 0.85f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

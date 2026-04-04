@@ -44,18 +44,19 @@ class LibraryBrowseViewModel @Inject constructor(
     private val listingMutex = Mutex()
 
     init {
+        // Synchronous peek avoids a one-frame "Loading" flash when prefetch or a prior visit warmed cache.
+        browseRepository.peekLibraryMediaPage(libraryId, offset = 0, limit = pageSize)?.let { page ->
+            nextOffset = page.nextOffset
+            accumulatedItems.addAll(page.items)
+            _state.value =
+                LibraryBrowseUiState.Ready(
+                    rows = rebuildRows(),
+                    hasMore = page.hasMore,
+                    loadingMore = false,
+                )
+        }
         viewModelScope.launch {
             listingMutex.withLock {
-                browseRepository.peekLibraryMediaPage(libraryId, offset = 0, limit = pageSize)?.let { page ->
-                    nextOffset = page.nextOffset
-                    accumulatedItems.addAll(page.items)
-                    _state.value =
-                        LibraryBrowseUiState.Ready(
-                            rows = rebuildRows(),
-                            hasMore = page.hasMore,
-                            loadingMore = false,
-                        )
-                }
                 refreshInitialFromNetwork(forceRefresh = false)
             }
         }

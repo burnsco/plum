@@ -51,9 +51,6 @@ class HomeViewModel @Inject constructor(
                         continueWatching = dash.continueWatching,
                         recentlyAdded = mergedRecentlyAdded,
                     )
-                    viewModelScope.launch {
-                        browseRepository.prefetchFirstLibraryMediaPages()
-                    }
                 },
                 onFailure = { e ->
                     _state.value = HomeUiState.Error(e.message ?: "Failed to load home")

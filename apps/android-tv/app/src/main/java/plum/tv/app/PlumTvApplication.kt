@@ -32,8 +32,8 @@ class PlumTvApplication : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         val ep = EntryPoints.get(this, CoilEntryPoint::class.java)
         val lowRam = getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
-        val memoryCachePercent = if (lowRam) 0.12 else 0.22
-        val diskCacheSizeBytes = if (lowRam) 128L * 1024 * 1024 else 256L * 1024 * 1024
+        val memoryCachePercent = if (lowRam) 0.12 else 0.28
+        val diskCacheSizeBytes = if (lowRam) 128L * 1024 * 1024 else 512L * 1024 * 1024
         val allowHardwareBitmaps = !lowRam
         return ImageLoader.Builder(this)
             .okHttpClient(ep.okHttpClient())
@@ -49,7 +49,6 @@ class PlumTvApplication : Application(), ImageLoaderFactory {
                     .maxSizeBytes(diskCacheSizeBytes)
                     .build()
             }
-            .crossfade(durationMillis = 100)
             .build()
     }
 }
