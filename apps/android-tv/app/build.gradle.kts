@@ -76,7 +76,10 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfigs.findByName("releaseLocal")?.let { signingConfig = it }
+            // Prefer local.properties release keystore; otherwise debug signing so assembleRelease is installable via adb.
+            signingConfig =
+                signingConfigs.findByName("releaseLocal")
+                    ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

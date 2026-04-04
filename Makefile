@@ -44,9 +44,9 @@ help:
 	@echo ""
 	@echo "$(GREEN)Android TV:$(NC)"
 	@echo "  make android-tv-build - 🔨 Build the Android TV debug APK"
-	@echo "  make deploy-tv   - 📺 Build, install, and launch the Android TV app"
+	@echo "  make deploy-tv   - 📺 Build release APK, install, and launch (all connected devices)"
 	@echo "  make deploy-tv-reinstall - 📺 Same, after adb uninstall (signature mismatch / fresh install)"
-	@echo "  make deploy-tv-lr - 📺 Build, install, and launch the LR TV"
+	@echo "  make deploy-tv-lr - 📺 Build release APK, install, and launch the LR TV"
 	@echo "  make deploy-tv-lr-reinstall - 📺 Same as deploy-tv-lr with uninstall first"
 	@echo ""
 	@echo "$(GREEN)Cleanup:$(NC)"
@@ -118,16 +118,16 @@ test:
 android-tv-build:
 	./scripts/android-tv.sh :app:assembleDebug
 
-deploy-tv: android-tv-build
+deploy-tv:
 	bash ./scripts/android-tv-deploy.sh
 
-deploy-tv-reinstall: android-tv-build
+deploy-tv-reinstall:
 	PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy.sh
 
-deploy-tv-lr: android-tv-build
+deploy-tv-lr:
 	ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh
 
-deploy-tv-lr-reinstall: android-tv-build
+deploy-tv-lr-reinstall:
 	PLUM_TV_REINSTALL=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh
 
 clean:

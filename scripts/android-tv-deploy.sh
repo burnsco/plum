@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install debug Plum TV APK on a connected ADB device and bring the app to the foreground.
+# Install release Plum TV APK on a connected ADB device and bring the app to the foreground.
 # Use JAVA_HOME=Android Studio JBR and ANDROID_HOME=SDK (see apps/android-tv/AGENT_DEPLOY.md).
 #
 # ANDROID_SERIAL — if set, uninstall/install/launch only this device. Use when several TVs are
@@ -13,7 +13,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ID="com.plum.android.tv"
 ACTIVITY="plum.tv.app.MainActivity"
-APK_DEBUG="${ROOT}/apps/android-tv/app/build/outputs/apk/debug/app-debug.apk"
+APK_RELEASE="${ROOT}/apps/android-tv/app/build/outputs/apk/release/app-release.apk"
+APK_RELEASE_UNSIGNED="${ROOT}/apps/android-tv/app/build/outputs/apk/release/app-release-unsigned.apk"
 
 # Match android-tv.sh: prefer Android Studio JBR when JAVA_HOME is unset.
 if [[ -z "${JAVA_HOME:-}" ]]; then
@@ -76,18 +77,25 @@ if [[ "${PLUM_TV_REINSTALL:-}" == "1" ]]; then
   fi
 fi
 
-echo "android-tv-deploy: assembleDebug (Gradle)…"
-bash "${ROOT}/scripts/android-tv.sh" :app:assembleDebug
+echo "android-tv-deploy: assembleRelease (Gradle)…"
+bash "${ROOT}/scripts/android-tv.sh" :app:assembleRelease
 
-if [[ ! -f "$APK_DEBUG" ]]; then
-  echo "android-tv-deploy: APK not found at $APK_DEBUG" >&2
+APK_TO_INSTALL=""
+if [[ -f "$APK_RELEASE" ]]; then
+  APK_TO_INSTALL="$APK_RELEASE"
+elif [[ -f "$APK_RELEASE_UNSIGNED" ]]; then
+  APK_TO_INSTALL="$APK_RELEASE_UNSIGNED"
+  echo "android-tv-deploy: note: installing unsigned release APK (configure plumTv.release* in local.properties for a signed build)." >&2
+fi
+if [[ -z "$APK_TO_INSTALL" ]]; then
+  echo "android-tv-deploy: release APK not found at $APK_RELEASE (or $APK_RELEASE_UNSIGNED)" >&2
   exit 1
 fi
 
 install_apk() {
   local serial="$1"
   echo "android-tv-deploy: installing on ${serial}…"
-  "$ADB" -s "$serial" install -r "$APK_DEBUG"
+  "$ADB" -s "$serial" install -r "$APK_TO_INSTALL"
 }
 
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then
