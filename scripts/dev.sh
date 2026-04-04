@@ -88,6 +88,11 @@ start_tunnel() {
 
 load_env
 
+# Keep Go build trees away from /tmp so local dev does not fail when the
+# system temp partition runs out of space or inodes.
+# shellcheck source=./go-temp-env.sh
+. "$ROOT_DIR/scripts/go-temp-env.sh"
+
 # Older local `.env` files may still set VITE_BACKEND_URL to the old
 # localhost default. Treat that legacy value as unset so local dev uses Vite's
 # same-origin proxy unless the user explicitly picks another browser-facing URL.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"plum/internal/db"
+	"plum/internal/ffopts"
 )
 
 type videoStreamInfo struct {
@@ -24,6 +25,10 @@ type transcodePlan struct {
 }
 
 const hlsSegmentDurationSeconds = 2
+
+func appendFFmpegInput(args []string, itemPath string) []string {
+	return append(args, append(ffopts.InputProbeBeforeI, "-i", itemPath)...)
+}
 
 func GetSettingsWarnings(settings db.TranscodingSettings) []db.TranscodingSettingsWarning {
 	settings = db.NormalizeTranscodingSettings(settings)
@@ -114,14 +119,12 @@ func buildHardwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 			"-hwaccel", "vaapi",
 			"-hwaccel_device", settings.VAAPIDevicePath,
 			"-hwaccel_output_format", "vaapi",
-			"-i", itemPath,
-			"-vf", "scale_vaapi=format="+uploadFormat,
 		)
+		args = appendFFmpegInput(args, itemPath)
+		args = append(args, "-vf", "scale_vaapi=format="+uploadFormat)
 	} else {
-		args = append(args,
-			"-i", itemPath,
-			"-vf", "format="+uploadFormat+",hwupload",
-		)
+		args = appendFFmpegInput(args, itemPath)
+		args = append(args, "-vf", "format="+uploadFormat+",hwupload")
 	}
 
 	// Always map the first video stream.
@@ -170,11 +173,8 @@ func buildHardwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 func buildSoftwarePlan(itemPath, outPath string, settings db.TranscodingSettings, audioIndex int) transcodePlan {
 	settings = db.NormalizeTranscodingSettings(settings)
 
-	args := []string{
-		"-y",
-		"-i", itemPath,
-		"-map", "0:v:0",
-	}
+	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	args = append(args, "-map", "0:v:0")
 
 	if audioIndex >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", audioIndex))
@@ -243,14 +243,12 @@ func buildHardwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 			"-hwaccel", "vaapi",
 			"-hwaccel_device", settings.VAAPIDevicePath,
 			"-hwaccel_output_format", "vaapi",
-			"-i", itemPath,
-			"-vf", "scale_vaapi=format="+uploadFormat,
 		)
+		args = appendFFmpegInput(args, itemPath)
+		args = append(args, "-vf", "scale_vaapi=format="+uploadFormat)
 	} else {
-		args = append(args,
-			"-i", itemPath,
-			"-vf", "format="+uploadFormat+",hwupload",
-		)
+		args = appendFFmpegInput(args, itemPath)
+		args = append(args, "-vf", "format="+uploadFormat+",hwupload")
 	}
 
 	args = append(args, "-map", "0:v:0")
@@ -284,11 +282,8 @@ func buildHardwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 }
 
 func buildSoftwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettings, audioIndex int) transcodePlan {
-	args := []string{
-		"-y",
-		"-i", itemPath,
-		"-map", "0:v:0",
-	}
+	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	args = append(args, "-map", "0:v:0")
 	if audioIndex >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", audioIndex))
 	} else {

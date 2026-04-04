@@ -9,6 +9,7 @@ import { LibraryPosterGrid } from "../components/LibraryPosterGrid";
 import { LibraryViewControls } from "../components/LibraryViewControls";
 import { MediaDetailView, MediaTableView } from "../components/MediaListView";
 import { MusicLibraryView } from "../components/MusicLibraryView";
+import { MusicNowPlayingBar } from "../components/MusicNowPlayingBar";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
 import { usePlayer } from "../contexts/PlayerContext";
@@ -55,13 +56,6 @@ function canShowFailureState(
     !hasActiveIdentifyItems &&
     (explicitFailure || (!isProcessing && identifyPhase === "complete" && identifyFailedCount > 0))
   );
-}
-
-function shouldDeferIncompleteCard(
-  identifyState: ItemIdentifyState,
-  identifyPhase: IdentifyLibraryPhase | undefined,
-) {
-  return identifyState == null && identifyPhase === "queued";
 }
 
 function mapBackendIdentifyPhase(phase?: string): IdentifyLibraryPhase | undefined {
@@ -254,6 +248,7 @@ export function Home() {
   const shouldRevealSearchingCards =
     selectedLibraryIdentifyPhase === "soft-reveal" ||
     selectedLibraryIdentifyPhase === "identifying" ||
+    selectedLibraryIdentifyPhase === "queued" ||
     hasIdentifyProgress;
 
   const showGroups = useMemo(
@@ -262,7 +257,6 @@ export function Home() {
   );
 
   const showCardState = useMemo(() => {
-    const deferredGroups: ShowGroup[] = [];
     const visibleCards = showGroups.flatMap((group) => {
       const progressEpisode = [...group.episodes]
         .filter((episode) => shouldShowProgress(episode))
@@ -277,10 +271,6 @@ export function Home() {
       const identifyState = getGroupIdentifyState(group);
       const isIncomplete = group.unmatchedCount > 0 || group.localCount > 0;
       const groupHasPoster = hasMetadataPoster(group.posterPath, group.posterUrl);
-      if (isIncomplete && shouldDeferIncompleteCard(identifyState, selectedLibraryIdentifyPhase)) {
-        deferredGroups.push(group);
-        return [];
-      }
       const showSearching =
         isIncomplete &&
         !groupHasPoster &&
@@ -394,35 +384,30 @@ export function Home() {
         },
       ] satisfies PosterGridItem[];
     });
-    return { deferredCount: deferredGroups.length, visibleCards };
+    return visibleCards;
   }, [
     confirmShowMutation,
     navigate,
     playShowGroup,
     refreshShowMutation,
     shouldRevealSearchingCards,
-    selectedLibraryIdentifyPhase,
     selectedLibraryCanShowFailure,
     selectedLibraryId,
     showGroups,
   ]);
 
   const movieCardState = useMemo(() => {
-    let deferredCount = 0;
     const visibleCards = selectedItems.flatMap((item) => {
       const year =
         item.release_date?.split("-")[0] || item.title.match(/\((\d{4})\)$/)?.[1] || "Unknown year";
       const rating = getPreferredMovieRating(item);
       const status =
-        item.match_status && item.match_status !== "identified" ? ` • ${item.match_status}` : "";
+        item.match_status &&
+        item.match_status !== "identified" &&
+        !(item.match_status === "local" && hasProviderMatch(item.tmdb_id, item.tvdb_id))
+          ? ` • ${item.match_status}`
+          : "";
       const isIncomplete = isMovieIncomplete(item);
-      if (
-        isIncomplete &&
-        shouldDeferIncompleteCard(item.identify_state, selectedLibraryIdentifyPhase)
-      ) {
-        deferredCount += 1;
-        return [];
-      }
       const movieHasPoster = hasMetadataPoster(item.poster_path, item.poster_url);
       const showSearching =
         isIncomplete &&
@@ -494,41 +479,22 @@ export function Home() {
       ] satisfies PosterGridItem[];
     });
 
-    return { deferredCount, visibleCards };
+    return visibleCards;
   }, [
     navigate,
     playMovie,
     selectedItems,
-    selectedLibraryIdentifyPhase,
     shouldRevealSearchingCards,
     selectedLibraryCanShowFailure,
     selectedLibraryId,
   ]);
 
-  const deferredCardCount =
-    selectedLib == null || selectedLib.type === "music"
-      ? 0
-      : isTVOrAnime(selectedLib)
-        ? showCardState.deferredCount
-        : movieCardState.deferredCount;
-  const visibleCardCount =
-    selectedLib == null || selectedLib.type === "music"
-      ? 0
-      : isTVOrAnime(selectedLib)
-        ? showCardState.visibleCards.length
-        : movieCardState.visibleCards.length;
   const selectedLibraryCards =
     selectedLib == null || selectedLib.type === "music"
       ? []
       : isTVOrAnime(selectedLib)
-        ? showCardState.visibleCards
-        : movieCardState.visibleCards;
-  const showIdentifyPlaceholder =
-    selectedLib != null &&
-    selectedLib.type !== "music" &&
-    deferredCardCount > 0 &&
-    visibleCardCount === 0 &&
-    (selectedLibraryIdentifyPhase === "queued" || selectedLibraryIdentifyPhase === "identifying");
+        ? showCardState
+        : movieCardState;
 
   return (
     <>
@@ -589,12 +555,6 @@ export function Home() {
                 <p className="text-sm text-(--plum-muted)">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
                 <p className="text-sm text-(--plum-muted)">No media in this library yet.</p>
-              ) : showIdentifyPlaceholder ? (
-                <p className="text-sm text-(--plum-muted)">
-                  {selectedLibraryIdentifyPhase === "queued"
-                    ? "Queued for identify…"
-                    : "Identifying library…"}
-                </p>
               ) : selectedLib.type !== "music" ? (
                 <>
                   <div className="flex items-center justify-between gap-4 mb-4">
@@ -631,12 +591,17 @@ export function Home() {
                   )}
                 </>
               ) : (
-                <MusicLibraryView
-                  items={selectedItems}
-                  onPlayCollection={playMusicCollection}
-                  hasMore={hasNextPage ?? false}
-                  onLoadMore={loadMoreLibraryItems}
-                />
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    <MusicLibraryView
+                      items={selectedItems}
+                      onPlayCollection={playMusicCollection}
+                      hasMore={hasNextPage ?? false}
+                      onLoadMore={loadMoreLibraryItems}
+                    />
+                  </div>
+                  <MusicNowPlayingBar visible />
+                </div>
               )}
               {identifyGroup && selectedLibraryId != null && (
                 <IdentifyShowDialog

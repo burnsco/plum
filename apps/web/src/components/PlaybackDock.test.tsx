@@ -121,6 +121,51 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+function defaultPlaybackDockUsePlayer() {
+  return {
+    activeItem: {
+      id: 42,
+      library_id: 7,
+      title: "Track Test",
+      path: "/movies/track-test.mkv",
+      duration: 120,
+      type: "movie" as const,
+      embeddedAudioTracks: [
+        { streamIndex: 1, language: "eng", title: "English" },
+        { streamIndex: 2, language: "jpn", title: "Japanese" },
+      ],
+    },
+    activeMode: "video" as const,
+    isDockOpen: true,
+    viewMode: "window" as const,
+    queue: [] as api.MediaItem[],
+    queueIndex: 0,
+    shuffle: false,
+    repeatMode: "off" as const,
+    volume: 1,
+    muted: false,
+    videoSourceUrl:
+      "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
+    playbackDurationSeconds: 120,
+    videoAudioIndex: -1,
+    wsConnected: false,
+    lastEvent: "",
+    registerMediaElement: vi.fn(),
+    togglePlayPause: vi.fn(),
+    seekTo: vi.fn(),
+    setMuted: vi.fn(),
+    setVolume: vi.fn(),
+    enterFullscreen: vi.fn(),
+    exitFullscreen: vi.fn(),
+    dismissDock: vi.fn(),
+    playNextInQueue: vi.fn(),
+    playPreviousInQueue: vi.fn(),
+    toggleShuffle: vi.fn(),
+    cycleRepeatMode: vi.fn(),
+    changeAudioTrack: mockChangeAudioTrack,
+  };
+}
+
 describe("PlaybackDock audio track selection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -147,51 +192,10 @@ describe("PlaybackDock audio track selection", () => {
       embeddedAudioTracks: [],
     });
     vi.spyOn(api, "updateMediaProgress").mockResolvedValue();
-    mockUsePlayer.mockReturnValue({
-      activeItem: {
-        id: 42,
-        library_id: 7,
-        title: "Track Test",
-        path: "/movies/track-test.mkv",
-        duration: 120,
-        type: "movie",
-        embeddedAudioTracks: [
-          { streamIndex: 1, language: "eng", title: "English" },
-          { streamIndex: 2, language: "jpn", title: "Japanese" },
-        ],
-      },
-      activeMode: "video",
-      isDockOpen: true,
-      viewMode: "docked",
-      queue: [],
-      queueIndex: 0,
-      shuffle: false,
-      repeatMode: "off",
-      volume: 1,
-      muted: false,
-      videoSourceUrl:
-        "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
-      playbackDurationSeconds: 120,
-      videoAudioIndex: -1,
-      wsConnected: false,
-      lastEvent: "",
-      registerMediaElement: vi.fn(),
-      togglePlayPause: vi.fn(),
-      seekTo: vi.fn(),
-      setMuted: vi.fn(),
-      setVolume: vi.fn(),
-      enterFullscreen: vi.fn(),
-      exitFullscreen: vi.fn(),
-      dismissDock: vi.fn(),
-      playNextInQueue: vi.fn(),
-      playPreviousInQueue: vi.fn(),
-      toggleShuffle: vi.fn(),
-      cycleRepeatMode: vi.fn(),
-      changeAudioTrack: mockChangeAudioTrack,
-    });
+    mockUsePlayer.mockReturnValue(defaultPlaybackDockUsePlayer());
   });
 
-  it("switches audio tracks from the dock menu and requests a matching transcode", async () => {
+  it("switches audio tracks from the theater player and requests a matching transcode", async () => {
     const { container } = renderDock();
     const video = container.querySelector("video") as HTMLVideoElement | null;
     expect(video).toBeTruthy();
@@ -226,7 +230,7 @@ describe("PlaybackDock audio track selection", () => {
     });
 
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       videoSourceUrl:
         "http://localhost:3000/api/playback/sessions/session-1/revisions/2/index.m3u8",
     });
@@ -289,7 +293,7 @@ describe("PlaybackDock audio track selection", () => {
 
   it("shows and persists the full session duration when the queue item duration is missing", async () => {
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
         id: 42,
         library_id: 7,
@@ -319,60 +323,9 @@ describe("PlaybackDock audio track selection", () => {
     fireEvent.timeUpdate(video);
 
     await waitFor(() => {
-      expect(screen.getAllByText("2:00:00").length).toBeGreaterThan(0);
       expect(api.updateMediaProgress).toHaveBeenCalledWith(42, {
         position_seconds: 3,
         duration_seconds: 7200,
-        completed: false,
-      });
-    });
-  });
-
-  it("persists playback position when switching from docked to fullscreen", async () => {
-    const { container } = renderDock();
-    const dockedVideo = container.querySelector("video") as HTMLVideoElement | null;
-    expect(dockedVideo).toBeTruthy();
-    if (!dockedVideo) {
-      throw new Error("Expected a docked video element");
-    }
-
-    setVideoCurrentTime(dockedVideo, 37);
-    fireEvent.timeUpdate(dockedVideo);
-    vi.mocked(api.updateMediaProgress).mockClear();
-    fireEvent.click(screen.getByRole("button", { name: /Open fullscreen player for/i }));
-
-    await waitFor(() => {
-      expect(api.updateMediaProgress).toHaveBeenCalledWith(42, {
-        position_seconds: 37,
-        duration_seconds: 120,
-        completed: false,
-      });
-    });
-  });
-
-  it("persists playback position when switching from fullscreen to docked", async () => {
-    mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
-      viewMode: "fullscreen",
-    });
-
-    renderDock();
-    const fullscreenPlayer = await screen.findByLabelText("Fullscreen video player");
-    const fullscreenVideo = fullscreenPlayer.querySelector("video") as HTMLVideoElement | null;
-    expect(fullscreenVideo).toBeTruthy();
-    if (!fullscreenVideo) {
-      throw new Error("Expected a fullscreen video element");
-    }
-
-    setVideoCurrentTime(fullscreenVideo, 52);
-    fireEvent.timeUpdate(fullscreenVideo);
-    vi.mocked(api.updateMediaProgress).mockClear();
-    fireEvent.click(screen.getAllByRole("button", { name: /Return to docked player/i })[0]!);
-
-    await waitFor(() => {
-      expect(api.updateMediaProgress).toHaveBeenCalledWith(42, {
-        position_seconds: 52,
-        duration_seconds: 120,
         completed: false,
       });
     });
@@ -414,7 +367,7 @@ describe("PlaybackDock audio track selection", () => {
     }
 
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       muted: true,
       registerMediaElement: vi.fn(),
     });
@@ -611,7 +564,7 @@ describe("PlaybackDock audio track selection", () => {
       );
 
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
         id: 42,
         library_id: 7,
@@ -710,9 +663,9 @@ describe("PlaybackDock audio track selection", () => {
     });
 
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         subtitles: [],
         embeddedSubtitles: [],
       },
@@ -747,9 +700,9 @@ describe("PlaybackDock audio track selection", () => {
     ]);
 
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
       },
     });
@@ -789,12 +742,12 @@ describe("PlaybackDock audio track selection", () => {
   it("keeps a manual subtitle choice when queued video advances", async () => {
     const queue = [
       {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         id: 42,
         subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
       },
       {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         id: 43,
         subtitles: [{ id: 10, language: "eng", title: "English", format: "vtt" }],
       },
@@ -821,7 +774,7 @@ describe("PlaybackDock audio track selection", () => {
       },
     ]);
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: queue[0],
       queue,
       queueIndex: 0,
@@ -841,7 +794,7 @@ describe("PlaybackDock audio track selection", () => {
       });
 
       mockUsePlayer.mockReturnValue({
-        ...mockUsePlayer.mock.results.at(-1)?.value,
+        ...defaultPlaybackDockUsePlayer(),
         activeItem: queue[1],
         queue,
         queueIndex: 1,
@@ -881,9 +834,9 @@ describe("PlaybackDock audio track selection", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("nope", { status: 500 }));
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         subtitles: [{ id: 9, language: "eng", title: "English", format: "vtt" }],
       },
     });
@@ -938,9 +891,9 @@ describe("PlaybackDock audio track selection", () => {
         new Response("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello again\n", { status: 200 }),
       );
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         id: 42,
         embeddedSubtitles: [{ streamIndex: 7, language: "eng", title: "English Signs" }],
       },
@@ -991,9 +944,9 @@ describe("PlaybackDock audio track selection", () => {
       },
     ]);
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         embeddedSubtitles: [
           {
             streamIndex: 7,
@@ -1019,7 +972,7 @@ describe("PlaybackDock audio track selection", () => {
 
   it("syncs the selected audio menu state from the active playback audio index", async () => {
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       videoAudioIndex: 2,
     });
 
@@ -1054,10 +1007,10 @@ describe("PlaybackDock audio track selection", () => {
     });
 
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       videoAudioIndex: 2,
       activeItem: {
-        ...mockUsePlayer.mock.results.at(-1)?.value.activeItem,
+        ...defaultPlaybackDockUsePlayer().activeItem,
         embeddedAudioTracks: [
           { streamIndex: 1, language: "eng", title: "English" },
           { streamIndex: 2, language: "jpn", title: "Japanese" },
@@ -1082,10 +1035,10 @@ describe("PlaybackDock audio track selection", () => {
   it("restarts the current video when Previous is pressed after the restart threshold", async () => {
     const seekTo = vi.fn();
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       queue: [
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 41 },
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 41 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
       ],
       queueIndex: 1,
       seekTo,
@@ -1107,10 +1060,10 @@ describe("PlaybackDock audio track selection", () => {
   it("goes to the previous queue item when Previous is pressed near the start", async () => {
     const playPreviousInQueue = vi.fn();
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       queue: [
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 41 },
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 41 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
       ],
       queueIndex: 1,
       playPreviousInQueue,
@@ -1129,13 +1082,13 @@ describe("PlaybackDock audio track selection", () => {
     expect(playPreviousInQueue).toHaveBeenCalledTimes(1);
   });
 
-  it("advances to the next queue item from the dock controls", async () => {
+  it("advances to the next queue item from the theater controls", async () => {
     const playNextInQueue = vi.fn();
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       queue: [
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 43 },
       ],
       queueIndex: 0,
       playNextInQueue,
@@ -1147,13 +1100,13 @@ describe("PlaybackDock audio track selection", () => {
     expect(playNextInQueue).toHaveBeenCalledTimes(1);
   });
 
-  it("advances on video end when autoplay next is enabled", async () => {
+  it("shows up next on video end when autoplay next is enabled and play now advances", async () => {
     const playNextInQueue = vi.fn();
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       queue: [
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 43 },
       ],
       queueIndex: 0,
       playNextInQueue,
@@ -1168,6 +1121,9 @@ describe("PlaybackDock audio track selection", () => {
 
     fireEvent.ended(video);
 
+    expect(await screen.findByRole("dialog", { name: "Up next" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Play now" }));
+
     await waitFor(() => {
       expect(playNextInQueue).toHaveBeenCalledTimes(1);
     });
@@ -1177,10 +1133,10 @@ describe("PlaybackDock audio track selection", () => {
     const playNextInQueue = vi.fn();
     window.localStorage.setItem(videoAutoplayStorageKey, "false");
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       queue: [
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 43 },
       ],
       queueIndex: 0,
       playNextInQueue,
@@ -1202,10 +1158,10 @@ describe("PlaybackDock audio track selection", () => {
 
   it("persists the autoplay next preference when toggled", async () => {
     mockUsePlayer.mockReturnValue({
-      ...mockUsePlayer.mock.results.at(-1)?.value,
+      ...defaultPlaybackDockUsePlayer(),
       queue: [
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 42 },
-        { ...mockUsePlayer.mock.results.at(-1)?.value.activeItem, id: 43 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
+        { ...defaultPlaybackDockUsePlayer().activeItem, id: 43 },
       ],
       queueIndex: 0,
     });

@@ -14,12 +14,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.tv.material3.Text
 import kotlinx.coroutines.flow.distinctUntilChanged
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.LibraryShowBrowseRow
@@ -32,6 +34,7 @@ import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
 import plum.tv.core.ui.PlumTheme
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.resolveImageUrl
@@ -44,6 +47,7 @@ fun LibraryBrowseRoute(
 ) {
     val state by viewModel.state.collectAsState()
     val gridState = rememberLazyGridState()
+    val firstPosterFocus = remember { FocusRequester() }
     val metrics = PlumTheme.metrics
     val minCell = metrics.posterCompactWidth + metrics.cardGap + 6.dp
 
@@ -91,7 +95,18 @@ fun LibraryBrowseRoute(
                 },
             )
         }
-        is LibraryBrowseUiState.Ready -> LazyVerticalGrid(
+        is LibraryBrowseUiState.Ready -> {
+            LaunchedTvFocusTo(
+                s.rows.firstOrNull().let { row ->
+                    when (row) {
+                        is LibraryBrowseGridRow.Movie -> "m-${row.item.id}"
+                        is LibraryBrowseGridRow.Show -> "s-${row.row.showKey}"
+                        null -> "empty"
+                    }
+                },
+                focusRequester = firstPosterFocus,
+            )
+            LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = minCell),
             state = gridState,
             modifier = Modifier.fillMaxSize(),
@@ -123,10 +138,16 @@ fun LibraryBrowseRoute(
                         is LibraryBrowseGridRow.Show -> "s-${row.row.showKey}"
                     }
                 },
-            ) { _, row ->
+            ) { index, row ->
+                val posterModifier =
+                    if (index == 0 && s.rows.isNotEmpty()) {
+                        Modifier.focusRequester(firstPosterFocus)
+                    } else {
+                        Modifier
+                    }
                 when (row) {
                     is LibraryBrowseGridRow.Movie ->
-                        BrowseMoviePosterCard(row.item) {
+                        BrowseMoviePosterCard(row.item, posterModifier) {
                             val lib = row.item.libraryId ?: return@BrowseMoviePosterCard
                             when (row.item.type) {
                                 "movie" -> onOpenMovie(lib, row.item.id)
@@ -135,12 +156,13 @@ fun LibraryBrowseRoute(
                             }
                         }
                     is LibraryBrowseGridRow.Show ->
-                        BrowseShowPosterCard(row.row) {
+                        BrowseShowPosterCard(row.row, posterModifier) {
                             val lib = row.row.posterItem.libraryId ?: return@BrowseShowPosterCard
                             onOpenShow(lib, row.row.showKey)
                         }
                 }
             }
+        }
         }
     }
 }
@@ -148,6 +170,7 @@ fun LibraryBrowseRoute(
 @Composable
 private fun BrowseMoviePosterCard(
     item: LibraryBrowseItemJson,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val serverBase = LocalServerBaseUrl.current
@@ -161,29 +184,40 @@ private fun BrowseMoviePosterCard(
                 ?: item.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: item.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
-        modifier = Modifier.padding(4.dp),
+        modifier = modifier.padding(4.dp),
         compact = true,
+        progressPercent = item.progressPercent,
+        watched = item.completed == true,
     )
 }
 
 @Composable
 private fun BrowseShowPosterCard(
     row: LibraryShowBrowseRow,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val serverBase = LocalServerBaseUrl.current
     val ep = row.posterItem
     val sz = PlumImageSizes.POSTER_GRID
+    val unwatched = row.episodes.count { it.completed != true }
+    val showSubtitle =
+        when {
+            unwatched == 0 -> "${row.episodes.size} episodes · Watched"
+            unwatched == row.episodes.size -> "${row.episodes.size} episodes"
+            else -> "${row.episodes.size} episodes · $unwatched left"
+        }
     PlumPosterCard(
         title = row.displayTitle,
-        subtitle = "${row.episodes.size} episodes",
+        subtitle = showSubtitle,
         imageUrl =
             resolveArtworkUrl(serverBase, ep.showPosterUrl, ep.showPosterPath, sz)
                 ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, sz)
                 ?: ep.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: ep.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
-        modifier = Modifier.padding(4.dp),
+        modifier = modifier.padding(4.dp),
         compact = true,
+        watched = unwatched == 0 && row.episodes.isNotEmpty(),
     )
 }

@@ -4,7 +4,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
+  type PointerEvent,
   type RefObject,
   type SyntheticEvent,
 } from "react";
@@ -18,14 +20,12 @@ import {
   resolvePosterUrl,
 } from "@plum/shared";
 import {
-  Expand,
   Maximize2,
   Settings,
   Minimize2,
   Pause,
   Play,
   Repeat,
-  Shuffle,
   SkipBack,
   SkipForward,
   Subtitles,
@@ -39,9 +39,12 @@ import {
   updateMediaProgress,
   type EmbeddedAudioTrack,
   type EmbeddedSubtitle,
+  type MediaItem,
   type PlaybackTrackMetadata,
   type Subtitle,
 } from "../api";
+
+const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
 import { usePlayer } from "../contexts/PlayerContext";
 import {
   readStoredSubtitleAppearance,
@@ -64,11 +67,9 @@ import {
   formatHlsErrorMessage,
   formatTrackLabel,
   getBrowserAudioTracks,
-  getMusicMetadata,
   getPreferredAudioKey,
   getPreferredSubtitleKey,
   getSeasonEpisodeLabel,
-  getVideoMetadata,
   hasTextTrack,
   nudgeVideoIntoBufferedRange,
   resolvedVideoDuration,
@@ -120,6 +121,7 @@ type QueuedSubtitlePreference =
 const CONTROLS_HIDE_DELAY = 3000;
 const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
 const VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS = 5;
+const UPNEXT_COUNTDOWN_SECONDS = 10;
 
 /* ── Track popover menu (shared between docked & fullscreen) ── */
 function TrackMenu({
@@ -353,7 +355,8 @@ export function PlaybackDock() {
   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
-  const [pendingBrowserFullscreen, setPendingBrowserFullscreen] = useState(false);
+  const [upNextTarget, setUpNextTarget] = useState<MediaItem | null>(null);
+  const [upNextSecondsLeft, setUpNextSecondsLeft] = useState(UPNEXT_COUNTDOWN_SECONDS);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [pendingSubtitleKey, setPendingSubtitleKey] = useState<string | null>(null);
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null);
@@ -370,6 +373,10 @@ export function PlaybackDock() {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const seekToAfterReloadRef = useRef<number | null>(null);
   const resumePlaybackAfterReloadRef = useRef(false);
+  /** After a same-item source reload with playback left paused, skip programmatic play on `canplay` (browser `autoPlay` is unreliable after async session setup). */
+  const suppressVideoAutoplayOnCanPlayRef = useRef(false);
+  /** True until the first `playing` event for the current item — avoids resuming on every `canplay` after the user pauses. */
+  const kickstartVideoPlaybackRef = useRef(false);
   const previousVideoSourceUrlRef = useRef("");
   const [hlsStatusMessage, setHlsStatusMessage] = useState("");
   const mediaRecoveryAttemptsRef = useRef(0);
@@ -388,10 +395,8 @@ export function PlaybackDock() {
     activeItem,
     activeMode,
     isDockOpen,
-    viewMode,
     queue,
     queueIndex,
-    shuffle,
     repeatMode,
     volume,
     muted,
@@ -405,24 +410,97 @@ export function PlaybackDock() {
     seekTo,
     setMuted,
     setVolume,
-    enterFullscreen,
-    exitFullscreen,
     dismissDock,
     playNextInQueue,
     playPreviousInQueue,
-    toggleShuffle,
-    cycleRepeatMode,
     changeAudioTrack,
   } = usePlayer();
+  const playbackQueue = queue ?? EMPTY_PLAYBACK_QUEUE;
+  const playNextInQueueRef = useRef(playNextInQueue);
   const registerMediaElementRef = useRef(registerMediaElement);
 
+  useEffect(() => {
+    playNextInQueueRef.current = playNextInQueue;
+  }, [playNextInQueue]);
+
+  const upNextIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clearUpNextTimer = useCallback(() => {
+    if (upNextIntervalRef.current != null) {
+      clearInterval(upNextIntervalRef.current);
+      upNextIntervalRef.current = null;
+    }
+  }, []);
+
+  const dismissUpNext = useCallback(() => {
+    clearUpNextTimer();
+    setUpNextTarget(null);
+  }, [clearUpNextTimer]);
+
+  const confirmUpNextNow = useCallback(() => {
+    clearUpNextTimer();
+    setUpNextTarget(null);
+    playNextInQueue();
+  }, [clearUpNextTimer, playNextInQueue]);
+
+  useEffect(() => {
+    if (!upNextTarget) {
+      clearUpNextTimer();
+      return;
+    }
+    setUpNextSecondsLeft(UPNEXT_COUNTDOWN_SECONDS);
+    let remaining = UPNEXT_COUNTDOWN_SECONDS;
+    upNextIntervalRef.current = setInterval(() => {
+      remaining -= 1;
+      setUpNextSecondsLeft(remaining);
+      if (remaining <= 0) {
+        clearUpNextTimer();
+        setUpNextTarget(null);
+        playNextInQueueRef.current();
+      }
+    }, 1000);
+    return () => clearUpNextTimer();
+  }, [upNextTarget, clearUpNextTimer]);
+
+  const prevQueueIndexRef = useRef(queueIndex);
+  useEffect(() => {
+    if (upNextTarget != null && queueIndex !== prevQueueIndexRef.current) {
+      dismissUpNext();
+    }
+    prevQueueIndexRef.current = queueIndex;
+  }, [queueIndex, upNextTarget, dismissUpNext]);
+
+  useEffect(() => {
+    if (activeMode !== "video" || !isDockOpen) {
+      dismissUpNext();
+    }
+  }, [activeMode, isDockOpen, dismissUpNext]);
+
+  const upNextBackdropUrl = useMemo(() => {
+    if (!upNextTarget) return "";
+    const fromBackdrop = resolveBackdropUrl(
+      upNextTarget.backdrop_url,
+      upNextTarget.backdrop_path,
+      "original",
+      BASE_URL,
+    );
+    if (fromBackdrop) return fromBackdrop;
+    return (
+      resolvePosterUrl(
+        upNextTarget.show_poster_url,
+        upNextTarget.show_poster_path,
+        "original",
+        BASE_URL,
+      ) ||
+      resolvePosterUrl(upNextTarget.poster_url, upNextTarget.poster_path, "original", BASE_URL)
+    );
+  }, [upNextTarget]);
+
   const isVideo = activeMode === "video" && activeItem != null;
-  const isMusic = activeMode === "music" && activeItem != null;
-  const isFullscreen = isVideo && viewMode === "fullscreen";
+  const isWindowPlayer = isVideo;
   const activeItemId = activeItem?.id ?? null;
   const activeItemDuration = activeItem?.duration ?? 0;
-  const hasNextQueueItem = queueIndex < queue.length - 1;
-  const hasVideoQueueNavigation = isVideo && queue.length > 1;
+  const hasNextQueueItem = queueIndex < playbackQueue.length - 1;
+  const hasVideoQueueNavigation = isVideo && playbackQueue.length > 1;
   currentSubtitleMediaIdRef.current = activeItemId;
   const videoStatusMessage =
     hlsStatusMessage ||
@@ -707,7 +785,7 @@ export function PlaybackDock() {
 
   useEffect(() => {
     queuedSubtitlePreferenceRef.current = null;
-  }, [queue]);
+  }, [playbackQueue]);
 
   useEffect(() => {
     if (selectedSubtitleKey === "off") return;
@@ -877,15 +955,6 @@ export function PlaybackDock() {
     [captureVideoProgressSnapshot],
   );
 
-  const primeVideoHandoff = useCallback(() => {
-    const snapshot = captureVideoProgressSnapshot(videoRef.current);
-    if (!snapshot) return null;
-    lastVideoProgressRef.current = snapshot;
-    seekToAfterReloadRef.current = snapshot.positionSeconds;
-    resumePlaybackAfterReloadRef.current = snapshot.shouldResumePlayback;
-    return snapshot;
-  }, [captureVideoProgressSnapshot]);
-
   const persistPlaybackProgress = useCallback(
     async (options?: { force?: boolean; completed?: boolean; snapshot?: VideoProgressSnapshot | null }) => {
       if (!isVideo || !activeItem) return;
@@ -1017,12 +1086,17 @@ export function PlaybackDock() {
         const shouldResumePlayback = resumePlaybackAfterReloadRef.current;
         resumePlaybackAfterReloadRef.current = false;
         if (shouldResumePlayback) {
+          suppressVideoAutoplayOnCanPlayRef.current = false;
           void element.play().catch(() => {});
         } else {
           element.pause();
+          suppressVideoAutoplayOnCanPlayRef.current = true;
+          kickstartVideoPlaybackRef.current = false;
         }
       } else {
+        suppressVideoAutoplayOnCanPlayRef.current = false;
         applyResumePosition(element);
+        void element.play().catch(() => {});
       }
       syncPlaybackState(element);
       setAudioTrackVersion((value) => value + 1);
@@ -1031,6 +1105,27 @@ export function PlaybackDock() {
     },
     [applyResumePosition, markSubtitleReady, syncPlaybackState],
   );
+
+  const handleVideoCanPlay = useCallback(
+    (element: HTMLVideoElement) => {
+      maybeRecoverInitialBufferGap(element);
+      syncPlaybackState(element);
+      syncVideoProgressSnapshot(element);
+      markSubtitleReady();
+      setIsVideoLoading(false);
+      if (
+        !suppressVideoAutoplayOnCanPlayRef.current &&
+        kickstartVideoPlaybackRef.current
+      ) {
+        void element.play().catch(() => {});
+      }
+    },
+    [maybeRecoverInitialBufferGap, markSubtitleReady, syncPlaybackState, syncVideoProgressSnapshot],
+  );
+
+  useEffect(() => {
+    kickstartVideoPlaybackRef.current = isVideo && activeItemId != null;
+  }, [activeItemId, isVideo]);
 
   useEffect(() => {
     setPlaybackState({
@@ -1063,6 +1158,7 @@ export function PlaybackDock() {
     dispatchedAudioTrackRef.current = null;
     seekToAfterReloadRef.current = null;
     resumePlaybackAfterReloadRef.current = false;
+    suppressVideoAutoplayOnCanPlayRef.current = false;
     previousVideoSourceUrlRef.current = "";
     setHlsStatusMessage("");
     mediaRecoveryAttemptsRef.current = 0;
@@ -1560,12 +1656,6 @@ export function PlaybackDock() {
     await playerRootRef.current.requestFullscreen?.().catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!isFullscreen || !pendingBrowserFullscreen) return;
-    void toggleBrowserFullscreen();
-    setPendingBrowserFullscreen(false);
-  }, [isFullscreen, pendingBrowserFullscreen, toggleBrowserFullscreen]);
-
   /* ── Auto-hide controls in fullscreen ── */
   const resetHideTimer = useCallback(() => {
     setControlsVisible(true);
@@ -1576,27 +1666,47 @@ export function PlaybackDock() {
   }, []);
 
   useEffect(() => {
-    if (!isFullscreen) {
+    if (!isWindowPlayer) {
       setControlsVisible(true);
       clearTimeout(hideTimerRef.current);
       return;
     }
     resetHideTimer();
     return () => clearTimeout(hideTimerRef.current);
-  }, [isFullscreen, resetHideTimer]);
+  }, [isWindowPlayer, resetHideTimer]);
 
   const handleFullscreenMouseMove = useCallback(() => {
-    if (isFullscreen) resetHideTimer();
-  }, [isFullscreen, resetHideTimer]);
+    if (isWindowPlayer) resetHideTimer();
+  }, [isWindowPlayer, resetHideTimer]);
 
   const handleOverlayMouseEnter = useCallback(() => {
     clearTimeout(hideTimerRef.current);
     setControlsVisible(true);
   }, []);
 
+  /* ── Up next: keyboard (theater player) ── */
+  useEffect(() => {
+    if (!upNextTarget || activeMode !== "video" || activeItem == null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const tag = (event.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dismissUpNext();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        confirmUpNextNow();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [upNextTarget, activeMode, activeItem, dismissUpNext, confirmUpNextNow]);
+
   /* ── Keyboard shortcuts (fullscreen) ── */
   useEffect(() => {
-    if (!isFullscreen || !isVideo) return;
+    if (!isWindowPlayer || !isVideo) return;
     const onKeyDown = (event: KeyboardEvent) => {
       /* Ignore when a form element is focused */
       const tag = (event.target as HTMLElement)?.tagName;
@@ -1607,8 +1717,9 @@ export function PlaybackDock() {
           if (document.fullscreenElement === playerRootRef.current) {
             void document.exitFullscreen().catch(() => {});
           } else {
-            primeVideoHandoff();
-            exitFullscreen();
+            const snapshot = captureVideoProgressSnapshot(videoRef.current);
+            void persistPlaybackProgress({ force: true, snapshot });
+            dismissDock();
           }
           break;
         case "f":
@@ -1651,11 +1762,12 @@ export function PlaybackDock() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
-    exitFullscreen,
-    isFullscreen,
+    captureVideoProgressSnapshot,
+    dismissDock,
+    isWindowPlayer,
     isVideo,
     muted,
-    primeVideoHandoff,
+    persistPlaybackProgress,
     resetHideTimer,
     seekTo,
     setMuted,
@@ -1679,57 +1791,159 @@ export function PlaybackDock() {
       const snapshot = captureVideoProgressSnapshot(event.currentTarget);
       void persistPlaybackProgress({ force: true, completed: true, snapshot });
       if (videoAutoplayEnabled && hasNextQueueItem) {
-        playNextInQueue();
+        const next = playbackQueue[queueIndex + 1];
+        if (next) {
+          setUpNextTarget(next);
+        }
+        return;
       }
     },
     [
       captureVideoProgressSnapshot,
       hasNextQueueItem,
       persistPlaybackProgress,
-      playNextInQueue,
+      playbackQueue,
+      queueIndex,
       videoAutoplayEnabled,
     ],
   );
+
+  const progressMax = useMemo(
+    () =>
+      playbackState.duration > 0
+        ? playbackState.duration
+        : Math.max(playbackDurationSeconds, 0),
+    [playbackState.duration, playbackDurationSeconds],
+  );
+
+  const [seekPreviewSec, setSeekPreviewSec] = useState<number | null>(null);
+  const [seekScrubPointerDown, setSeekScrubPointerDown] = useState(false);
+
+  useEffect(() => {
+    if (!seekScrubPointerDown) return;
+    const endScrub = () => {
+      setSeekScrubPointerDown(false);
+      setSeekPreviewSec(null);
+    };
+    window.addEventListener("pointerup", endScrub);
+    window.addEventListener("pointercancel", endScrub);
+    return () => {
+      window.removeEventListener("pointerup", endScrub);
+      window.removeEventListener("pointercancel", endScrub);
+    };
+  }, [seekScrubPointerDown]);
+
+  const handleSeekSliderPointerDown = useCallback(
+    (e: PointerEvent<HTMLInputElement>) => {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      setSeekScrubPointerDown(true);
+      const mediaEl = (isVideo ? videoRef.current : audioRef.current) as HTMLMediaElement | null;
+      const t =
+        mediaEl != null && Number.isFinite(mediaEl.currentTime)
+          ? mediaEl.currentTime
+          : playbackState.currentTime;
+      setSeekPreviewSec(t);
+    },
+    [isVideo, playbackState.currentTime],
+  );
+
+  const handleSeekSliderChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const next = Number(event.target.value);
+      setSeekPreviewSec(next);
+      seekTo(next);
+    },
+    [seekTo],
+  );
+
+  const seekSliderDisplayValue = Math.min(
+    seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime,
+    progressMax || 0,
+  );
+  const seekTimeLabelSec = seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime;
 
   if (!activeItem || !isDockOpen || !activeMode) {
     return null;
   }
 
-  const posterUrl = resolvePosterUrl(activeItem.poster_url, activeItem.poster_path, "w500", BASE_URL);
-  const backdropUrl = resolveBackdropUrl(
-    activeItem.backdrop_url,
-    activeItem.backdrop_path,
-    "w780",
-    BASE_URL,
-  );
-  const progressMax =
-    playbackState.duration > 0 ? playbackState.duration : Math.max(playbackDurationSeconds, 0);
-  const repeatLabel =
-    repeatMode === "one" ? "Repeat track" : repeatMode === "all" ? "Repeat queue" : "Repeat off";
+  if (activeMode === "music") {
+    return (
+      <audio
+        key={activeItem.id}
+        ref={setAudioRef}
+        className="playback-dock__audio plum-music-audio"
+        src={mediaStreamUrl(BASE_URL, activeItem.id)}
+        autoPlay
+        onLoadedMetadata={(event) => syncPlaybackState(event.currentTarget)}
+        onTimeUpdate={(event) => syncPlaybackState(event.currentTarget)}
+        onPlay={(event) => syncPlaybackState(event.currentTarget)}
+        onPause={(event) => syncPlaybackState(event.currentTarget)}
+        onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
+        onEnded={() => {
+          if (repeatMode === "one" && audioRef.current) {
+            audioRef.current.currentTime = 0;
+            void audioRef.current.play().catch(() => {});
+            return;
+          }
+          playNextInQueue();
+        }}
+      />
+    );
+  }
+
   const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
   const autoplayButtonLabel = videoAutoplayEnabled ? "Disable autoplay next" : "Enable autoplay next";
-  const handleOpenFullscreen = () => {
-    const snapshot = primeVideoHandoff();
-    if (snapshot && (snapshot.positionSeconds > 0 || snapshot.ended)) {
-      void persistPlaybackProgress({ force: true, snapshot });
-    }
-    enterFullscreen();
-  };
-  const handleReturnToDocked = () => {
-    const snapshot = primeVideoHandoff();
-    if (snapshot && (snapshot.positionSeconds > 0 || snapshot.ended)) {
-      void persistPlaybackProgress({ force: true, snapshot });
-    }
-    exitFullscreen();
-  };
   const handleClosePlayer = () => {
     const snapshot = captureVideoProgressSnapshot(videoRef.current);
     void persistPlaybackProgress({ force: true, snapshot });
     dismissDock();
   };
 
-  /* ── Fullscreen video player ── */
-  if (isFullscreen) {
+  const upNextSeasonLabel = upNextTarget ? getSeasonEpisodeLabel(upNextTarget) : "";
+  const upNextOverlay =
+    upNextTarget != null ? (
+      <div
+        className="playback-up-next"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Up next"
+      >
+        {upNextBackdropUrl ? (
+          <img src={upNextBackdropUrl} alt="" className="playback-up-next__bg" />
+        ) : (
+          <div className="playback-up-next__bg playback-up-next__bg--empty" aria-hidden />
+        )}
+        <div className="playback-up-next__scrim" />
+        <div className="playback-up-next__content">
+          <p className="playback-up-next__eyebrow">Up next</p>
+          <h2 className="playback-up-next__title">
+            {upNextTarget.title}
+          </h2>
+          {upNextSeasonLabel ? (
+            <p className="playback-up-next__meta">{upNextSeasonLabel}</p>
+          ) : null}
+          <p className="playback-up-next__timer">
+            Starting in{" "}
+            <span className="playback-up-next__timer-value">{upNextSecondsLeft}</span>s
+          </p>
+          <div className="playback-up-next__actions">
+            <button type="button" className="playback-up-next__play-now" onClick={confirmUpNextNow}>
+              Play now
+            </button>
+            <button type="button" className="playback-up-next__cancel" onClick={dismissUpNext}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  /* ── Full-viewport in-app video (then use Fullscreen API for OS-level full screen) ── */
+  if (isWindowPlayer) {
     const seasonEpisode = getSeasonEpisodeLabel(activeItem);
     const titleDisplay = seasonEpisode
       ? `${seasonEpisode} · ${activeItem.title}`
@@ -1741,7 +1955,7 @@ export function PlaybackDock() {
           playerRootRef.current = node;
         }}
         className={`fullscreen-player${controlsVisible ? "" : " fullscreen-player--hidden"}`}
-        aria-label="Fullscreen video player"
+        aria-label="Video player"
         aria-busy={showPlayerLoadingOverlay}
         role="button"
         tabIndex={0}
@@ -1774,13 +1988,7 @@ export function PlaybackDock() {
           playsInline
           onLoadStart={() => setIsVideoLoading(true)}
           onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-          onCanPlay={(event) => {
-            maybeRecoverInitialBufferGap(event.currentTarget);
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-            markSubtitleReady();
-            setIsVideoLoading(false);
-          }}
+          onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}
           onTimeUpdate={(event) => {
             if (event.currentTarget.currentTime > 1) {
               initialBufferGapHandledRef.current = true;
@@ -1801,7 +2009,10 @@ export function PlaybackDock() {
             persistInitialPlaybackProgress(event.currentTarget);
             processIntroSkip(event.currentTarget);
           }}
-          onPlaying={() => setIsVideoLoading(false)}
+          onPlaying={() => {
+            kickstartVideoPlaybackRef.current = false;
+            setIsVideoLoading(false);
+          }}
           onPause={(event) => {
             syncPlaybackState(event.currentTarget);
             const snapshot = captureVideoProgressSnapshot(event.currentTarget);
@@ -1842,8 +2053,8 @@ export function PlaybackDock() {
           <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />
         )}
 
-        {/* Top title bar */}
         <div className="fullscreen-player__top-bar">
+          <div className="fullscreen-player__top-bar-lead" aria-hidden="true" />
           <div className="fullscreen-player__title-area">
             <h2 className="fullscreen-player__title">{titleDisplay}</h2>
             <div className="fullscreen-player__status">
@@ -1855,15 +2066,43 @@ export function PlaybackDock() {
               )}
             </div>
           </div>
-          <button
-            type="button"
-            className="fullscreen-player__close-btn"
-            onClick={handleReturnToDocked}
-            aria-label="Return to docked player"
-            title="Return to docked player"
-          >
-            <Minimize2 className="size-5" />
-          </button>
+          <div className="fullscreen-player__top-bar-tail">
+            <div className="fullscreen-player__top-bar-actions">
+              <button
+                type="button"
+                className={`fullscreen-player__close-btn${browserFullscreenActive ? " is-active" : ""}`}
+                onClick={() => {
+                  void toggleBrowserFullscreen();
+                }}
+                aria-label={
+                  browserFullscreenActive ? "Exit full screen" : "Full screen on this display"
+                }
+                title={
+                  browserFullscreenActive
+                    ? "Exit full screen"
+                    : "Full screen on this display (hides browser UI)"
+                }
+              >
+                {browserFullscreenActive ? (
+                  <Minimize2 className="size-5" strokeWidth={2.25} />
+                ) : (
+                  <Maximize2 className="size-5" strokeWidth={2.25} />
+                )}
+              </button>
+              <button
+                type="button"
+                className="fullscreen-player__close-btn"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleClosePlayer();
+                }}
+                aria-label="Close player"
+                title="Close player"
+              >
+                <X className="size-5" strokeWidth={2.25} />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Bottom controls overlay */}
@@ -1880,9 +2119,10 @@ export function PlaybackDock() {
               aria-label="Seek playback"
               min={0}
               max={progressMax || 0}
-              step={1}
-              value={Math.min(playbackState.currentTime, progressMax || 0)}
-              onChange={(event) => seekTo(Number(event.target.value))}
+              step={0.1}
+              value={seekSliderDisplayValue}
+              onPointerDown={handleSeekSliderPointerDown}
+              onChange={handleSeekSliderChange}
             />
           </div>
 
@@ -1903,7 +2143,7 @@ export function PlaybackDock() {
                 )}
               </button>
               <span className="fullscreen-player__time">
-                {formatClock(playbackState.currentTime)} / {formatClock(progressMax)}
+                {formatClock(seekTimeLabelSec)} / {formatClock(progressMax)}
               </span>
             </div>
 
@@ -2057,481 +2297,13 @@ export function PlaybackDock() {
                   onChange={(event) => setVolume(Number(event.target.value))}
                 />
               </div>
-
-              <button
-                type="button"
-                className={`fullscreen-player__ctrl-btn${browserFullscreenActive ? " is-active" : ""}`}
-                onClick={() => {
-                  void toggleBrowserFullscreen();
-                }}
-                aria-label={
-                  browserFullscreenActive ? "Exit true fullscreen" : "Enter true fullscreen"
-                }
-                title={browserFullscreenActive ? "Exit browser fullscreen" : "Browser fullscreen"}
-              >
-                {browserFullscreenActive ? (
-                  <Minimize2 className="size-[1.125rem]" strokeWidth={2.25} />
-                ) : (
-                  <Maximize2 className="size-[1.125rem]" strokeWidth={2.25} />
-                )}
-              </button>
-
-              <button
-                type="button"
-                className="fullscreen-player__ctrl-btn"
-                onClick={handleReturnToDocked}
-                aria-label="Return to docked player"
-                title="Return to docked player"
-              >
-                <Minimize2 className="size-[1.125rem]" strokeWidth={2.25} />
-              </button>
             </div>
           </div>
         </div>
+        {upNextOverlay}
       </section>
     );
   }
 
-  /* ── Docked player (music + video) ── */
-  return (
-    <section
-      ref={(node) => {
-        playerRootRef.current = node;
-      }}
-      className={`playback-dock playback-dock--${activeMode} playback-dock--${viewMode}`}
-      aria-label={isMusic ? "Music player" : "Playback dock"}
-      aria-busy={showPlayerLoadingOverlay}
-    >
-      {isVideo && backdropUrl && (
-        <div className="playback-dock__backdrop" aria-hidden="true">
-          <img src={backdropUrl} alt="" />
-        </div>
-      )}
-
-      <div className="playback-dock__shell">
-        <div className="playback-dock__topbar">
-          <div className="playback-dock__status">
-            {isVideo && (
-              <>
-                <span className="status-dot" data-connected={wsConnected} />
-                <span className="playback-dock__status-copy">{videoStatusMessage}</span>
-              </>
-            )}
-          </div>
-          <div className="playback-dock__actions">
-            {isVideo && (
-              <button
-                type="button"
-                className="playback-dock__icon-button"
-                onClick={handleOpenFullscreen}
-                aria-label="Open fullscreen player"
-                title="Open fullscreen player"
-              >
-                <Expand className="size-4" />
-              </button>
-            )}
-            <button
-              type="button"
-              className="playback-dock__icon-button"
-              onClick={handleClosePlayer}
-              aria-label="Close player"
-              title="Close player"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="playback-dock__content">
-          <div className="playback-dock__summary">
-            <div className="playback-dock__artwork">
-              {posterUrl ? (
-                <img src={posterUrl} alt="" />
-              ) : (
-                <img src="/placeholder-poster.svg" alt="" />
-              )}
-            </div>
-            <div className="playback-dock__copy">
-              <div className="playback-dock__eyebrow">
-                {isVideo
-                  ? getVideoMetadata(activeItem)
-                  : getMusicMetadata(activeItem, queueIndex, queue.length)}
-              </div>
-              <h2 className="playback-dock__title">{activeItem.title}</h2>
-              {isMusic && (
-                <div className="playback-dock__subcopy">
-                  {activeItem.album_artist && activeItem.album_artist !== activeItem.artist
-                    ? `Album artist: ${activeItem.album_artist}`
-                    : activeItem.release_year
-                      ? `Released ${activeItem.release_year}`
-                      : "Docked playback"}
-                </div>
-              )}
-              {isVideo && activeItem.overview && (
-                <p className="playback-dock__overview">{activeItem.overview}</p>
-              )}
-              {isVideo && (
-                <div className="playback-dock__subtitle-picker">
-                  <button
-                    ref={subtitleBtnRef}
-                    type="button"
-                    className={`playback-dock__subtitle-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}`}
-                    onClick={toggleSubtitleMenu}
-                    aria-label="Subtitles"
-                  >
-                    <Subtitles className="size-4" strokeWidth={2.25} />
-                  </button>
-                  {subtitleMenuOpen && (
-                    <TrackMenu
-                      menuRef={subtitleMenuRef}
-                      options={subtitleTrackOptions}
-                      selectedKey={selectedSubtitleKey}
-                      position="above"
-                      ariaLabel="Select subtitle track"
-                      offLabel="Off"
-                      onSelect={(key) => {
-                        selectSubtitleTrack(key);
-                        setSubtitleMenuOpen(false);
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-              {isVideo && audioTracks.length > 1 && (
-                <div className="playback-dock__audio-picker">
-                  <button
-                    ref={audioBtnRef}
-                    type="button"
-                    className="playback-dock__audio-btn"
-                    onClick={() => {
-                      setAudioMenuOpen((value) => !value);
-                      setSubtitleMenuOpen(false);
-                      setPlayerSettingsOpen(false);
-                    }}
-                    aria-label={`Audio track: ${selectedAudioLabel}`}
-                  >
-                    <Volume2 className="size-4" strokeWidth={2.25} />
-                  </button>
-                  {audioMenuOpen && (
-                    <TrackMenu
-                      menuRef={audioMenuRef}
-                      options={audioTracks}
-                      selectedKey={selectedAudioKey}
-                      position="above"
-                      ariaLabel="Select audio track"
-                      onSelect={(key) => {
-                        selectAudioTrack(key);
-                        setAudioMenuOpen(false);
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-              {isVideo && (
-                <div className="playback-dock__subtitle-picker">
-                  <button
-                    ref={playerSettingsBtnRef}
-                    type="button"
-                    className="playback-dock__subtitle-btn"
-                    onClick={() => {
-                      setPlayerSettingsOpen((value) => !value);
-                      setSubtitleMenuOpen(false);
-                      setAudioMenuOpen(false);
-                    }}
-                    aria-label="Player settings"
-                    title="Player settings"
-                  >
-                    <Settings className="size-4" strokeWidth={2.25} />
-                  </button>
-                  {playerSettingsOpen && (
-                    <PlayerSettingsMenu
-                      menuRef={playerSettingsMenuRef}
-                      preferences={subtitleAppearance}
-                      videoAutoplayEnabled={videoAutoplayEnabled}
-                      onChange={setSubtitleAppearance}
-                      onVideoAutoplayChange={setVideoAutoplayEnabled}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {isVideo && (
-            <div
-              className="playback-dock__surface"
-              onClick={handleOpenFullscreen}
-              aria-label={`Open fullscreen player for ${activeItem.title}`}
-              aria-busy={showPlayerLoadingOverlay}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  handleOpenFullscreen();
-                }
-              }}
-            >
-              <video
-                key={activeItem.id}
-                ref={setVideoRef}
-                className="playback-dock__video"
-                style={videoSubtitleStyle}
-                crossOrigin="use-credentials"
-                autoPlay
-                playsInline
-                onLoadStart={() => setIsVideoLoading(true)}
-                onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-                onCanPlay={(event) => {
-                  maybeRecoverInitialBufferGap(event.currentTarget);
-                  syncPlaybackState(event.currentTarget);
-                  syncVideoProgressSnapshot(event.currentTarget);
-                  markSubtitleReady();
-                  setIsVideoLoading(false);
-                }}
-                onTimeUpdate={(event) => {
-                  if (event.currentTarget.currentTime > 1) {
-                    initialBufferGapHandledRef.current = true;
-                  }
-                  syncPlaybackState(event.currentTarget);
-                  syncVideoProgressSnapshot(event.currentTarget);
-                  persistInitialPlaybackProgress(event.currentTarget);
-                  processIntroSkip(event.currentTarget);
-                }}
-                onPlay={(event) => {
-                  if (event.currentTarget.currentTime > 1) {
-                    initialBufferGapHandledRef.current = true;
-                  }
-                  setIsVideoLoading(false);
-                  setHlsStatusMessage("");
-                  syncPlaybackState(event.currentTarget);
-                  syncVideoProgressSnapshot(event.currentTarget);
-                  persistInitialPlaybackProgress(event.currentTarget);
-                  processIntroSkip(event.currentTarget);
-                }}
-                onPlaying={() => setIsVideoLoading(false)}
-                onPause={(event) => {
-                  syncPlaybackState(event.currentTarget);
-                  const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-                  void persistPlaybackProgress({ force: true, snapshot });
-                }}
-                onWaiting={(event) => {
-                  if (!event.currentTarget.ended) {
-                    setIsVideoLoading(true);
-                  }
-                }}
-                onSeeked={(event) => {
-                  syncPlaybackState(event.currentTarget);
-                  syncVideoProgressSnapshot(event.currentTarget);
-                }}
-                onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
-                onError={() => {
-                  setIsVideoLoading(false);
-                  setHlsStatusMessage(
-                    "Stream error: browser media element failed to load playback",
-                  );
-                }}
-                onEnded={(event) => {
-                  setIsVideoLoading(false);
-                  handleVideoEnded(event);
-                }}
-              ></video>
-              {showSkipIntroControl && (
-                <button
-                  type="button"
-                  className="playback-dock__skip-intro"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleSkipIntroClick();
-                  }}
-                >
-                  Skip intro
-                </button>
-              )}
-              {showPlayerLoadingOverlay && <PlayerLoadingOverlay label={playerLoadingLabel} />}
-              <button
-                type="button"
-                className={`playback-dock__true-fullscreen-btn${browserFullscreenActive ? " is-active" : ""}`}
-                aria-label="Enter true fullscreen"
-                title="Enter true fullscreen"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleOpenFullscreen();
-                  setPendingBrowserFullscreen(true);
-                }}
-              >
-                <Maximize2 className="size-4" strokeWidth={2.25} />
-              </button>
-              <span className="playback-dock__surface-hint">Click video to expand</span>
-            </div>
-          )}
-
-          {isMusic && (
-            <audio
-              key={activeItem.id}
-              ref={setAudioRef}
-              className="playback-dock__audio"
-              src={mediaStreamUrl(BASE_URL, activeItem.id)}
-              autoPlay
-              onLoadedMetadata={(event) => syncPlaybackState(event.currentTarget)}
-              onTimeUpdate={(event) => syncPlaybackState(event.currentTarget)}
-              onPlay={(event) => syncPlaybackState(event.currentTarget)}
-              onPause={(event) => syncPlaybackState(event.currentTarget)}
-              onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
-              onEnded={() => {
-                if (repeatMode === "one" && audioRef.current) {
-                  audioRef.current.currentTime = 0;
-                  void audioRef.current.play().catch(() => {});
-                  return;
-                }
-                playNextInQueue();
-              }}
-            />
-          )}
-        </div>
-
-        <div className="playback-dock__transport">
-          <div className="playback-dock__buttons">
-            {isMusic && (
-              <>
-                <button
-                  type="button"
-                  className={`playback-dock__icon-button${shuffle ? " is-active" : ""}`}
-                  onClick={toggleShuffle}
-                  aria-label={shuffle ? "Disable shuffle" : "Enable shuffle"}
-                >
-                  <Shuffle className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  className="playback-dock__icon-button"
-                  onClick={playPreviousInQueue}
-                  aria-label="Previous track"
-                >
-                  <SkipBack className="size-4" />
-                </button>
-              </>
-            )}
-
-            {hasVideoQueueNavigation && (
-              <>
-                <button
-                  type="button"
-                  className="playback-dock__icon-button"
-                  onClick={handleVideoPrevious}
-                  aria-label="Previous episode"
-                >
-                  <SkipBack className="size-4" />
-                </button>
-              </>
-            )}
-
-            <button
-              type="button"
-              className="playback-dock__play-button"
-              onClick={togglePlayPause}
-              aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
-              title={playbackState.isPlaying ? "Pause" : "Play"}
-            >
-              {playbackState.isPlaying ? (
-                <Pause className="size-5" strokeWidth={2.25} />
-              ) : (
-                <Play className="size-5" strokeWidth={2.25} />
-              )}
-            </button>
-
-            {isMusic && (
-              <>
-                <button
-                  type="button"
-                  className="playback-dock__icon-button"
-                  onClick={playNextInQueue}
-                  aria-label="Next track"
-                >
-                  <SkipForward className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  className={`playback-dock__icon-button${repeatMode !== "off" ? " is-active" : ""}`}
-                  onClick={cycleRepeatMode}
-                  aria-label={repeatLabel}
-                  title={repeatLabel}
-                >
-                  <Repeat className="size-4" />
-                  <span className="playback-dock__repeat-copy">
-                    {repeatMode === "one" ? "1" : repeatMode === "all" ? "all" : "off"}
-                  </span>
-                </button>
-              </>
-            )}
-
-            {hasVideoQueueNavigation && (
-              <>
-                <button
-                  type="button"
-                  className="playback-dock__icon-button"
-                  onClick={playNextInQueue}
-                  aria-label="Next episode"
-                  disabled={!hasNextQueueItem}
-                >
-                  <SkipForward className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  className={`playback-dock__icon-button${videoAutoplayEnabled ? " is-active" : ""}`}
-                  onClick={() => setVideoAutoplayEnabled((value) => !value)}
-                  aria-label="Autoplay next episode"
-                  title={autoplayButtonLabel}
-                  aria-pressed={videoAutoplayEnabled}
-                >
-                  <Repeat className="size-4" />
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="playback-dock__timeline">
-            <span className="playback-dock__time">{formatClock(playbackState.currentTime)}</span>
-            <input
-              type="range"
-              className="playback-dock__slider"
-              aria-label="Seek playback"
-              min={0}
-              max={progressMax || 0}
-              step={1}
-              value={Math.min(playbackState.currentTime, progressMax || 0)}
-              onChange={(event) => seekTo(Number(event.target.value))}
-            />
-            <span className="playback-dock__time">{formatClock(progressMax)}</span>
-          </div>
-
-          <div className="playback-dock__volume">
-            <button
-              type="button"
-              className="playback-dock__icon-button"
-              onClick={() => setMuted(!muted)}
-              aria-label={muteButtonLabel}
-              title={muteButtonLabel}
-            >
-              {muted || volume === 0 ? (
-                <VolumeX className="size-4" strokeWidth={2.25} />
-              ) : (
-                <Volume2 className="size-4" strokeWidth={2.25} />
-              )}
-            </button>
-            <input
-              type="range"
-              className="playback-dock__slider playback-dock__slider--volume"
-              aria-label="Set volume"
-              min={0}
-              max={1}
-              step={0.01}
-              value={muted ? 0 : volume}
-              onChange={(event) => setVolume(Number(event.target.value))}
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+  return null;
 }

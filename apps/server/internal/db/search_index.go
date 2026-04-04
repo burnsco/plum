@@ -30,6 +30,9 @@ type LibraryMovieDetails struct {
 	EmbeddedAudioTracks []EmbeddedAudioTrack `json:"embeddedAudioTracks,omitempty"`
 	Genres              []string             `json:"genres"`
 	Cast                []TitleCastMember    `json:"cast"`
+	ProgressSeconds     *float64             `json:"progress_seconds,omitempty"`
+	ProgressPercent     *float64             `json:"progress_percent,omitempty"`
+	Completed           *bool                `json:"completed,omitempty"`
 }
 
 type LibraryShowDetails struct {

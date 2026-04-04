@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import plum.tv.core.model.DeviceLoginResult
 import plum.tv.core.network.DeviceLoginRequest
+import plum.tv.core.network.QuickConnectRedeemRequest
 import plum.tv.core.network.PlumApi
 import plum.tv.core.network.PlumRetrofit
 
@@ -38,6 +39,37 @@ class SessionRepository @Inject constructor(
 
     suspend fun hydrateTokenFromStore() {
         tokenBridge.setToken(prefs.sessionToken.first())
+    }
+
+    /** Drops stored credentials without calling the server (e.g. token no longer valid in DB). */
+    suspend fun clearLocalSession() {
+        Log.i(TAG, "clear local session")
+        prefs.clearSession()
+        tokenBridge.setToken(null)
+        apiMutex.withLock {
+            cachedApi = null
+            cachedBaseUrl = null
+        }
+    }
+
+    /**
+     * True if [GET /api/auth/me] indicates the stored token is not accepted (401/403).
+     * False on success, network errors, or missing token — avoids logging the user out when offline.
+     */
+    suspend fun serverRejectsStoredSession(): Boolean {
+        hydrateTokenFromStore()
+        if (prefs.sessionToken.first().isNullOrBlank()) return false
+        return try {
+            val res = getPlumApi().me()
+            val reject = res.code() == 401 || res.code() == 403
+            if (reject) {
+                Log.w(TAG, "stored session rejected by server http=${res.code()}")
+            }
+            reject
+        } catch (e: Exception) {
+            Log.w(TAG, "session check failed: ${e.message}", e)
+            false
+        }
     }
 
     suspend fun setServerUrl(url: String) {
@@ -91,6 +123,28 @@ class SessionRepository @Inject constructor(
             )
         }.onFailure {
             Log.w(TAG, "login failure error=${it.message}", it)
+        }
+
+    suspend fun redeemQuickConnect(code: String): Result<DeviceLoginResult> =
+        runCatching {
+            Log.i(TAG, "quick connect redeem start")
+            val api = getPlumApi()
+            val res = api.redeemQuickConnect(QuickConnectRedeemRequest(code = code.trim()))
+            if (!res.isSuccessful) {
+                error(res.errorBody()?.string() ?: "Quick connect failed (${res.code()})")
+            }
+            val body = res.body() ?: error("Empty quick connect response")
+            prefs.setSessionToken(body.sessionToken)
+            tokenBridge.setToken(body.sessionToken)
+            Log.i(TAG, "quick connect success userId=${body.user.id}")
+            DeviceLoginResult(
+                userId = body.user.id,
+                email = body.user.email,
+                sessionToken = body.sessionToken,
+                expiresAtIso = body.expiresAt,
+            )
+        }.onFailure {
+            Log.w(TAG, "quick connect failure error=${it.message}", it)
         }
 
     suspend fun logout() {

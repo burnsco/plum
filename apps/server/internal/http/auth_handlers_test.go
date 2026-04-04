@@ -172,3 +172,86 @@ func TestAdminSetup_RateLimitsRepeatedAttempts(t *testing.T) {
 		t.Fatalf("expected second admin setup attempt to be rate limited, got %d", secondRec.Code)
 	}
 }
+
+func TestQuickConnect_CreateAndRedeem(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer dbConn.Close()
+
+	passwordHash, err := auth.HashPassword("passwordpassword")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	res, err := dbConn.Exec(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?)`,
+		"admin@example.com",
+		passwordHash,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	uid, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("last insert id: %v", err)
+	}
+
+	handler := &AuthHandler{DB: dbConn}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/auth/quick-connect", nil)
+	createReq = createReq.WithContext(withUser(createReq.Context(), &db.User{
+		ID:      int(uid),
+		Email:   "admin@example.com",
+		IsAdmin: true,
+	}))
+	createRec := httptest.NewRecorder()
+	handler.CreateQuickConnectCode(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create code: %d body=%q", createRec.Code, createRec.Body.String())
+	}
+
+	var created struct {
+		Code      string `json:"code"`
+		ExpiresAt string `json:"expiresAt"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if len(created.Code) != 4 {
+		t.Fatalf("expected 4-digit code, got %q", created.Code)
+	}
+
+	redeemReq := httptest.NewRequest(http.MethodPost, "/api/auth/quick-connect/redeem", strings.NewReader(`{"code":"`+created.Code+`"}`))
+	redeemReq.Header.Set("Content-Type", "application/json")
+	redeemRec := httptest.NewRecorder()
+	handler.RedeemQuickConnect(redeemRec, redeemReq)
+	if redeemRec.Code != http.StatusOK {
+		t.Fatalf("redeem: %d body=%q", redeemRec.Code, redeemRec.Body.String())
+	}
+
+	var sessionPayload struct {
+		SessionToken string `json:"sessionToken"`
+		User         struct {
+			Email string `json:"email"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(redeemRec.Body.Bytes(), &sessionPayload); err != nil {
+		t.Fatalf("decode redeem: %v", err)
+	}
+	if sessionPayload.SessionToken == "" {
+		t.Fatal("expected session token")
+	}
+	if sessionPayload.User.Email != "admin@example.com" {
+		t.Fatalf("user email = %q", sessionPayload.User.Email)
+	}
+
+	redeemAgain := httptest.NewRequest(http.MethodPost, "/api/auth/quick-connect/redeem", strings.NewReader(`{"code":"`+created.Code+`"}`))
+	redeemAgain.Header.Set("Content-Type", "application/json")
+	againRec := httptest.NewRecorder()
+	handler.RedeemQuickConnect(againRec, redeemAgain)
+	if againRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected second redeem to fail, got %d", againRec.Code)
+	}
+}

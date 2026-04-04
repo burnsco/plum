@@ -161,7 +161,11 @@ function mockDefaultAppApis() {
   vi.spyOn(api, "confirmShow").mockResolvedValue({ updated: 1 });
   vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
     continueWatching: [],
-    recentlyAdded: [],
+    recentlyAddedTvEpisodes: [],
+    recentlyAddedTvShows: [],
+    recentlyAddedMovies: [],
+    recentlyAddedAnimeEpisodes: [],
+    recentlyAddedAnimeShows: [],
   });
   vi.spyOn(api, "getDiscover").mockResolvedValue({
     shelves: [],
@@ -364,12 +368,12 @@ describe("App library and player wiring", () => {
         }),
       );
     });
-    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
+    expect(await screen.findByLabelText("Video player")).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Subtitles" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Audio track:/i })).toBeTruthy();
   });
 
-  it("plays a movie from the poster overlay and opens the fullscreen overlay from the dock surface", async () => {
+  it("plays a movie from the poster overlay in the theater video player", async () => {
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
     ]);
@@ -397,17 +401,7 @@ describe("App library and player wiring", () => {
         clientCapabilities: expect.any(Object),
       }),
     );
-    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
-
-    fireEvent.click(screen.getAllByRole("button", { name: /Return to docked player/i })[0]!);
-
-    expect(await screen.findByLabelText("Playback dock")).toBeTruthy();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: /Open fullscreen player for Die My Love/i }),
-    );
-
-    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
+    expect(await screen.findByLabelText("Video player")).toBeTruthy();
   });
 
   it("plays the surfaced continue-watching show directly from the dashboard", async () => {
@@ -435,7 +429,11 @@ describe("App library and player wiring", () => {
           },
         },
       ],
-      recentlyAdded: [],
+      recentlyAddedTvEpisodes: [],
+      recentlyAddedTvShows: [],
+      recentlyAddedMovies: [],
+      recentlyAddedAnimeEpisodes: [],
+      recentlyAddedAnimeShows: [],
     });
 
     await renderApp("/");
@@ -454,7 +452,8 @@ describe("App library and player wiring", () => {
     ]);
     vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
       continueWatching: [],
-      recentlyAdded: [
+      recentlyAddedTvEpisodes: [],
+      recentlyAddedTvShows: [
         {
           kind: "show",
           show_title: "Space Show",
@@ -471,6 +470,8 @@ describe("App library and player wiring", () => {
             episode: 4,
           },
         },
+      ],
+      recentlyAddedMovies: [
         {
           kind: "movie",
           media: {
@@ -485,11 +486,13 @@ describe("App library and player wiring", () => {
           },
         },
       ],
+      recentlyAddedAnimeEpisodes: [],
+      recentlyAddedAnimeShows: [],
     });
 
     await renderApp("/");
 
-    expect(await screen.findByTestId("dashboard-recent-tv-heading")).toBeTruthy();
+    expect(await screen.findByTestId("dashboard-recent-tv-shows-heading")).toBeTruthy();
     expect(await screen.findByTestId("dashboard-recent-movies-heading")).toBeTruthy();
     expect(await screen.findByRole("link", { name: /^Space Show$/i })).toBeTruthy();
     expect(await screen.findByRole("link", { name: /^Die My Love$/i })).toBeTruthy();
@@ -724,7 +727,7 @@ describe("App library and player wiring", () => {
         clientCapabilities: expect.any(Object),
       }),
     );
-    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
+    expect(await screen.findByLabelText("Video player")).toBeTruthy();
   });
 
   it("plays the first episode in a TV group from the poster overlay", async () => {
@@ -767,7 +770,7 @@ describe("App library and player wiring", () => {
         clientCapabilities: expect.any(Object),
       }),
     );
-    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
+    expect(await screen.findByLabelText("Video player")).toBeTruthy();
   });
 
   it("renders music sections and opens the bottom player without transcoding", async () => {
@@ -2362,10 +2365,7 @@ describe("App library and player wiring", () => {
     await renderApp("/library/2");
 
     fireEvent.click(await screen.findByRole("button", { name: /Play Die My Love/i }));
-    expect(await screen.findByLabelText("Fullscreen video player")).toBeTruthy();
-
-    fireEvent.click(screen.getAllByRole("button", { name: /Return to docked player/i })[0]!);
-    expect(await screen.findByLabelText("Playback dock")).toBeTruthy();
+    expect(await screen.findByLabelText("Video player")).toBeTruthy();
 
     // Clear mock calls from the pre-play cancel
     vi.mocked(api.closePlaybackSession).mockClear();

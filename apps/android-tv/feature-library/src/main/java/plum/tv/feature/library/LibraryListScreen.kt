@@ -12,8 +12,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
@@ -24,6 +27,7 @@ import plum.tv.core.ui.PlumPanel
 import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
 import plum.tv.core.ui.PlumTheme
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumStatePanel
 
 @Composable
@@ -72,6 +76,8 @@ fun LibraryListRoute(
                     )
                 }
             } else {
+                val firstOpenFocus = remember { FocusRequester() }
+                LaunchedTvFocusTo(libraries.firstOrNull()?.id, libraries.size, focusRequester = firstOpenFocus)
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
@@ -92,7 +98,14 @@ fun LibraryListRoute(
                                     title = lib.name,
                                     subtitle = libraryLabel(lib),
                                 )
+                                val openModifier =
+                                    if (lib.id == libraries.first().id) {
+                                        Modifier.focusRequester(firstOpenFocus)
+                                    } else {
+                                        Modifier
+                                    }
                                 PlumActionButton(
+                                    modifier = openModifier,
                                     label = "Open library",
                                     onClick = { onOpenLibrary(lib.id) },
                                     variant = PlumButtonVariant.Secondary,

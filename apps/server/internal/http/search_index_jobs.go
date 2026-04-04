@@ -93,7 +93,13 @@ func (m *SearchIndexManager) runLibrary(libraryID int) {
 			refresh = m.refreshLibrary
 		}
 		m.sem <- struct{}{}
+		indexStart := time.Now()
+		log.Printf("search index worker library_id=%d full=%v started", libraryID, full)
 		err := refresh(libraryID, full)
+		log.Printf(
+			"search index worker library_id=%d full=%v finished elapsed=%s err=%v",
+			libraryID, full, time.Since(indexStart).Round(time.Millisecond), err,
+		)
 		<-m.sem
 		if err != nil {
 			log.Printf("search index refresh library %d: %v", libraryID, err)

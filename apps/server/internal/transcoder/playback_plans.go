@@ -46,11 +46,8 @@ func buildRemuxHLSPlan(
 	settings db.TranscodingSettings,
 	decision playbackDecision,
 ) transcodePlan {
-	args := []string{
-		"-y",
-		"-i", itemPath,
-		"-map", "0:v:0",
-	}
+	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	args = append(args, "-map", "0:v:0")
 	if decision.AudioIndex >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", decision.AudioIndex))
 	} else {
@@ -84,10 +81,7 @@ func buildSoftwareAdaptiveHLSPlan(
 	decision playbackDecision,
 	variants []adaptiveVariant,
 ) transcodePlan {
-	args := []string{
-		"-y",
-		"-i", itemPath,
-	}
+	args := appendFFmpegInput([]string{"-y"}, itemPath)
 
 	filterParts := make([]string, 0, len(variants)+1)
 	splitTargets := make([]string, 0, len(variants))
@@ -180,11 +174,11 @@ func buildHardwareAdaptiveHLSPlan(
 			"-hwaccel", "vaapi",
 			"-hwaccel_device", settings.VAAPIDevicePath,
 			"-hwaccel_output_format", "vaapi",
-			"-i", itemPath,
 		)
+		args = appendFFmpegInput(args, itemPath)
 		filterParts = append(filterParts, fmt.Sprintf("[0:v:0]split=%d%s", len(variants), strings.Join(splitTargets, "")))
 	} else {
-		args = append(args, "-i", itemPath)
+		args = appendFFmpegInput(args, itemPath)
 		filterParts = append(
 			filterParts,
 			fmt.Sprintf("[0:v:0]format=%s,hwupload,split=%d%s", uploadFormat, len(variants), strings.Join(splitTargets, "")),

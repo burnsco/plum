@@ -1,5 +1,11 @@
+import dns from "node:dns";
 import path from "node:path";
 import { defineConfig } from "vite";
+
+// Align browser "localhost" resolution with the address Vite binds to. Without
+// this, Node can reorder DNS results and the HMR WebSocket may fail while HTTP
+// still works (see https://vite.dev/config/server-options.html#server-host).
+dns.setDefaultResultOrder("verbatim");
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -22,6 +28,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
+    // Avoid two React copies (workspace deps / prebundle) breaking context hooks.
+    dedupe: ["react", "react-dom"],
   },
   server: {
     host: true, // Needed for Docker

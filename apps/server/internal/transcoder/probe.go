@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"plum/internal/ffopts"
 )
 
 var ffprobeCommandContext = exec.CommandContext
@@ -70,14 +72,14 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 	probeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := ffprobeCommandContext(
-		probeCtx,
-		"ffprobe",
-		"-v", "error",
+	args := []string{"-v", "error"}
+	args = append(args, ffopts.InputProbeBeforeI...)
+	args = append(args,
 		"-show_entries", "format=format_name,bit_rate,duration:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,bit_rate",
 		"-of", "json",
 		path,
 	)
+	cmd := ffprobeCommandContext(probeCtx, "ffprobe", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return playbackSourceProbe{}, err

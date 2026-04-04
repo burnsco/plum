@@ -513,7 +513,6 @@ export function mapDiscoverItemToPosterGridItem(
     key: `${item.media_type}-${item.tmdb_id}`,
     title: item.title,
     subtitle: year || "Upcoming",
-    metaLine: item.overview ? item.overview : undefined,
     posterUrl,
     ratingLabel: "TMDB",
     ratingValue: item.vote_average,

@@ -24,11 +24,11 @@ func TestGetHomeDashboardForUser_FiltersByUserID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dashboard 1: %v", err)
 	}
-	if len(dashboard1.RecentlyAdded) != 1 {
-		t.Fatalf("expected 1 item for user 1, got %d", len(dashboard1.RecentlyAdded))
+	if len(dashboard1.RecentlyAddedMovies) != 1 {
+		t.Fatalf("expected 1 movie for user 1, got %d", len(dashboard1.RecentlyAddedMovies))
 	}
-	if dashboard1.RecentlyAdded[0].Media.Title != "User 1 Movie" {
-		t.Fatalf("expected 'User 1 Movie', got '%s'", dashboard1.RecentlyAdded[0].Media.Title)
+	if dashboard1.RecentlyAddedMovies[0].Media.Title != "User 1 Movie" {
+		t.Fatalf("expected 'User 1 Movie', got '%s'", dashboard1.RecentlyAddedMovies[0].Media.Title)
 	}
 
 	// Check User 2's dashboard
@@ -36,11 +36,11 @@ func TestGetHomeDashboardForUser_FiltersByUserID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dashboard 2: %v", err)
 	}
-	if len(dashboard2.RecentlyAdded) != 1 {
-		t.Fatalf("expected 1 item for user 2, got %d", len(dashboard2.RecentlyAdded))
+	if len(dashboard2.RecentlyAddedMovies) != 1 {
+		t.Fatalf("expected 1 movie for user 2, got %d", len(dashboard2.RecentlyAddedMovies))
 	}
-	if dashboard2.RecentlyAdded[0].Media.Title != "User 2 Movie" {
-		t.Fatalf("expected 'User 2 Movie', got '%s'", dashboard2.RecentlyAdded[0].Media.Title)
+	if dashboard2.RecentlyAddedMovies[0].Media.Title != "User 2 Movie" {
+		t.Fatalf("expected 'User 2 Movie', got '%s'", dashboard2.RecentlyAddedMovies[0].Media.Title)
 	}
 
 	// Check GetAllMediaForUser

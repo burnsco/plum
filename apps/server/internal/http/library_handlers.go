@@ -3353,6 +3353,10 @@ func (h *LibraryHandler) GetLibraryMovieDetails(w http.ResponseWriter, r *http.R
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	if err := db.AttachPlaybackProgressToLibraryMovieDetails(h.DB, u.ID, details.MediaID, details); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(details)
 }
@@ -3397,7 +3401,19 @@ func (h *LibraryHandler) IdentifyMovie(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var refID int
-	err = h.DB.QueryRow(`SELECT id FROM movies WHERE library_id = ? AND id = ?`, libraryID, payload.MediaID).Scan(&refID)
+	// Browse/detail APIs expose media_global.id (g.id); movies row primary key is movies.id.
+	err = h.DB.QueryRow(`
+SELECT m.id FROM movies m
+JOIN media_global g ON g.kind = 'movie' AND g.ref_id = m.id
+WHERE m.library_id = ? AND g.id = ?`, libraryID, payload.MediaID).Scan(&refID)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Backwards compatibility if a client ever sent movies.id directly.
+		err = h.DB.QueryRow(`SELECT id FROM movies WHERE library_id = ? AND id = ?`, libraryID, payload.MediaID).Scan(&refID)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")

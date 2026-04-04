@@ -30,8 +30,9 @@ import {
   useUpdateLibraryPlaybackPreferences,
   useUpdateTranscodingSettings,
 } from "@/queries";
+import { createQuickConnectCode } from "@/api";
 import { cn } from "@/lib/utils";
-import { Cpu, Image, Link2, Volume2 } from "lucide-react";
+import { Cpu, Image, Link2, MonitorPlay, Volume2 } from "lucide-react";
 
 const decodeCodecOptions: Array<{
   key: VaapiDecodeCodec;
@@ -301,6 +302,9 @@ export function Settings() {
   const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
   const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("playback");
+  const [quickConnect, setQuickConnect] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [quickConnectBusy, setQuickConnectBusy] = useState(false);
+  const [quickConnectErr, setQuickConnectErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsQuery.data || dirty) return;
@@ -1326,6 +1330,19 @@ export function Settings() {
     transcoding: transcodingTabContent,
   };
 
+  const generateQuickConnect = async () => {
+    setQuickConnectBusy(true);
+    setQuickConnectErr(null);
+    try {
+      const res = await createQuickConnectCode();
+      setQuickConnect({ code: res.code, expiresAt: res.expiresAt });
+    } catch (e) {
+      setQuickConnectErr(e instanceof Error ? e.message : "Could not generate code.");
+    } finally {
+      setQuickConnectBusy(false);
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -1336,6 +1353,46 @@ export function Settings() {
           Manage playback preferences{isAdmin ? ", media stack, metadata artwork, and transcoding" : ""}.
         </p>
       </div>
+
+      {user ? (
+        <div className="mb-6 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-base font-medium text-[var(--plum-text)]">
+                <MonitorPlay className="size-4 shrink-0" aria-hidden />
+                Quick connect (Android TV)
+              </h2>
+              <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                Signed in as <span className="text-[var(--plum-text-secondary)]">{user.email}</span>. Generate a
+                one-time 4-digit code for this account. On each TV, set this server&apos;s URL, then choose
+                &quot;Sign in with TV code&quot; and enter the digits. Codes expire in 15 minutes and work once.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={quickConnectBusy}
+              onClick={() => void generateQuickConnect()}
+            >
+              {quickConnectBusy ? "Generating…" : quickConnect ? "New code" : "Generate code"}
+            </Button>
+          </div>
+          {quickConnectErr ? (
+            <p className="mt-3 text-sm text-red-400">{quickConnectErr}</p>
+          ) : null}
+          {quickConnect ? (
+            <div className="mt-4 rounded-lg border border-[var(--plum-border)] bg-[var(--plum-panel)] p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-[var(--plum-muted)]">Code</p>
+              <p className="mt-1 font-mono text-3xl font-semibold tracking-[0.35em] text-[var(--plum-text)]">
+                {quickConnect.code}
+              </p>
+              <p className="mt-2 text-sm text-[var(--plum-muted)]">
+                Expires {new Date(quickConnect.expiresAt).toLocaleString()} · single use
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex gap-6 items-start">
         <nav

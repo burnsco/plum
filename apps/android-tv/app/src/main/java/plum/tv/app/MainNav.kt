@@ -2,6 +2,7 @@ package plum.tv.app
 
 import android.net.Uri
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +17,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -39,6 +43,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.ui.PlumActionButton
@@ -53,7 +58,9 @@ import plum.tv.feature.discover.DownloadsRoute
 import plum.tv.feature.details.MovieDetailRoute
 import plum.tv.feature.details.ShowDetailRoute
 import plum.tv.feature.home.HomeRoute
+import plum.tv.feature.auth.AuthViewModel
 import plum.tv.feature.library.LibraryBrowseRoute
+import plum.tv.feature.library.LibraryHubRoute
 import plum.tv.feature.library.LibraryListRoute
 import plum.tv.feature.search.SearchRoute
 import plum.tv.feature.settings.SettingsRoute
@@ -68,6 +75,7 @@ private object Routes {
     const val DOWNLOADS = "downloads"
     const val LIBRARIES = "libraries"
     const val LIBRARY_TYPE = "libraries/type/{libraryType}"
+    const val HUB = "hub/{libraryType}"
     const val LIBRARY_BROWSE = "library/{libraryId}/browse"
     const val MOVIE = "movie/{libraryId}/{mediaId}"
     const val SHOW = "show/{libraryId}/{showKey}"
@@ -89,15 +97,27 @@ fun MainNavHost(
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as ComponentActivity
     val mainNavVm: MainNavViewModel = hiltViewModel(viewModelStoreOwner = activity)
+    val authVm: AuthViewModel = hiltViewModel(viewModelStoreOwner = activity)
+    val mainContentFocusRequester = remember { FocusRequester() }
     var browseRailType by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(navBackStackEntry) {
         val entry = navBackStackEntry
-        if (entry?.destination?.route == Routes.LIBRARY_BROWSE) {
-            val id = entry.arguments?.getInt("libraryId")
-            browseRailType = if (id != null) mainNavVm.railTypeForBrowseLibraryId(id) else null
-        } else {
-            browseRailType = null
+        when {
+            entry?.destination?.route?.startsWith("hub/") == true -> {
+                browseRailType = entry.arguments?.getString("libraryType")
+            }
+            entry?.destination?.route == Routes.LIBRARY_BROWSE -> {
+                val id = entry.arguments?.getInt("libraryId")
+                browseRailType = if (id != null) mainNavVm.railTypeForBrowseLibraryId(id) else null
+            }
+            else -> browseRailType = null
         }
+    }
+
+    LaunchedEffect(navBackStackEntry?.id, hideSideRail) {
+        if (hideSideRail) return@LaunchedEffect
+        delay(16)
+        mainContentFocusRequester.requestFocus()
     }
 
     DisposableEffect(webSocketManager) {
@@ -160,16 +180,7 @@ fun MainNavHost(
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "tv") ||
                         browseRailType == "tv",
-                onClick = {
-                    scope.launch {
-                        val id = mainNavVm.firstLibraryIdForType("tv")
-                        if (id != null) {
-                            goToLibraryBrowse(navController, id)
-                        } else {
-                            goToRoot(navController, "libraries/type/tv")
-                        }
-                    }
-                },
+                onClick = { goToRoot(navController, "hub/tv") },
             ),
             PlumRailItem(
                 key = "library-movies",
@@ -178,16 +189,7 @@ fun MainNavHost(
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "movie") ||
                         browseRailType == "movie",
-                onClick = {
-                    scope.launch {
-                        val id = mainNavVm.firstLibraryIdForType("movie")
-                        if (id != null) {
-                            goToLibraryBrowse(navController, id)
-                        } else {
-                            goToRoot(navController, "libraries/type/movie")
-                        }
-                    }
-                },
+                onClick = { goToRoot(navController, "hub/movie") },
             ),
             PlumRailItem(
                 key = "library-anime",
@@ -196,16 +198,7 @@ fun MainNavHost(
                 selected =
                     (currentRoute.startsWith("libraries/type/") && currentLibraryType == "anime") ||
                         browseRailType == "anime",
-                onClick = {
-                    scope.launch {
-                        val id = mainNavVm.firstLibraryIdForType("anime")
-                        if (id != null) {
-                            goToLibraryBrowse(navController, id)
-                        } else {
-                            goToRoot(navController, "libraries/type/anime")
-                        }
-                    }
-                },
+                onClick = { goToRoot(navController, "hub/anime") },
             ),
             PlumRailItem(
                 key = "library-music",
@@ -233,10 +226,18 @@ fun MainNavHost(
                 if (!hideSideRail) {
                     PlumSideRail(
                         items = railItems,
+                        contentFocusRequester = mainContentFocusRequester,
                         footer = {
                             PlumActionButton(
+                                modifier =
+                                    Modifier.focusProperties { right = mainContentFocusRequester },
                                 label = "Log Out",
-                                onClick = onLogout,
+                                onClick = {
+                                    authVm.logout {
+                                        webSocketManager.stop()
+                                        onLogout()
+                                    }
+                                },
                                 variant = PlumButtonVariant.Ghost,
                                 leadingIcon = Icons.Filled.Logout,
                             )
@@ -251,7 +252,9 @@ fun MainNavHost(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .fillMaxSize(),
+                            .fillMaxSize()
+                            .focusRequester(mainContentFocusRequester)
+                            .focusGroup(),
                 ) {
                     NavHost(
                     navController = navController,
@@ -340,6 +343,30 @@ fun MainNavHost(
                     }
                     composable(Routes.DOWNLOADS) {
                         DownloadsRoute(onOpenSettings = { navController.navigate("settings") })
+                    }
+                    composable(
+                        route = Routes.HUB,
+                        arguments = listOf(navArgument("libraryType") { type = NavType.StringType }),
+                    ) { entry ->
+                        LibraryHubRoute(
+                            libraryType = entry.arguments?.getString("libraryType"),
+                            onPlayMedia = { mediaId, resumeSec, libraryId, showKey ->
+                                navigatePlay(mediaId, resumeSec, libraryId, showKey)
+                            },
+                            onOpenShow = { libraryId, showKey ->
+                                val enc = Uri.encode(showKey)
+                                navController.navigate("show/$libraryId/$enc")
+                            },
+                            onOpenLibrary = { id ->
+                                navController.navigate("library/$id/browse") {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = false
+                                    restoreState = false
+                                }
+                            },
+                        )
                     }
                     composable(Routes.LIBRARIES) {
                         LibraryListRoute(

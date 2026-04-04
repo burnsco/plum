@@ -33,6 +33,21 @@ describe("groupMediaByShow", () => {
     expect(groups[0]?.unmatchedCount).toBe(1);
   });
 
+  it("uses the real season token so junk like - Sno does not shorten the show key (server ListShowEpisodeRefs must match)", () => {
+    expect(
+      getShowKey({
+        id: 1,
+        title: "Black Spot (Zone Blanche) S01 - Hardcoded Eng Subs - Sno - S01E01 - Pilot",
+        path: "/tv/Black Spot/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "unmatched",
+        season: 1,
+        episode: 1,
+      }),
+    ).toBe("title-blackspotzoneblanches01hardcodedengsubssno");
+  });
+
   it("keeps year-qualified unmatched shows on separate fallback keys", () => {
     expect(
       getShowKey({
@@ -59,6 +74,25 @@ describe("groupMediaByShow", () => {
         episode: 1,
       }),
     ).toBe("title-battlestargalactica2004");
+  });
+
+  it("does not count episodes as local when TMDb id is present (match_status may lag)", () => {
+    const groups = groupMediaByShow([
+      {
+        id: 1,
+        title: "Show - S01E01 - Pilot",
+        path: "/anime/Show/S01E01.mkv",
+        duration: 1800,
+        type: "anime",
+        match_status: "local",
+        tmdb_id: 999,
+        season: 1,
+        episode: 1,
+      },
+    ]);
+
+    expect(groups[0]?.localCount).toBe(0);
+    expect(groups[0]?.identifiedCount).toBe(1);
   });
 
   it("prefers canonical show TMDb scores when episode scores are missing", () => {

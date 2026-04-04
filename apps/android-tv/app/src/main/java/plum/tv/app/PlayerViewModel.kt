@@ -19,6 +19,7 @@ import plum.tv.core.data.di.ApplicationScope
 import plum.tv.core.player.PlayerUiState
 import plum.tv.core.player.PlumPlayerController
 import plum.tv.core.player.TrackPicker
+import plum.tv.core.player.UpNextOverlayState
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -57,6 +58,7 @@ class PlayerViewModel @Inject constructor(
     val player: ExoPlayer = controller.player
     val uiState: StateFlow<PlayerUiState> = controller.uiState
     val trackPicker: StateFlow<TrackPicker?> = controller.trackPicker
+    val upNext: StateFlow<UpNextOverlayState?> = controller.upNext
     val error: StateFlow<String?> = controller.error
     val status: StateFlow<String> = controller.status
 
@@ -93,6 +95,14 @@ class PlayerViewModel @Inject constructor(
 
     fun nextEpisode() {
         controller.nextEpisode()
+    }
+
+    fun dismissUpNext() {
+        controller.dismissUpNext()
+    }
+
+    fun playUpNextNow() {
+        controller.playUpNextNow()
     }
 
     fun openAudioPicker() {

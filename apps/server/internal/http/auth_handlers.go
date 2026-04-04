@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -325,6 +328,181 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		ID:      user.ID,
 		Email:   user.Email,
 		IsAdmin: user.IsAdmin,
+	})
+}
+
+type quickConnectCodeResponse struct {
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// CreateQuickConnectCode issues a short-lived 4-digit code so a TV (or other device) can sign in as
+// the current user without typing a password. Requires an authenticated session (same as the web UI).
+func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	now := time.Now().UTC()
+	_, _ = h.DB.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Format(time.RFC3339))
+	if _, err := h.DB.Exec(`DELETE FROM quick_connect_codes WHERE user_id = ?`, user.ID); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	const maxTries = 32
+	const ttl = 15 * time.Minute
+	expires := now.Add(ttl)
+	expStr := expires.Format(time.RFC3339)
+	createdStr := now.Format(time.RFC3339)
+
+	var code string
+	for range maxTries {
+		var buf [2]byte
+		if _, err := rand.Read(buf[:]); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		n := binary.BigEndian.Uint16(buf[:]) % 10000
+		code = fmt.Sprintf("%04d", n)
+		res, err := h.DB.Exec(
+			`INSERT OR IGNORE INTO quick_connect_codes (code, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+			code, user.ID, expStr, createdStr,
+		)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(quickConnectCodeResponse{Code: code, ExpiresAt: expires})
+			return
+		}
+	}
+	http.Error(w, "could not allocate code", http.StatusServiceUnavailable)
+}
+
+type quickConnectRedeemRequest struct {
+	Code string `json:"code"`
+}
+
+func normalizeQuickConnectCode(s string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(s) {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			if b.Len() >= 4 {
+				break
+			}
+		}
+	}
+	if b.Len() < 4 {
+		return ""
+	}
+	return b.String()
+}
+
+// RedeemQuickConnect exchanges a valid quick-connect code for a bearer session (same JSON as device-login).
+func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request) {
+	if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+		http.Error(w, "too many attempts", http.StatusTooManyRequests)
+		return
+	}
+
+	var payload quickConnectRedeemRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	code := normalizeQuickConnectCode(payload.Code)
+	if code == "" {
+		http.Error(w, "invalid code", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC()
+	_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Format(time.RFC3339))
+
+	var userID int
+	var expStr string
+	err = tx.QueryRow(
+		`SELECT user_id, expires_at FROM quick_connect_codes WHERE code = ?`,
+		code,
+	).Scan(&userID, &expStr)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			time.Sleep(300 * time.Millisecond)
+			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	expiresAt, perr := time.Parse(time.RFC3339, expStr)
+	if perr != nil || now.After(expiresAt) {
+		_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE code = ?`, code)
+		_ = tx.Commit()
+		time.Sleep(300 * time.Millisecond)
+		http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+		return
+	}
+
+	if _, err := tx.Exec(`DELETE FROM quick_connect_codes WHERE code = ?`, code); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	var u db.User
+	err = tx.QueryRow(
+		`SELECT id, email, password_hash, is_admin, created_at FROM users WHERE id = ?`,
+		userID,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	sessID, err := auth.NewSessionID()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	sessExpires := now.Add(auth.SessionLifetime())
+	if _, err := tx.Exec(
+		`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		sessID, u.ID, now, sessExpires,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(deviceLoginResponse{
+		User: userResponse{
+			ID:      u.ID,
+			Email:   u.Email,
+			IsAdmin: u.IsAdmin,
+		},
+		SessionToken: sessID,
+		ExpiresAt:    sessExpires,
 	})
 }
 

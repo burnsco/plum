@@ -29,6 +29,7 @@ var SkipFFprobeInScan bool
 
 var (
 	showKeyNonAlnumRegexp = regexp.MustCompile(`[^a-z0-9]+`)
+	showNameFromTitleRegexp = regexp.MustCompile(`^(.+?)\s*-\s*S\d+`)
 )
 
 const (
@@ -169,6 +170,8 @@ type MediaItem struct {
 	// Season and Episode are set for tv/anime episodes; 0 when not applicable.
 	Season  int `json:"season,omitempty"`
 	Episode int `json:"episode,omitempty"`
+	// ShowID is the internal shows.id for tv/anime episodes when linked; 0 when unset.
+	ShowID int `json:"show_id,omitempty"`
 	// MetadataReviewNeeded marks an auto-picked episodic match that still needs user confirmation.
 	MetadataReviewNeeded bool `json:"metadata_review_needed,omitempty"`
 	// MetadataConfirmed marks episodic metadata that the user explicitly accepted.
@@ -1310,6 +1313,24 @@ var schemaMigrations = []schemaMigration{
 			return addColumnIfMissingTx(ctx, tx, "embedded_subtitles", "supported", "INTEGER")
 		},
 	},
+	{
+		version: 26,
+		name:    "quick_connect_codes",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS quick_connect_codes (
+  code TEXT NOT NULL PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_user_id ON quick_connect_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_expires_at ON quick_connect_codes(expires_at);
+`)
+			return err
+		},
+	},
 }
 
 func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
@@ -1997,9 +2018,8 @@ func normalizeShowKeyTitle(title string) string {
 }
 
 func showNameFromTitle(title string) string {
-	// "Show Name - S01E02 - Episode" -> "Show Name"
-	if i := strings.Index(strings.ToLower(title), " - s"); i > 0 {
-		return strings.TrimSpace(title[:i])
+	if match := showNameFromTitleRegexp.FindStringSubmatch(title); len(match) > 1 {
+		return strings.TrimSpace(match[1])
 	}
 	if i := strings.Index(title, " - "); i > 0 {
 		return strings.TrimSpace(title[:i])
@@ -3294,7 +3314,8 @@ func iterateLibraryFiles(
 
 const (
 	scanInsertChunkSize   = 25
-	enrichmentWorkerCount = 2
+	EnrichmentWorkerCount = 2
+	enrichmentWorkerCount = EnrichmentWorkerCount
 )
 
 type pendingDiscoveredInsert struct {
@@ -3937,6 +3958,7 @@ func EnrichLibraryTasks(
 		if err != nil {
 			return err
 		}
+
 	}
 	return nil
 }

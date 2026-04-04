@@ -22,6 +22,11 @@ function normalizeShowKeyTitle(title: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+/** True when the row has provider IDs (aligns with movie "has identity" logic on Home). */
+function episodeHasProviderIdentity(item: MediaItem): boolean {
+  return Boolean(item.tmdb_id && item.tmdb_id > 0) || Boolean(item.tvdb_id?.trim());
+}
+
 /**
  * Stable key for grouping episodes into a show.
  * Uses tmdb_id when present so the same series is one show; otherwise falls back to show name from title.
@@ -86,8 +91,13 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       showVoteAverage: episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average,
       voteAverage: ratingEpisode?.vote_average,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
-      localCount: episodes.filter((episode) => episode.match_status === "local").length,
-      identifiedCount: episodes.filter((episode) => episode.match_status === "identified").length,
+      localCount: episodes.filter(
+        (episode) => episode.match_status === "local" && !episodeHasProviderIdentity(episode),
+      ).length,
+      identifiedCount: episodes.filter(
+        (episode) =>
+          episode.match_status === "identified" || episodeHasProviderIdentity(episode),
+      ).length,
       totalCount: episodes.length,
       episodes,
     });

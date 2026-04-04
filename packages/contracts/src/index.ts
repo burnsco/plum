@@ -472,7 +472,7 @@ export const ContinueWatchingEntrySchema = Schema.Struct({
 });
 
 export interface RecentlyAddedEntry {
-  kind: "movie" | "show";
+  kind: "movie" | "show" | "episode";
   media: MediaItem;
   show_key?: string;
   show_title?: string;
@@ -480,7 +480,7 @@ export interface RecentlyAddedEntry {
 }
 
 export const RecentlyAddedEntrySchema = Schema.Struct({
-  kind: Schema.Literals(["movie", "show"]),
+  kind: Schema.Literals(["movie", "show", "episode"]),
   media: MediaItemSchema,
   show_key: Schema.optional(Schema.String),
   show_title: Schema.optional(Schema.String),
@@ -489,12 +489,23 @@ export const RecentlyAddedEntrySchema = Schema.Struct({
 
 export interface HomeDashboard {
   continueWatching: ContinueWatchingEntry[];
+  /** Merged on the web client for notifications; optional from API. */
   recentlyAdded?: RecentlyAddedEntry[];
+  recentlyAddedTvEpisodes?: RecentlyAddedEntry[];
+  recentlyAddedTvShows?: RecentlyAddedEntry[];
+  recentlyAddedMovies?: RecentlyAddedEntry[];
+  recentlyAddedAnimeEpisodes?: RecentlyAddedEntry[];
+  recentlyAddedAnimeShows?: RecentlyAddedEntry[];
 }
 
 export const HomeDashboardSchema = Schema.Struct({
   continueWatching: Schema.Array(ContinueWatchingEntrySchema),
   recentlyAdded: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedTvEpisodes: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedTvShows: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedMovies: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedAnimeEpisodes: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedAnimeShows: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
 });
 
 export interface Library {
@@ -585,6 +596,17 @@ export const UserSchema = Schema.Struct({
   id: Schema.Number,
   email: Schema.String,
   is_admin: Schema.Boolean,
+});
+
+/** Response from POST /api/auth/quick-connect (admin). */
+export interface QuickConnectCodeResponse {
+  code: string;
+  expiresAt: string;
+}
+
+export const QuickConnectCodeResponseSchema = Schema.Struct({
+  code: Schema.String,
+  expiresAt: Schema.String,
 });
 
 export interface SetupStatus {

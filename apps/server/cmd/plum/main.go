@@ -271,6 +271,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	r.Post("/api/auth/admin-setup", authHandler.AdminSetup)
 	r.Post("/api/auth/login", authHandler.Login)
 	r.Post("/api/auth/device-login", authHandler.DeviceLogin)
+	r.Post("/api/auth/quick-connect/redeem", authHandler.RedeemQuickConnect)
 	r.Post("/api/auth/logout", authHandler.Logout)
 	r.Get("/api/auth/me", authHandler.Me)
 
@@ -288,6 +289,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 			admin.Post("/api/settings/media-stack/validate", mediaStackSettingsHandler.Validate)
 		})
 
+		protected.Post("/api/auth/quick-connect", authHandler.CreateQuickConnectCode)
 		protected.Post("/api/libraries", libHandler.CreateLibrary)
 		protected.Get("/api/libraries", libHandler.ListLibraries)
 		protected.Put("/api/libraries/{id}/playback-preferences", libHandler.UpdateLibraryPlaybackPreferences)

@@ -19,6 +19,11 @@ data class DeviceLoginRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class QuickConnectRedeemRequest(
+    @Json(name = "code") val code: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class UserJson(
     @Json(name = "id") val id: Int,
     @Json(name = "email") val email: String,
@@ -35,6 +40,9 @@ data class DeviceLoginResponseJson(
 interface PlumApi {
     @POST("/api/auth/device-login")
     suspend fun deviceLogin(@Body body: DeviceLoginRequest): Response<DeviceLoginResponseJson>
+
+    @POST("/api/auth/quick-connect/redeem")
+    suspend fun redeemQuickConnect(@Body body: QuickConnectRedeemRequest): Response<DeviceLoginResponseJson>
 
     @POST("/api/auth/logout")
     suspend fun logout(): Response<Unit>

@@ -13,8 +13,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,6 +35,7 @@ import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumStatePanel
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -71,6 +75,8 @@ fun MovieDetailRoute(
         }
         is MovieDetailUiState.Ready -> {
             val d = s.details
+            val playFocus = remember(d.mediaId) { FocusRequester() }
+            LaunchedTvFocusTo(d.mediaId, focusRequester = playFocus)
             val backdropUrl =
                 resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
@@ -100,6 +106,13 @@ fun MovieDetailRoute(
                                 d.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
                                 d.imdbRating?.let { add("★ ${"%.1f".format(it)}") }
                                 addAll(d.genres.take(4))
+                                if (d.completed == true) {
+                                    add("Watched")
+                                } else if ((d.progressSeconds ?: 0.0) > 0 || (d.progressPercent ?: 0.0) > 0) {
+                                    val p = d.progressPercent?.toInt()?.coerceIn(0, 100)
+                                    if (p != null && p > 0) add("$p% watched")
+                                    else add("In progress")
+                                }
                             },
                         )
 
@@ -116,7 +129,17 @@ fun MovieDetailRoute(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            PlumActionButton("Play", onClick = { onPlay(d.mediaId) }, leadingBadge = "▶")
+                            PlumActionButton(
+                                modifier = Modifier.focusRequester(playFocus),
+                                label =
+                                    when {
+                                        d.completed == true -> "Watch again"
+                                        (d.progressSeconds ?: 0.0) > 0 || (d.progressPercent ?: 0.0) > 0 -> "Resume"
+                                        else -> "Play"
+                                    },
+                                onClick = { onPlay(d.mediaId) },
+                                leadingBadge = "▶",
+                            )
                             PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
                         }
                     }

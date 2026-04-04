@@ -14,10 +14,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import plum.tv.core.network.SearchResultJson
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumActionButton
@@ -36,6 +40,8 @@ fun SearchRoute(
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val queryFieldFocus = remember { FocusRequester() }
+    LaunchedTvFocusTo(focusRequester = queryFieldFocus)
     val trimmedQuery = state.query.trim()
     val metrics = PlumTheme.metrics
     val minCell = metrics.posterWidth + metrics.cardGap + 8.dp
@@ -56,7 +62,7 @@ fun SearchRoute(
                 onValueChange = viewModel::setQuery,
                 singleLine = true,
                 label = { Text("Query") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(queryFieldFocus),
                 colors = plumOutlinedFieldColors(),
             )
         }

@@ -11,8 +11,10 @@ import {
 import { buildBackendUrl } from "@plum/shared";
 import {
   BASE_URL,
+  PLAYBACK_STREAM_BASE_URL,
   closePlaybackSession,
   createPlaybackSession,
+  getShowEpisodes,
   type MediaItem,
   type PlaybackSession as ApiPlaybackSession,
   type PlumWebSocketCommand,
@@ -27,12 +29,13 @@ import {
 } from "../lib/playback/playerQueue";
 import { detectClientPlaybackCapabilities } from "../lib/playback/playerMedia";
 import { sortMusicTracks } from "../lib/musicGrouping";
-import { sortEpisodes } from "../lib/showGrouping";
+import { getShowKey, sortEpisodes } from "../lib/showGrouping";
 import { useLibraries } from "../queries";
 import { useWs } from "./WsContext";
 
 export type PlaybackKind = "video" | "music";
-export type PlayerViewMode = "docked" | "fullscreen";
+/** Video is always `window` (theater: fixed overlay filling the viewport). Display fullscreen uses the Fullscreen API separately. Music ignores layout and uses the in-page bar on the music library view. */
+export type PlayerViewMode = "window";
 export type MusicRepeatMode = "off" | "all" | "one";
 export type MediaElementSlot = "audio" | "video";
 
@@ -98,7 +101,8 @@ function mergePlaybackTracks(
 }
 
 function resolvePlaybackStreamUrl(streamUrl: string): string {
-  return buildBackendUrl(BASE_URL, streamUrl);
+  const base = PLAYBACK_STREAM_BASE_URL || BASE_URL;
+  return buildBackendUrl(base, streamUrl);
 }
 
 function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState {
@@ -152,7 +156,7 @@ type PlayerContextValue = {
   videoAudioIndex: number;
   playMedia: (item: MediaItem) => void;
   playMovie: (item: MediaItem) => void;
-  playEpisode: (item: MediaItem) => void;
+  playEpisode: (item: MediaItem, options?: { showKey?: string }) => void;
   playShowGroup: (items: MediaItem[], startItem?: MediaItem) => void;
   playMusicCollection: (items: MediaItem[], startItem?: MediaItem) => void;
   dismissDock: () => void;
@@ -204,7 +208,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const activeItem = playbackSession?.queue[playbackSession.queueIndex] ?? null;
   const activeMode = playbackSession?.activeMode ?? null;
   const isDockOpen = playbackSession?.isDockOpen ?? false;
-  const viewMode = playbackSession?.viewMode ?? "docked";
+  const viewMode: PlayerViewMode = playbackSession?.viewMode ?? "window";
   const queue = useMemo(() => playbackSession?.queue ?? [], [playbackSession]);
   const queueIndex = playbackSession?.queueIndex ?? 0;
   const shuffle = playbackSession?.shuffle ?? false;
@@ -348,7 +352,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setPlaybackSession((current) => ({
         activeMode: "video",
         isDockOpen: true,
-        viewMode: "fullscreen",
+        viewMode: "window",
         queue: items,
         queueIndex: clampedIndex,
         shuffle: false,
@@ -389,7 +393,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const playVideoQueueIndex = useCallback(
-    (nextIndex: number, nextViewMode?: PlayerViewMode) => {
+    (nextIndex: number) => {
       if (playbackSession?.activeMode !== "video" || playbackSession.queue.length === 0) return;
       const clampedIndex = Math.max(0, Math.min(nextIndex, playbackSession.queue.length - 1));
       const nextItem = playbackSession.queue[clampedIndex];
@@ -401,7 +405,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ? {
               ...current,
               isDockOpen: true,
-              viewMode: nextViewMode ?? current.viewMode,
+              viewMode: "window",
               queueIndex: clampedIndex,
             }
           : current,
@@ -503,7 +507,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const playEpisode = useCallback(
-    (item: MediaItem) => {
+    (item: MediaItem, options?: { showKey?: string }) => {
+      const libId = item.library_id;
+      const explicitKey = options?.showKey?.trim();
+      const derivedKey =
+        (item.type === "tv" || item.type === "anime") && (item.tmdb_id || item.title)
+          ? getShowKey(item)
+          : undefined;
+      const showKey = explicitKey || derivedKey;
+
+      if (
+        (item.type === "tv" || item.type === "anime") &&
+        libId != null &&
+        libId > 0 &&
+        showKey
+      ) {
+        getShowEpisodes(libId, showKey)
+          .then((res) => {
+            if (!mountedRef.current) return;
+            const episodes = res.seasons.flatMap((s) => s.episodes) as MediaItem[];
+            if (episodes.length > 0) {
+              sortEpisodes(episodes);
+              const idx = episodes.findIndex((e) => e.id === item.id);
+              playVideoQueue(episodes, idx >= 0 ? idx : 0);
+              return;
+            }
+            playVideoQueue([item]);
+          })
+          .catch((err) => {
+            console.error("[Player] getShowEpisodes failed", err);
+            playVideoQueue([item]);
+          });
+        return;
+      }
       playVideoQueue([item]);
     },
     [playVideoQueue],
@@ -550,7 +586,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setPlaybackSession({
         activeMode: "music",
         isDockOpen: true,
-        viewMode: "docked",
+        viewMode: "window",
         queue: orderedQueue,
         queueIndex: nextIndex,
         shuffle: nextShuffle,
@@ -594,7 +630,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ...current,
           queueIndex: current.queueIndex + 1,
           isDockOpen: true,
-          viewMode: "docked",
+          viewMode: "window",
         };
       }
       if (current.repeatMode === "all") {
@@ -602,7 +638,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ...current,
           queueIndex: 0,
           isDockOpen: true,
-          viewMode: "docked",
+          viewMode: "window",
         };
       }
       return current;
@@ -627,7 +663,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ...current,
           queueIndex: current.queueIndex - 1,
           isDockOpen: true,
-          viewMode: "docked",
+          viewMode: "window",
         };
       }
       if (current.repeatMode === "all") {
@@ -635,7 +671,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ...current,
           queueIndex: current.queue.length - 1,
           isDockOpen: true,
-          viewMode: "docked",
+          viewMode: "window",
         };
       }
       return current;
@@ -707,19 +743,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const enterFullscreen = useCallback(() => {
     if (activeMode !== "video" || !activeItem) return;
     setPlaybackSession((current) =>
-      current
-        ? { ...current, isDockOpen: true, viewMode: "fullscreen" }
-        : current,
+      current ? { ...current, isDockOpen: true, viewMode: "window" } : current,
     );
   }, [activeItem, activeMode]);
 
   const exitFullscreen = useCallback(() => {
     exitBrowserFullscreen();
-    setPlaybackSession((current) =>
-      current && current.activeMode === "video"
-        ? { ...current, isDockOpen: true, viewMode: "docked" }
-        : current,
-    );
   }, [exitBrowserFullscreen]);
 
   useEffect(() => {

@@ -48,6 +48,10 @@ data class PlayerQueueItem(
     val mediaId: Int,
     val title: String,
     val subtitle: String? = null,
+    val backdropPath: String? = null,
+    val backdropUrl: String? = null,
+    val showPosterPath: String? = null,
+    val showPosterUrl: String? = null,
 )
 
 private data class ProgressPersistSnapshot(
@@ -90,7 +94,19 @@ data class PlayerUiState(
         get() = (durationMs - positionMs).coerceAtLeast(0)
 }
 
+/** Plex-style “up next” overlay when an episode ends and another is queued. */
+data class UpNextOverlayState(
+    val secondsRemaining: Int,
+    val title: String,
+    val subtitle: String?,
+    val backdropPath: String?,
+    val backdropUrl: String?,
+    val showPosterPath: String?,
+    val showPosterUrl: String?,
+)
+
 private const val RESTART_PREVIOUS_THRESHOLD_MS = 10_000L
+private const val UPNEXT_COUNTDOWN_SECONDS = 10
 private const val PROGRESS_HEARTBEAT_MS = 10_000L
 private const val PROGRESS_DUPLICATE_WINDOW_MS = 3_000L
 private const val INTRO_SKIP_LEADING_SLACK_SEC = 0.35
@@ -174,6 +190,9 @@ class PlumPlayerController(
     private val _trackPicker = MutableStateFlow<TrackPicker?>(null)
     val trackPicker: StateFlow<TrackPicker?> = _trackPicker.asStateFlow()
 
+    private val _upNext = MutableStateFlow<UpNextOverlayState?>(null)
+    val upNext: StateFlow<UpNextOverlayState?> = _upNext.asStateFlow()
+
     /**
      * Sideloaded WebVTT (sidecar + embedded-extract URLs) still flows through the text renderer as
      * legacy `text/vtt` samples in common Media3/HLS merge setups; without this, tracks appear in the
@@ -210,6 +229,7 @@ class PlumPlayerController(
     private var wsCollectJob: Job? = null
     private var progressJob: Job? = null
     private var queueLoadJob: Job? = null
+    private var upNextJob: Job? = null
     private val progressPersistMutex = Mutex()
 
     @Volatile
@@ -233,6 +253,7 @@ class PlumPlayerController(
                         Player.STATE_ENDED -> {
                             scope.launch { persistProgressAsync(completed = true) }
                             updateStatus("Ended")
+                            scheduleUpNextCountdown()
                         }
                         Player.STATE_BUFFERING -> refreshUiState()
                         Player.STATE_READY -> refreshUiState()
@@ -461,6 +482,10 @@ class PlumPlayerController(
                     mediaId = episode.id,
                     title = episode.title,
                     subtitle = label,
+                    backdropPath = episode.backdropPath,
+                    backdropUrl = episode.backdropUrl,
+                    showPosterPath = episode.showPosterPath,
+                    showPosterUrl = episode.showPosterUrl,
                 )
             }
         }
@@ -871,7 +896,65 @@ class PlumPlayerController(
         createAndLoadMedia(mediaId, resumeSec)
     }
 
-    private suspend fun switchToMedia(mediaId: Int, resumeSec: Float = 0f) {
+    private fun clearUpNextCountdown() {
+        upNextJob?.cancel()
+        upNextJob = null
+        _upNext.value = null
+    }
+
+    /** User dismissed the interstitial (e.g. Back): stay on the ended episode. */
+    fun dismissUpNext() {
+        clearUpNextCountdown()
+    }
+
+    /** User chose to skip the countdown (OK / center). */
+    fun playUpNextNow() {
+        clearUpNextCountdown()
+        nextEpisode()
+    }
+
+    private fun scheduleUpNextCountdown() {
+        if (queueIndex < 0 || queueIndex >= episodeQueue.lastIndex) return
+        val next = episodeQueue.getOrNull(queueIndex + 1) ?: return
+        clearUpNextCountdown()
+        upNextJob =
+            scope.launch {
+                try {
+                    repeat(UPNEXT_COUNTDOWN_SECONDS) { tick ->
+                        val sec = UPNEXT_COUNTDOWN_SECONDS - tick
+                        _upNext.value =
+                            UpNextOverlayState(
+                                secondsRemaining = sec,
+                                title = next.title,
+                                subtitle = next.subtitle,
+                                backdropPath = next.backdropPath,
+                                backdropUrl = next.backdropUrl,
+                                showPosterPath = next.showPosterPath,
+                                showPosterUrl = next.showPosterUrl,
+                            )
+                        delay(1_000)
+                    }
+                    // Use the episode captured at countdown start so we match the overlay. queueIndex /
+                    // episodeQueue can change before this runs (e.g. [loadEpisodeQueue] completing).
+                    // Do not cancel this coroutine from inside [switchToMedia]; countdown is done.
+                    switchToMedia(next.mediaId, 0f, suppressUpNextJobCancel = true)
+                } finally {
+                    _upNext.value = null
+                    upNextJob = null
+                }
+            }
+    }
+
+    private suspend fun switchToMedia(
+        mediaId: Int,
+        resumeSec: Float = 0f,
+        suppressUpNextJobCancel: Boolean = false,
+    ) {
+        if (suppressUpNextJobCancel) {
+            _upNext.value = null
+        } else {
+            clearUpNextCountdown()
+        }
         if (this.mediaId == mediaId && hlsSessionId != null) return
         val previousMediaId = this.mediaId
         val previousSessionId = hlsSessionId
@@ -1043,6 +1126,7 @@ class PlumPlayerController(
     }
 
     fun previousEpisode() {
+        clearUpNextCountdown()
         scope.launch {
             val currentPosition = withContext(Dispatchers.Main) { player.currentPosition }
             val prev = if (queueIndex > 0 && currentPosition <= RESTART_PREVIOUS_THRESHOLD_MS) {
@@ -1062,6 +1146,7 @@ class PlumPlayerController(
     }
 
     fun nextEpisode() {
+        clearUpNextCountdown()
         scope.launch {
             val next = if (queueIndex >= 0 && queueIndex < episodeQueue.lastIndex) episodeQueue.getOrNull(queueIndex + 1) else null
             if (next != null) {
@@ -1080,6 +1165,7 @@ class PlumPlayerController(
         progressJob?.cancel()
         wsCollectJob?.cancel()
         queueLoadJob?.cancel()
+        clearUpNextCountdown()
 
         hlsSessionId?.let { wsManager.sendDetach(it) }
         val sid = hlsSessionId

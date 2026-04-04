@@ -52,11 +52,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -78,6 +81,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
@@ -85,7 +89,11 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
 import plum.tv.core.player.TrackPicker
 import plum.tv.core.player.TrackPickerOption
+import plum.tv.core.player.UpNextOverlayState
+import plum.tv.core.ui.LocalServerBaseUrl
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumScrims
+import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.plumBorder
 
@@ -99,9 +107,11 @@ fun PlayerRoute(
 ) {
     val ui by viewModel.uiState.collectAsState()
     val trackPicker by viewModel.trackPicker.collectAsState()
+    val upNext by viewModel.upNext.collectAsState()
     val rootFocusRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
     val seekBarFocusRequester = remember { FocusRequester() }
+    val upNextPlayFocusRequester = remember { FocusRequester() }
 
     // Each time hideTimerKey changes, the LaunchedEffect restarts the hide countdown.
     var hideTimerKey by remember { mutableIntStateOf(0) }
@@ -134,11 +144,22 @@ fun PlayerRoute(
         }
     }
 
+    LaunchedEffect(upNext) {
+        if (upNext != null) {
+            showControls()
+            upNextPlayFocusRequester.requestFocus()
+        }
+    }
+
     BackHandler(trackPicker != null) {
         viewModel.dismissTrackPicker()
     }
 
-    BackHandler(trackPicker == null) {
+    BackHandler(trackPicker == null && upNext != null) {
+        viewModel.dismissUpNext()
+    }
+
+    BackHandler(trackPicker == null && upNext == null) {
         if (controlsVisible) {
             onClose()
         } else {
@@ -182,6 +203,17 @@ fun PlayerRoute(
                 // Every key event (including d-pad navigation) resets the hide timer
                 if (event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) {
                     showControls()
+                }
+                if (upNext != null) {
+                    if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_UP) return@onPreviewKeyEvent false
+                    return@onPreviewKeyEvent when (event.nativeKeyEvent.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                        AndroidKeyEvent.KEYCODE_ENTER -> {
+                            viewModel.playUpNextNow()
+                            true
+                        }
+                        else -> false
+                    }
                 }
                 if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_UP) return@onPreviewKeyEvent false
                 when (event.nativeKeyEvent.keyCode) {
@@ -432,12 +464,141 @@ fun PlayerRoute(
             }
         }
 
+        upNext?.let { state ->
+            UpNextInterstitial(
+                modifier = Modifier.zIndex(4f),
+                state = state,
+                serverBase = LocalServerBaseUrl.current,
+                onConfirm = { viewModel.playUpNextNow() },
+                playNowFocusRequester = upNextPlayFocusRequester,
+            )
+        }
+
         trackPicker?.let { picker ->
             TrackPickerOverlay(
                 picker = picker,
                 onDismiss = { viewModel.dismissTrackPicker() },
                 onSelect = { viewModel.selectTrackPickerOption(it) },
             )
+        }
+    }
+}
+
+@Composable
+private fun UpNextInterstitial(
+    state: UpNextOverlayState,
+    serverBase: String,
+    onConfirm: () -> Unit,
+    playNowFocusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    val palette = PlumTheme.palette
+    val heroUrl =
+        resolveArtworkUrl(serverBase, state.backdropUrl, state.backdropPath, PlumImageSizes.BACKDROP_HERO)
+            ?: resolveArtworkUrl(serverBase, state.showPosterUrl, state.showPosterPath, PlumImageSizes.BACKDROP_HERO)
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(Color.Black),
+    ) {
+        if (!heroUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = heroUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.35f),
+                            0.45f to Color.Black.copy(alpha = 0.78f),
+                            1f to Color.Black.copy(alpha = 0.94f),
+                        ),
+                    ),
+        )
+        Column(
+            modifier =
+                Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 48.dp)
+                    .widthIn(max = 520.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "UP NEXT",
+                style = PlumTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.55f),
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = state.title,
+                style = PlumTheme.typography.headlineSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            state.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
+                Text(
+                    text = sub,
+                    style = PlumTheme.typography.titleSmall,
+                    color = palette.accent,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                text = "Starting in ${state.secondsRemaining}s",
+                style = PlumTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.78f),
+            )
+            Surface(
+                onClick = onConfirm,
+                modifier =
+                    Modifier
+                        .padding(top = 8.dp)
+                        .focusRequester(playNowFocusRequester)
+                        .focusable(),
+                shape = ClickableSurfaceDefaults.shape(shape = shape),
+                colors =
+                    ClickableSurfaceDefaults.colors(
+                        containerColor = palette.accent.copy(alpha = 0.92f),
+                        contentColor = Color.Black,
+                        focusedContainerColor = palette.accent,
+                        focusedContentColor = Color.Black,
+                        pressedContainerColor = palette.accent,
+                        pressedContentColor = Color.Black,
+                    ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                border =
+                    ClickableSurfaceDefaults.border(
+                        border = plumBorder(Color.White.copy(alpha = 0.2f), 1.dp, shape),
+                        focusedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape),
+                        pressedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape),
+                    ),
+                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accent.copy(alpha = 0.45f), 10.dp)),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp, horizontal = 20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "OK · Play now",
+                        style = PlumTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
     }
 }

@@ -13,9 +13,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumScreenPadding
@@ -34,6 +37,8 @@ fun SettingsRoute(
     var url by remember(serverUrl, defaultServerUrl) {
         mutableStateOf(serverUrl ?: defaultServerUrl.ifBlank { "http://10.0.2.2:8080" })
     }
+    val urlFieldFocus = remember { FocusRequester() }
+    LaunchedTvFocusTo(focusRequester = urlFieldFocus)
 
     Column(
         modifier = Modifier.fillMaxSize().padding(PlumScreenPadding()),
@@ -45,7 +50,7 @@ fun SettingsRoute(
             value = url,
             onValueChange = { url = it },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(urlFieldFocus),
             colors = plumOutlinedFieldColors(),
         )
         PlumActionButton(

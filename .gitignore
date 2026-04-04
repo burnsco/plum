@@ -26,6 +26,10 @@ apps/server/tmp/
 apps/server/bin/
 apps/server/data/
 
+# Local tooling / cache (repo root)
+.gocache/
+.tmp/
+
 # General
 .env
 .env.local

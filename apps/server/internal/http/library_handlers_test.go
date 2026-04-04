@@ -1209,6 +1209,86 @@ func TestIdentifyShow_UsesSelectedTVDBSeries(t *testing.T) {
 	}
 }
 
+// Release-folder junk like " - Sno" before the real " - S01E01" must not change the show key vs the web
+// app (showGrouping.ts getShowName); otherwise manual identify sends a key ListShowEpisodeRefs never matches.
+func TestIdentifyShow_MatchesFrontendShowKeyWhenHyphenSAppearsBeforeSeasonMarker(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "TV", db.LibraryTypeTV, "/tv", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	epTitle := "Black Spot (Zone Blanche) S01 - Hardcoded Eng Subs - Sno - S01E01 - Pilot"
+	var episodeID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		epTitle,
+		"/tv/Black Spot (Zone Blanche) S01 - Hardcoded Eng Subs - Sno/S01E01.mkv",
+		0,
+		db.MatchStatusUnmatched,
+		1,
+		1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeTV, episodeID); err != nil {
+		t.Fatalf("insert media global row: %v", err)
+	}
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		SeriesQuery: &seriesQueryStub{
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tmdb" || seriesID != "789" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				if season != 1 || episode != 1 {
+					t.Fatalf("unexpected episode = S%02dE%02d", season, episode)
+				}
+				return &metadata.MatchResult{
+					Title:      "Black Spot (Zone Blanche) - S01E01 - Pilot",
+					Provider:   "tmdb",
+					ExternalID: "789",
+				}, nil
+			},
+		},
+	}
+
+	// Same key groupMediaByShow / getShowKey would produce for this title.
+	showKey := "title-blackspotzoneblanches01hardcodedengsubssno"
+	body := strings.NewReader(`{"showKey":"` + showKey + `","provider":"tmdb","externalId":"789","tmdbId":789}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Updated != 1 {
+		t.Fatalf("updated = %d (ListShowEpisodeRefs show key likely out of sync with web)", payload.Updated)
+	}
+}
+
 func TestIdentifyShow_UsesSeriesMetadataWhenEpisodeLookupFails(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {

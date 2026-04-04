@@ -39,9 +39,17 @@ class HomeViewModel @Inject constructor(
             _state.value = HomeUiState.Loading
             browseRepository.homeDashboard().fold(
                 onSuccess = { dash: HomeDashboardJson ->
+                    val mergedRecentlyAdded =
+                        buildList {
+                            addAll(dash.recentlyAddedTvEpisodes)
+                            addAll(dash.recentlyAddedTvShows)
+                            addAll(dash.recentlyAddedMovies)
+                            addAll(dash.recentlyAddedAnimeEpisodes)
+                            addAll(dash.recentlyAddedAnimeShows)
+                        }
                     _state.value = HomeUiState.Ready(
                         continueWatching = dash.continueWatching,
-                        recentlyAdded = dash.recentlyAdded,
+                        recentlyAdded = mergedRecentlyAdded,
                     )
                     viewModelScope.launch {
                         browseRepository.prefetchFirstLibraryMediaPages()

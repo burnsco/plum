@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"plum/internal/ffopts"
 )
 
 // HandleStreamSubtitle looks up a subtitle and serves it as VTT.
@@ -117,16 +119,46 @@ func resolveEmbeddedSubtitleForPlayback(ctx context.Context, sourcePath string, 
 	return findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex), err
 }
 
+// trimFFmpegStderrProgress drops encoding progress lines ffmpeg writes to stderr so error
+// summaries are not dominated by the last 512 bytes of "size=... time=... speed=..." spam.
+func trimFFmpegStderrProgress(raw string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(raw, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "size=") && strings.Contains(t, "time=") && strings.Contains(t, "bitrate=") {
+			continue
+		}
+		if strings.HasPrefix(t, "frame=") && strings.Contains(t, "fps=") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		return strings.TrimSpace(raw)
+	}
+	return out
+}
+
 // streamFFmpegWebVTT runs ffmpeg with stdout wired to the response so the client receives bytes
 // while conversion runs (long embedded/sidecar extracts no longer sit behind a full-memory buffer).
 func streamFFmpegWebVTT(w http.ResponseWriter, r *http.Request, args ...string) error {
 	w.Header().Set("Content-Type", "text/vtt")
-	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	// -nostats keeps stderr usable on failure (we were truncating to a tail that was often progress only).
+	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
+	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeBeforeI...)
+	ffmpegArgs = append(ffmpegArgs, args...)
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
 	cmd.Stdout = w
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
+		msg = trimFFmpegStderrProgress(msg)
 		if msg == "" {
 			msg = err.Error()
 		}

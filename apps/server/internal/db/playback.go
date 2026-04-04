@@ -38,9 +38,15 @@ type RecentlyAddedEntry struct {
 	EpisodeLabel string    `json:"episode_label,omitempty"`
 }
 
+// HomeDashboard recently-added rails (below continue watching), fixed order on clients:
+// TV episodes → TV shows → movies → anime episodes → anime shows.
 type HomeDashboard struct {
-	ContinueWatching []ContinueWatchingEntry `json:"continueWatching"`
-	RecentlyAdded    []RecentlyAddedEntry    `json:"recentlyAdded"`
+	ContinueWatching           []ContinueWatchingEntry `json:"continueWatching"`
+	RecentlyAddedTvEpisodes    []RecentlyAddedEntry    `json:"recentlyAddedTvEpisodes"`
+	RecentlyAddedTvShows       []RecentlyAddedEntry    `json:"recentlyAddedTvShows"`
+	RecentlyAddedMovies        []RecentlyAddedEntry    `json:"recentlyAddedMovies"`
+	RecentlyAddedAnimeEpisodes []RecentlyAddedEntry    `json:"recentlyAddedAnimeEpisodes"`
+	RecentlyAddedAnimeShows    []RecentlyAddedEntry    `json:"recentlyAddedAnimeShows"`
 }
 
 type playbackProgressRow struct {
@@ -125,17 +131,19 @@ func GetHomeDashboardForUser(db *sql.DB, userID int) (HomeDashboard, error) {
 	if err != nil {
 		return HomeDashboard{}, err
 	}
-	recentlyAdded := buildRecentlyAdded(recentCandidates)
-
-	continueWatching, recentlyAdded, err = attachDashboardEntrySubtitles(db, continueWatching, recentlyAdded)
-	if err != nil {
+	tvItems, animeItems, movieItems := partitionRecentDashboardCandidatesByType(recentCandidates)
+	dash := HomeDashboard{
+		ContinueWatching:           continueWatching,
+		RecentlyAddedTvEpisodes:    buildRecentlyAddedEpisodeEntries(tvItems, recentlyAddedLimit),
+		RecentlyAddedTvShows:       buildRecentlyAddedShowsForKind(tvItems, LibraryTypeTV),
+		RecentlyAddedMovies:        buildRecentlyAddedMovieEntries(movieItems),
+		RecentlyAddedAnimeEpisodes: buildRecentlyAddedEpisodeEntries(animeItems, recentlyAddedLimit),
+		RecentlyAddedAnimeShows:    buildRecentlyAddedShowsForKind(animeItems, LibraryTypeAnime),
+	}
+	if err := attachHomeDashboardSubtitles(db, &dash); err != nil {
 		return HomeDashboard{}, err
 	}
-
-	return HomeDashboard{
-		ContinueWatching: continueWatching,
-		RecentlyAdded:    recentlyAdded,
-	}, nil
+	return dash, nil
 }
 
 // loadDashboardMoviesInProgress returns movie rows the user is partially watching (same rules as buildContinueWatching).
@@ -639,14 +647,21 @@ ORDER BY g.id`
 	return out, nil
 }
 
-func attachDashboardEntrySubtitles(db *sql.DB, continueWatching []ContinueWatchingEntry, recentlyAdded []RecentlyAddedEntry) ([]ContinueWatchingEntry, []RecentlyAddedEntry, error) {
-	uniqueMedia := make(map[int]MediaItem, len(continueWatching)+len(recentlyAdded))
-	for i := range continueWatching {
-		uniqueMedia[continueWatching[i].Media.ID] = continueWatching[i].Media
+func attachHomeDashboardSubtitles(db *sql.DB, dash *HomeDashboard) error {
+	uniqueMedia := make(map[int]MediaItem)
+	for i := range dash.ContinueWatching {
+		uniqueMedia[dash.ContinueWatching[i].Media.ID] = dash.ContinueWatching[i].Media
 	}
-	for i := range recentlyAdded {
-		uniqueMedia[recentlyAdded[i].Media.ID] = recentlyAdded[i].Media
+	mergeRecently := func(entries []RecentlyAddedEntry) {
+		for i := range entries {
+			uniqueMedia[entries[i].Media.ID] = entries[i].Media
+		}
 	}
+	mergeRecently(dash.RecentlyAddedTvEpisodes)
+	mergeRecently(dash.RecentlyAddedTvShows)
+	mergeRecently(dash.RecentlyAddedMovies)
+	mergeRecently(dash.RecentlyAddedAnimeEpisodes)
+	mergeRecently(dash.RecentlyAddedAnimeShows)
 
 	items := make([]MediaItem, 0, len(uniqueMedia))
 	for _, item := range uniqueMedia {
@@ -654,24 +669,44 @@ func attachDashboardEntrySubtitles(db *sql.DB, continueWatching []ContinueWatchi
 	}
 	items, err := attachSubtitlesBatch(db, items)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-
 	mediaByID := make(map[int]MediaItem, len(items))
 	for _, item := range items {
 		mediaByID[item.ID] = item
 	}
-	for i := range continueWatching {
-		if item, ok := mediaByID[continueWatching[i].Media.ID]; ok {
-			continueWatching[i].Media = item
+	for i := range dash.ContinueWatching {
+		if item, ok := mediaByID[dash.ContinueWatching[i].Media.ID]; ok {
+			dash.ContinueWatching[i].Media = item
 		}
 	}
-	for i := range recentlyAdded {
-		if item, ok := mediaByID[recentlyAdded[i].Media.ID]; ok {
-			recentlyAdded[i].Media = item
+	patchRecently := func(entries []RecentlyAddedEntry) {
+		for i := range entries {
+			if item, ok := mediaByID[entries[i].Media.ID]; ok {
+				entries[i].Media = item
+			}
 		}
 	}
-	return continueWatching, recentlyAdded, nil
+	patchRecently(dash.RecentlyAddedTvEpisodes)
+	patchRecently(dash.RecentlyAddedTvShows)
+	patchRecently(dash.RecentlyAddedMovies)
+	patchRecently(dash.RecentlyAddedAnimeEpisodes)
+	patchRecently(dash.RecentlyAddedAnimeShows)
+	return nil
+}
+
+func partitionRecentDashboardCandidatesByType(items []MediaItem) (tv, anime, movies []MediaItem) {
+	for _, item := range items {
+		switch item.Type {
+		case LibraryTypeTV:
+			tv = append(tv, item)
+		case LibraryTypeAnime:
+			anime = append(anime, item)
+		case LibraryTypeMovie:
+			movies = append(movies, item)
+		}
+	}
+	return tv, anime, movies
 }
 
 func buildContinueWatching(items []MediaItem) []ContinueWatchingEntry {
@@ -715,28 +750,50 @@ func buildContinueWatching(items []MediaItem) []ContinueWatchingEntry {
 	return entries
 }
 
-func buildRecentlyAdded(items []MediaItem) []RecentlyAddedEntry {
-	entries := make([]RecentlyAddedEntry, 0)
+func buildRecentlyAddedEpisodeEntries(items []MediaItem, limit int) []RecentlyAddedEntry {
+	if limit <= 0 {
+		return nil
+	}
+	episodes := append([]MediaItem(nil), items...)
+	sort.Slice(episodes, func(i, j int) bool {
+		if episodes[i].ID != episodes[j].ID {
+			return episodes[i].ID > episodes[j].ID
+		}
+		return episodes[i].Title < episodes[j].Title
+	})
+	out := make([]RecentlyAddedEntry, 0, min(len(episodes), limit))
+	for _, ep := range episodes {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, recentlyAddedEpisodeEntry(ep))
+	}
+	return out
+}
+
+func recentlyAddedEpisodeEntry(ep MediaItem) RecentlyAddedEntry {
+	key := showKeyFromItem(ep.TMDBID, ep.Title)
+	return RecentlyAddedEntry{
+		Kind:         "episode",
+		Media:        ep,
+		ShowKey:      key,
+		ShowTitle:    showTitleFromEpisodeTitle(ep.Title),
+		EpisodeLabel: episodeLabel(ep),
+	}
+}
+
+func buildRecentlyAddedShowsForKind(items []MediaItem, kind string) []RecentlyAddedEntry {
 	showItems := make(map[string][]MediaItem)
 	for _, item := range items {
-		if item.Type == LibraryTypeMusic {
-			continue
-		}
-		if item.Type == LibraryTypeMovie {
-			entries = append(entries, RecentlyAddedEntry{
-				Kind:  "movie",
-				Media: item,
-			})
-			continue
-		}
-		if item.Type != LibraryTypeTV && item.Type != LibraryTypeAnime {
+		if item.Type != kind {
 			continue
 		}
 		key := showKeyFromItem(item.TMDBID, item.Title)
 		showItems[key] = append(showItems[key], item)
 	}
-	for showKey, episodes := range showItems {
-		entry, ok := recentlyAddedEntryForShow(showKey, episodes)
+	entries := make([]RecentlyAddedEntry, 0, len(showItems))
+	for showKey, eps := range showItems {
+		entry, ok := recentlyAddedEntryForShow(showKey, eps)
 		if !ok {
 			continue
 		}
@@ -752,6 +809,29 @@ func buildRecentlyAdded(items []MediaItem) []RecentlyAddedEntry {
 		return entries[:recentlyAddedLimit]
 	}
 	return entries
+}
+
+func buildRecentlyAddedMovieEntries(items []MediaItem) []RecentlyAddedEntry {
+	movies := make([]MediaItem, 0)
+	for _, item := range items {
+		if item.Type == LibraryTypeMovie {
+			movies = append(movies, item)
+		}
+	}
+	sort.Slice(movies, func(i, j int) bool {
+		if movies[i].ID != movies[j].ID {
+			return movies[i].ID > movies[j].ID
+		}
+		return movies[i].Title < movies[j].Title
+	})
+	out := make([]RecentlyAddedEntry, 0, min(len(movies), recentlyAddedLimit))
+	for _, m := range movies {
+		if len(out) >= recentlyAddedLimit {
+			break
+		}
+		out = append(out, RecentlyAddedEntry{Kind: "movie", Media: m})
+	}
+	return out
 }
 
 func continueWatchingEntryForShow(showKey string, episodes []MediaItem) (ContinueWatchingEntry, bool) {
@@ -923,6 +1003,28 @@ func attachPlaybackProgressBatch(db *sql.DB, userID int, items []MediaItem) ([]M
 		}
 	}
 	return items, nil
+}
+
+// AttachPlaybackProgressToLibraryMovieDetails fills the playback fields on a movie details response.
+func AttachPlaybackProgressToLibraryMovieDetails(db *sql.DB, userID int, mediaID int, details *LibraryMovieDetails) error {
+	if details == nil || userID <= 0 || mediaID <= 0 {
+		return nil
+	}
+	progressByID, err := getPlaybackProgressByMediaIDs(db, userID, []int{mediaID})
+	if err != nil {
+		return err
+	}
+	progress, ok := progressByID[mediaID]
+	if !ok {
+		details.ProgressSeconds = nil
+		details.ProgressPercent = nil
+		details.Completed = nil
+		return nil
+	}
+	details.ProgressSeconds = &progress.PositionSeconds
+	details.ProgressPercent = &progress.ProgressPercent
+	details.Completed = &progress.Completed
+	return nil
 }
 
 func getPlaybackProgressByMediaIDs(db *sql.DB, userID int, mediaIDs []int) (map[int]playbackProgressRow, error) {

@@ -181,8 +181,10 @@ func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub)
 		enrichCancels:  make(map[int]context.CancelFunc),
 		watcherStops:   make(map[int]context.CancelFunc),
 		schedulerStops: make(map[int]context.CancelFunc),
-		enrichSem:      make(chan struct{}, 1),
-		identifySem:    make(chan struct{}, 1),
+		enrichSem: make(chan struct{}, 1),
+		// More than one library can identify at a time so a long TV pass does not
+		// block movie libraries (each run still has its own rate limiter).
+		identifySem: make(chan struct{}, 2),
 		lastFlushed:    make(map[int]libraryScanFlushState),
 		lastActivityAt: make(map[int]time.Time),
 	}
@@ -694,6 +696,23 @@ func (m *LibraryScanManager) nextQueuedLocked() (int, libraryScanStatus, string,
 	return nextID, status, m.types[nextID], m.paths[nextID]
 }
 
+// libraryScanQueueTypePriority orders the global scan queue so video libraries (and identify)
+// run before music, matching product expectation: movies → TV → anime → music.
+func libraryScanQueueTypePriority(libraryType string) int {
+	switch libraryType {
+	case db.LibraryTypeMovie:
+		return 0
+	case db.LibraryTypeTV:
+		return 1
+	case db.LibraryTypeAnime:
+		return 2
+	case db.LibraryTypeMusic:
+		return 3
+	default:
+		return 4
+	}
+}
+
 func (m *LibraryScanManager) queuedLibrariesLocked() []queuedLibrary {
 	queued := make([]queuedLibrary, 0, len(m.jobs))
 	for libraryID, status := range m.jobs {
@@ -706,6 +725,11 @@ func (m *LibraryScanManager) queuedLibrariesLocked() []queuedLibrary {
 		})
 	}
 	sort.Slice(queued, func(i, j int) bool {
+		pi := libraryScanQueueTypePriority(m.types[queued[i].id])
+		pj := libraryScanQueueTypePriority(m.types[queued[j].id])
+		if pi != pj {
+			return pi < pj
+		}
 		if queued[i].queuedAt != queued[j].queuedAt {
 			if queued[i].queuedAt == "" {
 				return false
@@ -965,12 +989,25 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 	m.mu.Unlock()
 	m.flushStatus(libraryID, true)
 
+	log.Printf(
+		"library scan enrichment queued library_id=%d type=%s tasks=%d identify_requested=%v (global enrichment slot: max 1 library at a time; workers per library=%d)",
+		libraryID, libraryType, len(tasks), identifyRequested, db.EnrichmentWorkerCount,
+	)
+
 	go func() {
+		waitStart := time.Now()
 		select {
 		case m.enrichSem <- struct{}{}:
 		case <-ctx.Done():
 			m.finishEnrichment(libraryID)
 			return
+		}
+		waitElapsed := time.Since(waitStart).Round(time.Millisecond)
+		if waitElapsed > 0 {
+			log.Printf(
+				"library scan enrichment acquired_slot library_id=%d type=%s waited=%s",
+				libraryID, libraryType, waitElapsed,
+			)
 		}
 		defer func() { <-m.enrichSem }()
 
@@ -995,13 +1032,26 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 				m.recordActivity(libraryID, activity.Phase, activity.Target, activity.Path)
 			},
 		}
+		musicIdentify := false
 		if libraryType == db.LibraryTypeMusic && identifyRequested {
 			if musicIdentifier, ok := m.meta.(metadata.MusicIdentifier); ok {
 				options.MusicIdentifier = musicIdentifier
+				musicIdentify = true
 			}
 		}
+
+		runStart := time.Now()
+		log.Printf(
+			"library scan enrichment running library_id=%d type=%s tasks=%d music_identify=%v subpaths=%d",
+			libraryID, libraryType, len(tasks), musicIdentify, len(subpaths),
+		)
 		err := enrichLibraryTasks(ctx, m.db, path, libraryType, libraryID, tasks, options)
+		runElapsed := time.Since(runStart).Round(time.Millisecond)
 		if err != nil {
+			log.Printf(
+				"library scan enrichment finished library_id=%d type=%s elapsed=%s err=%v",
+				libraryID, libraryType, runElapsed, err,
+			)
 			if ctx.Err() == nil {
 				m.failEnrichment(libraryID, err.Error())
 				return
@@ -1009,6 +1059,10 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 			m.finishEnrichment(libraryID)
 			return
 		}
+		log.Printf(
+			"library scan enrichment finished library_id=%d type=%s elapsed=%s ok",
+			libraryID, libraryType, runElapsed,
+		)
 		m.finishEnrichment(libraryID)
 	}()
 }

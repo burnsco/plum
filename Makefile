@@ -104,13 +104,13 @@ lint-frontend:
 fmt: fmt-backend fmt-frontend
 
 fmt-backend:
-	cd apps/server && go fmt ./...
+	cd apps/server && ../../scripts/go.sh fmt ./...
 
 fmt-frontend:
 	cd apps/web && $(BUN) run format
 
 test:
-	cd apps/server && go test -v ./...
+	cd apps/server && ../../scripts/go.sh test -v ./...
 
 android-tv-build:
 	./scripts/android-tv.sh :app:assembleDebug

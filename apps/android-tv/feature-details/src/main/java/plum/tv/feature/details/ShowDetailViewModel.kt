@@ -23,6 +23,10 @@ sealed interface ShowDetailUiState {
         val details: LibraryShowDetailsJson,
         val seasons: List<ShowSeasonEpisodesJson>,
         val selectedSeasonIndex: Int,
+        /** Season tab chosen on first open (resume / next episode). */
+        val resumeSeasonIndex: Int,
+        /** Episode row to focus within [resumeSeasonIndex] on first open; when user switches season, UI uses 0. */
+        val resumeEpisodeIndex: Int,
     ) : ShowDetailUiState
     data class Error(val message: String) : ShowDetailUiState
 }
@@ -64,11 +68,15 @@ class ShowDetailViewModel @Inject constructor(
                         return@coroutineScope
                     }
                     val seasons = eps.getOrNull()?.seasons.orEmpty()
-                    _state.value = ShowDetailUiState.Ready(
-                        details = det.getOrNull()!!,
-                        seasons = seasons,
-                        selectedSeasonIndex = 0,
-                    )
+                    val (resumeSeason, resumeEp) = computeResumeSeasonAndEpisode(seasons)
+                    _state.value =
+                        ShowDetailUiState.Ready(
+                            details = det.getOrNull()!!,
+                            seasons = seasons,
+                            selectedSeasonIndex = resumeSeason,
+                            resumeSeasonIndex = resumeSeason,
+                            resumeEpisodeIndex = resumeEp,
+                        )
                 }
             }
     }
@@ -77,7 +85,10 @@ class ShowDetailViewModel @Inject constructor(
         val cur = _state.value
         if (cur !is ShowDetailUiState.Ready) return
         if (index in cur.seasons.indices) {
-            _state.value = cur.copy(selectedSeasonIndex = index)
+            _state.value =
+                cur.copy(
+                    selectedSeasonIndex = index,
+                )
         }
     }
 }

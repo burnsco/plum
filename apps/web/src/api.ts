@@ -4,6 +4,7 @@ import type { LibraryMediaPage, MediaItem } from "@plum/shared";
 export type {
   AttachPlaybackSessionCommand,
   ClientPlaybackCapabilities,
+  ContinueWatchingEntry,
   CreateLibraryPayload,
   CredentialsPayload,
   CreatePlaybackSessionPayload,
@@ -84,6 +85,11 @@ export type {
 
 export const BASE_URL = ensureBaseUrl(import.meta.env.VITE_BACKEND_URL as string | undefined);
 
+/** When set (typical dev: `http://localhost:8080`), HLS/direct stream URLs use this origin while API + WS can stay on the Vite proxy via {@link BASE_URL}. */
+export const PLAYBACK_STREAM_BASE_URL = ensureBaseUrl(
+  import.meta.env.VITE_PLAYBACK_STREAM_BASE as string | undefined,
+);
+
 const client = createPlumApiClient({
   baseUrl: BASE_URL,
   fetch: globalThis.fetch.bind(globalThis),
@@ -94,6 +100,7 @@ export const {
   createAdmin,
   login,
   logout,
+  createQuickConnectCode,
   getMe,
   createLibrary,
   getLibraryScanStatus,

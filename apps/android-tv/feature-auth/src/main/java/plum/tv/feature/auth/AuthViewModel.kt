@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.SessionRepository
 import javax.inject.Inject
@@ -35,14 +36,23 @@ class AuthViewModel @Inject constructor(
         null,
     )
 
-    fun saveServerUrl(url: String, onUrlChangedInvalidate: (() -> Unit)? = null) {
+    fun saveServerUrl(
+        url: String,
+        onUrlChangedInvalidate: (() -> Unit)? = null,
+        /** Called on the main thread after the URL is persisted (or if the save coroutine fails). */
+        onDone: (() -> Unit)? = null,
+    ) {
         viewModelScope.launch {
-            val hadToken = sessionRepository.sessionToken.first().isNullOrBlank().not()
-            sessionRepository.setServerUrl(url)
-            browseRepository.invalidateLibrariesCache()
-            val still = sessionRepository.sessionToken.first().isNullOrBlank().not()
-            if (hadToken && !still) {
-                onUrlChangedInvalidate?.invoke()
+            try {
+                val hadToken = sessionRepository.sessionToken.first().isNullOrBlank().not()
+                sessionRepository.setServerUrl(url)
+                browseRepository.invalidateLibrariesCache()
+                val still = sessionRepository.sessionToken.first().isNullOrBlank().not()
+                if (hadToken && !still) {
+                    onUrlChangedInvalidate?.invoke()
+                }
+            } finally {
+                onDone?.invoke()
             }
         }
     }
@@ -58,22 +68,60 @@ class AuthViewModel @Inject constructor(
             sessionRepository.setServerUrl(defaultServerUrl)
         }
 
-        val serverUrl = sessionRepository.serverUrl.first()?.trim()?.trimEnd('/')
-        val sessionToken = sessionRepository.sessionToken.first()
-        if (!serverUrl.isNullOrBlank() && sessionToken.isNullOrBlank() && defaultAdminEmail.isNotBlank() && defaultAdminPassword.isNotBlank()) {
-            sessionRepository.login(defaultAdminEmail, defaultAdminPassword).getOrNull()
+        suspend fun tryDefaultAdminAutoLogin() {
+            val url = sessionRepository.serverUrl.first()?.trim()?.trimEnd('/')
+            if (url.isNullOrBlank()) return
+            if (sessionRepository.sessionToken.first().isNullOrBlank().not()) return
+            if (defaultAdminEmail.isBlank() || defaultAdminPassword.isBlank()) return
+            sessionRepository.login(defaultAdminEmail, defaultAdminPassword)
+                .onSuccess { browseRepository.invalidateLibrariesCache() }
         }
 
-        return readStartupState()
+        tryDefaultAdminAutoLogin()
+
+        var state = readStartupState()
+        if (state == StartupState.Authenticated && sessionRepository.serverRejectsStoredSession()) {
+            sessionRepository.clearLocalSession()
+            browseRepository.invalidateLibrariesCache()
+            tryDefaultAdminAutoLogin()
+            state = readStartupState()
+        }
+        return state
     }
 
     fun login(email: String, password: String, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
-            onResult(
-                sessionRepository.login(email, password)
-                    .onSuccess { browseRepository.invalidateLibrariesCache() }
-                    .map { },
-            )
+            val result =
+                withTimeoutOrNull(35_000) {
+                    sessionRepository.login(email, password)
+                        .onSuccess { browseRepository.invalidateLibrariesCache() }
+                        .map { }
+                }
+                    ?: Result.failure(
+                        Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                    )
+            onResult(result)
+        }
+    }
+
+    /** Redeem a 4-digit code created in the web app (Settings → Quick connect). */
+    fun redeemQuickConnect(code: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val normalized = code.filter { it.isDigit() }.take(4)
+            val result =
+                if (normalized.length != 4) {
+                    Result.failure(Exception("Enter the 4-digit code from the web app."))
+                } else {
+                    withTimeoutOrNull(35_000) {
+                        sessionRepository.redeemQuickConnect(normalized)
+                            .onSuccess { browseRepository.invalidateLibrariesCache() }
+                            .map { }
+                    }
+                        ?: Result.failure(
+                            Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                        )
+                }
+            onResult(result)
         }
     }
 

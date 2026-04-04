@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,9 +26,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +43,7 @@ import androidx.tv.material3.Text
 import plum.tv.core.network.DiscoverGenreJson
 import plum.tv.core.network.DiscoverItemJson
 import plum.tv.core.network.DownloadItemJson
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
@@ -95,35 +101,50 @@ fun DiscoverRoute(
                 },
             )
         }
-        is DiscoverUiState.Ready -> LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PlumScreenPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item {
-                DiscoverHeader(onOpenBrowse = onOpenBrowse)
-            }
-            item {
-                DiscoverGenres(
-                    movieGenres = s.genres.movieGenres,
-                    tvGenres = s.genres.tvGenres,
-                    onOpenBrowse = onOpenBrowse,
-                )
-            }
-            items(s.discover.shelves, key = { it.id }) { shelf ->
-                DiscoverShelfRow(
-                    title = shelf.title,
-                    items = shelf.items,
-                    serverBase = serverBase,
-                    onOpenTitle = onOpenTitle,
-                )
+        is DiscoverUiState.Ready -> {
+            val discoverLeadFocus = remember { FocusRequester() }
+            LaunchedTvFocusTo(
+                s.discover.shelves.joinToString(separator = ",") { it.id },
+                s.genres.movieGenres.size,
+                s.genres.tvGenres.size,
+                focusRequester = discoverLeadFocus,
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PlumScreenPadding(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item {
+                    DiscoverHeader(
+                        onOpenBrowse = onOpenBrowse,
+                        browseLeadFocus = discoverLeadFocus,
+                    )
+                }
+                item {
+                    DiscoverGenres(
+                        movieGenres = s.genres.movieGenres,
+                        tvGenres = s.genres.tvGenres,
+                        onOpenBrowse = onOpenBrowse,
+                    )
+                }
+                items(s.discover.shelves, key = { it.id }) { shelf ->
+                    DiscoverShelfRow(
+                        title = shelf.title,
+                        items = shelf.items,
+                        serverBase = serverBase,
+                        onOpenTitle = onOpenTitle,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DiscoverHeader(onOpenBrowse: (String?, String?, Int?) -> Unit) {
+private fun DiscoverHeader(
+    onOpenBrowse: (String?, String?, Int?) -> Unit,
+    browseLeadFocus: FocusRequester? = null,
+) {
     PlumPanel(contentPadding = PaddingValues(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PlumScreenTitle(
@@ -131,7 +152,12 @@ private fun DiscoverHeader(onOpenBrowse: (String?, String?, Int?) -> Unit) {
                 subtitle = "Browse shelves, filter genres, and jump into title detail.",
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PlumActionButton("Browse All", onClick = { onOpenBrowse(null, null, null) }, leadingBadge = "B")
+                PlumActionButton(
+                    modifier = browseLeadFocus?.let { Modifier.focusRequester(it) } ?: Modifier,
+                    label = "Browse All",
+                    onClick = { onOpenBrowse(null, null, null) },
+                    leadingBadge = "B",
+                )
                 discoverCategoryOptions.take(3).forEach { option ->
                     PlumActionButton(
                         label = option.label,
@@ -219,6 +245,7 @@ private fun DiscoverPosterCard(
     item: DiscoverItemJson,
     serverBase: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val posterUrl = resolveArtworkUrl(serverBase, null, item.posterPath, PlumImageSizes.POSTER_GRID)
     PlumPosterCard(
@@ -226,6 +253,7 @@ private fun DiscoverPosterCard(
         subtitle = discoverItemSubtitle(item),
         imageUrl = posterUrl,
         onClick = onClick,
+        modifier = modifier,
         compact = true,
     )
 }
@@ -266,40 +294,97 @@ fun DiscoverBrowseRoute(
         }
         is DiscoverBrowseUiState.Ready -> {
             val metrics = PlumTheme.metrics
+            val gridFirstFocus = remember { FocusRequester() }
+            val editFiltersFocus = remember { FocusRequester() }
+            val filterFormLeadFocus = remember { FocusRequester() }
+            val startFiltersOpen =
+                category == null && mediaType == null && genreId == null
+            var filtersExpanded by remember(category, mediaType, genreId) {
+                mutableStateOf(startFiltersOpen)
+            }
+            var draftCategory by remember { mutableStateOf<String?>(null) }
+            var draftMediaType by remember { mutableStateOf<String?>(null) }
+            var draftGenreId by remember { mutableStateOf<Int?>(null) }
+
+            LaunchedEffect(filtersExpanded) {
+                if (filtersExpanded) {
+                    draftCategory = s.category
+                    draftMediaType = s.mediaType
+                    draftGenreId = s.genre?.id
+                }
+            }
+
+            LaunchedTvFocusTo(
+                s.title,
+                s.category,
+                s.mediaType,
+                s.genre?.id,
+                s.items.firstOrNull()?.let { "${it.mediaType}-${it.tmdbId}" },
+                filtersExpanded,
+                focusRequester = if (filtersExpanded) filterFormLeadFocus else gridFirstFocus,
+            )
             // Adaptive grid: same approach as LibraryBrowseScreen so column count responds to width.
             val minCell = remember(metrics) { metrics.posterCompactWidth + metrics.cardGap }
             val filterScroll = rememberScrollState()
 
-            // Side column for filters + header keeps the poster grid full-height; stacking everything
-            // in a Column made the filter panel dominate and squeezed the grid to a thin strip on TV.
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(PlumScreenPadding()),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Column(
-                    modifier =
-                        Modifier
-                            .width(340.dp)
-                            .fillMaxHeight()
-                            .verticalScroll(filterScroll),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
-                    PlumScreenTitle(
+                if (filtersExpanded) {
+                    Column(
+                        modifier =
+                            Modifier
+                                .width(392.dp)
+                                .fillMaxHeight()
+                                .verticalScroll(filterScroll),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
+                        PlumScreenTitle(
+                            title = "Filters",
+                            subtitle = "Choose catalog, movies or TV, and a genre — then OK to browse.",
+                        )
+                        DiscoverBrowseFilters(
+                            category = draftCategory,
+                            mediaType = draftMediaType,
+                            genreId = draftGenreId,
+                            genres = s.genres,
+                            catalogLeadFocusRequester = filterFormLeadFocus,
+                            onDraftChange = { c, m, g ->
+                                draftCategory = c
+                                draftMediaType = m
+                                draftGenreId = g
+                            },
+                            onMediaTypeSelected = { m ->
+                                draftMediaType = m
+                                draftGenreId = null
+                            },
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PlumActionButton(
+                                label = "Cancel",
+                                onClick = { filtersExpanded = false },
+                                variant = PlumButtonVariant.Ghost,
+                            )
+                            PlumActionButton(
+                                label = "OK · Browse results",
+                                onClick = {
+                                    viewModel.refresh(draftCategory, draftMediaType, draftGenreId)
+                                    filtersExpanded = false
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    DiscoverBrowseCollapsedSidebar(
                         title = s.title,
-                        subtitle = "${s.totalResults} titles",
-                    )
-                    DiscoverBrowseFilters(
-                        category = s.category,
-                        mediaType = s.mediaType,
-                        genre = s.genre,
-                        genres = s.genres,
-                        compact = true,
-                        onChange = { nextCategory, nextMediaType, nextGenreId ->
-                            viewModel.refresh(nextCategory, nextMediaType, nextGenreId)
-                        },
+                        totalResults = s.totalResults,
+                        onBack = onBack,
+                        onEditFilters = { filtersExpanded = true },
+                        editFiltersFocusRequester = editFiltersFocus,
                     )
                 }
 
@@ -328,11 +413,20 @@ fun DiscoverBrowseRoute(
                             verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
                             contentPadding = PaddingValues(bottom = 24.dp),
                         ) {
-                            items(s.items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
+                            itemsIndexed(
+                                s.items,
+                                key = { _, item -> "${item.mediaType}-${item.tmdbId}" },
+                            ) { index, item ->
                                 DiscoverPosterCard(
                                     item = item,
                                     serverBase = serverBase,
                                     onClick = { onOpenTitle(item.mediaType, item.tmdbId) },
+                                    modifier =
+                                        if (index == 0) {
+                                            Modifier.focusRequester(gridFirstFocus)
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
                         }
@@ -344,75 +438,142 @@ fun DiscoverBrowseRoute(
 }
 
 @Composable
+private fun DiscoverBrowseCollapsedSidebar(
+    title: String,
+    totalResults: Int,
+    onBack: () -> Unit,
+    onEditFilters: () -> Unit,
+    editFiltersFocusRequester: FocusRequester,
+) {
+    val palette = PlumTheme.palette
+    Column(
+        modifier =
+            Modifier
+                .width(236.dp)
+                .fillMaxHeight(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
+        PlumPanel(contentPadding = PaddingValues(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = title,
+                    style = PlumTheme.typography.titleMedium,
+                    color = palette.text,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "$totalResults titles",
+                    style = PlumTheme.typography.bodySmall,
+                    color = palette.muted,
+                )
+                Text(
+                    text = "Press Right to browse posters. Use Edit filters to change catalog, media type, or genre.",
+                    style = PlumTheme.typography.labelMedium,
+                    color = palette.textSecondary,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        PlumActionButton(
+            modifier = Modifier.focusRequester(editFiltersFocusRequester),
+            label = "Edit filters",
+            onClick = onEditFilters,
+            variant = PlumButtonVariant.Primary,
+        )
+    }
+}
+
+@Composable
 private fun DiscoverBrowseFilters(
     category: String?,
     mediaType: String?,
-    genre: DiscoverGenreJson?,
+    genreId: Int?,
     genres: List<DiscoverGenreJson>,
-    compact: Boolean = false,
-    onChange: (String?, String?, Int?) -> Unit,
+    catalogLeadFocusRequester: FocusRequester? = null,
+    onDraftChange: (String?, String?, Int?) -> Unit,
+    onMediaTypeSelected: (String) -> Unit,
 ) {
-    PlumPanel(contentPadding = if (compact) PaddingValues(12.dp) else PaddingValues(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
-            if (!compact) {
-                PlumSectionHeader(
-                    title = "Browse filters",
-                    subtitle = "Refine the shelf without losing your place.",
-                )
-            }
-            DiscoverFilterGroup(title = "Catalog") {
+    PlumPanel(contentPadding = PaddingValues(14.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            DiscoverFilterGroup(title = "Catalog shelf") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         PlumActionButton(
+                            modifier =
+                                catalogLeadFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier,
                             label = "All",
-                            onClick = { onChange(null, mediaType, null) },
-                            variant = if (category == null && genre == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                            onClick = { onDraftChange(null, mediaType, null) },
+                            variant =
+                                if (category == null && genreId == null) {
+                                    PlumButtonVariant.Primary
+                                } else {
+                                    PlumButtonVariant.Secondary
+                                },
                         )
                     }
                     discoverCategoryOptions.forEach { option ->
                         item {
                             PlumActionButton(
                                 label = option.label,
-                                onClick = { onChange(option.id, mediaType, null) },
-                                variant = if (category == option.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                                onClick = { onDraftChange(option.id, mediaType, null) },
+                                variant =
+                                    if (category == option.id) {
+                                        PlumButtonVariant.Primary
+                                    } else {
+                                        PlumButtonVariant.Secondary
+                                    },
                             )
                         }
                     }
                 }
             }
-            DiscoverFilterGroup(title = "Media") {
+            DiscoverFilterGroup(title = "Media type") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         PlumActionButton(
                             label = "Movies",
-                            onClick = { onChange(category, "movie", genre?.id) },
+                            onClick = { onMediaTypeSelected("movie") },
                             variant = if (mediaType == "movie") PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
                         )
                     }
                     item {
                         PlumActionButton(
                             label = "TV",
-                            onClick = { onChange(category, "tv", genre?.id) },
+                            onClick = { onMediaTypeSelected("tv") },
                             variant = if (mediaType == "tv") PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
                         )
                     }
                     item {
                         PlumActionButton(
-                            label = "Clear Genre",
-                            onClick = { onChange(category, mediaType, null) },
-                            variant = if (genre == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                            label = "Clear genre",
+                            onClick = { onDraftChange(category, mediaType, null) },
+                            variant = if (genreId == null) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
                         )
                     }
                 }
             }
             if (genres.isNotEmpty()) {
-                DiscoverFilterGroup(title = "Genre") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(genres, key = { it.id }) { g ->
+                DiscoverFilterGroup(title = "Genre (scroll)") {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(272.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(genres.size, key = { genres[it].id }) { index ->
+                            val g = genres[index]
                             PlumActionButton(
                                 label = g.name,
-                                onClick = { onChange(category, mediaType, g.id) },
-                                variant = if (genre?.id == g.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                                onClick = { onDraftChange(category, mediaType, g.id) },
+                                variant = if (genreId == g.id) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
@@ -474,6 +635,8 @@ fun DiscoverDetailRoute(
         }
         is DiscoverDetailUiState.Ready -> {
             val d = s.details
+            val primaryActionFocus = remember(mediaType, tmdbId) { FocusRequester() }
+            LaunchedTvFocusTo(mediaType, tmdbId, d.title, focusRequester = primaryActionFocus)
             val backdropUrl = resolveArtworkUrl(serverBase, null, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, null, d.posterPath, PlumImageSizes.POSTER_DETAIL)
             val primaryMatch = d.libraryMatches.firstOrNull()
@@ -528,11 +691,13 @@ fun DiscoverDetailRoute(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (primaryMatch != null) {
                                 PlumActionButton(
+                                    modifier = Modifier.focusRequester(primaryActionFocus),
                                     label = "Open in Library",
                                     onClick = { onOpenLibrary(primaryMatch.libraryId, primaryMatch.showKey) },
                                 )
                             } else {
                                 PlumActionButton(
+                                    modifier = Modifier.focusRequester(primaryActionFocus),
                                     label = addLabel,
                                     onClick = {
                                         if (!isConfigured) {
@@ -590,38 +755,50 @@ fun DownloadsRoute(
                 },
             )
         }
-        is DownloadsUiState.Ready -> Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(PlumScreenPadding()),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            PlumPanel {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PlumScreenTitle(
-                        title = "Downloads",
-                        subtitle = "Live queue from Radarr and Sonarr TV.",
-                    )
-                    PlumActionButton("Refresh", onClick = { viewModel.refresh() }, variant = PlumButtonVariant.Secondary)
-                }
-            }
-
-            when {
-                !s.configured -> PlumStatePanel(
-                    title = "Media stack not configured",
-                    message = "Connect Radarr and Sonarr TV on the server to see download activity.",
-                    actions = {
-                        PlumActionButton("Open Settings", onClick = onOpenSettings)
-                    },
-                )
-                s.items.isEmpty() -> PlumStatePanel(
-                    title = "No active downloads",
-                    message = "New items you add from Discover will show up here while the stack is working on them.",
-                )
-                else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    s.items.forEach { item ->
-                        DownloadRow(item)
+        is DownloadsUiState.Ready -> {
+            val refreshFocus = remember { FocusRequester() }
+            LaunchedTvFocusTo(focusRequester = refreshFocus)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(PlumScreenPadding()),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                PlumPanel {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PlumScreenTitle(
+                            title = "Downloads",
+                            subtitle = "Live queue from Radarr and Sonarr TV.",
+                        )
+                        PlumActionButton(
+                            modifier = Modifier.focusRequester(refreshFocus),
+                            label = "Refresh",
+                            onClick = { viewModel.refresh() },
+                            variant = PlumButtonVariant.Secondary,
+                        )
                     }
+                }
+
+                when {
+                    !s.configured ->
+                        PlumStatePanel(
+                            title = "Media stack not configured",
+                            message = "Connect Radarr and Sonarr TV on the server to see download activity.",
+                            actions = {
+                                PlumActionButton("Open Settings", onClick = onOpenSettings)
+                            },
+                        )
+                    s.items.isEmpty() ->
+                        PlumStatePanel(
+                            title = "No active downloads",
+                            message = "New items you add from Discover will show up here while the stack is working on them.",
+                        )
+                    else ->
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            s.items.forEach { item ->
+                                DownloadRow(item)
+                            }
+                        }
                 }
             }
         }

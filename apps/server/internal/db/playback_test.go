@@ -295,24 +295,41 @@ func TestGetHomeDashboardForUser_RecentlyAddedMixesLibrariesAndGroupsShows(t *te
 	if err != nil {
 		t.Fatalf("get home dashboard: %v", err)
 	}
-	if len(dashboard.RecentlyAdded) != 3 {
-		t.Fatalf("recently added = %+v", dashboard.RecentlyAdded)
+	if len(dashboard.RecentlyAddedTvEpisodes) != 2 {
+		t.Fatalf("tv episodes = %+v", dashboard.RecentlyAddedTvEpisodes)
 	}
-	if dashboard.RecentlyAdded[0].Kind != "show" || dashboard.RecentlyAdded[0].Media.ID != animeEpisodeID {
-		t.Fatalf("expected anime show first, got %+v", dashboard.RecentlyAdded[0])
+	if dashboard.RecentlyAddedTvEpisodes[0].Kind != "episode" || dashboard.RecentlyAddedTvEpisodes[0].Media.ID != newestTVEpisodeID {
+		t.Fatalf("expected newest TV episode first, got %+v", dashboard.RecentlyAddedTvEpisodes[0])
 	}
-	if dashboard.RecentlyAdded[1].Kind != "show" || dashboard.RecentlyAdded[1].Media.ID != newestTVEpisodeID {
-		t.Fatalf("expected grouped TV show second, got %+v", dashboard.RecentlyAdded[1])
+	if dashboard.RecentlyAddedTvEpisodes[1].Kind != "episode" {
+		t.Fatalf("expected second TV episode entry, got %+v", dashboard.RecentlyAddedTvEpisodes[1])
 	}
-	if dashboard.RecentlyAdded[1].ShowTitle != "Space Show" || dashboard.RecentlyAdded[1].EpisodeLabel != "S01E02" {
-		t.Fatalf("unexpected grouped TV labels: %+v", dashboard.RecentlyAdded[1])
+	if len(dashboard.RecentlyAddedTvShows) != 1 || dashboard.RecentlyAddedTvShows[0].Kind != "show" || dashboard.RecentlyAddedTvShows[0].Media.ID != newestTVEpisodeID {
+		t.Fatalf("expected one grouped TV show, got %+v", dashboard.RecentlyAddedTvShows)
 	}
-	if dashboard.RecentlyAdded[2].Kind != "movie" || dashboard.RecentlyAdded[2].Media.ID != movieID {
-		t.Fatalf("expected movie third, got %+v", dashboard.RecentlyAdded[2])
+	if dashboard.RecentlyAddedTvShows[0].ShowTitle != "Space Show" || dashboard.RecentlyAddedTvShows[0].EpisodeLabel != "S01E02" {
+		t.Fatalf("unexpected grouped TV labels: %+v", dashboard.RecentlyAddedTvShows[0])
 	}
-	for _, entry := range dashboard.RecentlyAdded {
-		if entry.Media.ID == musicID || entry.Media.Type == LibraryTypeMusic {
-			t.Fatalf("expected music to be excluded from recently added, got %+v", dashboard.RecentlyAdded)
+	if len(dashboard.RecentlyAddedMovies) != 1 || dashboard.RecentlyAddedMovies[0].Kind != "movie" || dashboard.RecentlyAddedMovies[0].Media.ID != movieID {
+		t.Fatalf("expected movie, got %+v", dashboard.RecentlyAddedMovies)
+	}
+	if len(dashboard.RecentlyAddedAnimeEpisodes) != 1 || dashboard.RecentlyAddedAnimeEpisodes[0].Kind != "episode" || dashboard.RecentlyAddedAnimeEpisodes[0].Media.ID != animeEpisodeID {
+		t.Fatalf("expected anime episode, got %+v", dashboard.RecentlyAddedAnimeEpisodes)
+	}
+	if len(dashboard.RecentlyAddedAnimeShows) != 1 || dashboard.RecentlyAddedAnimeShows[0].Kind != "show" || dashboard.RecentlyAddedAnimeShows[0].Media.ID != animeEpisodeID {
+		t.Fatalf("expected grouped anime show, got %+v", dashboard.RecentlyAddedAnimeShows)
+	}
+	for _, list := range [][]RecentlyAddedEntry{
+		dashboard.RecentlyAddedTvEpisodes,
+		dashboard.RecentlyAddedTvShows,
+		dashboard.RecentlyAddedMovies,
+		dashboard.RecentlyAddedAnimeEpisodes,
+		dashboard.RecentlyAddedAnimeShows,
+	} {
+		for _, entry := range list {
+			if entry.Media.ID == musicID || entry.Media.Type == LibraryTypeMusic {
+				t.Fatalf("expected music to be excluded from recently added, got %+v", entry)
+			}
 		}
 	}
 }

@@ -216,8 +216,17 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    const videoTypeOrder = ["movie", "tv", "anime"] as const;
     const identifyableLibraries = libraries
       .filter((library) => library.type !== "music")
+      .toSorted((a, b) => {
+        const ia = videoTypeOrder.indexOf(a.type as (typeof videoTypeOrder)[number]);
+        const ib = videoTypeOrder.indexOf(b.type as (typeof videoTypeOrder)[number]);
+        const pa = ia === -1 ? 99 : ia;
+        const pb = ib === -1 ? 99 : ib;
+        if (pa !== pb) return pa - pb;
+        return a.id - b.id;
+      })
       .map((library) => library.id);
     const activeIds = new Set(identifyableLibraries);
     identifyOrderRef.current =

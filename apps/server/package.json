@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bash ../../scripts/run-server-dev.sh",
-    "build": "go build -o plum ./cmd/plum/main.go",
-    "test": "go test ./..."
+    "build": "bash ../../scripts/go.sh build -o plum ./cmd/plum/main.go",
+    "test": "bash ../../scripts/go.sh test ./..."
   }
 }

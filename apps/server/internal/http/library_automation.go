@@ -295,14 +295,18 @@ func detectLibraryPollChanges(root string, previous, current map[string]libraryP
 }
 
 func (m *LibraryScanManager) queueAutomatedScan(libraryID int, root, libraryType, eventPath string) {
+	// Match default manual scan behavior (identify != false): new hardlinks / *arr imports
+	// should get TMDB matching as soon as discovery sees them. Music skips identify when
+	// no music identifier is configured (see LibraryScanManager.start).
+	autoIdentify := true
 	rel, err := filepath.Rel(root, eventPath)
 	if err != nil {
-		m.start(libraryID, root, libraryType, false, nil)
+		m.start(libraryID, root, libraryType, autoIdentify, nil)
 		return
 	}
 	rel = filepath.Clean(rel)
 	if rel == "." || rel == "" || strings.HasPrefix(rel, "..") {
-		m.start(libraryID, root, libraryType, false, nil)
+		m.start(libraryID, root, libraryType, autoIdentify, nil)
 		return
 	}
 	subpath := rel
@@ -310,10 +314,10 @@ func (m *LibraryScanManager) queueAutomatedScan(libraryID int, root, libraryType
 		subpath = filepath.Dir(rel)
 	}
 	if subpath == "." || subpath == "" {
-		m.start(libraryID, root, libraryType, false, nil)
+		m.start(libraryID, root, libraryType, autoIdentify, nil)
 		return
 	}
-	m.start(libraryID, root, libraryType, false, []string{subpath})
+	m.start(libraryID, root, libraryType, autoIdentify, []string{subpath})
 }
 
 func retryableLibraryError(errText string) bool {

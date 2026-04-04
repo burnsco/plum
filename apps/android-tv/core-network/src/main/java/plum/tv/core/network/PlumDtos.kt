@@ -93,7 +93,11 @@ data class RecentlyAddedEntryJson(
 @JsonClass(generateAdapter = true)
 data class HomeDashboardJson(
     @Json(name = "continueWatching") val continueWatching: List<ContinueWatchingEntryJson> = emptyList(),
-    @Json(name = "recentlyAdded") val recentlyAdded: List<RecentlyAddedEntryJson> = emptyList(),
+    @Json(name = "recentlyAddedTvEpisodes") val recentlyAddedTvEpisodes: List<RecentlyAddedEntryJson> = emptyList(),
+    @Json(name = "recentlyAddedTvShows") val recentlyAddedTvShows: List<RecentlyAddedEntryJson> = emptyList(),
+    @Json(name = "recentlyAddedMovies") val recentlyAddedMovies: List<RecentlyAddedEntryJson> = emptyList(),
+    @Json(name = "recentlyAddedAnimeEpisodes") val recentlyAddedAnimeEpisodes: List<RecentlyAddedEntryJson> = emptyList(),
+    @Json(name = "recentlyAddedAnimeShows") val recentlyAddedAnimeShows: List<RecentlyAddedEntryJson> = emptyList(),
 )
 
 @JsonClass(generateAdapter = true)
@@ -182,6 +186,9 @@ data class LibraryMovieDetailsJson(
     @Json(name = "embeddedAudioTracks") val embeddedAudioTracks: List<EmbeddedAudioTrackJson> = emptyList(),
     @Json(name = "genres") val genres: List<String> = emptyList(),
     @Json(name = "cast") val cast: List<TitleCastMemberJson>? = null,
+    @Json(name = "progress_seconds") val progressSeconds: Double? = null,
+    @Json(name = "progress_percent") val progressPercent: Double? = null,
+    @Json(name = "completed") val completed: Boolean? = null,
 )
 
 @JsonClass(generateAdapter = true)

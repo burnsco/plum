@@ -42,7 +42,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className="hidden w-60 shrink-0 border-r border-(--plum-chrome-border) bg-(--plum-sidebar-bg) md:flex md:flex-col"
+      className="hidden shrink-0 border-r border-(--plum-chrome-border) bg-(--plum-sidebar-bg) md:flex md:w-[var(--plum-sidebar-width)] md:flex-col"
       style={{ boxShadow: "inset -1px 0 0 var(--plum-chrome-border)" }}
     >
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-4" aria-label="Libraries">

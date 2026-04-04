@@ -4,11 +4,14 @@ export function recentlyAddedEntryKey(entry: RecentlyAddedEntry): string {
   if (entry.kind === "show" && entry.show_key?.trim().length) {
     return `show:${entry.show_key}`;
   }
+  if (entry.kind === "episode") {
+    return `episode:${entry.media.id}`;
+  }
   return `${entry.kind}:${entry.media.id}`;
 }
 
 export function buildRecentlyAddedToastLabel(entry: RecentlyAddedEntry): string {
-  if (entry.kind === "show") {
+  if (entry.kind === "show" || entry.kind === "episode") {
     const showTitle = entry.show_title?.trim() || entry.media.title.trim();
     const episodeLabel = entry.episode_label?.trim() || "";
     if (episodeLabel.length > 0) {

@@ -14,6 +14,16 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
   fi
 fi
 
+# Kotlin stores recoverable compilation state under $TMPDIR (e.g. kotlin-backups*).
+# Default to an on-disk temp directory so /tmp quota pressure does not break builds.
+if [[ -z "${PLUM_ANDROID_USE_SYSTEM_TMPDIR:-}" ]]; then
+  TMPDIR_ROOT="${PLUM_ANDROID_TV_TMPDIR:-$ROOT/tmp/android-tv}"
+  mkdir -p "$TMPDIR_ROOT"
+  export TMPDIR="$TMPDIR_ROOT"
+  export TEMP="$TMPDIR_ROOT"
+  export TMP="$TMPDIR_ROOT"
+fi
+
 if [[ ! -f local.properties ]]; then
   if [[ -z "${ANDROID_HOME:-}" ]]; then
     for sdk_dir in "$HOME/Android/Sdk" /opt/android-sdk /usr/lib/android-sdk; do

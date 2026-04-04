@@ -71,7 +71,9 @@ import {
   updateMediaStackSettings,
   updateTranscodingSettings,
   validateMediaStackSettings,
+  type RecentlyAddedEntry,
 } from "./api";
+import { recentlyAddedEntryKey } from "@/lib/libraryReadyNotifications";
 
 type LibrariesResult = Awaited<ReturnType<typeof listLibraries>>;
 type DiscoverResult = Awaited<ReturnType<typeof getDiscover>>;
@@ -281,17 +283,69 @@ function cloneSearchResponse(response: SearchLibraryMediaResult): SearchResponse
   };
 }
 
+function cloneRecentlyAddedEntries(entries: RecentlyAddedEntry[] | undefined): RecentlyAddedEntry[] {
+  const list = entries ?? [];
+  return list.map((entry) => ({
+    ...entry,
+    media: cloneMediaItem(entry.media),
+  })) as RecentlyAddedEntry[];
+}
+
+/** Deduped merge for LibraryReadyNotifier (TV episodes → shows → movies → anime episodes → anime shows). */
+function mergeDashboardRecentlyAddedForNotifier(
+  tvEpisodes: RecentlyAddedEntry[],
+  tvShows: RecentlyAddedEntry[],
+  movies: RecentlyAddedEntry[],
+  animeEpisodes: RecentlyAddedEntry[],
+  animeShows: RecentlyAddedEntry[],
+): RecentlyAddedEntry[] {
+  const merged = [...tvEpisodes, ...tvShows, ...movies, ...animeEpisodes, ...animeShows];
+  const seen = new Set<string>();
+  const out: RecentlyAddedEntry[] = [];
+  for (const e of merged) {
+    const k = recentlyAddedEntryKey(e);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  return out;
+}
+
 function cloneHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
+  const recentlyAddedTvEpisodes = cloneRecentlyAddedEntries(
+    dashboard.recentlyAddedTvEpisodes as unknown as RecentlyAddedEntry[] | undefined,
+  );
+  const recentlyAddedTvShows = cloneRecentlyAddedEntries(
+    dashboard.recentlyAddedTvShows as unknown as RecentlyAddedEntry[] | undefined,
+  );
+  const recentlyAddedMovies = cloneRecentlyAddedEntries(
+    dashboard.recentlyAddedMovies as unknown as RecentlyAddedEntry[] | undefined,
+  );
+  const recentlyAddedAnimeEpisodes = cloneRecentlyAddedEntries(
+    dashboard.recentlyAddedAnimeEpisodes as unknown as RecentlyAddedEntry[] | undefined,
+  );
+  const recentlyAddedAnimeShows = cloneRecentlyAddedEntries(
+    dashboard.recentlyAddedAnimeShows as unknown as RecentlyAddedEntry[] | undefined,
+  );
+  const recentlyAdded = mergeDashboardRecentlyAddedForNotifier(
+    recentlyAddedTvEpisodes,
+    recentlyAddedTvShows,
+    recentlyAddedMovies,
+    recentlyAddedAnimeEpisodes,
+    recentlyAddedAnimeShows,
+  );
   return {
     ...dashboard,
     continueWatching: dashboard.continueWatching.map((entry) => ({
       ...entry,
       media: cloneMediaItem(entry.media),
     })),
-    recentlyAdded: (dashboard.recentlyAdded ?? []).map((entry) => ({
-      ...entry,
-      media: cloneMediaItem(entry.media),
-    })),
+    recentlyAddedTvEpisodes,
+    recentlyAddedTvShows,
+    recentlyAddedMovies,
+    recentlyAddedAnimeEpisodes,
+    recentlyAddedAnimeShows,
+    recentlyAdded,
   };
 }
 

@@ -261,6 +261,31 @@ func TestBuildHLSPlans_HardwareUsesSegmentAlignedKeyframes(t *testing.T) {
 	}
 }
 
+func TestBuildTranscodePlans_ProbeFlagsBeforeInput(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = false
+	settings.HardwareEncodingEnabled = false
+	stream := videoStreamInfo{CodecName: "h264", PixelFmt: "yuv420p"}
+	plans := buildTranscodePlans("/media/x.mkv", "/tmp/out.mp4", settings, stream, -1)
+	args := plans[0].Args
+	iInput := -1
+	for i, a := range args {
+		if a == "-i" {
+			iInput = i
+			break
+		}
+	}
+	if iInput < 4 {
+		t.Fatalf("unexpected args: %v", args)
+	}
+	if args[iInput-4] != "-analyzeduration" || args[iInput-3] != "100000000" {
+		t.Fatalf("want -analyzeduration 100000000 before -i, got %#v", args[iInput-4:iInput+2])
+	}
+	if args[iInput-2] != "-probesize" || args[iInput-1] != "134217728" {
+		t.Fatalf("want -probesize 134217728 before -i, got %#v", args[iInput-4:iInput+2])
+	}
+}
+
 func containsArgs(args []string, needle string) bool {
 	for _, arg := range args {
 		if arg == needle {

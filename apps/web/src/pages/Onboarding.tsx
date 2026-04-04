@@ -223,8 +223,8 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
     setAddingDefaults(true);
     try {
       const defaultLibraries: { name: string; type: LibraryType; path: string }[] = [
-        { name: "TV", type: "tv", path: defaultLibraryPaths.tv },
         { name: "Movies", type: "movie", path: defaultLibraryPaths.movie },
+        { name: "TV", type: "tv", path: defaultLibraryPaths.tv },
         { name: "Anime", type: "anime", path: defaultLibraryPaths.anime },
         { name: "Music", type: "music", path: defaultLibraryPaths.music },
       ];

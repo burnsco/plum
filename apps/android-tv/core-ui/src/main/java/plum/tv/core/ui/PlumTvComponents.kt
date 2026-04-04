@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -398,6 +400,8 @@ fun PlumPosterCard(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     progressPercent: Double? = null,
+    /** Fully watched — corner badge (library grids, etc.). */
+    watched: Boolean = false,
 ) {
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
@@ -541,6 +545,25 @@ fun PlumPosterCard(
                 }
             }
 
+            if (watched) {
+                Box(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(palette.accent.copy(alpha = 0.92f))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        text = "✓",
+                        style = PlumTheme.typography.labelSmall,
+                        color = Color(0xFF1A1030),
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
             // Title + subtitle overlaid on the scrim
             Column(
                 modifier = Modifier
@@ -606,6 +629,8 @@ fun PlumMetadataChips(
 fun PlumSideRail(
     items: List<PlumRailItem>,
     modifier: Modifier = Modifier,
+    /** D-pad Right from a rail item jumps here (main NavHost content). */
+    contentFocusRequester: FocusRequester? = null,
     footer: @Composable (() -> Unit)? = null,
 ) {
     val palette = PlumTheme.palette
@@ -638,7 +663,7 @@ fun PlumSideRail(
         Spacer(modifier = Modifier.height(18.dp))
 
         items.forEach { item ->
-            PlumRailButton(item)
+            PlumRailButton(item, contentFocusRequester)
             if (item.dividerAfter) {
                 PlumRailDivider()
             }
@@ -651,12 +676,22 @@ fun PlumSideRail(
 }
 
 @Composable
-private fun PlumRailButton(item: PlumRailItem) {
+private fun PlumRailButton(item: PlumRailItem, contentFocusRequester: FocusRequester?) {
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
     val shape = RoundedCornerShape(metrics.tileRadius)
     Surface(
         onClick = item.onClick,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(
+                    if (contentFocusRequester != null) {
+                        Modifier.focusProperties { right = contentFocusRequester }
+                    } else {
+                        Modifier
+                    },
+                ),
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(

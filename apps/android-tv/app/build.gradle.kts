@@ -19,6 +19,13 @@ fun localProperty(name: String): String =
         ?.takeIf { it.isNotEmpty() }
         ?: ""
 
+/** Matches web onboarding “Quick start with default admin” (dev) credentials. */
+private fun defaultAdminEmailBuildConfig(): String =
+    localProperty("plumTv.defaultAdminEmail").ifEmpty { "admin@example.com" }.asBuildConfigString()
+
+private fun defaultAdminPasswordBuildConfig(): String =
+    localProperty("plumTv.defaultAdminPassword").ifEmpty { "passwordpassword" }.asBuildConfigString()
+
 plugins {
     id("plum.android.application")
     id("plum.android.compose")
@@ -37,8 +44,8 @@ android {
         versionName = "0.1.0"
 
         buildConfigField("String", "DEFAULT_SERVER_URL", localProperty("plumTv.defaultServerUrl").asBuildConfigString())
-        buildConfigField("String", "DEFAULT_ADMIN_EMAIL", localProperty("plumTv.defaultAdminEmail").asBuildConfigString())
-        buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", localProperty("plumTv.defaultAdminPassword").asBuildConfigString())
+        buildConfigField("String", "DEFAULT_ADMIN_EMAIL", defaultAdminEmailBuildConfig())
+        buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", defaultAdminPasswordBuildConfig())
     }
     buildTypes {
         release {
@@ -88,4 +95,5 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.okhttp)
     implementation(libs.coil)
+    implementation(libs.coil.compose)
 }

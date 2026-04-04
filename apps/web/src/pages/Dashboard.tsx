@@ -1,4 +1,4 @@
-import type { HomeDashboard } from "@/api";
+import type { HomeDashboard, RecentlyAddedEntry } from "@/api";
 import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -8,16 +8,26 @@ import { useHomeDashboard } from "@/queries";
 
 type DashboardEntry =
   | HomeDashboard["continueWatching"][number]
-  | NonNullable<HomeDashboard["recentlyAdded"]>[number];
-type DashboardShelf = "continueWatching" | "recentlyAdded";
+  | RecentlyAddedEntry;
+
+type DashboardShelf =
+  | "continueWatching"
+  | "recentlyAddedTvEpisodes"
+  | "recentlyAddedTvShows"
+  | "recentlyAddedMovies"
+  | "recentlyAddedAnimeEpisodes"
+  | "recentlyAddedAnimeShows";
 
 function getDashboardEntryTitle(entry: DashboardEntry): string {
-  return entry.kind === "show" ? entry.show_title || entry.media.title : entry.media.title;
+  if (entry.kind === "movie") {
+    return entry.media.title;
+  }
+  return entry.show_title || entry.media.title;
 }
 
 function getDashboardEntrySubtitle(entry: DashboardEntry, shelf: DashboardShelf): string {
   const remainingSeconds = "remaining_seconds" in entry ? entry.remaining_seconds : undefined;
-  if (entry.kind === "show") {
+  if (entry.kind === "show" || entry.kind === "episode") {
     if (shelf === "continueWatching") {
       return [entry.episode_label, formatRemainingTime(remainingSeconds)]
         .filter(Boolean)
@@ -47,7 +57,7 @@ function dashboardDetailHref(entry: DashboardEntry): string | undefined {
 
 /** TV/anime shelves should show series poster art, not episode stills or generated frame thumbnails. */
 function dashboardPosterFields(entry: DashboardEntry): { posterPath?: string; posterUrl?: string } {
-  if (entry.kind === "show") {
+  if (entry.kind === "show" || entry.kind === "episode") {
     return {
       posterPath: entry.media.show_poster_path ?? entry.media.poster_path,
       posterUrl: entry.media.show_poster_url ?? entry.media.poster_url,
@@ -63,15 +73,24 @@ function toPosterGridItem(
   entry: DashboardEntry,
   shelf: DashboardShelf,
   playMovie: (item: DashboardEntry["media"]) => void,
-  playEpisode: (item: DashboardEntry["media"]) => void,
+  playEpisode: (item: DashboardEntry["media"], options?: { showKey?: string }) => void,
 ): PosterGridItem {
   const playItem =
-    entry.kind === "movie" ? () => playMovie(entry.media) : () => playEpisode(entry.media);
+    entry.kind === "movie"
+      ? () => playMovie(entry.media)
+      : () =>
+          playEpisode(
+            entry.media,
+            entry.show_key?.trim() ? { showKey: entry.show_key } : undefined,
+          );
   const href = dashboardDetailHref(entry);
-  const rating = entry.kind === "movie" ? getPreferredMovieRating(entry.media) : {
-    label: entry.media.imdb_rating ? "IMDb" : undefined,
-    value: entry.media.imdb_rating,
-  };
+  const rating =
+    entry.kind === "movie"
+      ? getPreferredMovieRating(entry.media)
+      : {
+          label: entry.media.imdb_rating ? "IMDb" : undefined,
+          value: entry.media.imdb_rating,
+        };
   const { posterPath, posterUrl } = dashboardPosterFields(entry);
 
   return {
@@ -89,6 +108,71 @@ function toPosterGridItem(
   };
 }
 
+type HomeRecentRailsKey =
+  | "recentlyAddedTvEpisodes"
+  | "recentlyAddedTvShows"
+  | "recentlyAddedMovies"
+  | "recentlyAddedAnimeEpisodes"
+  | "recentlyAddedAnimeShows";
+
+type RecentRailConfig = {
+  shelf: Exclude<DashboardShelf, "continueWatching">;
+  entriesKey: HomeRecentRailsKey;
+  title: string;
+  headingId: string;
+  testId: string;
+  countNoun: string;
+  emptyMessage: string;
+};
+
+const RECENT_RAILS: RecentRailConfig[] = [
+  {
+    shelf: "recentlyAddedTvEpisodes",
+    entriesKey: "recentlyAddedTvEpisodes",
+    title: "Recently added TV episodes",
+    headingId: "dash-recent-tv-episodes-heading",
+    testId: "dashboard-recent-tv-episodes-heading",
+    countNoun: "episode",
+    emptyMessage: "Scan a TV library and newly added episodes will appear in this row.",
+  },
+  {
+    shelf: "recentlyAddedTvShows",
+    entriesKey: "recentlyAddedTvShows",
+    title: "Recently added TV shows",
+    headingId: "dash-recent-tv-shows-heading",
+    testId: "dashboard-recent-tv-shows-heading",
+    countNoun: "show",
+    emptyMessage: "Grouped by series — newest episodes surface here once your TV library is scanned.",
+  },
+  {
+    shelf: "recentlyAddedMovies",
+    entriesKey: "recentlyAddedMovies",
+    title: "Recently added movies",
+    headingId: "dash-recent-movies-heading",
+    testId: "dashboard-recent-movies-heading",
+    countNoun: "film",
+    emptyMessage: "Scan a movie library and the newest additions will show up in this row.",
+  },
+  {
+    shelf: "recentlyAddedAnimeEpisodes",
+    entriesKey: "recentlyAddedAnimeEpisodes",
+    title: "Recently added anime episodes",
+    headingId: "dash-recent-anime-episodes-heading",
+    testId: "dashboard-recent-anime-episodes-heading",
+    countNoun: "episode",
+    emptyMessage: "Scan an anime library and new episodes will appear in this row.",
+  },
+  {
+    shelf: "recentlyAddedAnimeShows",
+    entriesKey: "recentlyAddedAnimeShows",
+    title: "Recently added anime",
+    headingId: "dash-recent-anime-shows-heading",
+    testId: "dashboard-recent-anime-shows-heading",
+    countNoun: "show",
+    emptyMessage: "Grouped by series — newest anime episodes surface here once your library is scanned.",
+  },
+];
+
 export function Dashboard() {
   const { data, error, isLoading, refetch } = useHomeDashboard();
   const { playEpisode, playMovie } = usePlayer();
@@ -98,16 +182,10 @@ export function Dashboard() {
       toPosterGridItem(entry, "continueWatching", playMovie, playEpisode),
     ) ?? [];
 
-  const recentlyAdded = data?.recentlyAdded ?? [];
-  const recentlyAddedTv = recentlyAdded.filter((e) => e.kind === "show");
-  const recentlyAddedMovies = recentlyAdded.filter((e) => e.kind === "movie");
-
-  const recentlyAddedTvCards: PosterGridItem[] = recentlyAddedTv.map((entry) =>
-    toPosterGridItem(entry, "recentlyAdded", playMovie, playEpisode),
-  );
-  const recentlyAddedMovieCards: PosterGridItem[] = recentlyAddedMovies.map((entry) =>
-    toPosterGridItem(entry, "recentlyAdded", playMovie, playEpisode),
-  );
+  const railData = RECENT_RAILS.map((rail) => ({
+    ...rail,
+    entries: data?.[rail.entriesKey] ?? [],
+  }));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
@@ -163,55 +241,40 @@ export function Dashboard() {
             )}
           </section>
 
-          <section className="flex flex-col gap-4" aria-labelledby="dash-recent-tv-heading">
-            <div className="flex items-center justify-between gap-4">
-              <h2
-                id="dash-recent-tv-heading"
-                className="text-lg font-semibold text-(--plum-text)"
-                data-testid="dashboard-recent-tv-heading"
-              >
-                Recently added TV shows
-              </h2>
-              {recentlyAddedTv.length ? (
-                <span className="text-sm text-(--plum-muted)">
-                  {recentlyAddedTv.length} show{recentlyAddedTv.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </div>
+          {railData.map((rail) => {
+            const cards: PosterGridItem[] = rail.entries.map((entry) =>
+              toPosterGridItem(entry, rail.shelf, playMovie, playEpisode),
+            );
+            const n = rail.entries.length;
+            const plural = n === 1 ? "" : "s";
+            return (
+              <section key={rail.shelf} className="flex flex-col gap-4" aria-labelledby={rail.headingId}>
+                <div className="flex items-center justify-between gap-4">
+                  <h2
+                    id={rail.headingId}
+                    className="text-lg font-semibold text-(--plum-text)"
+                    data-testid={rail.testId}
+                  >
+                    {rail.title}
+                  </h2>
+                  {n > 0 ? (
+                    <span className="text-sm text-(--plum-muted)">
+                      {n} {rail.countNoun}
+                      {plural}
+                    </span>
+                  ) : null}
+                </div>
 
-            {recentlyAddedTvCards.length === 0 ? (
-              <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8 text-sm text-(--plum-muted)">
-                Scan a TV library and newly added episodes will appear here.
-              </div>
-            ) : (
-              <PosterScrollRail label="Recently added TV shows" items={recentlyAddedTvCards} />
-            )}
-          </section>
-
-          <section className="flex flex-col gap-4" aria-labelledby="dash-recent-movies-heading">
-            <div className="flex items-center justify-between gap-4">
-              <h2
-                id="dash-recent-movies-heading"
-                className="text-lg font-semibold text-(--plum-text)"
-                data-testid="dashboard-recent-movies-heading"
-              >
-                Recently added movies
-              </h2>
-              {recentlyAddedMovies.length ? (
-                <span className="text-sm text-(--plum-muted)">
-                  {recentlyAddedMovies.length} film{recentlyAddedMovies.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </div>
-
-            {recentlyAddedMovieCards.length === 0 ? (
-              <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8 text-sm text-(--plum-muted)">
-                Scan a movie library and the newest additions will show up in this row.
-              </div>
-            ) : (
-              <PosterScrollRail label="Recently added movies" items={recentlyAddedMovieCards} />
-            )}
-          </section>
+                {cards.length === 0 ? (
+                  <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8 text-sm text-(--plum-muted)">
+                    {rail.emptyMessage}
+                  </div>
+                ) : (
+                  <PosterScrollRail label={rail.title} items={cards} />
+                )}
+              </section>
+            );
+          })}
         </>
       ) : null}
     </div>
