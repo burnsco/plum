@@ -4,23 +4,24 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 
 data class PlumCastMember(
     val name: String,
@@ -29,6 +30,7 @@ data class PlumCastMember(
     val profileUrl: String? = null,
 )
 
+/** Compact horizontal cast strip — circular headshots with name + role underneath. */
 @Composable
 fun PlumCastSection(
     cast: List<PlumCastMember>,
@@ -36,91 +38,71 @@ fun PlumCastSection(
     modifier: Modifier = Modifier,
     title: String = "Cast",
 ) {
-    PlumPanel(modifier = modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            PlumSectionHeader(title = title)
-            val palette = PlumTheme.palette
-            val rows = cast.take(18).chunked(3)
-            rows.forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    val palette = PlumTheme.palette
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PlumSectionHeader(title = title)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
+        ) {
+            items(cast.take(20), key = { it.name }) { member ->
+                val photo = resolveArtworkUrl(
+                    serverBase,
+                    member.profileUrl,
+                    member.profilePath,
+                    PlumImageSizes.THUMB_SMALL,
+                )
+                Column(
+                    modifier = Modifier.width(72.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    rowItems.forEach { member ->
-                        val photo =
-                            resolveArtworkUrl(
-                                serverBase,
-                                member.profileUrl,
-                                member.profilePath,
-                                PlumImageSizes.THUMB_SMALL,
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape),
+                    ) {
+                        if (!photo.isNullOrBlank()) {
+                            AsyncImage(
+                                model = photo,
+                                contentDescription = member.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
                             )
-                        Row(
-                            modifier =
-                                Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(PlumTheme.metrics.tileRadius))
-                                    .background(palette.panelAlt)
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
+                        } else {
                             Box(
-                                modifier =
-                                    Modifier
-                                        .size(width = 48.dp, height = 72.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                            ) {
-                                if (!photo.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = photo,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                } else {
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .fillMaxSize()
-                                                .background(palette.panel),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            text =
-                                                member.name.trim().firstOrNull()?.uppercaseChar()?.toString()
-                                                    ?: "?",
-                                            style = PlumTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = palette.muted,
-                                        )
-                                    }
-                                }
-                            }
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(palette.surface),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = member.name,
+                                    text = member.name.trim().firstOrNull()
+                                        ?.uppercaseChar()?.toString() ?: "?",
                                     style = PlumTheme.typography.titleSmall,
-                                    color = palette.text,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.muted,
                                 )
-                                member.character?.takeIf { it.isNotBlank() }?.let { character ->
-                                    Text(
-                                        text = character,
-                                        style = PlumTheme.typography.bodySmall,
-                                        color = palette.muted,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
                             }
                         }
                     }
-                    repeat(3 - rowItems.size) {
-                        Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = member.name,
+                        style = PlumTheme.typography.labelSmall,
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
+                    member.character?.takeIf { it.isNotBlank() }?.let { character ->
+                        Text(
+                            text = character,
+                            style = PlumTheme.typography.labelSmall,
+                            color = palette.muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }

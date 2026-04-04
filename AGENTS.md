@@ -37,7 +37,7 @@ Prerequisites: [Android Studio](https://developer.android.com/studio) with Andro
 1. **SDK path**: Copy [`apps/android-tv/local.properties.example`](apps/android-tv/local.properties.example) to `apps/android-tv/local.properties` and set `sdk.dir=...`, or export `ANDROID_HOME` (the helper script will write `local.properties` from it on first run).
 2. **Build debug APK**: From repo root, `bun run android:assemble` (runs `./scripts/android-tv.sh :app:assembleDebug`).
 3. **Install on a connected device/emulator**: `bun run android:install` (device must be running; use an Android TV system image for TV behavior).
-4. **Install and launch on device**: `bun run android:deploy` (runs `installDebug` then starts the TV app via `adb`). Agents: full JDK/SDK/`adb` notes and intent details are in [`apps/android-tv/AGENT_DEPLOY.md`](apps/android-tv/AGENT_DEPLOY.md).
+4. **Install and launch on device**: `bun run android:deploy` (assembles the debug APK, `adb install -r`, then starts the TV app). Agents: full JDK/SDK/`adb` notes and intent details are in [`apps/android-tv/AGENT_DEPLOY.md`](apps/android-tv/AGENT_DEPLOY.md).
 5. **IDE**: Open the **`apps/android-tv`** directory in Android Studio (File → Open) for Gradle sync, Run/Debug, Logcat, and Kotlin editing. Compose Previews for TV are limited; use a TV emulator or hardware for real UI.
 6. **Backend**: Run Plum server (`bun run dev:server` or your usual command); the app defaults to `http://10.0.2.2:8080` on the emulator (host loopback). Physical devices need your LAN IP and cleartext is allowed via `network_security_config`.
 

@@ -35,6 +35,8 @@ sealed interface DiscoverBrowseUiState {
         val genres: List<plum.tv.core.network.DiscoverGenreJson>,
         val items: List<plum.tv.core.network.DiscoverItemJson>,
         val totalResults: Int,
+        /** True while a filter change is loading new results (grid stays visible). */
+        val refreshing: Boolean = false,
     ) : DiscoverBrowseUiState
     data class Error(val message: String) : DiscoverBrowseUiState
 }
@@ -88,15 +90,32 @@ class DiscoverBrowseViewModel @Inject constructor(
     private val _state = MutableStateFlow<DiscoverBrowseUiState>(DiscoverBrowseUiState.Loading)
     val state: StateFlow<DiscoverBrowseUiState> = _state.asStateFlow()
 
+    private var cachedGenres: plum.tv.core.network.DiscoverGenresResponseJson? = null
+
     fun refresh(category: String? = null, mediaType: String? = null, genreId: Int? = null) {
         viewModelScope.launch {
-            _state.value = DiscoverBrowseUiState.Loading
-            val browse = repository.browseDiscover(category, mediaType, genreId, page = 1).getOrElse {
-                _state.value = DiscoverBrowseUiState.Error(it.message ?: "Failed to load discover browse")
+            val current = _state.value
+            if (current is DiscoverBrowseUiState.Ready) {
+                _state.value = current.copy(refreshing = true)
+            }
+
+            val genres = cachedGenres ?: repository.discoverGenres().getOrElse {
+                if (current is DiscoverBrowseUiState.Ready) {
+                    // Was showing pull-to-refresh / filter spinner; restore grid without sticking on loading.
+                    _state.value = current.copy(refreshing = false)
+                } else {
+                    _state.value = DiscoverBrowseUiState.Error(it.message ?: "Failed to load discover genres")
+                }
                 return@launch
             }
-            val genres = repository.discoverGenres().getOrElse {
-                _state.value = DiscoverBrowseUiState.Error(it.message ?: "Failed to load discover genres")
+            cachedGenres = genres
+
+            val browse = repository.browseDiscover(category, mediaType, genreId, page = 1).getOrElse {
+                if (current is DiscoverBrowseUiState.Ready) {
+                    _state.value = current.copy(refreshing = false)
+                } else {
+                    _state.value = DiscoverBrowseUiState.Error(it.message ?: "Failed to load discover browse")
+                }
                 return@launch
             }
             _state.value = DiscoverBrowseUiState.Ready(
@@ -104,26 +123,31 @@ class DiscoverBrowseViewModel @Inject constructor(
                 category = browse.category,
                 mediaType = browse.mediaType,
                 genre = browse.genre,
-                genres = if (mediaType == "movie") genres.movieGenres else if (mediaType == "tv") genres.tvGenres else genres.movieGenres + genres.tvGenres,
+                genres = when (mediaType) {
+                    "movie" -> genres.movieGenres
+                    "tv" -> genres.tvGenres
+                    else -> genres.movieGenres + genres.tvGenres
+                },
                 items = browse.items,
                 totalResults = browse.totalResults,
             )
         }
     }
 
-    private fun DiscoverBrowseResponseJson.title(): String =
-        run {
-            val genreName = genre?.name
-            val categoryName = category
-            when {
-                genreName != null && mediaType == "movie" -> "$genreName Movies"
-                genreName != null && mediaType == "tv" -> "$genreName TV"
-                !categoryName.isNullOrBlank() -> categoryName.replace('-', ' ').replaceFirstChar { it.uppercase() }
-                mediaType == "movie" -> "Movies"
-                mediaType == "tv" -> "TV"
-                else -> "Browse Everything"
-            }
+    private fun DiscoverBrowseResponseJson.title(): String {
+        val genreName = genre?.name
+        val categoryName = category
+        return when {
+            genreName != null && mediaType == "movie" -> "$genreName Movies"
+            genreName != null && mediaType == "tv" -> "$genreName TV"
+            genreName != null -> genreName
+            !categoryName.isNullOrBlank() -> categoryName.replace('-', ' ')
+                .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            mediaType == "movie" -> "Movies"
+            mediaType == "tv" -> "TV Shows"
+            else -> "Browse"
         }
+    }
 }
 
 @HiltViewModel

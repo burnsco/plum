@@ -454,6 +454,7 @@ func loadRecentDashboardMediaCandidates(db *sql.DB, userID int) ([]MediaItem, er
 	movieQ := `SELECT g.id, 'movie' FROM movies m
 JOIN media_global g ON g.kind = 'movie' AND g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE COALESCE(m.missing_since, '') = ''
 ORDER BY g.id DESC LIMIT ` + limit
 	if err := add(&rows, movieQ, userID); err != nil {
 		return nil, err
@@ -461,6 +462,7 @@ ORDER BY g.id DESC LIMIT ` + limit
 	tvQ := `SELECT g.id, 'tv' FROM tv_episodes m
 JOIN media_global g ON g.kind = 'tv' AND g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE COALESCE(m.missing_since, '') = ''
 ORDER BY g.id DESC LIMIT ` + limit
 	if err := add(&rows, tvQ, userID); err != nil {
 		return nil, err
@@ -468,6 +470,7 @@ ORDER BY g.id DESC LIMIT ` + limit
 	animeQ := `SELECT g.id, 'anime' FROM anime_episodes m
 JOIN media_global g ON g.kind = 'anime' AND g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE COALESCE(m.missing_since, '') = ''
 ORDER BY g.id DESC LIMIT ` + limit
 	if err := add(&rows, animeQ, userID); err != nil {
 		return nil, err

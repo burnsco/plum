@@ -1,6 +1,5 @@
 package plum.tv.core.ui
 
-import android.app.ActivityManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,10 +45,11 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import coil.imageLoader
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.imageLoader
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class PlumButtonVariant {
@@ -89,6 +89,27 @@ private fun isLikelyTmdbRelativePath(path: String): Boolean {
     return path.indexOf('/', startIndex = 1) < 0
 }
 
+private val TMDB_SIZE_REGEX = Regex("w\\d+", RegexOption.IGNORE_CASE)
+
+/**
+ * Backend metadata often stores full `image.tmdb.org/t/p/w500/...` URLs. Callers still pass a target
+ * [tmdbSize] (e.g. [PlumImageSizes.BACKDROP_HERO]); rewrite the path segment so we do not upscale a tiny CDN asset.
+ */
+private fun withTmdbImageSize(url: String, tmdbSize: String): String {
+    val marker = "/t/p/"
+    val idx = url.indexOf(marker, startIndex = 0, ignoreCase = true)
+    if (idx < 0) return url
+    val after = idx + marker.length
+    if (after >= url.length) return url
+    val rest = url.substring(after)
+    val slash = rest.indexOf('/')
+    if (slash <= 0) return url
+    val sizeToken = rest.substring(0, slash)
+    if (sizeToken.equals("original", ignoreCase = true)) return url
+    if (!sizeToken.matches(TMDB_SIZE_REGEX)) return url
+    return url.substring(0, after) + tmdbSize + rest.substring(slash)
+}
+
 /** Resolves artwork from the authenticated backend or a TMDb poster/backdrop path. */
 fun resolveArtworkUrl(
     base: String,
@@ -102,17 +123,20 @@ fun resolveArtworkUrl(
     if (pathTrim != null) {
         when {
             pathTrim.startsWith("http://", ignoreCase = true) ||
-                pathTrim.startsWith("https://", ignoreCase = true) -> return pathTrim
+                pathTrim.startsWith("https://", ignoreCase = true) ->
+                return withTmdbImageSize(pathTrim, tmdbSize)
             isLikelyTmdbRelativePath(pathTrim) -> return "$TMDB_IMAGE_BASE/$tmdbSize$pathTrim"
         }
     }
 
     if (urlTrim != null) {
-        return resolveImageUrl(base, urlTrim)
+        return withTmdbImageSize(resolveImageUrl(base, urlTrim), tmdbSize)
     }
 
     val resolvedPath = pathTrim ?: return null
-    if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) return resolvedPath
+    if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) {
+        return withTmdbImageSize(resolvedPath, tmdbSize)
+    }
     return "$TMDB_IMAGE_BASE/$tmdbSize$resolvedPath"
 }
 
@@ -121,16 +145,13 @@ private fun buildArtworkRequest(
     url: String,
     widthPx: Int,
     heightPx: Int,
-    allowHardware: Boolean,
 ): ImageRequest =
     ImageRequest.Builder(context)
         .data(url)
         .size(widthPx, heightPx)
-        .allowHardware(allowHardware)
-        .crossfade(false)
         .memoryCachePolicy(CachePolicy.ENABLED)
         .diskCachePolicy(CachePolicy.ENABLED)
-    .build()
+        .build()
 
 @Composable
 fun PlumScreenTitle(
@@ -234,10 +255,17 @@ fun PlumDetailBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val context = LocalContext.current
     Box(modifier = modifier.fillMaxSize()) {
         if (backdropUrl != null) {
+            val request = remember(backdropUrl) {
+                ImageRequest.Builder(context)
+                    .data(backdropUrl)
+                    .crossfade(400)
+                    .build()
+            }
             AsyncImage(
-                model = backdropUrl,
+                model = request,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -265,7 +293,8 @@ fun PlumDetailHeroHeader(
     val metrics = PlumTheme.metrics
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         if (posterUrl != null) {
             AsyncImage(
@@ -280,7 +309,7 @@ fun PlumDetailHeroHeader(
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content,
         )
     }
@@ -405,6 +434,11 @@ fun PlumPosterCard(
     progressPercent: Double? = null,
     /** Fully watched — corner badge (library grids, etc.). */
     watched: Boolean = false,
+    /**
+     * TV focus zoom paints outside layout bounds; lazy grids with horizontal content padding clip
+     * that overflow, so the first column beside the side rail looks cropped. Use `1f` there.
+     */
+    focusedScale: Float? = null,
 ) {
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
@@ -421,15 +455,12 @@ fun PlumPosterCard(
     val density = LocalDensity.current
     val widthPx = remember(width, density) { with(density) { width.roundToPx().coerceAtLeast(1) } }
     val heightPx = remember(height, density) { with(density) { height.roundToPx().coerceAtLeast(1) } }
-    val allowHardware = remember(context) {
-        context.getSystemService(ActivityManager::class.java)?.isLowRamDevice != true
-    }
     val posterRequest =
-        remember(resolvedUrl, widthPx, heightPx, allowHardware) {
+        remember(resolvedUrl, widthPx, heightPx) {
             if (resolvedUrl == null) {
                 null
             } else {
-                buildArtworkRequest(context, resolvedUrl, widthPx, heightPx, allowHardware)
+                buildArtworkRequest(context, resolvedUrl, widthPx, heightPx)
             }
         }
 
@@ -442,6 +473,12 @@ fun PlumPosterCard(
     val titleStyle = if (compact) PlumTheme.typography.labelMedium else PlumTheme.typography.titleSmall
     val subtitleStyle = if (compact) PlumTheme.typography.labelSmall else PlumTheme.typography.labelMedium
     val titleWeight = if (compact) FontWeight.Medium else FontWeight.SemiBold
+    val resolvedFocusedScale =
+        focusedScale ?: if (compact) {
+            1.055f
+        } else {
+            1.065f
+        }
 
     Surface(
         onClick = onClick,
@@ -453,7 +490,7 @@ fun PlumPosterCard(
                     isFocused = fs.isFocused
                     if (fs.isFocused && resolvedUrl != null) {
                         context.imageLoader.enqueue(
-                            buildArtworkRequest(context, resolvedUrl, widthPx, heightPx, allowHardware),
+                            buildArtworkRequest(context, resolvedUrl, widthPx, heightPx),
                         )
                     }
                 },
@@ -469,7 +506,7 @@ fun PlumPosterCard(
                 disabledContainerColor = Color.Transparent,
                 disabledContentColor = palette.muted,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (compact) 1.055f else 1.065f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = resolvedFocusedScale),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
@@ -602,26 +639,12 @@ fun PlumMetadataChips(
 ) {
     val filtered = values.filter { it.isNotBlank() }
     if (filtered.isEmpty()) return
-    Row(
+    Text(
+        text = filtered.joinToString("  \u00B7  "),
+        style = PlumTheme.typography.labelMedium,
+        color = PlumTheme.palette.textSecondary,
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.chipGap),
-    ) {
-        filtered.forEach { value ->
-            Box(
-                modifier =
-                    Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(PlumTheme.palette.surface)
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-            ) {
-                Text(
-                    text = value,
-                    style = PlumTheme.typography.labelSmall,
-                    color = PlumTheme.palette.textSecondary,
-                )
-            }
-        }
-    }
+    )
 }
 
 /**
@@ -644,25 +667,17 @@ fun PlumSideRail(
             .background(palette.panel)
             .padding(horizontal = 14.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Logo mark
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(palette.accentSoft),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "P",
-                style = PlumTheme.typography.titleLarge,
-                color = palette.accent,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        Text(
+            text = "Plum",
+            style = PlumTheme.typography.titleLarge,
+            color = palette.text,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 4.dp),
+        )
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         items.forEach { item ->
             PlumRailButton(item, contentFocusRequester)
@@ -682,11 +697,13 @@ private fun PlumRailButton(item: PlumRailItem, contentFocusRequester: FocusReque
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
     val shape = RoundedCornerShape(metrics.tileRadius)
+    var isFocused by remember { mutableStateOf(false) }
     Surface(
         onClick = item.onClick,
         modifier =
             Modifier
                 .fillMaxWidth()
+                .onFocusChanged { isFocused = it.isFocused }
                 .then(
                     if (contentFocusRequester != null) {
                         Modifier.focusProperties { right = contentFocusRequester }
@@ -697,55 +714,60 @@ private fun PlumRailButton(item: PlumRailItem, contentFocusRequester: FocusReque
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(
-                containerColor = if (item.selected) palette.accentSoft else Color.Transparent,
+                containerColor = Color.Transparent,
                 contentColor = if (item.selected) palette.accent else palette.muted,
-                focusedContainerColor = if (item.selected) palette.accentSoft else Color.Transparent,
+                focusedContainerColor = palette.surface,
                 focusedContentColor = if (item.selected) palette.accent else palette.text,
-                pressedContainerColor = if (item.selected) palette.accentSoft else Color.Transparent,
+                pressedContainerColor = palette.surface,
                 pressedContentColor = if (item.selected) palette.accent else palette.text,
             ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.Transparent, 0.dp, shape),
-                focusedBorder = plumBorder(palette.accent, 2.dp, shape),
-                pressedBorder = plumBorder(palette.accent, 2.dp, shape),
+                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.5.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.5.dp, shape),
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp)
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.CenterStart,
+                .height(42.dp)
+                .padding(start = 4.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (item.selected) palette.accentSoft else palette.surface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.label,
-                        tint = if (item.selected) palette.accent else palette.muted,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                Text(
-                    text = item.label,
-                    style = PlumTheme.typography.labelLarge,
-                    fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (item.selected) palette.text else palette.textSecondary,
-                )
-            }
+            // Left accent bar for selected state
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(20.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (item.selected) palette.accent else Color.Transparent),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Icon(
+                imageVector = item.icon,
+                contentDescription = item.label,
+                tint = when {
+                    item.selected -> palette.accent
+                    isFocused -> palette.text
+                    else -> palette.muted
+                },
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = item.label,
+                style = PlumTheme.typography.labelLarge,
+                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                color = when {
+                    item.selected -> palette.text
+                    isFocused -> palette.text
+                    else -> palette.textSecondary
+                },
+            )
         }
     }
 }

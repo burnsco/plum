@@ -334,6 +334,29 @@ func TestGetHomeDashboardForUser_RecentlyAddedMixesLibrariesAndGroupsShows(t *te
 	}
 }
 
+func TestGetHomeDashboardForUser_RecentlyAddedExcludesMissingMovies(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	userID := getSingleUserID(t, dbConn)
+	movieLibraryID := getLibraryID(t, dbConn, LibraryTypeMovie)
+
+	// Older soft-removed row (still in DB like after deleting a duplicate path); newer present copy.
+	_ = insertMovieMarkedMissingForDashboardTest(t, dbConn, movieLibraryID, "Dup Film", "/movies/old/Dup Film.mkv")
+	presentGlobalID := insertMovieForDashboardTest(t, dbConn, movieLibraryID, "Dup Film", "/movies/final/Dup Film.mkv")
+
+	dashboard, err := GetHomeDashboardForUser(dbConn, userID)
+	if err != nil {
+		t.Fatalf("get home dashboard: %v", err)
+	}
+	if len(dashboard.RecentlyAddedMovies) != 1 {
+		t.Fatalf("expected 1 movie in recently added (missing rows excluded), got %+v", dashboard.RecentlyAddedMovies)
+	}
+	if dashboard.RecentlyAddedMovies[0].Media.ID != presentGlobalID {
+		t.Fatalf("expected present copy global id %d, got %+v", presentGlobalID, dashboard.RecentlyAddedMovies[0])
+	}
+}
+
 func TestHandleScanLibrary_IdentifiesMusicWithProviderMetadata(t *testing.T) {
 	dbConn := newTestDB(t)
 	t.Cleanup(func() { _ = dbConn.Close() })
@@ -521,6 +544,23 @@ func insertMovieForDashboardTest(t *testing.T, dbConn *sql.DB, libraryID int, ti
 	if err := dbConn.QueryRow(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
 		libraryID, title, path, 7200, MatchStatusLocal).Scan(&refID); err != nil {
 		t.Fatalf("insert movie: %v", err)
+	}
+	var globalID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeMovie, refID).Scan(&globalID); err != nil {
+		t.Fatalf("insert global movie: %v", err)
+	}
+	return globalID
+}
+
+// insertMovieMarkedMissingForDashboardTest inserts a movie row still tied to media_global but soft-removed (scan sets missing_since).
+func insertMovieMarkedMissingForDashboardTest(t *testing.T, dbConn *sql.DB, libraryID int, title, path string) int {
+	t.Helper()
+	var refID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO movies (library_id, title, path, duration, match_status, missing_since) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, title, path, 7200, MatchStatusLocal, "2024-01-01T00:00:00Z",
+	).Scan(&refID); err != nil {
+		t.Fatalf("insert missing movie: %v", err)
 	}
 	var globalID int
 	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeMovie, refID).Scan(&globalID); err != nil {

@@ -1,6 +1,5 @@
 package plum.tv.feature.details
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,13 +34,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.ui.PlumCastMember
 import plum.tv.core.ui.PlumCastSection
@@ -104,36 +103,20 @@ fun ShowDetailRoute(
                 } else {
                     0
                 }
-            val episodesHeaderItemIndex =
-                remember(s.seasons.isNotEmpty()) {
-                    1 + if (s.seasons.isNotEmpty()) 2 else 0
-                }
-            val firstEpisodeItemIndex = episodesHeaderItemIndex + 1
             val listState = rememberLazyListState()
             val episodeFocus = remember { FocusRequester() }
             val seasonFocus = remember { FocusRequester() }
             val backFocus = remember { FocusRequester() }
-            LaunchedEffect(
-                d.showKey,
-                s.selectedSeasonIndex,
-                focusEpisodeIndex,
-                selectedEpisodes.size,
-                firstEpisodeItemIndex,
-            ) {
-                delay(16)
-                if (selectedEpisodes.isNotEmpty()) {
-                    listState.scrollToItem(firstEpisodeItemIndex + focusEpisodeIndex)
-                }
-                delay(40)
-                when {
-                    selectedEpisodes.isNotEmpty() -> episodeFocus.requestFocus()
-                    s.seasons.isNotEmpty() -> seasonFocus.requestFocus()
-                    else -> backFocus.requestFocus()
-                }
+            LaunchedEffect(d.showKey) {
+                delay(48)
+                backFocus.requestFocus()
+                listState.scrollToItem(0)
             }
             val backdropUrl =
                 resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
+            val resumeEp = s.seasons.getOrNull(s.resumeSeasonIndex)
+                ?.episodes?.getOrNull(s.resumeEpisodeIndex)
 
             PlumDetailBackground(
                 backdropUrl = backdropUrl,
@@ -143,14 +126,14 @@ fun ShowDetailRoute(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 36.dp, vertical = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    contentPadding = PaddingValues(horizontal = 36.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     item {
                         PlumDetailHeroHeader(posterUrl = posterUrl) {
                             Text(
                                 text = d.name,
-                                style = PlumTheme.typography.headlineLarge,
+                                style = PlumTheme.typography.headlineMedium,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -159,7 +142,7 @@ fun ShowDetailRoute(
                                 values = buildList {
                                     d.firstAirDate.take(4).takeIf { it.isNotBlank() }?.let(::add)
                                     add("${d.numberOfSeasons} seasons")
-                                    d.imdbRating?.let { add("★ ${"%.1f".format(it)}") }
+                                    d.imdbRating?.let { add("\u2605 ${"%.1f".format(it)}") }
                                     addAll(d.genres.take(3))
                                     val totalEps = s.seasons.sumOf { it.episodes.size }
                                     val left = s.seasons.sumOf { se -> se.episodes.count { it.completed != true } }
@@ -173,19 +156,35 @@ fun ShowDetailRoute(
                             if (d.overview.isNotBlank()) {
                                 Text(
                                     text = d.overview,
-                                    maxLines = 6,
+                                    maxLines = 3,
                                     overflow = TextOverflow.Ellipsis,
-                                    style = PlumTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.85f),
+                                    style = PlumTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.8f),
                                 )
                             }
 
-                            PlumActionButton(
-                                modifier = Modifier.focusRequester(backFocus),
-                                label = "Back",
-                                onClick = onBack,
-                                variant = PlumButtonVariant.Secondary,
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (resumeEp != null) {
+                                    val isResume = (resumeEp.progressSeconds ?: 0.0) > 0
+                                    PlumActionButton(
+                                        modifier = Modifier.focusRequester(backFocus),
+                                        label = if (isResume) "Resume" else "Play",
+                                        onClick = {
+                                            val resume = (resumeEp.progressSeconds ?: 0.0).toFloat()
+                                            onPlayEpisode(resumeEp.id, resume, d.libraryId, d.showKey)
+                                        },
+                                        leadingBadge = "\u25B6",
+                                    )
+                                    PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
+                                } else {
+                                    PlumActionButton(
+                                        modifier = Modifier.focusRequester(backFocus),
+                                        label = "Back",
+                                        onClick = onBack,
+                                        variant = PlumButtonVariant.Secondary,
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -199,8 +198,6 @@ fun ShowDetailRoute(
                                 contentPadding = PaddingValues(vertical = 4.dp),
                             ) {
                                 itemsIndexed(s.seasons) { index, season ->
-                                    val count = season.episodes.size
-                                    val suffix = if (count == 1) "1 ep" else "$count eps"
                                     PlumActionButton(
                                         modifier =
                                             if (index == s.selectedSeasonIndex) {
@@ -208,7 +205,7 @@ fun ShowDetailRoute(
                                             } else {
                                                 Modifier
                                             },
-                                        label = "${season.label} · $suffix${seasonWatchSuffix(season.episodes)}",
+                                        label = season.label,
                                         onClick = { viewModel.selectSeason(index) },
                                         variant = if (index == s.selectedSeasonIndex) PlumButtonVariant.Primary else PlumButtonVariant.Ghost,
                                     )
@@ -219,7 +216,19 @@ fun ShowDetailRoute(
 
                     if (selectedEpisodes.isNotEmpty()) {
                         item {
-                            PlumSectionHeader("Episodes")
+                            val selSeason = s.seasons.getOrNull(s.selectedSeasonIndex)
+                            val epCount = selectedEpisodes.size
+                            val unwatched = selectedEpisodes.count { it.completed != true }
+                            val summary = buildString {
+                                append("$epCount episode${if (epCount == 1) "" else "s"}")
+                                when {
+                                    epCount > 0 && unwatched == 0 -> append(" · Fully watched")
+                                    unwatched in 1 until epCount -> append(" · $unwatched left")
+                                }
+                            }
+                            PlumSectionHeader(
+                                "${selSeason?.label ?: "Episodes"} — $summary",
+                            )
                         }
                         itemsIndexed(selectedEpisodes, key = { _, ep -> ep.id }) { index, ep ->
                             EpisodeRow(
@@ -270,8 +279,7 @@ private fun EpisodeRow(
     onPlay: () -> Unit,
 ) {
     val palette = PlumTheme.palette
-    val metrics = PlumTheme.metrics
-    val shape = RoundedCornerShape(metrics.tileRadius)
+    val shape = RoundedCornerShape(10.dp)
     val thumbUrl =
         resolveArtworkUrl(serverBase, ep.thumbnailUrl, ep.thumbnailPath, PlumImageSizes.THUMB_SMALL)
             ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, PlumImageSizes.POSTER_GRID)
@@ -279,13 +287,8 @@ private fun EpisodeRow(
     val watched = ep.completed == true
     val progressFrac =
         ((ep.progressPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()
-    val animatedProgress by animateFloatAsState(
-        targetValue = if (watched) 1f else progressFrac,
-        label = "episodeProgress",
-    )
+    val rowProgress = if (watched) 1f else progressFrac
 
-    // The whole row is a TV Surface so the user can focus it and press OK to play —
-    // no need for a nested Play button.
     Surface(
         onClick = onPlay,
         modifier = modifier.fillMaxWidth(),
@@ -298,7 +301,7 @@ private fun EpisodeRow(
             pressedContainerColor = palette.panelAlt,
             pressedContentColor = palette.text,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
             border = plumBorder(Color.Transparent, 0.dp, shape),
             focusedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
@@ -310,12 +313,11 @@ private fun EpisodeRow(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Thumbnail
             Box(
                 modifier = Modifier
-                    .width(metrics.thumbnailWidth)
-                    .height(metrics.thumbnailHeight)
-                    .clip(RoundedCornerShape(topStart = metrics.tileRadius, bottomStart = metrics.tileRadius)),
+                    .width(160.dp)
+                    .height(90.dp)
+                    .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)),
             ) {
                 if (thumbUrl != null) {
                     AsyncImage(
@@ -344,103 +346,83 @@ private fun EpisodeRow(
                 }
                 if (watched) {
                     Box(
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.45f)),
                     )
                     Text(
-                        text = "Watched",
+                        text = "\u2713",
                         style = PlumTheme.typography.labelSmall,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        modifier =
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(4.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(palette.accent.copy(alpha = 0.88f))
-                                .padding(horizontal = 5.dp, vertical = 2.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(palette.accent.copy(alpha = 0.85f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
                     )
                 }
-                if (!watched && animatedProgress > 0.02f) {
+                if (!watched && rowProgress > 0.02f) {
                     Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .align(Alignment.BottomCenter),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.BottomCenter),
                     ) {
                         Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(Color.White.copy(alpha = 0.22f)),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White.copy(alpha = 0.18f)),
                         )
                         Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth(animatedProgress)
-                                    .fillMaxHeight()
-                                    .background(palette.accent),
+                            modifier = Modifier
+                                .fillMaxWidth(rowProgress)
+                                .fillMaxHeight()
+                                .background(palette.accent),
                         )
                     }
                 }
             }
 
-            // Episode info + play icon indicator
-            Row(
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                val se = ep.season
+                val epn = ep.episode
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val se = ep.season
-                    val epn = ep.episode
                     if (se != null && epn != null) {
                         Text(
                             text = "S${se.toString().padStart(2, '0')}E${epn.toString().padStart(2, '0')}",
                             style = PlumTheme.typography.labelSmall,
-                            color = palette.muted,
+                            color = if (watched) palette.accent else palette.muted,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                     Text(
                         text = ep.title,
                         style = PlumTheme.typography.titleSmall,
-                        color = palette.text,
+                        color = if (watched) palette.textSecondary else palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    ep.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-                        Text(
-                            text = overview,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            style = PlumTheme.typography.bodySmall,
-                            color = palette.muted,
-                        )
-                    }
-                    if (watched) {
-                        Text(
-                            text = "Watched",
-                            style = PlumTheme.typography.labelSmall,
-                            color = palette.accent,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
                 }
-
-                Text(
-                    text = if (watched) "↻" else "▶",
-                    style = PlumTheme.typography.labelMedium,
-                    color = palette.muted,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
+                ep.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                    Text(
+                        text = overview,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        style = PlumTheme.typography.bodySmall,
+                        color = palette.muted,
+                    )
+                }
             }
         }
     }

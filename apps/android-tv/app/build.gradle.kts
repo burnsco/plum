@@ -39,7 +39,7 @@ android {
     namespace = "plum.tv.app"
     defaultConfig {
         applicationId = "com.plum.android.tv"
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
@@ -49,10 +49,34 @@ android {
         buildConfigField("String", "DEFAULT_ADMIN_EMAIL", defaultAdminEmailBuildConfig())
         buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", defaultAdminPasswordBuildConfig())
     }
+    // Release signing only when local.properties defines credentials (never commit keystores or passwords).
+    val releaseStoreFile = localProperty("plumTv.releaseStoreFile")
+    val releaseStorePassword = localProperty("plumTv.releaseStorePassword")
+    val releaseKeyAlias = localProperty("plumTv.releaseKeyAlias")
+    val releaseKeyPassword = localProperty("plumTv.releaseKeyPassword")
+    signingConfigs {
+        if (
+            releaseStoreFile.isNotEmpty() &&
+            releaseStorePassword.isNotEmpty() &&
+            releaseKeyAlias.isNotEmpty() &&
+            releaseKeyPassword.isNotEmpty()
+        ) {
+            val store = file(releaseStoreFile)
+            if (store.isFile) {
+                create("releaseLocal") {
+                    this.storeFile = store
+                    storePassword = releaseStorePassword
+                    keyAlias = releaseKeyAlias
+                    keyPassword = releaseKeyPassword
+                }
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfigs.findByName("releaseLocal")?.let { signingConfig = it }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -104,6 +128,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil)
     implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

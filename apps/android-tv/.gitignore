@@ -5,6 +5,8 @@ buildSrc/.gradle/
 buildSrc/build/
 /.gradle
 /local.properties
+*.keystore
+*.jks
 *.iml
 /.idea
 *.apk

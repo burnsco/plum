@@ -4,17 +4,23 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -53,13 +59,14 @@ object PlumScrims {
         1.0f to Color(0xEE000000),
     )
 
-    /** Player controls overlay — darker at top and bottom, lighter in the middle. */
+    /** Player controls overlay — darker at top and bottom for text readability, lighter center. */
     val playerControls: Brush = Brush.verticalGradient(
-        0.0f to Color(0xCC000000),
-        0.25f to Color(0x44000000),
-        0.6f to Color(0x22000000),
-        0.8f to Color(0x66000000),
-        1.0f to Color(0xDD000000),
+        0.0f to Color(0xDD000000),
+        0.18f to Color(0x55000000),
+        0.45f to Color(0x18000000),
+        0.65f to Color(0x18000000),
+        0.82f to Color(0x66000000),
+        1.0f to Color(0xEE000000),
     )
 }
 
@@ -141,18 +148,18 @@ private val plumPalette =
 
 private val plumMetrics =
     PlumTvMetrics(
-        screenPadding = PaddingValues(horizontal = 36.dp, vertical = 24.dp),
+        screenPadding = PaddingValues(horizontal = 16.dp, vertical = 24.dp),
         railPadding = PaddingValues(horizontal = 0.dp, vertical = 20.dp),
-        sectionGap = 26.dp,
+        sectionGap = 30.dp,
         cardGap = 14.dp,
         chipGap = 8.dp,
         posterWidth = 170.dp,
         posterHeight = 255.dp,
         posterCompactWidth = 138.dp,
         posterCompactHeight = 207.dp,
-        heroPosterWidth = 228.dp,
-        heroPosterHeight = 342.dp,
-        heroHeight = 380.dp,
+        heroPosterWidth = 180.dp,
+        heroPosterHeight = 270.dp,
+        heroHeight = 420.dp,
         thumbnailWidth = 160.dp,
         thumbnailHeight = 90.dp,
         panelRadius = 14.dp,
@@ -281,19 +288,30 @@ fun PlumTvScaffold(
                 .fillMaxSize()
                 .background(palette.background),
     ) {
-        // Subtle purple radial glow in the top-left corner
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        brush =
-                            Brush.radialGradient(
-                                colors = listOf(palette.accent.copy(alpha = 0.07f), Color.Transparent),
-                                radius = 1400f,
-                            ),
-                    ),
-        )
+        // Subtle purple corner wash — confined to ~half the screen so we don't run a full-viewport
+        // radial shader on low-end TV SoCs (same look at a glance, less blended area).
+        val density = LocalDensity.current
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val radiusPx =
+                with(density) {
+                    (maxOf(maxWidth, maxHeight) * 0.72f).toPx()
+                }
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .width(maxWidth * 0.58f)
+                        .height(maxHeight * 0.48f)
+                        .background(
+                            brush =
+                                Brush.radialGradient(
+                                    colors = listOf(palette.accent.copy(alpha = 0.07f), Color.Transparent),
+                                    center = Offset.Zero,
+                                    radius = radiusPx,
+                                ),
+                        ),
+            )
+        }
         content()
     }
 }

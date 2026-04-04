@@ -5,7 +5,7 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.configure
 
-private const val compileSdkVersion = 35
+private const val compileSdkVersion = 36
 private const val minSdkVersion = 24
 private val lintRules =
     listOf(

@@ -23,8 +23,8 @@ import plum.tv.core.player.UpNextOverlayState
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    @ApplicationContext private val appContext: Context,
-    @ApplicationScope private val applicationScope: CoroutineScope,
+    @param:ApplicationContext private val appContext: Context,
+    @param:ApplicationScope private val applicationScope: CoroutineScope,
     private val dataSourceFactory: DataSource.Factory,
     private val browseRepository: BrowseRepository,
     private val playbackRepository: PlaybackRepository,

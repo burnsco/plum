@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -22,8 +23,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.tv.material3.Text
+import kotlinx.coroutines.delay
 import plum.tv.core.ui.PlumCastMember
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
@@ -35,7 +37,6 @@ import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumStatePanel
-import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 
@@ -76,7 +77,12 @@ fun MovieDetailRoute(
         is MovieDetailUiState.Ready -> {
             val d = s.details
             val playFocus = remember(d.mediaId) { FocusRequester() }
-            LaunchedTvFocusTo(d.mediaId, focusRequester = playFocus)
+            val scrollState = rememberScrollState()
+            LaunchedEffect(d.mediaId) {
+                delay(48)
+                playFocus.requestFocus()
+                scrollState.scrollTo(0)
+            }
             val backdropUrl =
                 resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
             val posterUrl = resolveArtworkUrl(serverBase, d.posterUrl, d.posterPath, PlumImageSizes.POSTER_DETAIL)
@@ -88,14 +94,14 @@ fun MovieDetailRoute(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 36.dp, vertical = 32.dp),
-                    verticalArrangement = Arrangement.spacedBy(28.dp),
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 36.dp, vertical = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     PlumDetailHeroHeader(posterUrl = posterUrl) {
                         Text(
                             text = d.title,
-                            style = PlumTheme.typography.headlineLarge,
+                            style = PlumTheme.typography.headlineMedium,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                         )
@@ -104,7 +110,7 @@ fun MovieDetailRoute(
                             values = buildList {
                                 d.releaseDate?.take(4)?.takeIf { it.isNotBlank() }?.let(::add)
                                 d.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
-                                d.imdbRating?.let { add("★ ${"%.1f".format(it)}") }
+                                d.imdbRating?.let { add("\u2605 ${"%.1f".format(it)}") }
                                 addAll(d.genres.take(4))
                                 if (d.completed == true) {
                                     add("Watched")
@@ -119,10 +125,10 @@ fun MovieDetailRoute(
                         if (d.overview.isNotBlank()) {
                             Text(
                                 text = d.overview,
-                                maxLines = 8,
+                                maxLines = 4,
                                 overflow = TextOverflow.Ellipsis,
-                                style = PlumTheme.typography.bodyLarge,
-                                color = Color.White.copy(alpha = 0.85f),
+                                style = PlumTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.8f),
                             )
                         }
 

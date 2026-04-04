@@ -15,28 +15,39 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import plum.tv.core.network.ContinueWatchingEntryJson
 import plum.tv.core.network.MediaItemJson
 import plum.tv.core.network.RecentlyAddedEntryJson
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumSectionHeader
+import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.PlumTvMetrics
 import plum.tv.core.ui.PlumImageSizes
@@ -59,17 +70,22 @@ fun HomeRoute(
     val state by viewModel.state.collectAsState()
     when (val s = state) {
         is HomeUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = PlumTheme.palette.accent)
+            PlumStatePanel(
+                title = "Loading",
+                message = "Fetching your dashboard\u2026",
+            )
         }
-        is HomeUiState.Error -> Column(
-            modifier = Modifier.fillMaxSize().padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(s.message, color = PlumTheme.palette.muted)
-            PlumActionButton(
-                label = "Retry",
-                onClick = { viewModel.refresh() },
-                variant = PlumButtonVariant.Primary,
+        is HomeUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlumStatePanel(
+                title = "Something went wrong",
+                message = s.message,
+                actions = {
+                    PlumActionButton(
+                        label = "Retry",
+                        onClick = { viewModel.refresh() },
+                        variant = PlumButtonVariant.Primary,
+                    )
+                },
             )
         }
         is HomeUiState.Ready -> HomeContent(
@@ -153,8 +169,6 @@ private fun HomeContent(
             item {
                 HomeRail(
                     title = "Continue watching",
-                    count = cwRail.size,
-                    countSuffix = "active item",
                     metrics = metrics,
                     isLast = false,
                 ) {
@@ -201,8 +215,6 @@ private fun HomeContent(
             item {
                 HomeRail(
                     title = "Recently added TV shows",
-                    count = recentlyAddedTv.size,
-                    countSuffix = "show",
                     metrics = metrics,
                     isLast = recentlyAddedMovies.isEmpty(),
                 ) {
@@ -228,8 +240,6 @@ private fun HomeContent(
             item {
                 HomeRail(
                     title = "Recently added movies",
-                    count = recentlyAddedMovies.size,
-                    countSuffix = "film",
                     metrics = metrics,
                     isLast = true,
                 ) {
@@ -260,8 +270,6 @@ private fun HomeContent(
 @Composable
 private fun HomeRail(
     title: String,
-    count: Int,
-    countSuffix: String,
     metrics: PlumTvMetrics,
     isLast: Boolean,
     content: LazyListScope.() -> Unit,
@@ -273,20 +281,12 @@ private fun HomeRail(
             top = metrics.sectionGap,
             bottom = if (isLast) metrics.sectionGap else 0.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(end = 28.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PlumSectionHeader(title = title)
-            Text(
-                text = "$count $countSuffix${if (count == 1) "" else "s"}",
-                style = PlumTheme.typography.bodySmall,
-                color = PlumTheme.palette.muted,
-            )
-        }
+        PlumSectionHeader(
+            title = title,
+            modifier = Modifier.padding(end = 28.dp),
+        )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
             contentPadding = PaddingValues(end = 28.dp),
@@ -317,15 +317,31 @@ private fun HeroSection(
             }
 
     val metrics = PlumTheme.metrics
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val heroImageRequest =
+        remember(heroImageUrl, screenWidthDp, metrics.heroHeight, context) {
+            val url = heroImageUrl ?: return@remember null
+            val wPx = with(density) { screenWidthDp.dp.roundToPx().coerceAtLeast(1) }
+            val hPx = with(density) { metrics.heroHeight.roundToPx().coerceAtLeast(1) }
+            ImageRequest.Builder(context)
+                .data(url)
+                .size(wPx, hPx)
+                .crossfade(300)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .build()
+        }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(metrics.heroHeight),
     ) {
         // Background artwork
-        if (heroImageUrl != null) {
+        if (heroImageRequest != null) {
             AsyncImage(
-                model = heroImageUrl,
+                model = heroImageRequest,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -345,43 +361,69 @@ private fun HeroSection(
                 .background(PlumScrims.heroBottom),
         )
 
-        // Left-side content: title + metadata + play button
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(horizontal = 28.dp, vertical = 20.dp)
-                .widthIn(max = 620.dp),
+                .padding(horizontal = 28.dp, vertical = 24.dp)
+                .widthIn(max = 640.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = "Continue watching",
-                style = PlumTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.78f),
-                fontWeight = FontWeight.SemiBold,
+                style = PlumTheme.typography.labelMedium,
+                color = PlumTheme.palette.accent.copy(alpha = 0.85f),
+                fontWeight = FontWeight.Bold,
             )
-            // Show title
             Text(
                 text = media.title,
                 style = PlumTheme.typography.displaySmall,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
 
-            // Subtitle (episode label or show name for TV)
             val subtitle = entry.episodeLabel ?: entry.showTitle
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
-                    style = PlumTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.76f),
+                    style = PlumTheme.typography.titleSmall,
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontWeight = FontWeight.Medium,
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val chips = buildList {
+                media.releaseDate?.take(4)?.takeIf { it.length == 4 }?.let { add(it) }
+                (media.voteAverage ?: media.showVoteAverage)?.takeIf { it > 0 }?.let {
+                    add("%.1f".format(it))
+                }
+                formatRemainingTime(entry.remainingSeconds)?.let { add(it) }
+            }
+            if (chips.isNotEmpty()) {
+                PlumMetadataChips(values = chips)
+            }
+
+            val overview = media.overview
+            if (!overview.isNullOrBlank()) {
+                Text(
+                    text = overview,
+                    style = PlumTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.58f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Row(
+                modifier = Modifier.padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 PlumActionButton(
                     label = if ((media.progressSeconds ?: 0.0) > 0) "Resume" else "Play",
                     onClick = onPlay,
                     variant = PlumButtonVariant.Primary,
+                    leadingIcon = Icons.Filled.PlayArrow,
                 )
             }
         }

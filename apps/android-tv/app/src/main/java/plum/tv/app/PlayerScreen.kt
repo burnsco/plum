@@ -7,9 +7,6 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -83,14 +80,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
@@ -310,12 +307,8 @@ fun PlayerRoute(
             },
         )
 
-        // ── Gradient overlay (only when controls are visible) ────────────────────
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
+        // ── Gradient overlay (only when controls are visible; no fade — lighter GPU/compose work) ──
+        if (controlsVisible) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -330,22 +323,19 @@ fun PlayerRoute(
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(56.dp),
-                    color = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(48.dp),
+                    color = PlumTheme.palette.accent.copy(alpha = 0.9f),
+                    trackColor = Color.White.copy(alpha = 0.10f),
                     strokeWidth = 3.dp,
                 )
             }
         }
 
         // ── Top metadata bar ─────────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopStart),
-        ) {
+        if (controlsVisible) {
             Column(
                 modifier = Modifier
+                    .align(Alignment.TopStart)
                     .padding(horizontal = 40.dp, vertical = 28.dp)
                     .widthIn(max = 640.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -388,30 +378,24 @@ fun PlayerRoute(
         }
 
         // ── Local time (top right, with controls) ────────────────────────────────
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) {
+        if (controlsVisible) {
             Text(
                 text = timeFormat.format(Date(wallClockMs)),
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.9f),
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 40.dp, vertical = 28.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(horizontal = 40.dp, vertical = 28.dp),
             )
         }
 
         // ── Bottom controls ──────────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
+        if (controlsVisible) {
             Column(
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 40.dp, vertical = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -592,13 +576,13 @@ private fun UpNextInterstitial(
                     .padding(horizontal = 48.dp)
                     .widthIn(max = 520.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = "UP NEXT",
                 style = PlumTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.55f),
-                fontWeight = FontWeight.SemiBold,
+                color = palette.accent.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 text = state.title,
@@ -617,9 +601,15 @@ private fun UpNextInterstitial(
                 )
             }
             Text(
-                text = "Starting in ${state.secondsRemaining}s",
-                style = PlumTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.78f),
+                text = "${state.secondsRemaining}",
+                style = PlumTheme.typography.displaySmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "seconds",
+                style = PlumTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.55f),
             )
             Surface(
                 onClick = onConfirm,
@@ -638,14 +628,14 @@ private fun UpNextInterstitial(
                         pressedContainerColor = palette.accent,
                         pressedContentColor = Color.Black,
                     ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 border =
                     ClickableSurfaceDefaults.border(
                         border = plumBorder(Color.White.copy(alpha = 0.2f), 1.dp, shape),
                         focusedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape),
                         pressedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape),
                     ),
-                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accent.copy(alpha = 0.45f), 10.dp)),
+                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
             ) {
                 Box(
                     modifier =
@@ -735,7 +725,7 @@ private fun TrackPickerOverlay(
                         pressedContainerColor = Color.White.copy(alpha = 0.16f),
                         pressedContentColor = Color.White,
                     ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 border =
                     ClickableSurfaceDefaults.border(
                         border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(10.dp)),
@@ -782,7 +772,7 @@ private fun TrackPickerRow(
                 pressedContainerColor = Color.White.copy(alpha = 0.12f),
                 pressedContentColor = Color.White,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.White.copy(alpha = 0.08f), 1.dp, shape),
@@ -919,7 +909,7 @@ private fun PlexSeekBar(
     val accent = PlumTheme.palette.accent
     val f = fraction.coerceIn(0f, 1f)
     val barHeight = if (focused) 6.dp else 4.dp
-    val thumbSize = if (focused) 15.dp else 13.dp
+    val thumbSize = if (focused) 16.dp else 12.dp
     val thumbRadius = thumbSize / 2
     BoxWithConstraints(
         modifier =
@@ -930,7 +920,7 @@ private fun PlexSeekBar(
                         Modifier
                             .border(
                                 width = 1.5.dp,
-                                color = accent.copy(alpha = 0.65f),
+                                color = accent.copy(alpha = 0.55f),
                                 shape = RoundedCornerShape(10.dp),
                             )
                             .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -946,7 +936,7 @@ private fun PlexSeekBar(
                 .fillMaxWidth()
                 .height(barHeight)
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = 0.18f)),
+                .background(Color.White.copy(alpha = 0.15f)),
         )
         // Filled portion
         if (f > 0f) {
@@ -966,6 +956,13 @@ private fun PlexSeekBar(
                     .padding(start = thumbOffset)
                     .size(thumbSize)
                     .clip(CircleShape)
+                    .then(
+                        if (focused) {
+                            Modifier.border(2.dp, accent.copy(alpha = 0.7f), CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .background(Color.White),
             )
         }
@@ -998,14 +995,14 @@ private fun SkipIntroControl(
                 pressedContainerColor = palette.accent.copy(alpha = 0.48f),
                 pressedContentColor = Color.White,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(palette.accent.copy(alpha = 0.5f), 1.5.dp, shape),
                 focusedBorder = plumBorder(palette.accent.copy(alpha = 0.9f), 2.dp, shape),
                 pressedBorder = plumBorder(palette.accent.copy(alpha = 0.9f), 2.dp, shape),
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accent.copy(alpha = 0.38f), 8.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 14.dp),
@@ -1072,7 +1069,7 @@ private fun PlayerControlButton(
             disabledContainerColor = if (ghost) Color.Transparent else Color.White.copy(alpha = 0.05f),
             disabledContentColor = Color.White.copy(alpha = 0.25f),
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
             border = plumBorder(
                 if (ghost) Color.Transparent else Color.White.copy(alpha = 0.26f),
@@ -1082,14 +1079,7 @@ private fun PlayerControlButton(
             focusedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
             pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
         ),
-        glow = ClickableSurfaceDefaults.glow(
-            focusedGlow =
-                when {
-                    primary -> Glow(palette.accent.copy(alpha = 0.38f), 10.dp)
-                    ghost -> Glow(Color.Transparent, 0.dp)
-                    else -> Glow(Color.White.copy(alpha = 0.22f), 9.dp)
-                },
-        ),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
         Box(
             modifier = Modifier.size(buttonSize),

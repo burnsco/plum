@@ -184,10 +184,11 @@ private fun BrowseMoviePosterCard(
                 ?: item.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: item.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
-        modifier = modifier.padding(4.dp),
+        modifier = modifier.padding(2.dp),
         compact = true,
         progressPercent = item.progressPercent,
         watched = item.completed == true,
+        focusedScale = 1f,
     )
 }
 
@@ -216,8 +217,9 @@ private fun BrowseShowPosterCard(
                 ?: ep.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: ep.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
-        modifier = modifier.padding(4.dp),
+        modifier = modifier.padding(2.dp),
         compact = true,
         watched = unwatched == 0 && row.episodes.isNotEmpty(),
+        focusedScale = 1f,
     )
 }

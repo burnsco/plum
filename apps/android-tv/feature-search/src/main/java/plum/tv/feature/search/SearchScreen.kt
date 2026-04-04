@@ -19,7 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import plum.tv.core.network.SearchResultJson
 import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.LocalServerBaseUrl
@@ -136,6 +136,7 @@ private fun SearchResultCard(result: SearchResultJson, onClick: () -> Unit) {
         subtitle = result.subtitle,
         imageUrl = resolveArtworkUrl(serverBase, result.posterUrl, result.posterPath, PlumImageSizes.POSTER_GRID),
         onClick = onClick,
+        focusedScale = 1f,
     )
 }
 
