@@ -252,6 +252,47 @@ func TestGetMoviePosterCandidates_ReturnsMultipleTMDBAndFanartPosters(t *testing
 	}
 }
 
+func TestGetMoviePosterCandidates_SkipsFanartWhenFanartErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v3/movies/44":
+			http.Error(w, "upstream", http.StatusBadGateway)
+		case "/3/movie/44/images":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"posters": [{"file_path": "/tmdb-only.jpg"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	oldClient := providerHTTPClient
+	providerHTTPClient = &http.Client{Transport: &rewriteTransport{base: baseURL}}
+	t.Cleanup(func() {
+		providerHTTPClient = oldClient
+	})
+
+	p := &Pipeline{
+		fanart: &FanartClient{APIKey: "fanart"},
+		tmdb:   &TMDBClient{APIKey: "tmdb", baseURL: tmdbBaseURL},
+		movieDetailsProvider: &stubMovieDetailsProvider{
+			details: &MovieDetails{PosterPath: ""},
+		},
+	}
+
+	candidates, err := p.GetMoviePosterCandidates(context.Background(), 44, "")
+	if err != nil {
+		t.Fatalf("GetMoviePosterCandidates returned error: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].ImageURL != "https://image.tmdb.org/t/p/w500/tmdb-only.jpg" {
+		t.Fatalf("expected single TMDB candidate, got %#v", candidates)
+	}
+}
+
 func TestGetShowPosterCandidates_ReturnsMultipleProviderPosters(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -874,6 +915,39 @@ func TestIdentifyMovie_ConflictingYearStaysUnmatched(t *testing.T) {
 	p := &Pipeline{movieProvider: movie}
 
 	res := p.IdentifyMovie(context.Background(), MediaInfo{Title: "Die My Love", Year: 2025})
+	if res != nil {
+		t.Fatalf("expected no match, got %#v", res)
+	}
+}
+
+func TestIdentifyMovie_SingleExactTitleWithMissingReleaseDateUsesLibraryYear(t *testing.T) {
+	movie := &stubMovieProvider{
+		searchResults: []MatchResult{
+			{Title: "Crash", ReleaseDate: "1996-01-01", Provider: "tmdb", ExternalID: "111"},
+			{Title: "Crash", ReleaseDate: "", Provider: "tmdb", ExternalID: "16869"},
+		},
+	}
+	p := &Pipeline{movieProvider: movie}
+
+	res := p.IdentifyMovie(context.Background(), MediaInfo{Title: "crash", Year: 2004})
+	if res == nil {
+		t.Fatal("expected match")
+	}
+	if res.ExternalID != "16869" {
+		t.Fatalf("external id = %q", res.ExternalID)
+	}
+}
+
+func TestIdentifyMovie_TwoMissingReleaseDatesStaysAmbiguousWithYear(t *testing.T) {
+	movie := &stubMovieProvider{
+		searchResults: []MatchResult{
+			{Title: "Crash", ReleaseDate: "", Provider: "tmdb", ExternalID: "111"},
+			{Title: "Crash", ReleaseDate: "", Provider: "tmdb", ExternalID: "222"},
+		},
+	}
+	p := &Pipeline{movieProvider: movie}
+
+	res := p.IdentifyMovie(context.Background(), MediaInfo{Title: "crash", Year: 2004})
 	if res != nil {
 		t.Fatalf("expected no match, got %#v", res)
 	}

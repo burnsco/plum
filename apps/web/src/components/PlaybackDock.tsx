@@ -378,6 +378,9 @@ export function PlaybackDock() {
   /** True until the first `playing` event for the current item — avoids resuming on every `canplay` after the user pauses. */
   const kickstartVideoPlaybackRef = useRef(false);
   const previousVideoSourceUrlRef = useRef("");
+  /** Tracks stream URL / item for a deferred play() after the async session URL lands (user activation is gone by then). */
+  const prevAutoplayStreamUrlRef = useRef("");
+  const prevAutoplayItemIdRef = useRef<number | null>(null);
   const [hlsStatusMessage, setHlsStatusMessage] = useState("");
   const mediaRecoveryAttemptsRef = useRef(0);
   const networkRecoveryAttemptsRef = useRef(0);
@@ -415,6 +418,8 @@ export function PlaybackDock() {
     playPreviousInQueue,
     changeAudioTrack,
   } = usePlayer();
+  const seekToRef = useRef(seekTo);
+  const scrubWindowListenersRef = useRef<(() => void) | null>(null);
   const playbackQueue = queue ?? EMPTY_PLAYBACK_QUEUE;
   const playNextInQueueRef = useRef(playNextInQueue);
   const registerMediaElementRef = useRef(registerMediaElement);
@@ -422,6 +427,18 @@ export function PlaybackDock() {
   useEffect(() => {
     playNextInQueueRef.current = playNextInQueue;
   }, [playNextInQueue]);
+
+  useEffect(() => {
+    seekToRef.current = seekTo;
+  }, [seekTo]);
+
+  useEffect(
+    () => () => {
+      scrubWindowListenersRef.current?.();
+      scrubWindowListenersRef.current = null;
+    },
+    [],
+  );
 
   const upNextIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clearUpNextTimer = useCallback(() => {
@@ -623,6 +640,37 @@ export function PlaybackDock() {
     video.pause();
     video.load();
   }, [playbackState.currentTime, videoSourceUrl]);
+
+  useEffect(() => {
+    const prevUrl = prevAutoplayStreamUrlRef.current;
+    const prevItemId = prevAutoplayItemIdRef.current;
+
+    if (!isVideo || !activeItemId || !videoSourceUrl) {
+      prevAutoplayStreamUrlRef.current = videoSourceUrl;
+      prevAutoplayItemIdRef.current = activeItemId;
+      return;
+    }
+
+    prevAutoplayStreamUrlRef.current = videoSourceUrl;
+    prevAutoplayItemIdRef.current = activeItemId;
+
+    const streamJustBecameReady = prevUrl === "" && videoSourceUrl !== "";
+    const switchedToAnotherItem =
+      prevItemId != null && prevItemId !== activeItemId;
+
+    if (!streamJustBecameReady && !switchedToAnotherItem) {
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handle = window.setTimeout(() => {
+      if (videoRef.current !== video) return;
+      void video.play().catch(() => {});
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [activeItemId, isVideo, videoSourceUrl]);
 
   const playbackTrackSource = useMemo<PlaybackTrackSource | null>(() => {
     if (!isVideo || !activeItem) return null;
@@ -1817,21 +1865,15 @@ export function PlaybackDock() {
   );
 
   const [seekPreviewSec, setSeekPreviewSec] = useState<number | null>(null);
-  const [seekScrubPointerDown, setSeekScrubPointerDown] = useState(false);
+  /** True while pointer-dragging the seek slider (synchronous; avoids seek spam before pointerup). */
+  const seekScrubActiveRef = useRef(false);
+  /** Latest slider seconds during scrub; read on pointerup for a single committed seek. */
+  const seekPreviewValueRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (!seekScrubPointerDown) return;
-    const endScrub = () => {
-      setSeekScrubPointerDown(false);
-      setSeekPreviewSec(null);
-    };
-    window.addEventListener("pointerup", endScrub);
-    window.addEventListener("pointercancel", endScrub);
-    return () => {
-      window.removeEventListener("pointerup", endScrub);
-      window.removeEventListener("pointercancel", endScrub);
-    };
-  }, [seekScrubPointerDown]);
+  const removeScrubWindowListeners = useCallback(() => {
+    scrubWindowListenersRef.current?.();
+    scrubWindowListenersRef.current = null;
+  }, []);
 
   const handleSeekSliderPointerDown = useCallback(
     (e: PointerEvent<HTMLInputElement>) => {
@@ -1840,25 +1882,62 @@ export function PlaybackDock() {
       } catch {
         /* ignore */
       }
-      setSeekScrubPointerDown(true);
+      removeScrubWindowListeners();
+
+      seekScrubActiveRef.current = true;
       const mediaEl = (isVideo ? videoRef.current : audioRef.current) as HTMLMediaElement | null;
       const t =
         mediaEl != null && Number.isFinite(mediaEl.currentTime)
           ? mediaEl.currentTime
           : playbackState.currentTime;
+      seekPreviewValueRef.current = t;
       setSeekPreviewSec(t);
+
+      const finishScrub = () => {
+        if (seekScrubActiveRef.current) {
+          const v = seekPreviewValueRef.current;
+          if (v != null && Number.isFinite(v)) {
+            seekToRef.current(v);
+          }
+        }
+        seekScrubActiveRef.current = false;
+        seekPreviewValueRef.current = null;
+        setSeekPreviewSec(null);
+        window.removeEventListener("pointerup", finishScrub);
+        window.removeEventListener("pointercancel", finishScrub);
+        scrubWindowListenersRef.current = null;
+      };
+
+      scrubWindowListenersRef.current = () => {
+        window.removeEventListener("pointerup", finishScrub);
+        window.removeEventListener("pointercancel", finishScrub);
+      };
+
+      window.addEventListener("pointerup", finishScrub);
+      window.addEventListener("pointercancel", finishScrub);
     },
-    [isVideo, playbackState.currentTime],
+    [isVideo, playbackState.currentTime, removeScrubWindowListeners],
   );
 
   const handleSeekSliderChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const next = Number(event.target.value);
+      seekPreviewValueRef.current = next;
       setSeekPreviewSec(next);
-      seekTo(next);
+      /* During pointer scrub, commit once on pointerup — rapid seeks confuse MSE/HLS. */
+      if (!seekScrubActiveRef.current) {
+        seekToRef.current(next);
+      }
     },
-    [seekTo],
+    [],
   );
+
+  useEffect(() => {
+    removeScrubWindowListeners();
+    seekScrubActiveRef.current = false;
+    seekPreviewValueRef.current = null;
+    setSeekPreviewSec(null);
+  }, [activeItemId, removeScrubWindowListeners]);
 
   const seekSliderDisplayValue = Math.min(
     seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime,

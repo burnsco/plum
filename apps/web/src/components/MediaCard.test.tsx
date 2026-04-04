@@ -17,14 +17,14 @@ describe("MediaCard artwork URLs", () => {
           key: "movie-99",
           title: "Movie Poster",
           subtitle: "2025",
-          posterUrl: "/api/media/99/artwork/poster",
+          posterUrl: "/api/media/99/artwork/poster?v=0123456789abcdef",
           onClick: () => {},
         }}
       />,
     );
 
     const poster = container.querySelector("img");
-    expect(poster).toHaveAttribute("src", "http://backend.test/api/media/99/artwork/poster");
+    expect(poster).toHaveAttribute("src", "http://backend.test/api/media/99/artwork/poster?v=0123456789abcdef");
   });
 
   it("resolves backend-relative grouped show poster URLs against the backend base", () => {
@@ -34,7 +34,7 @@ describe("MediaCard artwork URLs", () => {
           key: "show-tmdb-123",
           title: "Slow Horses",
           subtitle: "2 episodes",
-          posterUrl: "/api/libraries/1/shows/tmdb-123/artwork/poster",
+          posterUrl: "/api/libraries/1/shows/tmdb-123/artwork/poster?v=fedcba9876543210",
           ratingLabel: "TMDB",
           ratingValue: 8.7,
           onClick: () => {},
@@ -45,7 +45,7 @@ describe("MediaCard artwork URLs", () => {
     const poster = container.querySelector("img");
     expect(poster).toHaveAttribute(
       "src",
-      "http://backend.test/api/libraries/1/shows/tmdb-123/artwork/poster",
+      "http://backend.test/api/libraries/1/shows/tmdb-123/artwork/poster?v=fedcba9876543210",
     );
   });
 });

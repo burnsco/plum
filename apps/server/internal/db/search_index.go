@@ -502,7 +502,7 @@ func buildSearchDocuments(db *sql.DB, libraryID int, libraryName, libraryType st
 			Normalized:  normalizeSearchText(agg.title),
 			Subtitle:    titleSubtitle(releaseYearFromDate(agg.release), fmt.Sprintf("%d episodes", agg.episodeCt)),
 			PosterPath:  agg.poster,
-			PosterURL:   ShowPosterURL(libraryID, showKey),
+			PosterURL:   ShowPosterURL(libraryID, showKey, agg.poster),
 			IMDbRating:  agg.imdb,
 			Href:        fmt.Sprintf("/library/%d/show/%s", libraryID, showKey),
 			Genres:      genres,
@@ -625,7 +625,7 @@ WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
 	details.Genres = titleGenreNames(genres)
 	details.Cast = cast
 	if strings.TrimSpace(details.PosterPath) != "" {
-		details.PosterURL = fmt.Sprintf("/api/media/%d/artwork/poster", details.MediaID)
+		details.PosterURL = MediaItemPosterURL(details.MediaID, details.PosterPath)
 	}
 	if strings.TrimSpace(details.BackdropPath) != "" {
 		details.BackdropURL = fmt.Sprintf("/api/media/%d/artwork/backdrop", details.MediaID)
@@ -712,7 +712,7 @@ func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryS
 		details.IMDbRating = imdbRating
 	}
 	if strings.TrimSpace(details.PosterPath) != "" {
-		details.PosterURL = ShowPosterURL(libraryID, showKey)
+		details.PosterURL = ShowPosterURL(libraryID, showKey, details.PosterPath)
 	}
 	seasonSet := map[int]struct{}{}
 	for _, item := range filtered {

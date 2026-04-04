@@ -139,6 +139,9 @@ func ensureArtworkAsset(
 	source string,
 	artworkDir string,
 ) (artworkAssetRecord, error) {
+	source = strings.TrimSpace(source)
+	wantedSource := artworkSourceURL(source, artworkKind)
+
 	var asset artworkAssetRecord
 	if err := dbConn.QueryRow(
 		`SELECT a.id, a.source_url, a.artwork_kind, COALESCE(a.content_hash, ''), COALESCE(a.mime_type, ''),
@@ -150,12 +153,15 @@ func ensureArtworkAsset(
 		entityID,
 		artworkKind,
 	).Scan(&asset.id, &asset.sourceURL, &asset.kind, &asset.contentHash, &asset.mimeType, &asset.width, &asset.height, &asset.originalRelPath); err == nil {
-		if _, statErr := os.Stat(filepath.Join(artworkDir, asset.originalRelPath)); statErr == nil {
-			return asset, nil
+		linkedSource := strings.TrimSpace(asset.sourceURL)
+		if wantedSource != "" && linkedSource == wantedSource {
+			if _, statErr := os.Stat(filepath.Join(artworkDir, asset.originalRelPath)); statErr == nil {
+				return asset, nil
+			}
 		}
 	}
 
-	sourceURL := artworkSourceURL(source, artworkKind)
+	sourceURL := wantedSource
 	if sourceURL == "" {
 		return asset, ErrNotFound
 	}

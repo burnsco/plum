@@ -112,8 +112,11 @@ export function PosterPickerDialog(props: PosterPickerDialogProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="max-w-4xl" onClose={() => props.onOpenChange(false)}>
-        <DialogHeader>
+      <DialogContent
+        className="flex max-h-[min(90dvh,900px)] max-w-4xl flex-col gap-4 overflow-hidden"
+        onClose={() => props.onOpenChange(false)}
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Change poster</DialogTitle>
           <DialogDescription>{props.title}</DialogDescription>
         </DialogHeader>
@@ -123,8 +126,8 @@ export function PosterPickerDialog(props: PosterPickerDialogProps) {
         ) : data == null ? (
           <div className="py-10 text-sm text-(--plum-muted)">No poster options available.</div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-(--plum-muted)">
                 {data.has_custom_selection
                   ? "A custom poster is pinned for this title."
@@ -145,41 +148,43 @@ export function PosterPickerDialog(props: PosterPickerDialogProps) {
                 No poster candidates were found for this title.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {data.candidates.map((candidate) => (
-                  <button
-                    key={candidate.id}
-                    type="button"
-                    className={`group overflow-hidden rounded-lg border text-left transition-colors ${
-                      candidate.selected
-                        ? "border-(--plum-accent) bg-(--plum-accent-soft)/30"
-                        : "border-(--plum-border) bg-(--plum-panel) hover:border-(--plum-accent-soft)"
-                    }`}
-                    onClick={() => void handleSelect(candidate.source_url)}
-                    disabled={pending}
-                  >
-                    <div className="aspect-2/3 bg-black/20">
-                      <img
-                        src={candidate.image_url}
-                        alt={`${props.title} poster from ${candidate.label}`}
-                        className="size-full object-cover"
-                      />
-                    </div>
-                    <div className="space-y-1 px-3 py-2">
-                      <div className="text-sm font-medium text-(--plum-text)">
-                        {candidate.label}
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                  {data.candidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className={`group overflow-hidden rounded-lg border text-left transition-colors ${
+                        candidate.selected
+                          ? "border-(--plum-accent) bg-(--plum-accent-soft)/30"
+                          : "border-(--plum-border) bg-(--plum-panel) hover:border-(--plum-accent-soft)"
+                      }`}
+                      onClick={() => void handleSelect(candidate.source_url)}
+                      disabled={pending}
+                    >
+                      <div className="aspect-2/3 bg-black/20">
+                        <img
+                          src={candidate.image_url}
+                          alt={`${props.title} poster from ${candidate.label}`}
+                          className="size-full object-cover"
+                        />
                       </div>
-                      <div className="text-xs text-(--plum-muted)">
-                        {candidate.selected ? "Current selection" : "Use this poster"}
+                      <div className="space-y-1 px-3 py-2">
+                        <div className="text-sm font-medium text-(--plum-text)">
+                          {candidate.label}
+                        </div>
+                        <div className="text-xs text-(--plum-muted)">
+                          {candidate.selected ? "Current selection" : "Use this poster"}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
             {unavailableProviders.length > 0 ? (
-              <div className="text-xs text-(--plum-muted)">
+              <div className="shrink-0 text-xs text-(--plum-muted)">
                 Unavailable:{" "}
                 {unavailableProviders
                   .map((provider) => `${provider.provider} (${provider.reason})`)
@@ -187,7 +192,9 @@ export function PosterPickerDialog(props: PosterPickerDialogProps) {
               </div>
             ) : null}
 
-            {errorMessage ? <div className="text-sm text-rose-300">{errorMessage}</div> : null}
+            {errorMessage ? (
+              <div className="shrink-0 text-sm text-rose-300">{errorMessage}</div>
+            ) : null}
           </div>
         )}
       </DialogContent>

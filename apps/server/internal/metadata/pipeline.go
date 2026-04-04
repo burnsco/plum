@@ -158,34 +158,24 @@ func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imd
 	candidates := make([]PosterCandidate, 0, 8)
 	seen := map[string]struct{}{}
 	if p.fanart != nil && tmdbID > 0 {
-		posters, err := p.fanart.moviePosters(ctx, tmdbID)
-		if err != nil {
-			return nil, err
+		if posters, err := p.fanart.moviePosters(ctx, tmdbID); err == nil {
+			candidates = appendPosterCandidates(candidates, seen, "fanart", posters)
 		}
-		candidates = appendPosterCandidates(candidates, seen, "fanart", posters)
 	}
 	if p.movieDetailsProvider != nil && tmdbID > 0 {
-		details, err := p.movieDetailsProvider.GetMovieDetails(ctx, tmdbID)
-		if err != nil {
-			return nil, err
-		}
-		if details != nil {
+		if details, err := p.movieDetailsProvider.GetMovieDetails(ctx, tmdbID); err == nil && details != nil {
 			candidates = appendPosterCandidate(candidates, seen, "tmdb", details.PosterPath)
 		}
 	}
 	if p.tmdb != nil && tmdbID > 0 {
-		posters, err := p.tmdb.getMoviePosters(ctx, tmdbID)
-		if err != nil {
-			return nil, err
+		if posters, err := p.tmdb.getMoviePosters(ctx, tmdbID); err == nil {
+			candidates = appendPosterCandidates(candidates, seen, "tmdb", posters)
 		}
-		candidates = appendPosterCandidates(candidates, seen, "tmdb", posters)
 	}
 	if p.omdb != nil && imdbID != "" {
-		poster, err := p.omdb.GetPosterByID(ctx, imdbID)
-		if err != nil {
-			return nil, err
+		if poster, err := p.omdb.GetPosterByID(ctx, imdbID); err == nil {
+			candidates = appendPosterCandidate(candidates, seen, "omdb", poster)
 		}
-		candidates = appendPosterCandidate(candidates, seen, "omdb", poster)
 	}
 	return candidates, nil
 }
@@ -194,11 +184,7 @@ func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tm
 	candidates := make([]PosterCandidate, 0, 8)
 	seen := map[string]struct{}{}
 	if p.seriesDetailsProvider != nil && tmdbID > 0 {
-		details, err := p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID)
-		if err != nil {
-			return nil, err
-		}
-		if details != nil {
+		if details, err := p.seriesDetailsProvider.GetSeriesDetails(ctx, tmdbID); err == nil && details != nil {
 			candidates = appendPosterCandidate(candidates, seen, "tmdb", details.PosterPath)
 			if tvdbID == "" && strings.TrimSpace(details.TVDBID) != "" {
 				tvdbID = strings.TrimSpace(details.TVDBID)
@@ -206,26 +192,20 @@ func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tm
 		}
 	}
 	if p.tmdb != nil && tmdbID > 0 {
-		posters, err := p.tmdb.getTVPosters(ctx, tmdbID)
-		if err != nil {
-			return nil, err
+		if posters, err := p.tmdb.getTVPosters(ctx, tmdbID); err == nil {
+			candidates = appendPosterCandidates(candidates, seen, "tmdb", posters)
 		}
-		candidates = appendPosterCandidates(candidates, seen, "tmdb", posters)
 	}
 	if p.fanart != nil && tvdbID != "" {
-		posters, err := p.fanart.showPosters(ctx, tvdbID)
-		if err != nil {
-			return nil, err
+		if posters, err := p.fanart.showPosters(ctx, tvdbID); err == nil {
+			candidates = appendPosterCandidates(candidates, seen, "fanart", posters)
 		}
-		candidates = appendPosterCandidates(candidates, seen, "fanart", posters)
 	}
 	if prov := p.tvProviderByName("tvdb"); prov != nil {
 		if tvdbClient, ok := prov.(*TVDBClient); ok {
-			posters, err := tvdbClient.showPosters(ctx, title, tvdbID)
-			if err != nil {
-				return nil, err
+			if posters, err := tvdbClient.showPosters(ctx, title, tvdbID); err == nil {
+				candidates = appendPosterCandidates(candidates, seen, "tvdb", posters)
 			}
-			candidates = appendPosterCandidates(candidates, seen, "tvdb", posters)
 		}
 	}
 	return candidates, nil
@@ -235,26 +215,20 @@ func (p *Pipeline) GetSeasonPosterCandidates(ctx context.Context, title string, 
 	candidates := make([]PosterCandidate, 0, 3)
 	seen := map[string]struct{}{}
 	if p.fanart != nil && tvdbID != "" {
-		poster, err := p.fanart.seasonPoster(ctx, tvdbID, season)
-		if err != nil {
-			return nil, err
+		if poster, err := p.fanart.seasonPoster(ctx, tvdbID, season); err == nil {
+			candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
 		}
-		candidates = appendPosterCandidate(candidates, seen, "fanart", poster)
 	}
 	if p.tmdb != nil && tmdbID > 0 {
-		poster, err := p.tmdb.seasonPoster(ctx, tmdbID, season)
-		if err != nil {
-			return nil, err
+		if poster, err := p.tmdb.seasonPoster(ctx, tmdbID, season); err == nil {
+			candidates = appendPosterCandidate(candidates, seen, "tmdb", poster)
 		}
-		candidates = appendPosterCandidate(candidates, seen, "tmdb", poster)
 	}
 	if prov := p.tvProviderByName("tvdb"); prov != nil {
 		if tvdbClient, ok := prov.(*TVDBClient); ok {
-			poster, err := tvdbClient.seasonPoster(ctx, title, tvdbID, season)
-			if err != nil {
-				return nil, err
+			if poster, err := tvdbClient.seasonPoster(ctx, title, tvdbID, season); err == nil {
+				candidates = appendPosterCandidate(candidates, seen, "tvdb", poster)
 			}
-			candidates = appendPosterCandidate(candidates, seen, "tvdb", poster)
 		}
 	}
 	return candidates, nil
@@ -264,29 +238,19 @@ func (p *Pipeline) GetEpisodePosterCandidates(ctx context.Context, title string,
 	candidates := make([]PosterCandidate, 0, 3)
 	seen := map[string]struct{}{}
 	if p.tmdb != nil && tmdbID > 0 {
-		match, err := p.tmdb.GetEpisode(ctx, strconv.Itoa(tmdbID), season, episode)
-		if err != nil {
-			return nil, err
-		}
-		if match != nil {
+		if match, err := p.tmdb.GetEpisode(ctx, strconv.Itoa(tmdbID), season, episode); err == nil && match != nil {
 			candidates = appendPosterCandidate(candidates, seen, "tmdb", match.PosterURL)
 		}
 	}
 	if prov := p.tvProviderByName("tvdb"); prov != nil && tvdbID != "" {
-		match, err := prov.GetEpisode(ctx, tvdbID, season, episode)
-		if err != nil {
-			return nil, err
-		}
-		if match != nil {
+		if match, err := prov.GetEpisode(ctx, tvdbID, season, episode); err == nil && match != nil {
 			candidates = appendPosterCandidate(candidates, seen, "tvdb", match.PosterURL)
 		}
 	}
 	if p.omdb != nil && imdbID != "" {
-		poster, err := p.omdb.GetPosterByID(ctx, imdbID)
-		if err != nil {
-			return nil, err
+		if poster, err := p.omdb.GetPosterByID(ctx, imdbID); err == nil {
+			candidates = appendPosterCandidate(candidates, seen, "omdb", poster)
 		}
-		candidates = appendPosterCandidate(candidates, seen, "omdb", poster)
 	}
 	return candidates, nil
 }
@@ -446,15 +410,24 @@ func firstExactMovieTitleYearMatch(results []MatchResult, info MediaInfo) *Match
 	if infoTitle == "" || info.Year <= 0 {
 		return nil
 	}
+	var missingReleaseYear []*MatchResult
 	for i := range results {
 		candidate := &results[i]
 		if NormalizeTitle(candidate.Title) != infoTitle {
 			continue
 		}
-		if parseYear(candidate.ReleaseDate) != info.Year {
-			continue
+		cy := parseYear(candidate.ReleaseDate)
+		if cy == info.Year {
+			return candidate
 		}
-		return candidate
+		if cy == 0 {
+			missingReleaseYear = append(missingReleaseYear, candidate)
+		}
+	}
+	// TMDB search hits sometimes omit release_date; if exactly one exact-title row has no year,
+	// prefer it when the library title includes a year (common for remakes like Crash 1996 vs 2004).
+	if len(missingReleaseYear) == 1 {
+		return missingReleaseYear[0]
 	}
 	return nil
 }

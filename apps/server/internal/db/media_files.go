@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
@@ -30,12 +32,42 @@ func UpdateMediaFileIntroFromProbe(ctx context.Context, dbConn *sql.DB, mediaID 
 	return err
 }
 
-func ShowPosterURL(libraryID int, showKey string) string {
-	showKey = strings.TrimSpace(showKey)
-	if libraryID <= 0 || showKey == "" {
+// posterURLRevisionQuery returns a v=… query so poster URLs change when poster_source changes,
+// busting browser caches (see serveEntityArtwork Cache-Control).
+func posterURLRevisionQuery(posterSource string) string {
+	s := strings.TrimSpace(posterSource)
+	if s == "" {
 		return ""
 	}
-	return fmt.Sprintf("/api/libraries/%d/shows/%s/artwork/poster", libraryID, url.PathEscape(showKey))
+	sum := sha256.Sum256([]byte(s))
+	return "v=" + hex.EncodeToString(sum[:8])
+}
+
+// MediaItemPosterURL is the proxied poster URL for a media_global row (movies and episodes).
+func MediaItemPosterURL(mediaGlobalID int, posterSource string) string {
+	if mediaGlobalID <= 0 || strings.TrimSpace(posterSource) == "" {
+		return ""
+	}
+	base := fmt.Sprintf("/api/media/%d/artwork/poster", mediaGlobalID)
+	q := posterURLRevisionQuery(posterSource)
+	if q == "" {
+		return base
+	}
+	return base + "?" + q
+}
+
+// ShowPosterURL is the proxied show-level poster URL for library browse and search.
+func ShowPosterURL(libraryID int, showKey string, posterSource string) string {
+	showKey = strings.TrimSpace(showKey)
+	if libraryID <= 0 || showKey == "" || strings.TrimSpace(posterSource) == "" {
+		return ""
+	}
+	base := fmt.Sprintf("/api/libraries/%d/shows/%s/artwork/poster", libraryID, url.PathEscape(showKey))
+	q := posterURLRevisionQuery(posterSource)
+	if q == "" {
+		return base
+	}
+	return base + "?" + q
 }
 
 func isMissingMediaFilesSchemaError(err error) bool {
@@ -66,7 +98,7 @@ func decorateMediaItemURLs(item *MediaItem) {
 		return
 	}
 	if item.PosterPath != "" {
-		item.PosterURL = fmt.Sprintf("/api/media/%d/artwork/poster", item.ID)
+		item.PosterURL = MediaItemPosterURL(item.ID, item.PosterPath)
 	}
 	if item.BackdropPath != "" {
 		item.BackdropURL = fmt.Sprintf("/api/media/%d/artwork/backdrop", item.ID)
@@ -74,7 +106,11 @@ func decorateMediaItemURLs(item *MediaItem) {
 	if item.Type == LibraryTypeTV || item.Type == LibraryTypeAnime {
 		item.ThumbnailURL = fmt.Sprintf("/api/media/%d/thumbnail", item.ID)
 		if item.ShowPosterPath != "" {
-			item.ShowPosterURL = ShowPosterURL(item.LibraryID, showKeyFromItem(item.TMDBID, item.Title))
+			item.ShowPosterURL = ShowPosterURL(
+				item.LibraryID,
+				showKeyFromItem(item.TMDBID, item.Title),
+				item.ShowPosterPath,
+			)
 		}
 	}
 }
