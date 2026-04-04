@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.DiscoverRepository
+import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.network.DiscoverBrowseResponseJson
 import plum.tv.core.network.DiscoverGenresResponseJson
 import plum.tv.core.network.DiscoverResponseJson
@@ -64,12 +65,18 @@ sealed interface DownloadsUiState {
 @HiltViewModel
 class DiscoverViewModel @Inject constructor(
     private val repository: DiscoverRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
     private val _state = MutableStateFlow<DiscoverUiState>(DiscoverUiState.Loading)
     val state: StateFlow<DiscoverUiState> = _state.asStateFlow()
 
     init {
         refresh()
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect { ev ->
+                if (ev.invalidateDiscover) refresh()
+            }
+        }
     }
 
     fun refresh() {

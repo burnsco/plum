@@ -24,6 +24,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import plum.tv.core.network.AttachPlaybackSessionCommandJson
 import plum.tv.core.network.DetachPlaybackSessionCommandJson
+import plum.tv.core.network.LibraryScanUpdateWsEventJson
 import plum.tv.core.network.PlaybackSessionUpdateEventJson
 import plum.tv.core.network.buildPlumWebSocketUrl
 
@@ -33,6 +34,7 @@ class PlumWebSocketManager @Inject constructor(
     private val prefs: SessionPreferences,
     private val tokenBridge: AuthTokenBridge,
     private val moshi: Moshi,
+    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) {
     private companion object {
         const val TAG = "PlumTV"
@@ -40,6 +42,7 @@ class PlumWebSocketManager @Inject constructor(
 
     private val socketLock = Any()
     private val playbackUpdateAdapter = moshi.adapter(PlaybackSessionUpdateEventJson::class.java)
+    private val libraryScanUpdateAdapter = moshi.adapter(LibraryScanUpdateWsEventJson::class.java)
     private val attachCommandAdapter = moshi.adapter(AttachPlaybackSessionCommandJson::class.java)
     private val detachCommandAdapter = moshi.adapter(DetachPlaybackSessionCommandJson::class.java)
     private val attachedSessionIds = linkedSetOf<String>()
@@ -119,6 +122,9 @@ class PlumWebSocketManager @Inject constructor(
                         }
 
                         override fun onMessage(webSocket: WebSocket, text: String) {
+                            if (catalogRefreshCoordinator.handleWebSocketText(libraryScanUpdateAdapter, text)) {
+                                return
+                            }
                             parseUpdate(text)?.let { _updates.tryEmit(it) }
                         }
 

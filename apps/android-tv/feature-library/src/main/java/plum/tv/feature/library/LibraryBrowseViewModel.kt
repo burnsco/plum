@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.groupLibraryBrowseItemsByShow
 import plum.tv.core.network.isShowOnlyBrowseLibrary
@@ -29,6 +30,7 @@ sealed interface LibraryBrowseUiState {
 @HiltViewModel
 class LibraryBrowseViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -61,6 +63,16 @@ class LibraryBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             listingMutex.withLock {
                 refreshInitialFromNetwork(forceRefresh = false)
+            }
+        }
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect { ev ->
+                if (ev.libraryId != libraryId) return@collect
+                listingMutex.withLock {
+                    _state.value = LibraryBrowseUiState.Loading
+                    accumulatedItems.clear()
+                    refreshInitialFromNetwork(forceRefresh = true)
+                }
             }
         }
     }

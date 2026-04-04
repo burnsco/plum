@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.data.SessionRepository
 import javax.inject.Inject
 
@@ -22,7 +23,13 @@ enum class StartupState {
 class AuthViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val browseRepository: BrowseRepository,
+    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
+
+    private fun invalidateAllLocalCatalogCaches() {
+        catalogRefreshCoordinator.resetScanState()
+        browseRepository.invalidateLibrariesCache()
+    }
 
     val serverUrl = sessionRepository.serverUrl.stateIn(
         viewModelScope,
@@ -46,7 +53,7 @@ class AuthViewModel @Inject constructor(
             try {
                 val hadToken = sessionRepository.sessionToken.first().isNullOrBlank().not()
                 sessionRepository.setServerUrl(url)
-                browseRepository.invalidateLibrariesCache()
+                invalidateAllLocalCatalogCaches()
                 val still = sessionRepository.sessionToken.first().isNullOrBlank().not()
                 if (hadToken && !still) {
                     onUrlChangedInvalidate?.invoke()
@@ -74,7 +81,7 @@ class AuthViewModel @Inject constructor(
             if (sessionRepository.sessionToken.first().isNullOrBlank().not()) return
             if (defaultAdminEmail.isBlank() || defaultAdminPassword.isBlank()) return
             sessionRepository.login(defaultAdminEmail, defaultAdminPassword)
-                .onSuccess { browseRepository.invalidateLibrariesCache() }
+                .onSuccess { invalidateAllLocalCatalogCaches() }
         }
 
         tryDefaultAdminAutoLogin()
@@ -82,7 +89,7 @@ class AuthViewModel @Inject constructor(
         var state = readStartupState()
         if (state == StartupState.Authenticated && sessionRepository.serverRejectsStoredSession()) {
             sessionRepository.clearLocalSession()
-            browseRepository.invalidateLibrariesCache()
+            invalidateAllLocalCatalogCaches()
             tryDefaultAdminAutoLogin()
             state = readStartupState()
         }
@@ -94,7 +101,7 @@ class AuthViewModel @Inject constructor(
             val result =
                 withTimeoutOrNull(35_000) {
                     sessionRepository.login(email, password)
-                        .onSuccess { browseRepository.invalidateLibrariesCache() }
+                        .onSuccess { invalidateAllLocalCatalogCaches() }
                         .map { }
                 }
                     ?: Result.failure(
@@ -114,7 +121,7 @@ class AuthViewModel @Inject constructor(
                 } else {
                     withTimeoutOrNull(35_000) {
                         sessionRepository.redeemQuickConnect(normalized)
-                            .onSuccess { browseRepository.invalidateLibrariesCache() }
+                            .onSuccess { invalidateAllLocalCatalogCaches() }
                             .map { }
                     }
                         ?: Result.failure(
@@ -128,7 +135,7 @@ class AuthViewModel @Inject constructor(
     fun logout(onDone: () -> Unit) {
         viewModelScope.launch {
             sessionRepository.logout()
-            browseRepository.invalidateLibrariesCache()
+            invalidateAllLocalCatalogCaches()
             onDone()
         }
     }

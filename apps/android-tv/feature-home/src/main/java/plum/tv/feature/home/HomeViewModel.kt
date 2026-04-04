@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.network.ContinueWatchingEntryJson
 import plum.tv.core.network.HomeDashboardJson
 import plum.tv.core.network.RecentlyAddedEntryJson
@@ -25,6 +26,7 @@ sealed interface HomeUiState {
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -32,6 +34,11 @@ class HomeViewModel @Inject constructor(
 
     init {
         refresh()
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect {
+                refresh()
+            }
+        }
     }
 
     fun refresh() {

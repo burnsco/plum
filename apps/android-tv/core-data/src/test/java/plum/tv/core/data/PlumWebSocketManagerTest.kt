@@ -42,12 +42,14 @@ class PlumWebSocketManagerTest {
                 every { prefs.serverUrl } returns MutableStateFlow(baseUrl)
                 val tokenBridge = AuthTokenBridge()
                 tokenBridge.setToken("unit-test-token")
+                val catalog = mockk<LibraryCatalogRefreshCoordinator>(relaxed = true)
                 val mgr =
                     PlumWebSocketManager(
                         OkHttpClient(),
                         prefs,
                         tokenBridge,
                         moshi,
+                        catalog,
                     )
                 val job = SupervisorJob()
                 val scope = CoroutineScope(job + Dispatchers.IO)
@@ -74,12 +76,14 @@ class PlumWebSocketManagerTest {
                 val prefs = mockk<SessionPreferences>(relaxed = true)
                 every { prefs.serverUrl } returns urlState
                 val tokenBridge = AuthTokenBridge()
+                val catalog = mockk<LibraryCatalogRefreshCoordinator>(relaxed = true)
                 val mgr =
                     PlumWebSocketManager(
                         OkHttpClient(),
                         prefs,
                         tokenBridge,
                         moshi,
+                        catalog,
                     )
                 val job = SupervisorJob()
                 val scope = CoroutineScope(job + Dispatchers.IO)

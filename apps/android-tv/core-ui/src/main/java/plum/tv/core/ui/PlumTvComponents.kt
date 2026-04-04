@@ -1,13 +1,6 @@
 package plum.tv.core.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -42,7 +35,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -662,16 +654,6 @@ fun PlumMetadataChips(
     )
 }
 
-/** Durations/easing tuned for TV: collapse feels immediate; expand stays readable without lag. */
-private object PlumSideRailMotion {
-    const val WIDTH_EXPAND_MS = 115
-    const val WIDTH_COLLAPSE_MS = 76
-    const val ALPHA_EXPAND_MS = 95
-    const val ALPHA_COLLAPSE_MS = 58
-    const val FOOTER_FADE_IN_MS = 85
-    const val FOOTER_FADE_OUT_MS = 45
-}
-
 /**
  * Wide navigation rail with explicit labels, matching the web app's sidebar order.
  */
@@ -689,33 +671,9 @@ fun PlumSideRail(
     val metrics = PlumTheme.metrics
     var railHasFocus by remember { mutableStateOf(true) }
     val expanded = railHasFocus
-    val railWidth by animateDpAsState(
-        targetValue = if (expanded) metrics.railWidth else metrics.railCollapsedWidth,
-        animationSpec =
-            tween(
-                durationMillis = if (expanded) PlumSideRailMotion.WIDTH_EXPAND_MS else PlumSideRailMotion.WIDTH_COLLAPSE_MS,
-                easing = if (expanded) LinearOutSlowInEasing else FastOutLinearInEasing,
-            ),
-        label = "railWidth",
-    )
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0f,
-        animationSpec =
-            tween(
-                durationMillis = if (expanded) PlumSideRailMotion.ALPHA_EXPAND_MS else PlumSideRailMotion.ALPHA_COLLAPSE_MS,
-                easing = if (expanded) LinearOutSlowInEasing else FastOutLinearInEasing,
-            ),
-        label = "railContentAlpha",
-    )
-    val railHorizontalPadding by animateDpAsState(
-        targetValue = if (expanded) 14.dp else 6.dp,
-        animationSpec =
-            tween(
-                durationMillis = if (expanded) PlumSideRailMotion.WIDTH_EXPAND_MS else PlumSideRailMotion.WIDTH_COLLAPSE_MS,
-                easing = if (expanded) LinearOutSlowInEasing else FastOutLinearInEasing,
-            ),
-        label = "railHorizontalPadding",
-    )
+    // No animate*AsState: width/labels/footer switch in one frame (avoids low-FPS stepped animation on TV).
+    val railWidth = if (expanded) metrics.railWidth else metrics.railCollapsedWidth
+    val railHorizontalPadding = if (expanded) 14.dp else 6.dp
     Column(
         modifier = modifier
             .width(railWidth)
@@ -727,13 +685,13 @@ fun PlumSideRail(
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (contentAlpha > 0f) {
+        if (expanded) {
             Text(
                 text = "Plum",
                 style = PlumTheme.typography.titleLarge,
                 color = palette.text,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 4.dp).alpha(contentAlpha),
+                modifier = Modifier.padding(start = 4.dp),
                 maxLines = 1,
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -752,7 +710,6 @@ fun PlumSideRail(
                 item = item,
                 contentFocusRequester = contentFocusRequester,
                 modifier = firstMod,
-                labelAlpha = contentAlpha,
                 railExpanded = expanded,
             )
             if (item.dividerAfter) {
@@ -762,26 +719,8 @@ fun PlumSideRail(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        if (footer != null) {
-            AnimatedVisibility(
-                visible = expanded,
-                enter =
-                    fadeIn(
-                        tween(
-                            PlumSideRailMotion.FOOTER_FADE_IN_MS,
-                            easing = LinearOutSlowInEasing,
-                        ),
-                    ),
-                exit =
-                    fadeOut(
-                        tween(
-                            PlumSideRailMotion.FOOTER_FADE_OUT_MS,
-                            easing = FastOutLinearInEasing,
-                        ),
-                    ),
-            ) {
-                footer()
-            }
+        if (footer != null && expanded) {
+            footer()
         }
     }
 }
@@ -791,7 +730,6 @@ private fun PlumRailButton(
     item: PlumRailItem,
     contentFocusRequester: FocusRequester?,
     modifier: Modifier = Modifier,
-    labelAlpha: Float = 1f,
     railExpanded: Boolean = true,
 ) {
     val palette = PlumTheme.palette
@@ -862,7 +800,7 @@ private fun PlumRailButton(
                 },
                 modifier = Modifier.size(iconSize),
             )
-            if (labelAlpha > 0f) {
+            if (railExpanded) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = item.label,
@@ -874,7 +812,6 @@ private fun PlumRailButton(
                         else -> palette.textSecondary
                     },
                     maxLines = 1,
-                    modifier = Modifier.alpha(labelAlpha),
                 )
             }
         }

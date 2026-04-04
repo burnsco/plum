@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.network.LibraryMovieDetailsJson
 
 sealed interface MovieDetailUiState {
@@ -22,6 +23,7 @@ sealed interface MovieDetailUiState {
 @HiltViewModel
 class MovieDetailViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -34,6 +36,11 @@ class MovieDetailViewModel @Inject constructor(
 
     init {
         load()
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect { ev ->
+                if (ev.libraryId == libraryId) load()
+            }
+        }
     }
 
     fun load() {

@@ -316,6 +316,12 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(nextStatus.libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({
+        queryKey: ["show-details", nextStatus.libraryId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["movie-details", nextStatus.libraryId],
+      });
     }
     if (
       hasMeaningfulStatusChange(previous, nextStatus) &&
