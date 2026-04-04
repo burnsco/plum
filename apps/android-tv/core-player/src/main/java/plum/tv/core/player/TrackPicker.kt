@@ -4,6 +4,8 @@ data class TrackPickerOption(
     val id: String,
     val label: String,
     val selected: Boolean,
+    /** Secondary line in the picker (codec, channels, language, mime, etc.). */
+    val detail: String? = null,
 )
 
 sealed class TrackPicker {

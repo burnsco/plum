@@ -40,6 +40,18 @@ class PlayerViewModel @Inject constructor(
             ?.takeIf { it.isNotBlank() }
             ?.let(Uri::decode)
 
+    private val displayTitle: String? =
+        savedStateHandle.get<String>("displayTitle")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let(Uri::decode)
+
+    private val displaySubtitle: String? =
+        savedStateHandle.get<String>("displaySubtitle")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let(Uri::decode)
+
     private val controller =
         PlumPlayerController(
             appContext = appContext,
@@ -53,6 +65,8 @@ class PlayerViewModel @Inject constructor(
             resumeSec = resumeSec,
             libraryId = libraryId,
             showKey = showKey,
+            navDisplayTitle = displayTitle,
+            navDisplaySubtitle = displaySubtitle,
         )
 
     val player: ExoPlayer = controller.player
@@ -64,6 +78,10 @@ class PlayerViewModel @Inject constructor(
 
     fun togglePlayPause() {
         controller.togglePlayPause()
+    }
+
+    fun pauseWhenBackgrounded() {
+        controller.pauseWhenBackgrounded()
     }
 
     fun rewind10() {

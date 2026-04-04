@@ -142,6 +142,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 From the repo root, you can also run `make deploy-tv` to build the APK, reinstall it on a connected TV, and launch the app.
+If you want the LR TV we just paired, use `make deploy-tv-lr` instead.
 
 ---
 

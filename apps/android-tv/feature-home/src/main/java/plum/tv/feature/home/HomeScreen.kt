@@ -45,7 +45,14 @@ import plum.tv.core.ui.resolveImageUrl
 
 @Composable
 fun HomeRoute(
-    onPlayMedia: (mediaId: Int, resumeSec: Float, libraryId: Int?, showKey: String?) -> Unit,
+    onPlayMedia: (
+        mediaId: Int,
+        resumeSec: Float,
+        libraryId: Int?,
+        showKey: String?,
+        displayTitle: String?,
+        displaySubtitle: String?,
+    ) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -88,7 +95,14 @@ private fun formatRemainingTime(remainingSeconds: Double?): String? {
 private fun HomeContent(
     continueWatching: List<ContinueWatchingEntryJson>,
     recentlyAdded: List<RecentlyAddedEntryJson>,
-    onPlayMedia: (mediaId: Int, resumeSec: Float, libraryId: Int?, showKey: String?) -> Unit,
+    onPlayMedia: (
+        mediaId: Int,
+        resumeSec: Float,
+        libraryId: Int?,
+        showKey: String?,
+        displayTitle: String?,
+        displaySubtitle: String?,
+    ) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
 ) {
     val metrics = PlumTheme.metrics
@@ -109,13 +123,23 @@ private fun HomeContent(
                     onPlay = {
                         val resume = (hero.media.progressSeconds ?: 0.0).toFloat()
                         when (hero.kind) {
-                            "movie" -> onPlayMedia(hero.media.id, resume, null, null)
+                            "movie" ->
+                                onPlayMedia(
+                                    hero.media.id,
+                                    resume,
+                                    hero.media.libraryId,
+                                    null,
+                                    hero.media.title,
+                                    hero.media.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                )
                             "show" ->
                                 onPlayMedia(
                                     hero.media.id,
                                     resume,
                                     hero.media.libraryId,
                                     hero.showKey,
+                                    null,
+                                    null,
                                 )
                         }
                     },
@@ -146,13 +170,23 @@ private fun HomeContent(
                             onClick = {
                                 val resume = (entry.media.progressSeconds ?: 0.0).toFloat()
                                 when (entry.kind) {
-                                    "movie" -> onPlayMedia(entry.media.id, resume, null, null)
+                                    "movie" ->
+                                        onPlayMedia(
+                                            entry.media.id,
+                                            resume,
+                                            entry.media.libraryId,
+                                            null,
+                                            entry.media.title,
+                                            entry.media.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                        )
                                     "show" ->
                                         onPlayMedia(
                                             entry.media.id,
                                             resume,
                                             entry.media.libraryId,
                                             entry.showKey,
+                                            null,
+                                            null,
                                         )
                                 }
                             },
@@ -206,7 +240,14 @@ private fun HomeContent(
                             subtitle = entry.media.releaseDate?.take(4),
                             progressPercent = null,
                             onClick = {
-                                onPlayMedia(entry.media.id, 0f, null, null)
+                                onPlayMedia(
+                                    entry.media.id,
+                                    0f,
+                                    entry.media.libraryId,
+                                    null,
+                                    entry.media.title,
+                                    entry.media.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                )
                             },
                         )
                     }

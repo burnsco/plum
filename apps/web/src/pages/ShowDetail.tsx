@@ -5,7 +5,7 @@ import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { RatingBadge } from "../components/RatingBadge";
 import { usePlayer } from "../contexts/PlayerContext";
 import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
-import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
+import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
 import { useShowDetails, useShowEpisodes } from "../queries";
 
 function formatDuration(seconds: number): string {
@@ -193,17 +193,37 @@ export function ShowDetail() {
         <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
           <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {details.cast.map((member) => (
-              <div
-                key={`${member.name}-${member.character ?? ""}`}
-                className="rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3"
-              >
-                <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
-                {member.character ? (
-                  <div className="text-xs text-(--plum-muted)">{member.character}</div>
-                ) : null}
-              </div>
-            ))}
+            {details.cast.map((member) => {
+              const headshot = resolveCastProfileUrl(undefined, member.profile_path, "w185", BASE_URL);
+              const initial = member.name.trim().charAt(0).toUpperCase() || "?";
+              return (
+                <div
+                  key={`${member.name}-${member.character ?? ""}`}
+                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3"
+                >
+                  {headshot ? (
+                    <img
+                      src={headshot}
+                      alt=""
+                      className="h-[4.5rem] w-12 shrink-0 rounded-md object-cover object-top"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-[4.5rem] w-12 shrink-0 items-center justify-center rounded-md bg-(--plum-border) text-sm font-semibold text-(--plum-muted)"
+                      aria-hidden
+                    >
+                      {initial}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
+                    {member.character ? (
+                      <div className="text-xs text-(--plum-muted)">{member.character}</div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       ) : null}

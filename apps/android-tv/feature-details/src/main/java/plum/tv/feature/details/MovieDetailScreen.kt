@@ -42,7 +42,7 @@ import plum.tv.core.ui.resolveArtworkUrl
 @Composable
 fun MovieDetailRoute(
     onBack: () -> Unit,
-    onPlay: (mediaId: Int) -> Unit,
+    onPlay: (mediaId: Int, libraryId: Int, title: String, subtitle: String?) -> Unit,
     viewModel: MovieDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -137,7 +137,14 @@ fun MovieDetailRoute(
                                         (d.progressSeconds ?: 0.0) > 0 || (d.progressPercent ?: 0.0) > 0 -> "Resume"
                                         else -> "Play"
                                     },
-                                onClick = { onPlay(d.mediaId) },
+                                onClick = {
+                                    onPlay(
+                                        d.mediaId,
+                                        d.libraryId,
+                                        d.title,
+                                        d.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                    )
+                                },
                                 leadingBadge = "▶",
                             )
                             PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
@@ -146,12 +153,15 @@ fun MovieDetailRoute(
 
                     if (!d.cast.isNullOrEmpty()) {
                         PlumCastSection(
-                            cast = d.cast.orEmpty().map { member ->
-                                PlumCastMember(
-                                    name = member.name,
-                                    character = member.character,
-                                )
-                            },
+                            serverBase = serverBase,
+                            cast =
+                                d.cast.orEmpty().map { member ->
+                                    PlumCastMember(
+                                        name = member.name,
+                                        character = member.character,
+                                        profilePath = member.profilePath,
+                                    )
+                                },
                         )
                     }
                 }

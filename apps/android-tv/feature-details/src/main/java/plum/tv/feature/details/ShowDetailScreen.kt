@@ -242,12 +242,15 @@ fun ShowDetailRoute(
                     if (!d.cast.isNullOrEmpty()) {
                         item {
                             PlumCastSection(
-                                cast = d.cast.orEmpty().map { member ->
-                                    PlumCastMember(
-                                        name = member.name,
-                                        character = member.character,
-                                    )
-                                },
+                                serverBase = serverBase,
+                                cast =
+                                    d.cast.orEmpty().map { member ->
+                                        PlumCastMember(
+                                            name = member.name,
+                                            character = member.character,
+                                            profilePath = member.profilePath,
+                                        )
+                                    },
                             )
                         }
                     }

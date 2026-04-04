@@ -6,24 +6,33 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
+import coil.compose.AsyncImage
 
 data class PlumCastMember(
     val name: String,
     val character: String? = null,
+    val profilePath: String? = null,
+    val profileUrl: String? = null,
 )
 
 @Composable
 fun PlumCastSection(
     cast: List<PlumCastMember>,
+    serverBase: String,
     modifier: Modifier = Modifier,
     title: String = "Cast",
 ) {
@@ -38,14 +47,59 @@ fun PlumCastSection(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     rowItems.forEach { member ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(PlumTheme.metrics.tileRadius))
-                                .background(palette.panelAlt)
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        val photo =
+                            resolveArtworkUrl(
+                                serverBase,
+                                member.profileUrl,
+                                member.profilePath,
+                                PlumImageSizes.THUMB_SMALL,
+                            )
+                        Row(
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(PlumTheme.metrics.tileRadius))
+                                    .background(palette.panelAlt)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .size(width = 48.dp, height = 72.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                            ) {
+                                if (!photo.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = photo,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                } else {
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .fillMaxSize()
+                                                .background(palette.panel),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text =
+                                                member.name.trim().firstOrNull()?.uppercaseChar()?.toString()
+                                                    ?: "?",
+                                            style = PlumTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = palette.muted,
+                                        )
+                                    }
+                                }
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
                                 Text(
                                     text = member.name,
                                     style = PlumTheme.typography.titleSmall,

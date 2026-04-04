@@ -2,6 +2,7 @@ package plum.tv.app
 
 import android.net.Uri
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -79,7 +80,9 @@ private object Routes {
     const val LIBRARY_BROWSE = "library/{libraryId}/browse"
     const val MOVIE = "movie/{libraryId}/{mediaId}"
     const val SHOW = "show/{libraryId}/{showKey}"
-    const val PLAY = "play/{mediaId}?resume={resume}&libraryId={libraryId}&showKey={showKey}"
+    const val PLAY =
+        "play/{mediaId}?resume={resume}&libraryId={libraryId}&showKey={showKey}" +
+            "&displayTitle={displayTitle}&displaySubtitle={displaySubtitle}"
 }
 
 @UnstableApi
@@ -93,7 +96,7 @@ fun MainNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route.orEmpty()
     val currentLibraryType = navBackStackEntry?.arguments?.getString("libraryType")
-    val hideSideRail = currentRoute == Routes.PLAY
+    val hideSideRail = currentRoute.startsWith("play/")
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as ComponentActivity
     val mainNavVm: MainNavViewModel = hiltViewModel(viewModelStoreOwner = activity)
@@ -130,11 +133,15 @@ fun MainNavHost(
         resumeSec: Float = 0f,
         libraryId: Int? = null,
         showKey: String? = null,
+        displayTitle: String? = null,
+        displaySubtitle: String? = null,
     ) {
         val params = buildList {
             add("resume=$resumeSec")
             add("libraryId=${libraryId ?: -1}")
             add("showKey=${Uri.encode(showKey.orEmpty())}")
+            add("displayTitle=${Uri.encode(displayTitle.orEmpty())}")
+            add("displaySubtitle=${Uri.encode(displaySubtitle.orEmpty())}")
         }
         navController.navigate("play/$mediaId?${params.joinToString("&")}")
     }
@@ -222,6 +229,12 @@ fun MainNavHost(
 
     PlumTvScaffold {
         Box(Modifier.fillMaxSize()) {
+            // Lower priority than child screens (e.g. player): pop nav first, then finish the task.
+            BackHandler {
+                if (!navController.popBackStack()) {
+                    activity.finish()
+                }
+            }
             Row(Modifier.fillMaxSize()) {
                 if (!hideSideRail) {
                     PlumSideRail(
@@ -263,8 +276,15 @@ fun MainNavHost(
                 ) {
                     composable(Routes.HOME) {
                         HomeRoute(
-                            onPlayMedia = { mediaId, resumeSec, libraryId, showKey ->
-                                navigatePlay(mediaId, resumeSec, libraryId, showKey)
+                            onPlayMedia = { mediaId, resumeSec, libraryId, showKey, displayTitle, displaySubtitle ->
+                                navigatePlay(
+                                    mediaId,
+                                    resumeSec,
+                                    libraryId,
+                                    showKey,
+                                    displayTitle = displayTitle,
+                                    displaySubtitle = displaySubtitle,
+                                )
                             },
                             onOpenShow = { libraryId, showKey ->
                                 val enc = Uri.encode(showKey)
@@ -350,8 +370,15 @@ fun MainNavHost(
                     ) { entry ->
                         LibraryHubRoute(
                             libraryType = entry.arguments?.getString("libraryType"),
-                            onPlayMedia = { mediaId, resumeSec, libraryId, showKey ->
-                                navigatePlay(mediaId, resumeSec, libraryId, showKey)
+                            onPlayMedia = { mediaId, resumeSec, libraryId, showKey, displayTitle, displaySubtitle ->
+                                navigatePlay(
+                                    mediaId,
+                                    resumeSec,
+                                    libraryId,
+                                    showKey,
+                                    displayTitle = displayTitle,
+                                    displaySubtitle = displaySubtitle,
+                                )
                             },
                             onOpenShow = { libraryId, showKey ->
                                 val enc = Uri.encode(showKey)
@@ -409,7 +436,15 @@ fun MainNavHost(
                     ) {
                         MovieDetailRoute(
                             onBack = { navController.popBackStack() },
-                            onPlay = { mediaId -> navigatePlay(mediaId, 0f) },
+                            onPlay = { mediaId, libraryId, title, subtitle ->
+                                navigatePlay(
+                                    mediaId,
+                                    0f,
+                                    libraryId = libraryId,
+                                    displayTitle = title,
+                                    displaySubtitle = subtitle,
+                                )
+                            },
                         )
                     }
                     composable(
@@ -422,7 +457,12 @@ fun MainNavHost(
                         ShowDetailRoute(
                             onBack = { navController.popBackStack() },
                             onPlayEpisode = { mediaId, resumeSec, showLibraryId, showKey ->
-                                navigatePlay(mediaId, resumeSec, libraryId = showLibraryId, showKey = showKey)
+                                navigatePlay(
+                                    mediaId,
+                                    resumeSec,
+                                    libraryId = showLibraryId,
+                                    showKey = showKey,
+                                )
                             },
                         )
                     }
@@ -439,6 +479,14 @@ fun MainNavHost(
                                 defaultValue = -1
                             },
                             navArgument("showKey") {
+                                type = NavType.StringType
+                                defaultValue = ""
+                            },
+                            navArgument("displayTitle") {
+                                type = NavType.StringType
+                                defaultValue = ""
+                            },
+                            navArgument("displaySubtitle") {
                                 type = NavType.StringType
                                 defaultValue = ""
                             },

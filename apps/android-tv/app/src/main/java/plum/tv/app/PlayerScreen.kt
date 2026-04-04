@@ -1,7 +1,10 @@
 package plum.tv.app
 
+import android.text.format.DateFormat
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewGroup
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -42,16 +45,20 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
@@ -77,6 +84,8 @@ import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -86,6 +95,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import java.util.Date
 import kotlinx.coroutines.delay
 import plum.tv.core.player.TrackPicker
 import plum.tv.core.player.TrackPickerOption
@@ -116,6 +126,30 @@ fun PlayerRoute(
     // Each time hideTimerKey changes, the LaunchedEffect restarts the hide countdown.
     var hideTimerKey by remember { mutableIntStateOf(0) }
     var controlsVisible by remember { mutableStateOf(true) }
+
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val timeFormat = remember(context) { DateFormat.getTimeFormat(context) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.pauseWhenBackgrounded()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(controlsVisible) {
+        if (!controlsVisible) return@LaunchedEffect
+        nowMs = System.currentTimeMillis()
+        while (true) {
+            delay(1_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
 
     fun showControls() {
         controlsVisible = true
@@ -191,6 +225,23 @@ fun PlayerRoute(
             }
         }
         hadTrackPicker = trackPicker != null
+    }
+
+    val keepAwake =
+        ui.isPlaying ||
+            ui.isBuffering ||
+            upNext != null ||
+            trackPicker != null
+    DisposableEffect(keepAwake) {
+        val window = (context as ComponentActivity).window
+        if (keepAwake) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     Box(
@@ -345,6 +396,22 @@ fun PlayerRoute(
             }
         }
 
+        // ── Local time (top right, with controls) ────────────────────────────────
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd),
+        ) {
+            Text(
+                text = timeFormat.format(Date(nowMs)),
+                style = PlumTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.9f),
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 40.dp, vertical = 28.dp),
+            )
+        }
+
         // ── Bottom controls ──────────────────────────────────────────────────────
         AnimatedVisibility(
             visible = controlsVisible,
@@ -378,7 +445,7 @@ fun PlayerRoute(
 
                     // Center: playback controls
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         PlayerControlButton(
@@ -433,7 +500,7 @@ fun PlayerRoute(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             PlayerControlButton(
                                 icon = Icons.AutoMirrored.Filled.VolumeUp,
                                 contentDescription = audioContentDescription(ui.audioTrackLabel, ui.canCycleAudio),
@@ -644,7 +711,7 @@ private fun TrackPickerOverlay(
                 modifier = Modifier.padding(bottom = 12.dp),
             )
             Column(
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier =
                     Modifier
                         .weight(1f, fill = true)
@@ -733,23 +800,36 @@ private fun TrackPickerRow(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = option.label,
-                style = PlumTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            Column(
                 modifier = Modifier.weight(1f),
-            )
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = option.label,
+                    style = PlumTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                option.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                    Text(
+                        text = detail,
+                        style = PlumTheme.typography.bodySmall,
+                        color = palette.muted,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (option.selected) {
                 Text(
                     text = "●",
                     style = PlumTheme.typography.labelSmall,
                     color = palette.accent,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = 10.dp),
                 )
             }
         }
@@ -962,19 +1042,19 @@ private fun PlayerControlButton(
     val cornerRadius: Dp
     when {
         primary -> { buttonSize = 62.dp; iconSize = 32.dp; cornerRadius = 20.dp }
-        utility -> { buttonSize = 42.dp; iconSize = 19.dp; cornerRadius = 14.dp }
-        else    -> { buttonSize = 50.dp; iconSize = 24.dp; cornerRadius = 16.dp }
+        utility -> { buttonSize = 48.dp; iconSize = 22.dp; cornerRadius = 14.dp }
+        else    -> { buttonSize = 52.dp; iconSize = 26.dp; cornerRadius = 16.dp }
     }
     val shape = RoundedCornerShape(cornerRadius)
     val containerColor = when {
         ghost   -> Color.Transparent
         primary -> palette.accent
-        else    -> Color.White.copy(alpha = 0.10f)
+        else    -> Color.White.copy(alpha = 0.20f)
     }
     val focusedContainerColor = when {
-        ghost   -> Color.White.copy(alpha = 0.12f)
+        ghost   -> Color.White.copy(alpha = 0.14f)
         primary -> palette.accent
-        else    -> Color.White.copy(alpha = 0.22f)
+        else    -> Color.White.copy(alpha = 0.34f)
     }
     val contentColor = when {
         primary -> Color(0xFF1A1030)
@@ -1000,15 +1080,20 @@ private fun PlayerControlButton(
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
         border = ClickableSurfaceDefaults.border(
             border = plumBorder(
-                if (ghost) Color.Transparent else Color.White.copy(alpha = 0.12f),
-                if (ghost) 0.dp else 1.dp,
+                if (ghost) Color.Transparent else Color.White.copy(alpha = 0.26f),
+                if (ghost) 0.dp else 1.5.dp,
                 shape,
             ),
-            focusedBorder = plumBorder(palette.accent.copy(alpha = 0.70f), 1.5.dp, shape),
-            pressedBorder = plumBorder(palette.accent.copy(alpha = 0.70f), 1.5.dp, shape),
+            focusedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
+            pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
         ),
         glow = ClickableSurfaceDefaults.glow(
-            focusedGlow = if (primary) Glow(palette.accent.copy(alpha = 0.35f), 10.dp) else Glow(Color.Transparent, 0.dp),
+            focusedGlow =
+                when {
+                    primary -> Glow(palette.accent.copy(alpha = 0.38f), 10.dp)
+                    ghost -> Glow(Color.Transparent, 0.dp)
+                    else -> Glow(Color.White.copy(alpha = 0.22f), 9.dp)
+                },
         ),
     ) {
         Box(

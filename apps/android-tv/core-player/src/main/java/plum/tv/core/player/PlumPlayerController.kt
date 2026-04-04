@@ -11,6 +11,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
@@ -18,6 +19,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.text.TextRenderer
 import java.util.ArrayList
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -135,6 +137,8 @@ class PlumPlayerController(
     private val resumeSec: Float,
     private val libraryId: Int? = null,
     private val showKey: String? = null,
+    private val navDisplayTitle: String? = null,
+    private val navDisplaySubtitle: String? = null,
 ) {
     private var hlsSessionId: String? = null
     private var activeStreamUrl: String? = null
@@ -241,6 +245,13 @@ class PlumPlayerController(
     @Volatile
     private var pendingSubtitleRestore: SubtitleRestoreState? = null
 
+    /** Filled when movie playback has no episode queue but we can resolve title from the API. */
+    @Volatile
+    private var fetchedStandaloneTitle: String? = null
+
+    @Volatile
+    private var fetchedStandaloneSubtitle: String? = null
+
     init {
         // Register the listener synchronously. The constructor is always invoked on the main thread
         // (via PlayerViewModel which Hilt creates on the main thread), so this is safe without a
@@ -281,7 +292,9 @@ class PlumPlayerController(
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    updateError(error.message ?: "Playback error")
+                    val detail = describePlaybackError(error)
+                    android.util.Log.w("PlumTV", "player error: $detail", error)
+                    updateError(detail)
                     updateStatus("Error")
                 }
             },
@@ -289,6 +302,20 @@ class PlumPlayerController(
 
         scope.launch {
             openMedia(mediaId = mediaId, resumeSec = resumeSec)
+        }
+
+        if (showKey.isNullOrBlank() &&
+            (libraryId ?: 0) > 0 &&
+            navDisplayTitle.isNullOrBlank()
+        ) {
+            val lid = libraryId!!
+            scope.launch(Dispatchers.IO) {
+                browseRepository.movieDetails(lid, mediaId).onSuccess { d ->
+                    fetchedStandaloneTitle = d.title
+                    fetchedStandaloneSubtitle = d.releaseDate?.take(4)?.takeIf { it.length == 4 }
+                    withContext(Dispatchers.Main) { refreshUiState() }
+                }
+            }
         }
 
         if (libraryId != null && !showKey.isNullOrBlank()) {
@@ -341,6 +368,40 @@ class PlumPlayerController(
     private fun updateError(value: String?) {
         _error.value = value
         refreshUiState(errorOverride = value)
+    }
+
+    private fun describePlaybackError(error: androidx.media3.common.PlaybackException): String {
+        val codeName = runCatching { error.errorCodeName }.getOrNull()?.takeIf { it.isNotBlank() }
+        val chain = generateSequence(error as Throwable?) { it.cause }.toList()
+        val httpInvalid =
+            chain.firstOrNull { it is HttpDataSource.InvalidResponseCodeException }
+                as? HttpDataSource.InvalidResponseCodeException
+        val baseMessage =
+            when {
+                httpInvalid != null ->
+                    buildString {
+                        append("HTTP ")
+                        append(httpInvalid.responseCode)
+                        httpInvalid.responseMessage?.trim()?.takeIf { it.isNotBlank() }?.let {
+                            append(" ")
+                            append(it)
+                        }
+                    }
+                else -> {
+                    // IO_UNSPECIFIED often wraps an IOException with a useful message on an inner cause.
+                    val innerFirst =
+                        chain.asReversed().firstOrNull { t ->
+                            t.message?.trim()?.isNotBlank() == true &&
+                                t !is androidx.media3.common.PlaybackException
+                        }
+                    val detail =
+                        innerFirst?.message?.trim()
+                            ?: chain.asReversed().firstOrNull { t -> t.message?.trim()?.isNotBlank() == true }
+                                ?.message?.trim()
+                    detail ?: error.message?.trim()?.takeUnless { it.isBlank() } ?: "Playback error"
+                }
+            }
+        return if (codeName.isNullOrBlank()) baseMessage else "$baseMessage ($codeName)"
     }
 
     private fun currentQueueItem(): PlayerQueueItem? =
@@ -429,8 +490,15 @@ class PlumPlayerController(
         errorOverride: String? = null,
     ) {
         val item = currentQueueItem()
-        val title = item?.title ?: "Playing"
-        val subtitle = item?.subtitle
+        val title =
+            item?.title?.takeIf { it.isNotBlank() }
+                ?: navDisplayTitle?.trim()?.takeIf { it.isNotEmpty() }
+                ?: fetchedStandaloneTitle?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "Playing"
+        val subtitle =
+            item?.subtitle?.takeIf { it.isNotBlank() }
+                ?: navDisplaySubtitle?.trim()?.takeIf { it.isNotEmpty() }
+                ?: fetchedStandaloneSubtitle?.trim()?.takeIf { it.isNotEmpty() }
         val durationMs = currentDurationMs()
         val positionMs = player.currentPosition.coerceAtLeast(0)
         val positionSec = positionMs / 1000.0
@@ -592,21 +660,88 @@ class PlumPlayerController(
         return trimmed.uppercase()
     }
 
+    private fun Format.primaryAudioPickerLabel(fallbackIndex: Int): String {
+        val lang = languageLabel(language)
+        val lab = label?.trim()?.takeIf { it.isNotEmpty() }
+        return when {
+            lab != null && lang != null && !lab.contains(lang, ignoreCase = true) -> "$lab · $lang"
+            lab != null -> lab
+            lang != null -> lang
+            else -> "Audio $fallbackIndex"
+        }
+    }
+
+    private fun Format.primarySubtitlePickerLabel(): String {
+        val lang = languageLabel(language)
+        val lab = label?.trim()?.takeIf { it.isNotEmpty() }
+        return when {
+            lab != null && lang != null && !lab.contains(lang, ignoreCase = true) -> "$lab · $lang"
+            lab != null -> lab
+            lang != null -> lang
+            else -> "Subtitle"
+        }
+    }
+
+    private fun Format.audioPickerDetail(): String? {
+        val parts = mutableListOf<String>()
+        if (channelCount > 0) {
+            parts +=
+                when (channelCount) {
+                    1 -> "Mono"
+                    2 -> "Stereo"
+                    6 -> "5.1 surround"
+                    8 -> "7.1 surround"
+                    else -> "${channelCount} channels"
+                }
+        }
+        if (sampleRate > 0) {
+            parts += "${sampleRate / 1000} kHz"
+        }
+        codecs?.trim()?.takeIf { it.isNotEmpty() }?.uppercase(Locale.US)?.let { parts += it }
+        averageBitrate.takeIf { it > 0 }?.let { parts += "${it / 1000} kb/s" }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun Format.subtitlePickerDetail(): String? {
+        val parts = mutableListOf<String>()
+        sampleMimeType?.trim()?.takeIf { it.isNotEmpty() }?.let { mime ->
+            val short = mime.substringAfterLast('/').uppercase(Locale.US)
+            if (short.isNotBlank()) parts += short
+        }
+        val lab = label?.trim().orEmpty()
+        if (lab.isEmpty()) {
+            languageLabel(language)?.let { parts += it }
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
     private fun buildSubtitlePickerOptions(): List<TrackPickerOption> {
         val options = mutableListOf<TrackPickerOption>()
         val textDisabled =
             player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-        options += TrackPickerOption(id = "off", label = "Off", selected = textDisabled)
+        options +=
+            TrackPickerOption(
+                id = "off",
+                label = "Off",
+                selected = textDisabled,
+                detail = "Hide subtitles",
+            )
         val groups = player.currentTracks.groups
         for (gi in groups.indices) {
             val g = groups[gi]
             if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
             for (j in 0 until g.length) {
                 val fmt = g.mediaTrackGroup.getFormat(j)
-                val label = fmt.displayLabel() ?: "Subtitle ${options.size}"
+                val label = fmt.primarySubtitlePickerLabel()
                 val id = "t:$gi:$j"
                 val selected = !textDisabled && g.isTrackSelected(j)
-                options += TrackPickerOption(id = id, label = label, selected = selected)
+                options +=
+                    TrackPickerOption(
+                        id = id,
+                        label = label,
+                        selected = selected,
+                        detail = fmt.subtitlePickerDetail(),
+                    )
             }
         }
         return options
@@ -621,11 +756,25 @@ class PlumPlayerController(
             val cur = serverAudioIndex
             return sorted.map { t ->
                 val id = "s:${t.streamIndex}"
-                val label = t.displayLabel() ?: "Track ${t.streamIndex + 1}"
+                val titlePart = t.title.trim()
+                val langPart = languageLabel(t.language)
+                val label =
+                    when {
+                        titlePart.isNotEmpty() && langPart != null -> "$titlePart · $langPart"
+                        titlePart.isNotEmpty() -> titlePart
+                        langPart != null -> langPart
+                        else -> "Track ${t.streamIndex + 1}"
+                    }
+                val detail =
+                    if (sorted.size > 1) {
+                        "Embedded stream ${t.streamIndex + 1}"
+                    } else {
+                        null
+                    }
                 val selected =
                     t.streamIndex == cur ||
                         (cur < 0 && t.streamIndex == sorted.first().streamIndex)
-                TrackPickerOption(id = id, label = label, selected = selected)
+                TrackPickerOption(id = id, label = label, selected = selected, detail = detail)
             }
         }
         val all = mutableListOf<TrackPickerOption>()
@@ -635,10 +784,17 @@ class PlumPlayerController(
             if (g.type != C.TRACK_TYPE_AUDIO || g.length == 0) continue
             for (j in 0 until g.length) {
                 val fmt = g.mediaTrackGroup.getFormat(j)
-                val label = fmt.displayLabel() ?: "Audio ${all.size + 1}"
+                val idx = all.size + 1
+                val label = fmt.primaryAudioPickerLabel(idx)
                 val id = "a:$gi:$j"
                 val selected = g.isTrackSelected(j)
-                all += TrackPickerOption(id = id, label = label, selected = selected)
+                all +=
+                    TrackPickerOption(
+                        id = id,
+                        label = label,
+                        selected = selected,
+                        detail = fmt.audioPickerDetail(),
+                    )
             }
         }
         return all.takeIf { it.size >= 2 }
@@ -821,6 +977,17 @@ class PlumPlayerController(
         }
 
         embeddedSubtitleTracks.forEach { subtitle ->
+            // Match web: only load embedded subtitle streams we know are safe.
+            // Unknown support is treated as unsafe here because merging a bad track into the
+            // MediaItem can make Exo fetch /api/.../embedded/N and fail the whole source with an
+            // opaque IO error instead of just hiding the subtitle track.
+            if (subtitle.supported != true) {
+                android.util.Log.d(
+                    "PlumTV",
+                    "Skipping embedded subtitle stream=${subtitle.streamIndex} supported=${subtitle.supported} codec=${subtitle.codec.orEmpty()}",
+                )
+                return@forEach
+            }
             val subtitleUrl =
                 playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
             val builder =
@@ -1103,6 +1270,21 @@ class PlumPlayerController(
                 player.pause()
             } else {
                 player.play()
+            }
+            refreshUiState()
+        }
+    }
+
+    /**
+     * Called when the activity is no longer visible (Home, recents, another app). Stops audio/video
+     * and tears down transient UI so returning to the app does not surprise the user.
+     */
+    fun pauseWhenBackgrounded() {
+        scope.launch(Dispatchers.Main) {
+            clearUpNextCountdown()
+            dismissTrackPicker()
+            if (player.isPlaying) {
+                player.pause()
             }
             refreshUiState()
         }

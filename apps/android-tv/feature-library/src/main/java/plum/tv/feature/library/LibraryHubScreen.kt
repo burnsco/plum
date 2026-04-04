@@ -11,7 +11,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun LibraryHubRoute(
     libraryType: String?,
-    onPlayMedia: (mediaId: Int, resumeSec: Float, libraryId: Int?, showKey: String?) -> Unit,
+    onPlayMedia: (
+        mediaId: Int,
+        resumeSec: Float,
+        libraryId: Int?,
+        showKey: String?,
+        displayTitle: String?,
+        displaySubtitle: String?,
+    ) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
     onOpenLibrary: (libraryId: Int) -> Unit,
     viewModel: LibraryListViewModel = hiltViewModel(),

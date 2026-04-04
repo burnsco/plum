@@ -39,3 +39,27 @@ export function resolveBackdropUrl(
   }
   return tmdbBackdropUrl(backdropPath, size)
 }
+
+/** TMDb person profile stills use the same CDN as posters; typical sizes: w45, w185, h632, original. */
+export function tmdbProfileUrl(
+  path: string | undefined,
+  size: 'w45' | 'w185' | 'h632' | 'original' = 'w185',
+): string {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return `https://image.tmdb.org/t/p/${size}${path}`
+}
+
+export function resolveCastProfileUrl(
+  profileUrl: string | undefined,
+  profilePath: string | undefined,
+  size: 'w45' | 'w185' | 'h632' | 'original' = 'w185',
+  backendBaseUrl = '',
+): string {
+  if (profileUrl) {
+    if (profileUrl.startsWith('http://') || profileUrl.startsWith('https://')) return profileUrl
+    if (profileUrl.startsWith('/')) return buildBackendUrl(backendBaseUrl, profileUrl)
+    return profileUrl
+  }
+  return tmdbProfileUrl(profilePath, size)
+}

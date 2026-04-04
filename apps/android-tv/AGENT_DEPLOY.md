@@ -9,6 +9,7 @@ Use this when automating **compile â†’ install on a physical TV (or emulator) â†
 | Debug APK only | `bun run android:assemble` |
 | Install debug on connected device | `bun run android:install` |
 | Install + launch Plum TV | `bun run android:deploy` |
+| Install + launch Plum TV LR | `bun run deploy-tv-lr` |
 
 `android:deploy` runs [`scripts/android-tv-deploy.sh`](../../scripts/android-tv-deploy.sh): `installDebug`, then starts the app via `adb`.
 
@@ -72,6 +73,12 @@ If the machine is already set up in Android Studio (device authorized, same SDK)
 
    ```bash
    bun run android:deploy
+   ```
+
+   To target the LR TV specifically, run:
+
+   ```bash
+   bun run deploy-tv-lr
    ```
 
 Equivalent manual steps:

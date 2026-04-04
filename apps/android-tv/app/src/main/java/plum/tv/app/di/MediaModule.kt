@@ -61,6 +61,9 @@ object MediaModule {
     ): DataSource.Factory {
         val mediaClient =
             okHttpClient.newBuilder()
+                // Plum HLS/direct streams are long-lived GETs; OkHttp's response cache can corrupt or
+                // partially persist large bodies and surface as ExoPlayer ERROR_CODE_IO_UNSPECIFIED.
+                .cache(null)
                 .connectTimeout(15, TimeUnit.SECONDS)
                 // Media streams can take a while to deliver first bytes or pause between chunks.
                 .readTimeout(0, TimeUnit.MILLISECONDS)
