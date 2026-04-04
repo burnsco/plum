@@ -120,6 +120,7 @@ data class PlumTvMetrics(
     val posterCornerRadius: Dp,
     val buttonRadius: Dp,
     val railWidth: Dp,
+    val railCollapsedWidth: Dp,
 )
 
 private val plumPalette =
@@ -167,6 +168,8 @@ private val plumMetrics =
         posterCornerRadius = 8.dp,
         buttonRadius = 999.dp,
         railWidth = 200.dp,
+        /** Wide enough for a centered ~26dp icon after padding; narrower rails clip/squash icons. */
+        railCollapsedWidth = 76.dp,
     )
 
 private val LocalPlumPalette = staticCompositionLocalOf { plumPalette }

@@ -532,6 +532,33 @@ func releaseYearFromDate(value string) int {
 	return year
 }
 
+// lookupShowTitleByShowKey returns the series title from shows for the same key rules as library navigation.
+// It performs a single-column read (no genres/cast) for hot paths such as the home dashboard.
+func lookupShowTitleByShowKey(db *sql.DB, libraryID int, libraryType string, showKey string) (string, error) {
+	query := `SELECT title FROM shows WHERE library_id = ? AND kind = ?`
+	args := []interface{}{libraryID, libraryType}
+	if strings.HasPrefix(showKey, "tmdb-") {
+		tmdbID, parseErr := strconv.Atoi(strings.TrimPrefix(showKey, "tmdb-"))
+		if parseErr != nil {
+			return "", nil
+		}
+		query += ` AND tmdb_id = ? LIMIT 1`
+		args = append(args, tmdbID)
+	} else {
+		query += ` AND title_key = ? LIMIT 1`
+		args = append(args, strings.TrimPrefix(showKey, "title-"))
+	}
+	var title string
+	err := db.QueryRow(query, args...).Scan(&title)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(title), nil
+}
+
 func getShowCanonicalMetadata(db *sql.DB, libraryID int, libraryType string, showKey string) (showID int, title string, overview string, posterPath string, backdropPath string, airDate string, voteAverage float64, imdbID string, imdbRating float64, genres []string, cast []TitleCastMember, err error) {
 	query := `SELECT id, title, COALESCE(overview, ''), COALESCE(poster_path, ''), COALESCE(backdrop_path, ''), COALESCE(first_air_date, ''), COALESCE(vote_average, 0), COALESCE(imdb_id, ''), COALESCE(imdb_rating, 0)
 FROM shows

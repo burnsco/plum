@@ -112,7 +112,7 @@ fun LibraryBrowseRoute(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PlumScreenPadding(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 PlumScreenTitle(

@@ -143,6 +143,7 @@ func GetHomeDashboardForUser(db *sql.DB, userID int) (HomeDashboard, error) {
 	if err := attachHomeDashboardSubtitles(db, &dash); err != nil {
 		return HomeDashboard{}, err
 	}
+	enrichHomeDashboardShowTitles(db, &dash)
 	return dash, nil
 }
 
@@ -648,6 +649,53 @@ ORDER BY g.id`
 		out = append(out, chunk...)
 	}
 	return out, nil
+}
+
+// enrichHomeDashboardShowTitles replaces show_title on episodic dashboard entries with the
+// canonical series title from shows when available (same source as the library show view).
+func enrichHomeDashboardShowTitles(db *sql.DB, dash *HomeDashboard) {
+	patchCW := func(entries []ContinueWatchingEntry) {
+		for i := range entries {
+			e := &entries[i]
+			if e.Kind != "show" && e.Kind != "episode" {
+				continue
+			}
+			if t := canonicalShowTitleFromShowsTable(db, e.ShowKey, e.Media.LibraryID, e.Media.Type); t != "" {
+				e.ShowTitle = t
+			}
+		}
+	}
+	patchCW(dash.ContinueWatching)
+
+	patchRA := func(entries []RecentlyAddedEntry) {
+		for i := range entries {
+			e := &entries[i]
+			if e.Kind != "show" && e.Kind != "episode" {
+				continue
+			}
+			if t := canonicalShowTitleFromShowsTable(db, e.ShowKey, e.Media.LibraryID, e.Media.Type); t != "" {
+				e.ShowTitle = t
+			}
+		}
+	}
+	patchRA(dash.RecentlyAddedTvEpisodes)
+	patchRA(dash.RecentlyAddedTvShows)
+	patchRA(dash.RecentlyAddedAnimeEpisodes)
+	patchRA(dash.RecentlyAddedAnimeShows)
+}
+
+func canonicalShowTitleFromShowsTable(db *sql.DB, showKey string, libraryID int, mediaType string) string {
+	if showKey == "" || libraryID <= 0 {
+		return ""
+	}
+	if mediaType != LibraryTypeTV && mediaType != LibraryTypeAnime {
+		return ""
+	}
+	title, err := lookupShowTitleByShowKey(db, libraryID, mediaType, showKey)
+	if err != nil || title == "" {
+		return ""
+	}
+	return title
 }
 
 func attachHomeDashboardSubtitles(db *sql.DB, dash *HomeDashboard) error {

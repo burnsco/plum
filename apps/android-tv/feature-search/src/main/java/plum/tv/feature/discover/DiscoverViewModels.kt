@@ -35,8 +35,13 @@ sealed interface DiscoverBrowseUiState {
         val genres: List<plum.tv.core.network.DiscoverGenreJson>,
         val items: List<plum.tv.core.network.DiscoverItemJson>,
         val totalResults: Int,
+        val currentPage: Int = 1,
+        val totalPages: Int = 1,
+        val hasMore: Boolean = false,
         /** True while a filter change is loading new results (grid stays visible). */
         val refreshing: Boolean = false,
+        /** True while appending the next page (bottom loading indicator). */
+        val loadingMore: Boolean = false,
     ) : DiscoverBrowseUiState
     data class Error(val message: String) : DiscoverBrowseUiState
 }
@@ -91,17 +96,25 @@ class DiscoverBrowseViewModel @Inject constructor(
     val state: StateFlow<DiscoverBrowseUiState> = _state.asStateFlow()
 
     private var cachedGenres: plum.tv.core.network.DiscoverGenresResponseJson? = null
+    private var currentCategory: String? = null
+    private var currentMediaType: String? = null
+    private var currentGenreId: Int? = null
+    private var isLoadingMore = false
 
     fun refresh(category: String? = null, mediaType: String? = null, genreId: Int? = null) {
+        currentCategory = category
+        currentMediaType = mediaType
+        currentGenreId = genreId
+        isLoadingMore = false
+
         viewModelScope.launch {
             val current = _state.value
             if (current is DiscoverBrowseUiState.Ready) {
-                _state.value = current.copy(refreshing = true)
+                _state.value = current.copy(refreshing = true, loadingMore = false)
             }
 
             val genres = cachedGenres ?: repository.discoverGenres().getOrElse {
                 if (current is DiscoverBrowseUiState.Ready) {
-                    // Was showing pull-to-refresh / filter spinner; restore grid without sticking on loading.
                     _state.value = current.copy(refreshing = false)
                 } else {
                     _state.value = DiscoverBrowseUiState.Error(it.message ?: "Failed to load discover genres")
@@ -130,6 +143,47 @@ class DiscoverBrowseViewModel @Inject constructor(
                 },
                 items = browse.items,
                 totalResults = browse.totalResults,
+                currentPage = browse.page,
+                totalPages = browse.totalPages,
+                hasMore = browse.page < browse.totalPages,
+            )
+        }
+    }
+
+    fun loadNextPage() {
+        val current = _state.value
+        if (current !is DiscoverBrowseUiState.Ready) return
+        if (!current.hasMore || isLoadingMore) return
+
+        isLoadingMore = true
+        val nextPage = current.currentPage + 1
+
+        viewModelScope.launch {
+            _state.value = current.copy(loadingMore = true)
+
+            val browse = repository.browseDiscover(
+                currentCategory,
+                currentMediaType,
+                currentGenreId,
+                page = nextPage,
+            ).getOrElse {
+                isLoadingMore = false
+                _state.value = current.copy(loadingMore = false)
+                return@launch
+            }
+
+            val existingKeys = current.items.mapTo(HashSet()) { "${it.mediaType}-${it.tmdbId}" }
+            val newItems = browse.items.filter { "${it.mediaType}-${it.tmdbId}" !in existingKeys }
+            val allItems = current.items + newItems
+
+            isLoadingMore = false
+            _state.value = current.copy(
+                items = allItems,
+                currentPage = browse.page,
+                totalPages = browse.totalPages,
+                totalResults = browse.totalResults,
+                hasMore = browse.page < browse.totalPages,
+                loadingMore = false,
             )
         }
     }

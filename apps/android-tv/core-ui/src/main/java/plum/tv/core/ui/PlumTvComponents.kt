@@ -1,6 +1,13 @@
 package plum.tv.core.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -31,9 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -304,7 +313,7 @@ fun PlumDetailHeroHeader(
                     .width(metrics.heroPosterWidth)
                     .height(metrics.heroPosterHeight)
                     .clip(RoundedCornerShape(metrics.tileRadius)),
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
             )
         }
         Column(
@@ -446,6 +455,12 @@ fun PlumPosterCard(
     val width = if (compact) metrics.posterCompactWidth else metrics.posterWidth
     val height = if (compact) metrics.posterCompactHeight else metrics.posterHeight
     val shape = RoundedCornerShape(metrics.posterCornerRadius)
+    val cardShape = RoundedCornerShape(
+        topStart = metrics.posterCornerRadius,
+        topEnd = metrics.posterCornerRadius,
+        bottomStart = 0.dp,
+        bottomEnd = 0.dp,
+    )
     val titleGap = if (compact) 6.dp else 8.dp
     val frameWidth = if (compact) 1.dp else 1.5.dp
     val focusFrameWidth = if (compact) 2.5.dp else 3.dp
@@ -470,8 +485,8 @@ fun PlumPosterCard(
         label = "progress",
     )
 
-    val titleStyle = if (compact) PlumTheme.typography.labelMedium else PlumTheme.typography.titleSmall
-    val subtitleStyle = if (compact) PlumTheme.typography.labelSmall else PlumTheme.typography.labelMedium
+    val titleStyle = PlumTheme.typography.titleSmall
+    val subtitleStyle = PlumTheme.typography.labelMedium
     val titleWeight = if (compact) FontWeight.Medium else FontWeight.SemiBold
     val resolvedFocusedScale =
         focusedScale ?: if (compact) {
@@ -494,7 +509,7 @@ fun PlumPosterCard(
                         )
                     }
                 },
-        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        shape = ClickableSurfaceDefaults.shape(shape = cardShape),
         colors =
             ClickableSurfaceDefaults.colors(
                 containerColor = Color.Transparent,
@@ -509,9 +524,9 @@ fun PlumPosterCard(
         scale = ClickableSurfaceDefaults.scale(focusedScale = resolvedFocusedScale),
         border =
             ClickableSurfaceDefaults.border(
-                border = plumBorder(Color.Transparent, 0.dp, shape),
-                focusedBorder = plumBorder(Color.Transparent, 0.dp, shape),
-                pressedBorder = plumBorder(Color.Transparent, 0.dp, shape),
+                border = plumBorder(Color.Transparent, 0.dp, cardShape),
+                focusedBorder = plumBorder(Color.Transparent, 0.dp, cardShape),
+                pressedBorder = plumBorder(Color.Transparent, 0.dp, cardShape),
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
@@ -538,7 +553,7 @@ fun PlumPosterCard(
                         model = posterRequest,
                         contentDescription = title,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                     )
                 } else {
                     Box(
@@ -647,6 +662,16 @@ fun PlumMetadataChips(
     )
 }
 
+/** Durations/easing tuned for TV: collapse feels immediate; expand stays readable without lag. */
+private object PlumSideRailMotion {
+    const val WIDTH_EXPAND_MS = 115
+    const val WIDTH_COLLAPSE_MS = 76
+    const val ALPHA_EXPAND_MS = 95
+    const val ALPHA_COLLAPSE_MS = 58
+    const val FOOTER_FADE_IN_MS = 85
+    const val FOOTER_FADE_OUT_MS = 45
+}
+
 /**
  * Wide navigation rail with explicit labels, matching the web app's sidebar order.
  */
@@ -656,31 +681,80 @@ fun PlumSideRail(
     modifier: Modifier = Modifier,
     /** D-pad Right from a rail item jumps here (main NavHost content). */
     contentFocusRequester: FocusRequester? = null,
+    /** When set, attached to the first rail item (e.g. Home) for initial / programmatic focus. */
+    firstItemFocusRequester: FocusRequester? = null,
     footer: @Composable (() -> Unit)? = null,
 ) {
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
+    var railHasFocus by remember { mutableStateOf(true) }
+    val expanded = railHasFocus
+    val railWidth by animateDpAsState(
+        targetValue = if (expanded) metrics.railWidth else metrics.railCollapsedWidth,
+        animationSpec =
+            tween(
+                durationMillis = if (expanded) PlumSideRailMotion.WIDTH_EXPAND_MS else PlumSideRailMotion.WIDTH_COLLAPSE_MS,
+                easing = if (expanded) LinearOutSlowInEasing else FastOutLinearInEasing,
+            ),
+        label = "railWidth",
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec =
+            tween(
+                durationMillis = if (expanded) PlumSideRailMotion.ALPHA_EXPAND_MS else PlumSideRailMotion.ALPHA_COLLAPSE_MS,
+                easing = if (expanded) LinearOutSlowInEasing else FastOutLinearInEasing,
+            ),
+        label = "railContentAlpha",
+    )
+    val railHorizontalPadding by animateDpAsState(
+        targetValue = if (expanded) 14.dp else 6.dp,
+        animationSpec =
+            tween(
+                durationMillis = if (expanded) PlumSideRailMotion.WIDTH_EXPAND_MS else PlumSideRailMotion.WIDTH_COLLAPSE_MS,
+                easing = if (expanded) LinearOutSlowInEasing else FastOutLinearInEasing,
+            ),
+        label = "railHorizontalPadding",
+    )
     Column(
         modifier = modifier
-            .width(metrics.railWidth)
+            .width(railWidth)
             .fillMaxHeight()
             .background(palette.panel)
-            .padding(horizontal = 14.dp, vertical = 20.dp),
+            .clip(RoundedCornerShape(0.dp))
+            .onFocusChanged { railHasFocus = it.hasFocus }
+            .padding(horizontal = railHorizontalPadding, vertical = 20.dp),
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = "Plum",
-            style = PlumTheme.typography.titleLarge,
-            color = palette.text,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 4.dp),
-        )
+        if (contentAlpha > 0f) {
+            Text(
+                text = "Plum",
+                style = PlumTheme.typography.titleLarge,
+                color = palette.text,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 4.dp).alpha(contentAlpha),
+                maxLines = 1,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        items.forEach { item ->
-            PlumRailButton(item, contentFocusRequester)
+        items.forEachIndexed { index, item ->
+            val firstMod =
+                if (index == 0 && firstItemFocusRequester != null) {
+                    Modifier.focusRequester(firstItemFocusRequester)
+                } else {
+                    Modifier
+                }
+            PlumRailButton(
+                item = item,
+                contentFocusRequester = contentFocusRequester,
+                modifier = firstMod,
+                labelAlpha = contentAlpha,
+                railExpanded = expanded,
+            )
             if (item.dividerAfter) {
                 PlumRailDivider()
             }
@@ -688,20 +762,47 @@ fun PlumSideRail(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        footer?.invoke()
+        if (footer != null) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter =
+                    fadeIn(
+                        tween(
+                            PlumSideRailMotion.FOOTER_FADE_IN_MS,
+                            easing = LinearOutSlowInEasing,
+                        ),
+                    ),
+                exit =
+                    fadeOut(
+                        tween(
+                            PlumSideRailMotion.FOOTER_FADE_OUT_MS,
+                            easing = FastOutLinearInEasing,
+                        ),
+                    ),
+            ) {
+                footer()
+            }
+        }
     }
 }
 
 @Composable
-private fun PlumRailButton(item: PlumRailItem, contentFocusRequester: FocusRequester?) {
+private fun PlumRailButton(
+    item: PlumRailItem,
+    contentFocusRequester: FocusRequester?,
+    modifier: Modifier = Modifier,
+    labelAlpha: Float = 1f,
+    railExpanded: Boolean = true,
+) {
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
     val shape = RoundedCornerShape(metrics.tileRadius)
     var isFocused by remember { mutableStateOf(false) }
+    val iconSize = if (railExpanded) 20.dp else 26.dp
     Surface(
         onClick = item.onClick,
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .onFocusChanged { isFocused = it.isFocused }
                 .then(
@@ -734,19 +835,23 @@ private fun PlumRailButton(item: PlumRailItem, contentFocusRequester: FocusReque
             modifier = Modifier
                 .fillMaxWidth()
                 .height(42.dp)
-                .padding(start = 4.dp, end = 8.dp),
+                .padding(
+                    start = if (railExpanded) 4.dp else 0.dp,
+                    end = if (railExpanded) 8.dp else 0.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            horizontalArrangement = if (railExpanded) Arrangement.Start else Arrangement.Center,
         ) {
-            // Left accent bar for selected state
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(20.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (item.selected) palette.accent else Color.Transparent),
-            )
-            Spacer(modifier = Modifier.width(10.dp))
+            if (railExpanded) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (item.selected) palette.accent else Color.Transparent),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             Icon(
                 imageVector = item.icon,
                 contentDescription = item.label,
@@ -755,19 +860,23 @@ private fun PlumRailButton(item: PlumRailItem, contentFocusRequester: FocusReque
                     isFocused -> palette.text
                     else -> palette.muted
                 },
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(iconSize),
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = item.label,
-                style = PlumTheme.typography.labelLarge,
-                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
-                color = when {
-                    item.selected -> palette.text
-                    isFocused -> palette.text
-                    else -> palette.textSecondary
-                },
-            )
+            if (labelAlpha > 0f) {
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = item.label,
+                    style = PlumTheme.typography.labelLarge,
+                    fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = when {
+                        item.selected -> palette.text
+                        isFocused -> palette.text
+                        else -> palette.textSecondary
+                    },
+                    maxLines = 1,
+                    modifier = Modifier.alpha(labelAlpha),
+                )
+            }
         }
     }
 }

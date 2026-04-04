@@ -174,11 +174,23 @@ private fun HomeContent(
                 ) {
                     items(cwRail, key = { it.media.id }) { entry ->
                         val remaining = formatRemainingTime(entry.remainingSeconds)
-                        val baseLabel = entry.episodeLabel ?: entry.showTitle
+                        // Show entries use showTitle as the card title; subtitle is episode context only.
+                        val baseLabel =
+                            if (entry.kind == "show") {
+                                entry.episodeLabel?.takeIf { it.isNotBlank() }
+                            } else {
+                                entry.episodeLabel ?: entry.showTitle
+                            }
                         val subtitle = listOfNotNull(baseLabel, remaining).joinToString(" • ")
                         MediaEntryCard(
                             media = entry.media,
                             preferShowPoster = entry.kind == "show",
+                            title =
+                                if (entry.kind == "show") {
+                                    entry.showTitle?.takeIf { it.isNotBlank() }
+                                } else {
+                                    null
+                                },
                             subtitle = subtitle.ifBlank { null },
                             progressPercent = entry.media.progressPercent,
                             onClick = {
@@ -222,7 +234,8 @@ private fun HomeContent(
                         MediaEntryCard(
                             media = entry.media,
                             preferShowPoster = true,
-                            subtitle = entry.episodeLabel ?: entry.showTitle,
+                            title = entry.showTitle?.takeIf { it.isNotBlank() },
+                            subtitle = entry.episodeLabel?.takeIf { it.isNotBlank() },
                             progressPercent = null,
                             onClick = {
                                 val key = entry.showKey
@@ -274,10 +287,12 @@ private fun HomeRail(
     isLast: Boolean,
     content: LazyListScope.() -> Unit,
 ) {
+    // Start inset lives on the LazyRow's contentPadding (not the Column) so the LazyRow's clip
+    // boundary extends to the content area's left edge — giving the first focused card room to
+    // scale without being cropped by the scroll container's clip.
+    val startInset = metrics.screenPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr)
     Column(
         modifier = Modifier.padding(
-            start = metrics.screenPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-            end = 0.dp,
             top = metrics.sectionGap,
             bottom = if (isLast) metrics.sectionGap else 0.dp,
         ),
@@ -285,11 +300,11 @@ private fun HomeRail(
     ) {
         PlumSectionHeader(
             title = title,
-            modifier = Modifier.padding(end = 28.dp),
+            modifier = Modifier.padding(start = startInset, end = 28.dp),
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
-            contentPadding = PaddingValues(end = 28.dp),
+            contentPadding = PaddingValues(start = startInset, end = 28.dp),
         ) {
             content()
         }
@@ -374,8 +389,14 @@ private fun HeroSection(
                 color = PlumTheme.palette.accent.copy(alpha = 0.85f),
                 fontWeight = FontWeight.Bold,
             )
+            val heroTitle =
+                if (entry.kind == "show") {
+                    entry.showTitle?.takeIf { it.isNotBlank() } ?: media.title
+                } else {
+                    media.title
+                }
             Text(
-                text = media.title,
+                text = heroTitle,
                 style = PlumTheme.typography.displaySmall,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
@@ -383,7 +404,12 @@ private fun HeroSection(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            val subtitle = entry.episodeLabel ?: entry.showTitle
+            val subtitle =
+                when {
+                    !entry.episodeLabel.isNullOrBlank() -> entry.episodeLabel
+                    entry.kind != "show" && !entry.showTitle.isNullOrBlank() -> entry.showTitle
+                    else -> null
+                }
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
@@ -434,6 +460,7 @@ private fun HeroSection(
 private fun MediaEntryCard(
     media: MediaItemJson,
     preferShowPoster: Boolean,
+    title: String? = null,
     subtitle: String?,
     progressPercent: Double?,
     onClick: () -> Unit,
@@ -452,7 +479,7 @@ private fun MediaEntryCard(
             ?: media.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
             ?: media.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
     PlumPosterCard(
-        title = media.title,
+        title = title?.takeIf { it.isNotBlank() } ?: media.title,
         subtitle = subtitle,
         imageUrl = imageUrl,
         onClick = onClick,

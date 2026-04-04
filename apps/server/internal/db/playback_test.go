@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"plum/internal/metadata"
 )
@@ -245,6 +246,55 @@ func TestGetHomeDashboardForUser_EmitsEmptyMediaSlicesInJSON(t *testing.T) {
 	}
 	if media.EmbeddedAudioTracks == nil {
 		t.Fatal("expected embeddedAudioTracks to encode as an empty array, got null")
+	}
+}
+
+func TestGetHomeDashboardForUser_RecentlyAddedUsesCanonicalShowTitle(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	userID := getSingleUserID(t, dbConn)
+	tvLibraryID := getLibraryID(t, dbConn, LibraryTypeTV)
+	now := time.Now().UTC().Format(time.RFC3339)
+	const seriesTMDB = 88776601
+	if _, err := dbConn.Exec(`INSERT INTO shows (
+library_id, kind, tmdb_id, title, title_key, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		tvLibraryID, LibraryTypeTV, seriesTMDB, "Hannibal", "hannibal", now, now,
+	); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+	var episodeRefID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (
+library_id, title, path, duration, match_status, tmdb_id, season, episode
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		tvLibraryID, "Hannibal-Season1-Season3", "/tv/HannibalBundle/S01E01.mkv", 1800, MatchStatusIdentified, seriesTMDB, 1, 1,
+	).Scan(&episodeRefID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+	var globalID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, episodeRefID).Scan(&globalID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	dashboard, err := GetHomeDashboardForUser(dbConn, userID)
+	if err != nil {
+		t.Fatalf("get home dashboard: %v", err)
+	}
+	if len(dashboard.RecentlyAddedTvShows) != 1 {
+		t.Fatalf("expected one TV show row, got %+v", dashboard.RecentlyAddedTvShows)
+	}
+	if got := dashboard.RecentlyAddedTvShows[0].ShowTitle; got != "Hannibal" {
+		t.Fatalf("RecentlyAddedTvShows show_title = %q, want Hannibal", got)
+	}
+	if len(dashboard.RecentlyAddedTvEpisodes) != 1 {
+		t.Fatalf("expected one TV episode row, got %+v", dashboard.RecentlyAddedTvEpisodes)
+	}
+	if got := dashboard.RecentlyAddedTvEpisodes[0].ShowTitle; got != "Hannibal" {
+		t.Fatalf("RecentlyAddedTvEpisodes show_title = %q, want Hannibal", got)
+	}
+	if dashboard.RecentlyAddedTvEpisodes[0].Media.ID != globalID {
+		t.Fatalf("unexpected episode global id %d want %d", dashboard.RecentlyAddedTvEpisodes[0].Media.ID, globalID)
 	}
 }
 

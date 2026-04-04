@@ -1,8 +1,12 @@
 package plum.tv.feature.discover
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,19 +34,29 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.tv.material3.Text
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import plum.tv.core.network.DiscoverGenreJson
 import plum.tv.core.network.DiscoverItemJson
 import plum.tv.core.network.DownloadItemJson
@@ -218,9 +233,32 @@ private fun DiscoverShelfRow(
     onOpenTitle: (mediaType: String, tmdbId: Int) -> Unit,
 ) {
     if (items.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        PlumSectionHeader(title = title)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap)) {
+    val metrics = PlumTheme.metrics
+    val startInset = metrics.screenPadding.calculateLeftPadding(LayoutDirection.Ltr)
+    val endInset = metrics.screenPadding.calculateRightPadding(LayoutDirection.Ltr)
+    // Expand the Column into the parent LazyColumn's horizontal contentPadding so the LazyRow's
+    // clip boundary reaches the full content-area edge, preventing focus-scale crop on first/last cards.
+    Column(
+        modifier = Modifier.layout { measurable, constraints ->
+            val startPx = startInset.roundToPx()
+            val endPx = endInset.roundToPx()
+            val placeable = measurable.measure(
+                constraints.copy(maxWidth = constraints.maxWidth + startPx + endPx),
+            )
+            layout(constraints.maxWidth, placeable.height) {
+                placeable.place(-startPx, 0)
+            }
+        },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        PlumSectionHeader(
+            title = title,
+            modifier = Modifier.padding(start = startInset, end = endInset),
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
+            contentPadding = PaddingValues(start = startInset, end = endInset),
+        ) {
             items(items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
                 DiscoverPosterCard(
                     item = item,
@@ -253,6 +291,8 @@ private fun DiscoverPosterCard(
 }
 
 // ── Browse grid with inline filters ──────────────────────────────────────────
+
+private const val LOAD_MORE_THRESHOLD = 8
 
 @Composable
 fun DiscoverBrowseRoute(
@@ -302,6 +342,32 @@ fun DiscoverBrowseRoute(
                 focusRequester = if (s.items.isEmpty()) backFocus else gridFirstFocus,
             )
             val minCell = remember(metrics) { metrics.posterCompactWidth + metrics.cardGap }
+            val gridState = rememberLazyGridState()
+            val coroutineScope = rememberCoroutineScope()
+            var gridAreaHasFocus by remember { mutableStateOf(false) }
+            val gridIsScrolled by remember {
+                derivedStateOf { gridState.firstVisibleItemIndex > 0 }
+            }
+            BackHandler(enabled = gridIsScrolled && gridAreaHasFocus) {
+                coroutineScope.launch {
+                    gridState.scrollToItem(0)
+                    backFocus.requestFocus()
+                }
+            }
+
+            val shouldLoadMore by remember {
+                derivedStateOf {
+                    val layoutInfo = gridState.layoutInfo
+                    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                    val totalCount = layoutInfo.totalItemsCount
+                    totalCount > 0 && lastVisible >= totalCount - LOAD_MORE_THRESHOLD
+                }
+            }
+            LaunchedEffect(Unit) {
+                snapshotFlow { shouldLoadMore }
+                    .distinctUntilChanged()
+                    .collect { if (it) viewModel.loadNextPage() }
+            }
 
             Column(
                 modifier = Modifier
@@ -312,7 +378,12 @@ fun DiscoverBrowseRoute(
                 DiscoverBrowseToolbar(
                     title = s.title,
                     totalResults = s.totalResults,
+                    itemsLoaded = s.items.size,
+                    currentPage = s.currentPage,
+                    totalPages = s.totalPages,
                     refreshing = s.refreshing,
+                    loadingMore = s.loadingMore,
+                    collapsed = gridAreaHasFocus,
                     category = s.category,
                     mediaType = s.mediaType,
                     genreId = s.genre?.id,
@@ -321,7 +392,12 @@ fun DiscoverBrowseRoute(
                     onApplyFilter = { c, m, g -> viewModel.refresh(c, m, g) },
                     backFocusRequester = backFocus,
                 )
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .onFocusChanged { gridAreaHasFocus = it.hasFocus },
+                ) {
                     if (s.items.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -336,10 +412,11 @@ fun DiscoverBrowseRoute(
                     } else {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minSize = minCell),
+                            state = gridState,
                             modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
                             verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
-                            contentPadding = PaddingValues(bottom = 24.dp),
+                            contentPadding = PaddingValues(bottom = if (s.hasMore) 60.dp else 24.dp),
                         ) {
                             itemsIndexed(
                                 s.items,
@@ -354,6 +431,33 @@ fun DiscoverBrowseRoute(
                                 )
                             }
                         }
+                        if (s.loadingMore) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.BottomCenter)
+                                    .background(PlumTheme.palette.background.copy(alpha = 0.85f))
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(PlumTheme.palette.accent),
+                                    )
+                                    Text(
+                                        text = "Loading page ${s.currentPage} of ${s.totalPages}\u2026",
+                                        style = PlumTheme.typography.labelMedium,
+                                        color = PlumTheme.palette.textSecondary,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -365,7 +469,12 @@ fun DiscoverBrowseRoute(
 private fun DiscoverBrowseToolbar(
     title: String,
     totalResults: Int,
+    itemsLoaded: Int,
+    currentPage: Int,
+    totalPages: Int,
     refreshing: Boolean,
+    loadingMore: Boolean,
+    collapsed: Boolean,
     category: String?,
     mediaType: String?,
     genreId: Int?,
@@ -397,7 +506,7 @@ private fun DiscoverBrowseToolbar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                AnimatedVisibility(visible = refreshing, enter = fadeIn(), exit = fadeOut()) {
+                AnimatedVisibility(visible = refreshing || loadingMore, enter = fadeIn(), exit = fadeOut()) {
                     Box(
                         modifier = Modifier
                             .size(8.dp)
@@ -405,65 +514,99 @@ private fun DiscoverBrowseToolbar(
                             .background(palette.accent),
                     )
                 }
-                Text(
-                    text = "$totalResults titles",
-                    style = PlumTheme.typography.labelMedium,
-                    color = palette.muted,
-                )
-            }
-            BrowseFilterRow(label = "Shelf") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    item {
-                        FilterChip(
-                            label = "All",
-                            selected = category == null && genreId == null,
-                            onClick = { onApplyFilter(null, mediaType, null) },
-                        )
-                    }
-                    items(discoverCategoryOptions, key = { it.id }) { option ->
-                        FilterChip(
-                            label = option.label,
-                            selected = category == option.id,
-                            onClick = { onApplyFilter(option.id, mediaType, null) },
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = formatCompactCount(itemsLoaded) + " of " + formatCompactCount(totalResults),
+                        style = PlumTheme.typography.labelMedium,
+                        color = palette.textSecondary,
+                    )
+                    if (totalPages > 1) {
+                        Text(
+                            text = "Page $currentPage / $totalPages",
+                            style = PlumTheme.typography.labelSmall,
+                            color = palette.muted,
                         )
                     }
                 }
             }
-            BrowseFilterRow(label = "Type") {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        label = "Any",
-                        selected = mediaType == null,
-                        onClick = { onApplyFilter(category, null, genreId) },
-                    )
-                    FilterChip(
-                        label = "Movies",
-                        selected = mediaType == "movie",
-                        onClick = { onApplyFilter(category, "movie", genreId) },
-                    )
-                    FilterChip(
-                        label = "TV",
-                        selected = mediaType == "tv",
-                        onClick = { onApplyFilter(category, "tv", genreId) },
-                    )
-                }
-            }
-            if (genres.isNotEmpty()) {
-                BrowseFilterRow(label = "Genre") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        item {
-                            FilterChip(
-                                label = "Any",
-                                selected = genreId == null,
-                                onClick = { onApplyFilter(category, mediaType, null) },
+            AnimatedVisibility(
+                visible = !collapsed,
+                enter = expandVertically(tween(200)) + fadeIn(tween(200)),
+                exit = shrinkVertically(tween(150)) + fadeOut(tween(150)),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (totalPages > 1) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(palette.surface),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction = (currentPage.toFloat() / totalPages).coerceIn(0f, 1f))
+                                    .height(3.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(palette.accent),
                             )
                         }
-                        items(genres, key = { it.id }) { g ->
+                    }
+                    BrowseFilterRow(label = "Shelf") {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            item {
+                                FilterChip(
+                                    label = "All",
+                                    selected = category == null && genreId == null,
+                                    onClick = { onApplyFilter(null, mediaType, null) },
+                                )
+                            }
+                            items(discoverCategoryOptions, key = { it.id }) { option ->
+                                FilterChip(
+                                    label = option.label,
+                                    selected = category == option.id,
+                                    onClick = { onApplyFilter(option.id, mediaType, null) },
+                                )
+                            }
+                        }
+                    }
+                    BrowseFilterRow(label = "Type") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             FilterChip(
-                                label = g.name,
-                                selected = genreId == g.id,
-                                onClick = { onApplyFilter(category, mediaType, g.id) },
+                                label = "Any",
+                                selected = mediaType == null,
+                                onClick = { onApplyFilter(category, null, genreId) },
                             )
+                            FilterChip(
+                                label = "Movies",
+                                selected = mediaType == "movie",
+                                onClick = { onApplyFilter(category, "movie", genreId) },
+                            )
+                            FilterChip(
+                                label = "TV",
+                                selected = mediaType == "tv",
+                                onClick = { onApplyFilter(category, "tv", genreId) },
+                            )
+                        }
+                    }
+                    if (genres.isNotEmpty()) {
+                        BrowseFilterRow(label = "Genre") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                item {
+                                    FilterChip(
+                                        label = "Any",
+                                        selected = genreId == null,
+                                        onClick = { onApplyFilter(category, mediaType, null) },
+                                    )
+                                }
+                                items(genres, key = { it.id }) { g ->
+                                    FilterChip(
+                                        label = g.name,
+                                        selected = genreId == g.id,
+                                        onClick = { onApplyFilter(category, mediaType, g.id) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -804,4 +947,11 @@ private fun formatEta(seconds: Double): String {
         minutes > 0 -> "${minutes}m"
         else -> "${total}s"
     }
+}
+
+private fun formatCompactCount(value: Int): String = when {
+    value >= 1_000_000 -> String.format("%.1fM", value / 1_000_000.0)
+    value >= 10_000 -> String.format("%.0fK", value / 1_000.0)
+    value >= 1_000 -> String.format("%.1fK", value / 1_000.0)
+    else -> value.toString()
 }

@@ -103,6 +103,7 @@ fun MainNavHost(
     val mainNavVm: MainNavViewModel = hiltViewModel(viewModelStoreOwner = activity)
     val authVm: AuthViewModel = hiltViewModel(viewModelStoreOwner = activity)
     val mainContentFocusRequester = remember { FocusRequester() }
+    val homeRailFocusRequester = remember { FocusRequester() }
     var browseRailType by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(navBackStackEntry) {
         val entry = navBackStackEntry
@@ -118,10 +119,14 @@ fun MainNavHost(
         }
     }
 
-    LaunchedEffect(navBackStackEntry?.id, hideSideRail) {
+    LaunchedEffect(navBackStackEntry?.id, hideSideRail, currentRoute) {
         if (hideSideRail) return@LaunchedEffect
         delay(16)
-        mainContentFocusRequester.requestFocus()
+        if (currentRoute == Routes.HOME) {
+            homeRailFocusRequester.requestFocus()
+        } else {
+            mainContentFocusRequester.requestFocus()
+        }
     }
 
     DisposableEffect(webSocketManager) {
@@ -244,6 +249,7 @@ fun MainNavHost(
                     PlumSideRail(
                         items = railItems,
                         contentFocusRequester = mainContentFocusRequester,
+                        firstItemFocusRequester = homeRailFocusRequester,
                         footer = {
                             PlumActionButton(
                                 modifier =

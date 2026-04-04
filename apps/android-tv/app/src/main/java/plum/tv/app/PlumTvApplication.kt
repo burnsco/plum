@@ -1,7 +1,8 @@
 package plum.tv.app
 
-import android.app.Application
 import android.app.ActivityManager
+import android.app.Application
+import android.content.Context
 import android.util.Log
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
@@ -28,23 +29,23 @@ class PlumTvApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Log.i("PlumTV", "application start")
-        SingletonImageLoader.setSafe {
+        SingletonImageLoader.setSafe { context: Context ->
             val ep = EntryPoints.get(this@PlumTvApplication, CoilEntryPoint::class.java)
-            val lowRam = getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+            val lowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
             val memoryCachePercent = if (lowRam) 0.12 else 0.28
             val diskCacheSizeBytes = if (lowRam) 128L * 1024 * 1024 else 512L * 1024 * 1024
-            ImageLoader.Builder(this@PlumTvApplication)
+            ImageLoader.Builder(context)
                 .components {
                     add(OkHttpNetworkFetcherFactory(callFactory = { ep.okHttpClient() }))
                 }
                 .memoryCache {
                     MemoryCache.Builder()
-                        .maxSizePercent(this@PlumTvApplication, memoryCachePercent)
+                        .maxSizePercent(context, memoryCachePercent)
                         .build()
                 }
                 .diskCache {
                     DiskCache.Builder()
-                        .directory(File(cacheDir, "plum_coil_disk").apply { mkdirs() }.toOkioPath())
+                        .directory(File(context.cacheDir, "plum_coil_disk").apply { mkdirs() }.toOkioPath())
                         .maxSizeBytes(diskCacheSizeBytes)
                         .build()
                 }
