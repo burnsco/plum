@@ -180,6 +180,9 @@ type MediaItem struct {
 	MissingSince   string `json:"missing_since,omitempty"`
 	Duplicate      bool   `json:"duplicate,omitempty"`
 	DuplicateCount int    `json:"duplicate_count,omitempty"`
+	// IntroStartSeconds/IntroEndSeconds come from the primary media file's chapter metadata (ffprobe).
+	IntroStartSeconds *float64 `json:"intro_start_seconds,omitempty"`
+	IntroEndSeconds   *float64 `json:"intro_end_seconds,omitempty"`
 
 	FileSizeBytes int64  `json:"-"`
 	FileModTime   string `json:"-"`
@@ -229,6 +232,7 @@ type Library struct {
 	WatcherEnabled            bool      `json:"watcher_enabled,omitempty"`
 	WatcherMode               string    `json:"watcher_mode,omitempty"`
 	ScanIntervalMinutes       int       `json:"scan_interval_minutes,omitempty"`
+	IntroSkipMode             string    `json:"intro_skip_mode,omitempty"`
 	CreatedAt                 time.Time `json:"created_at"`
 }
 
@@ -312,6 +316,7 @@ CREATE TABLE IF NOT EXISTS libraries (
   watcher_enabled INTEGER NOT NULL DEFAULT 0,
   watcher_mode TEXT NOT NULL DEFAULT 'auto',
   scan_interval_minutes INTEGER NOT NULL DEFAULT 0,
+  intro_skip_mode TEXT NOT NULL DEFAULT 'manual',
   created_at DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_libraries_user_id ON libraries(user_id);
@@ -528,6 +533,8 @@ CREATE TABLE IF NOT EXISTS media_files (
   missing_since TEXT,
   last_seen_at TEXT,
   is_primary INTEGER NOT NULL DEFAULT 1,
+  intro_start_sec REAL,
+  intro_end_sec REAL,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL
 );
@@ -1275,6 +1282,32 @@ var schemaMigrations = []schemaMigration{
 			// Series vote_average must come from provider show metadata, not MAX(episode),
 			// or the UI would show misleading scores until a full show refresh.
 			return addColumnIfMissingTx(ctx, tx, "shows", "vote_average", "REAL DEFAULT 0")
+		},
+	},
+	{
+		version: 24,
+		name:    "intro_skip_and_chapter_probe",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if err := addColumnIfMissingTx(ctx, tx, "media_files", "intro_start_sec", "REAL"); err != nil {
+				return err
+			}
+			if err := addColumnIfMissingTx(ctx, tx, "media_files", "intro_end_sec", "REAL"); err != nil {
+				return err
+			}
+			if err := addColumnIfMissingTx(ctx, tx, "libraries", "intro_skip_mode", "TEXT NOT NULL DEFAULT 'manual'"); err != nil {
+				return err
+			}
+			return nil
+		},
+	},
+	{
+		version: 25,
+		name:    "embedded_subtitle_codec_and_supported",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if err := addColumnIfMissingTx(ctx, tx, "embedded_subtitles", "codec", "TEXT NOT NULL DEFAULT ''"); err != nil {
+				return err
+			}
+			return addColumnIfMissingTx(ctx, tx, "embedded_subtitles", "supported", "INTEGER")
 		},
 	},
 }
@@ -2113,6 +2146,21 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks)
 		metadata.EmbeddedSubtitles = append(metadata.EmbeddedSubtitles, probed.EmbeddedSubtitles...)
 		metadata.EmbeddedAudioTracks = append(metadata.EmbeddedAudioTracks, probed.EmbeddedAudioTracks...)
+		if err := UpdateMediaFileIntroFromProbe(ctx, db, item.ID, sourcePath, probed); err != nil {
+			log.Printf("persist intro chapters media=%d path=%s: %v", item.ID, sourcePath, err)
+		}
+		if probed.IntroStartSeconds != nil {
+			v := *probed.IntroStartSeconds
+			item.IntroStartSeconds = &v
+		} else {
+			item.IntroStartSeconds = nil
+		}
+		if probed.IntroEndSeconds != nil {
+			v := *probed.IntroEndSeconds
+			item.IntroEndSeconds = &v
+		} else {
+			item.IntroEndSeconds = nil
+		}
 	}
 
 	item.Subtitles = append([]Subtitle{}, metadata.Subtitles...)
@@ -2176,7 +2224,7 @@ func getEmbeddedSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Embed
 		placeholders[i] = "?"
 		args[i] = mediaIDs[i]
 	}
-	query := `SELECT media_id, stream_index, language, title FROM embedded_subtitles WHERE media_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY media_id, stream_index`
+	query := `SELECT media_id, stream_index, language, title, COALESCE(codec, ''), supported FROM embedded_subtitles WHERE media_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY media_id, stream_index`
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -2185,8 +2233,13 @@ func getEmbeddedSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Embed
 	out := make(map[int][]EmbeddedSubtitle)
 	for rows.Next() {
 		var s EmbeddedSubtitle
-		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title); err != nil {
+		var supportedInt sql.NullInt64
+		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title, &s.Codec, &supportedInt); err != nil {
 			return nil, err
+		}
+		if supportedInt.Valid {
+			v := supportedInt.Int64 != 0
+			s.Supported = &v
 		}
 		out[s.MediaID] = append(out[s.MediaID], s)
 	}
@@ -2348,6 +2401,14 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 		m.FileHashKind = file.FileHashKind
 		m.MissingSince = file.MissingSince
 		m.Missing = file.MissingSince != ""
+		if file.IntroStartSec.Valid {
+			v := file.IntroStartSec.Float64
+			m.IntroStartSeconds = &v
+		}
+		if file.IntroEndSec.Valid {
+			v := file.IntroEndSec.Float64
+			m.IntroEndSeconds = &v
+		}
 	}
 	decorateMediaItemURLs(&m)
 	subs, err := getSubtitlesForMedia(db, id)
@@ -2847,7 +2908,7 @@ func getSubtitlesForMedia(db *sql.DB, mediaID int) ([]Subtitle, error) {
 }
 
 func getEmbeddedSubtitlesForMedia(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, error) {
-	rows, err := db.Query(`SELECT media_id, stream_index, language, title FROM embedded_subtitles WHERE media_id = ? ORDER BY stream_index`, mediaID)
+	rows, err := db.Query(`SELECT media_id, stream_index, language, title, COALESCE(codec, ''), supported FROM embedded_subtitles WHERE media_id = ? ORDER BY stream_index`, mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -2856,8 +2917,13 @@ func getEmbeddedSubtitlesForMedia(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, 
 	var subs []EmbeddedSubtitle
 	for rows.Next() {
 		var s EmbeddedSubtitle
-		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title); err != nil {
+		var supportedInt sql.NullInt64
+		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title, &s.Codec, &supportedInt); err != nil {
 			return nil, err
+		}
+		if supportedInt.Valid {
+			v := supportedInt.Int64 != 0
+			s.Supported = &v
 		}
 		subs = append(subs, s)
 	}
@@ -2918,6 +2984,8 @@ type VideoProbeResult struct {
 	Duration            int
 	EmbeddedSubtitles   []EmbeddedSubtitle
 	EmbeddedAudioTracks []EmbeddedAudioTrack
+	IntroStartSeconds   *float64
+	IntroEndSeconds     *float64
 }
 
 func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, error) {
@@ -2926,6 +2994,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 	cmd := exec.CommandContext(probeCtx, "ffprobe",
 		"-v", "error",
 		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title",
+		"-show_entries", "chapter=start_time,end_time:chapter_tags=title",
 		"-of", "json",
 		path,
 	)
@@ -2947,6 +3016,13 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 				Title    string `json:"title"`
 			} `json:"tags"`
 		} `json:"streams"`
+		Chapters []struct {
+			StartTime string `json:"start_time"`
+			EndTime   string `json:"end_time"`
+			Tags      struct {
+				Title string `json:"title"`
+			} `json:"tags"`
+		} `json:"chapters"`
 	}
 
 	if err := json.Unmarshal(out, &parsed); err != nil {
@@ -2985,6 +3061,24 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 				Title:       title,
 			})
 		}
+	}
+	chProbes := make([]chapterProbe, 0, len(parsed.Chapters))
+	for _, ch := range parsed.Chapters {
+		st, errSt := strconv.ParseFloat(ch.StartTime, 64)
+		et, errEt := strconv.ParseFloat(ch.EndTime, 64)
+		if errSt != nil || errEt != nil {
+			continue
+		}
+		chProbes = append(chProbes, chapterProbe{
+			startSec: st,
+			endSec:   et,
+			title:    ch.Tags.Title,
+		})
+	}
+	if start, end, ok := IntroChapterRangeFromProbes(chProbes); ok {
+		s, e := start, end
+		result.IntroStartSeconds = &s
+		result.IntroEndSeconds = &e
 	}
 	return result, nil
 }
@@ -3062,7 +3156,18 @@ func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, su
 		log.Printf("clear embedded_subtitles for media %d: %v", mediaID, err)
 	} else {
 		for _, s := range subtitles {
-			if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, mediaID, s.StreamIndex, s.Language, s.Title); err != nil {
+			var supportedVal interface{}
+			if s.Supported != nil {
+				if *s.Supported {
+					supportedVal = 1
+				} else {
+					supportedVal = 0
+				}
+			}
+			if _, err := dbConn.ExecContext(ctx,
+				`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
+				mediaID, s.StreamIndex, s.Language, s.Title, s.Codec, supportedVal,
+			); err != nil {
 				log.Printf("insert embedded_subtitles for media %d: %v", mediaID, err)
 			}
 		}
@@ -3667,6 +3772,7 @@ func enrichTask(
 	var (
 		embeddedSubtitles []EmbeddedSubtitle
 		embeddedAudio     []EmbeddedAudioTrack
+		probedVideo       *VideoProbeResult
 	)
 	if mediaType == LibraryTypeMusic {
 		if options.ProbeMedia && !SkipFFprobeInScan {
@@ -3699,6 +3805,7 @@ func enrichTask(
 		}
 	} else if options.ProbeMedia && !SkipFFprobeInScan {
 		if probed, err := readVideoMetadata(ctx, task.Path); err == nil {
+			probedVideo = &probed
 			if probed.Duration > 0 {
 				item.Duration = probed.Duration
 			}
@@ -3734,6 +3841,11 @@ func enrichTask(
 	if globalID > 0 {
 		if err := upsertMediaFileForMediaID(ctx, dbConn, globalID, item, true); err != nil {
 			return err
+		}
+		if probedVideo != nil {
+			if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, task.Path, *probedVideo); err != nil {
+				log.Printf("persist intro chapters media=%d path=%s: %v", globalID, task.Path, err)
+			}
 		}
 	}
 	if mediaType == LibraryTypeMusic {
@@ -4133,6 +4245,11 @@ func HandleScanLibraryWithOptions(
 						embeddedSubs = probed.EmbeddedSubtitles
 					}
 					embeddedAudioTracks = probed.EmbeddedAudioTracks
+					if globalID > 0 {
+						if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, path, probed); err != nil {
+							log.Printf("persist intro chapters media=%d path=%s: %v", globalID, path, err)
+						}
+					}
 				}
 			}
 			persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubs, embeddedAudioTracks)

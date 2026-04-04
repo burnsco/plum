@@ -31,6 +31,7 @@ export type {
   HardwareEncodeFormat,
   HomeDashboard,
   IdentifyResult,
+  IntroSkipMode,
   Library,
   LibraryMediaPage,
   LibraryScanActivity,

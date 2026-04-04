@@ -162,6 +162,7 @@ type updateLibraryPlaybackPreferencesRequest struct {
 	PreferredAudioLanguage    string `json:"preferred_audio_language"`
 	PreferredSubtitleLanguage string `json:"preferred_subtitle_language"`
 	SubtitlesEnabledByDefault bool   `json:"subtitles_enabled_by_default"`
+	IntroSkipMode             string `json:"intro_skip_mode,omitempty"`
 	WatcherEnabled            *bool  `json:"watcher_enabled,omitempty"`
 	WatcherMode               string `json:"watcher_mode,omitempty"`
 	ScanIntervalMinutes       *int   `json:"scan_interval_minutes,omitempty"`
@@ -179,6 +180,7 @@ type libraryResponse struct {
 	WatcherEnabled            bool   `json:"watcher_enabled"`
 	WatcherMode               string `json:"watcher_mode,omitempty"`
 	ScanIntervalMinutes       int    `json:"scan_interval_minutes"`
+	IntroSkipMode             string `json:"intro_skip_mode,omitempty"`
 }
 
 type libraryBrowseItemResponse struct {
@@ -221,8 +223,10 @@ type libraryBrowseItemResponse struct {
 	MetadataConfirmed    bool    `json:"metadata_confirmed,omitempty"`
 	ThumbnailPath        string  `json:"thumbnail_path,omitempty"`
 	ThumbnailURL         string  `json:"thumbnail_url,omitempty"`
-	Missing              bool    `json:"missing,omitempty"`
-	MissingSince         string  `json:"missing_since,omitempty"`
+	Missing              bool     `json:"missing,omitempty"`
+	MissingSince         string   `json:"missing_since,omitempty"`
+	IntroStartSeconds    *float64 `json:"intro_start_seconds,omitempty"`
+	IntroEndSeconds      *float64 `json:"intro_end_seconds,omitempty"`
 }
 
 type libraryMediaPageResponse struct {
@@ -275,6 +279,8 @@ func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse
 		ThumbnailURL:         item.ThumbnailURL,
 		Missing:              item.Missing,
 		MissingSince:         item.MissingSince,
+		IntroStartSeconds:    item.IntroStartSeconds,
+		IntroEndSeconds:      item.IntroEndSeconds,
 	}
 }
 
@@ -340,9 +346,14 @@ func buildLibraryResponse(
 	watcherEnabled sql.NullBool,
 	watcherMode sql.NullString,
 	scanIntervalMinutes sql.NullInt64,
+	introSkip sql.NullString,
 ) libraryResponse {
 	defaultAudio, defaultSubtitle, defaultSubtitlesEnabled := defaultLibraryPlaybackPreferences(libraryType)
 	defaultWatcherEnabled, defaultWatcherMode, defaultScanIntervalMinutes := defaultLibraryAutomation()
+	introMode := db.IntroSkipModeManual
+	if introSkip.Valid && strings.TrimSpace(introSkip.String) != "" {
+		introMode = db.NormalizeIntroSkipMode(introSkip.String)
+	}
 	return libraryResponse{
 		ID:                        id,
 		Name:                      name,
@@ -355,6 +366,7 @@ func buildLibraryResponse(
 		WatcherEnabled:            coalesceNullableBool(watcherEnabled, defaultWatcherEnabled),
 		WatcherMode:               strings.TrimSpace(coalesceNullableString(watcherMode, defaultWatcherMode)),
 		ScanIntervalMinutes:       coalesceNullableInt(scanIntervalMinutes, defaultScanIntervalMinutes),
+		IntroSkipMode:             introMode,
 	}
 }
 
@@ -473,6 +485,7 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 		WatcherEnabled:            watcherEnabled,
 		WatcherMode:               watcherMode,
 		ScanIntervalMinutes:       scanIntervalMinutes,
+		IntroSkipMode:             db.IntroSkipModeManual,
 	})
 }
 
@@ -494,11 +507,19 @@ func retryCreateLibraryInsert(
 		err = dbConn.QueryRow(
 			`INSERT INTO libraries (
 				user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
-				subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-			userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, watcherEnabled, watcherMode, scanIntervalMinutes, now,
+				subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, intro_skip_mode, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, watcherEnabled, watcherMode, scanIntervalMinutes, db.IntroSkipModeManual, now,
 		).Scan(libID)
-		if isMissingColumnError(err, "preferred_audio_language") {
+		if isMissingColumnError(err, "intro_skip_mode") {
+			err = dbConn.QueryRow(
+				`INSERT INTO libraries (
+					user_id, name, type, path, preferred_audio_language, preferred_subtitle_language,
+					subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+				userID, payload.Name, payload.Type, payload.Path, defaultAudio, defaultSubtitle, subtitlesEnabled, watcherEnabled, watcherMode, scanIntervalMinutes, now,
+			).Scan(libID)
+		} else if isMissingColumnError(err, "preferred_audio_language") {
 			err = dbConn.QueryRow(
 				`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
 				userID, payload.Name, payload.Type, payload.Path, now,
@@ -529,12 +550,20 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.Query(
 		`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language,
-		        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes
+		        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, intro_skip_mode
 		   FROM libraries WHERE user_id = ? ORDER BY id`,
 		u.ID,
 	)
 	legacyColumns := false
 	legacyAutomationColumns := false
+	if err != nil && isMissingColumnError(err, "intro_skip_mode") {
+		rows, err = h.DB.Query(
+			`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language,
+			        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes
+			   FROM libraries WHERE user_id = ? ORDER BY id`,
+			u.ID,
+		)
+	}
 	if err != nil && isMissingColumnError(err, "preferred_audio_language") {
 		legacyColumns = true
 		rows, err = h.DB.Query(
@@ -570,6 +599,7 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 			watcherEnabled    sql.NullBool
 			watcherMode       sql.NullString
 			scanInterval      sql.NullInt64
+			introSkip         sql.NullString
 		)
 		if legacyColumns {
 			err = rows.Scan(&id, &name, &libraryType, &path, &userID)
@@ -597,6 +627,7 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 				&watcherEnabled,
 				&watcherMode,
 				&scanInterval,
+				&introSkip,
 			)
 		}
 		if err != nil {
@@ -616,6 +647,7 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 			watcherEnabled,
 			watcherMode,
 			scanInterval,
+			introSkip,
 		))
 	}
 
@@ -649,11 +681,19 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		currentWatcherEnabled sql.NullBool
 		currentWatcherMode    sql.NullString
 		currentScanInterval   sql.NullInt64
+		currentIntro          sql.NullString
 	)
 	err := h.DB.QueryRow(
-		`SELECT id, user_id, name, type, path, watcher_enabled, watcher_mode, scan_interval_minutes FROM libraries WHERE id = ?`,
+		`SELECT id, user_id, name, type, path, watcher_enabled, watcher_mode, scan_interval_minutes, intro_skip_mode FROM libraries WHERE id = ?`,
 		idStr,
-	).Scan(&libraryID, &ownerID, &name, &libraryType, &path, &currentWatcherEnabled, &currentWatcherMode, &currentScanInterval)
+	).Scan(&libraryID, &ownerID, &name, &libraryType, &path, &currentWatcherEnabled, &currentWatcherMode, &currentScanInterval, &currentIntro)
+	if err != nil && isMissingColumnError(err, "intro_skip_mode") {
+		err = h.DB.QueryRow(
+			`SELECT id, user_id, name, type, path, watcher_enabled, watcher_mode, scan_interval_minutes FROM libraries WHERE id = ?`,
+			idStr,
+		).Scan(&libraryID, &ownerID, &name, &libraryType, &path, &currentWatcherEnabled, &currentWatcherMode, &currentScanInterval)
+		currentIntro = sql.NullString{}
+	}
 	legacyAutomationColumns := false
 	if err != nil && isMissingColumnError(err, "watcher_enabled") {
 		legacyAutomationColumns = true
@@ -685,10 +725,15 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		payload.ScanIntervalMinutes,
 	)
 
+	introMode := db.NormalizeIntroSkipMode(payload.IntroSkipMode)
+	if strings.TrimSpace(payload.IntroSkipMode) == "" && currentIntro.Valid {
+		introMode = db.NormalizeIntroSkipMode(currentIntro.String)
+	}
+
 	if _, err := h.DB.Exec(
 		`UPDATE libraries
 		    SET preferred_audio_language = ?, preferred_subtitle_language = ?, subtitles_enabled_by_default = ?,
-		        watcher_enabled = ?, watcher_mode = ?, scan_interval_minutes = ?
+		        watcher_enabled = ?, watcher_mode = ?, scan_interval_minutes = ?, intro_skip_mode = ?
 		  WHERE id = ?`,
 		payload.PreferredAudioLanguage,
 		payload.PreferredSubtitleLanguage,
@@ -696,8 +741,26 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 		watcherEnabled,
 		watcherMode,
 		scanIntervalMinutes,
+		introMode,
 		libraryID,
 	); err != nil {
+		if isMissingColumnError(err, "intro_skip_mode") {
+			if _, err := h.DB.Exec(
+				`UPDATE libraries
+				    SET preferred_audio_language = ?, preferred_subtitle_language = ?, subtitles_enabled_by_default = ?,
+				        watcher_enabled = ?, watcher_mode = ?, scan_interval_minutes = ?
+				  WHERE id = ?`,
+				payload.PreferredAudioLanguage,
+				payload.PreferredSubtitleLanguage,
+				payload.SubtitlesEnabledByDefault,
+				watcherEnabled,
+				watcherMode,
+				scanIntervalMinutes,
+				libraryID,
+			); err == nil {
+				goto encodeLibraryResponse
+			}
+		}
 		if isMissingColumnError(err, "watcher_enabled") {
 			if _, err := h.DB.Exec(
 				`UPDATE libraries SET preferred_audio_language = ?, preferred_subtitle_language = ?, subtitles_enabled_by_default = ? WHERE id = ?`,
@@ -733,6 +796,7 @@ encodeLibraryResponse:
 		WatcherEnabled:            watcherEnabled,
 		WatcherMode:               watcherMode,
 		ScanIntervalMinutes:       scanIntervalMinutes,
+		IntroSkipMode:             introMode,
 	})
 }
 
@@ -3459,7 +3523,8 @@ type showSeasonEpisodesResponse struct {
 }
 
 type showEpisodesResponse struct {
-	Seasons []showSeasonEpisodesResponse `json:"seasons"`
+	IntroSkipMode string                       `json:"intro_skip_mode,omitempty"`
+	Seasons       []showSeasonEpisodesResponse `json:"seasons"`
 }
 
 func (h *LibraryHandler) GetLibraryShowEpisodes(w http.ResponseWriter, r *http.Request) {
@@ -3516,7 +3581,10 @@ func (h *LibraryHandler) GetLibraryShowEpisodes(w http.ResponseWriter, r *http.R
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(showEpisodesResponse{Seasons: seasons})
+	_ = json.NewEncoder(w).Encode(showEpisodesResponse{
+		IntroSkipMode: db.GetLibraryIntroSkipMode(h.DB, libraryID),
+		Seasons:       seasons,
+	})
 }
 
 type refreshShowRequest struct {

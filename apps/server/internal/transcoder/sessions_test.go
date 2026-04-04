@@ -81,6 +81,7 @@ func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
 	manager := NewPlaybackSessionManager(root, nil)
 	state, err := manager.Create(
 		db.MediaItem{ID: 21, Path: mediaPath, Duration: 120},
+		db.IntroSkipModeManual,
 		db.DefaultTranscodingSettings(),
 		-1,
 		99,

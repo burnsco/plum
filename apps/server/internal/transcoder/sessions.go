@@ -38,6 +38,9 @@ type PlaybackSessionState struct {
 	EmbeddedSubtitles   []db.EmbeddedSubtitle   `json:"embeddedSubtitles,omitempty"`
 	EmbeddedAudioTracks []db.EmbeddedAudioTrack `json:"embeddedAudioTracks,omitempty"`
 	Error               string                  `json:"error,omitempty"`
+	IntroSkipMode       string                  `json:"intro_skip_mode,omitempty"`
+	IntroStartSeconds   *float64                `json:"intro_start_seconds,omitempty"`
+	IntroEndSeconds     *float64                `json:"intro_end_seconds,omitempty"`
 }
 
 type playbackRevision struct {
@@ -57,6 +60,7 @@ type playbackSession struct {
 	id              string
 	userID          int
 	media           db.MediaItem
+	introSkipMode   string
 	durationSeconds int
 	capabilities    ClientPlaybackCapabilities
 	audioIndex      int
@@ -65,6 +69,18 @@ type playbackSession struct {
 	revisions       map[int]*playbackRevision
 	ownerClientID   string
 	disconnectTimer *time.Timer
+}
+
+func attachIntroFields(state *PlaybackSessionState, media db.MediaItem, introSkipMode string) {
+	state.IntroSkipMode = db.NormalizeIntroSkipMode(introSkipMode)
+	if media.IntroStartSeconds != nil {
+		v := *media.IntroStartSeconds
+		state.IntroStartSeconds = &v
+	}
+	if media.IntroEndSeconds != nil {
+		v := *media.IntroEndSeconds
+		state.IntroEndSeconds = &v
+	}
 }
 
 type PlaybackSessionManager struct {
@@ -87,6 +103,7 @@ func NewPlaybackSessionManager(root string, hub *ws.Hub) *PlaybackSessionManager
 
 func (m *PlaybackSessionManager) Create(
 	media db.MediaItem,
+	introSkipMode string,
 	settings db.TranscodingSettings,
 	audioIndex int,
 	userID int,
@@ -99,7 +116,7 @@ func (m *PlaybackSessionManager) Create(
 	durationSeconds := resolvePlaybackDurationSeconds(media.Duration, probe.DurationSeconds)
 	decision := decidePlayback(media.ID, probe, capabilities, audioIndex)
 	if decision.Delivery == "direct" {
-		return PlaybackSessionState{
+		state := PlaybackSessionState{
 			Delivery:            "direct",
 			MediaID:             media.ID,
 			AudioIndex:          audioIndex,
@@ -109,7 +126,9 @@ func (m *PlaybackSessionManager) Create(
 			Subtitles:           media.Subtitles,
 			EmbeddedSubtitles:   media.EmbeddedSubtitles,
 			EmbeddedAudioTracks: media.EmbeddedAudioTracks,
-		}, nil
+		}
+		attachIntroFields(&state, media, introSkipMode)
+		return state, nil
 	}
 
 	if err := os.MkdirAll(m.root, 0o755); err != nil {
@@ -125,6 +144,7 @@ func (m *PlaybackSessionManager) Create(
 		id:              sessionID,
 		userID:          userID,
 		media:           media,
+		introSkipMode:   db.NormalizeIntroSkipMode(introSkipMode),
 		durationSeconds: durationSeconds,
 		capabilities:    capabilities,
 		audioIndex:      audioIndex,
@@ -170,7 +190,7 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 	decision := decidePlayback(session.media.ID, probe, session.capabilities, audioIndex)
 	if decision.Delivery == "direct" {
 		m.Close(sessionID)
-		return PlaybackSessionState{
+		state := PlaybackSessionState{
 			Delivery:            "direct",
 			MediaID:             session.media.ID,
 			AudioIndex:          audioIndex,
@@ -180,7 +200,9 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 			Subtitles:           session.media.Subtitles,
 			EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
 			EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
-		}, nil
+		}
+		attachIntroFields(&state, session.media, session.introSkipMode)
+		return state, nil
 	}
 	return m.startRevision(session, settings, audioIndex, decision)
 }
@@ -297,7 +319,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		}
 	}
 	_ = os.RemoveAll(filepath.Join(m.root, sessionID))
-	m.broadcast(PlaybackSessionState{
+	closed := PlaybackSessionState{
 		SessionID:           sessionID,
 		Delivery:            delivery,
 		MediaID:             mediaID,
@@ -308,7 +330,9 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		Subtitles:           session.media.Subtitles,
 		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
 		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
-	})
+	}
+	attachIntroFields(&closed, session.media, session.introSkipMode)
+	m.broadcast(closed)
 }
 
 func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
@@ -329,7 +353,7 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 		if revision.status != "ready" && revision.status != "error" {
 			continue
 		}
-		return &PlaybackSessionState{
+		replay := PlaybackSessionState{
 			SessionID:           s.id,
 			Delivery:            revision.delivery,
 			MediaID:             s.media.ID,
@@ -343,6 +367,8 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			EmbeddedAudioTracks: s.media.EmbeddedAudioTracks,
 			Error:               revision.err,
 		}
+		attachIntroFields(&replay, s.media, s.introSkipMode)
+		return &replay
 	}
 	return nil
 }
@@ -445,7 +471,7 @@ func (m *PlaybackSessionManager) startRevision(
 
 	go m.runRevision(ctx, session, revision, settings, decision)
 
-	return PlaybackSessionState{
+	starting := PlaybackSessionState{
 		SessionID:           session.id,
 		Delivery:            revision.delivery,
 		MediaID:             session.media.ID,
@@ -457,7 +483,9 @@ func (m *PlaybackSessionManager) startRevision(
 		Subtitles:           session.media.Subtitles,
 		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
 		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
-	}, nil
+	}
+	attachIntroFields(&starting, session.media, session.introSkipMode)
+	return starting, nil
 }
 
 func (m *PlaybackSessionManager) scheduleDisconnectLocked(session *playbackSession, userID int, clientID string) {
@@ -518,6 +546,7 @@ func (m *PlaybackSessionManager) runRevision(
 		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
 		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
 	}
+	attachIntroFields(&finalState, session.media, session.introSkipMode)
 
 	for index, plan := range plans {
 		if ctx.Err() != nil {
@@ -656,7 +685,7 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 	durationSeconds := session.durationSeconds
 	session.mu.Unlock()
 
-	m.broadcast(PlaybackSessionState{
+	ready := PlaybackSessionState{
 		SessionID:           sessionID,
 		Delivery:            revision.delivery,
 		MediaID:             mediaID,
@@ -668,7 +697,9 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 		Subtitles:           session.media.Subtitles,
 		EmbeddedSubtitles:   session.media.EmbeddedSubtitles,
 		EmbeddedAudioTracks: session.media.EmbeddedAudioTracks,
-	})
+	}
+	attachIntroFields(&ready, session.media, session.introSkipMode)
+	m.broadcast(ready)
 
 	if previousActive > 0 && previousActive != activeRevision {
 		session.mu.Lock()
@@ -695,7 +726,7 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 	if m.hub == nil {
 		return
 	}
-	payload, err := json.Marshal(map[string]any{
+	msg := map[string]any{
 		"type":            "playback_session_update",
 		"sessionId":       state.SessionID,
 		"delivery":        state.Delivery,
@@ -706,7 +737,17 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 		"streamUrl":       state.StreamURL,
 		"durationSeconds": state.DurationSeconds,
 		"error":           state.Error,
-	})
+	}
+	if state.IntroSkipMode != "" {
+		msg["intro_skip_mode"] = state.IntroSkipMode
+	}
+	if state.IntroStartSeconds != nil {
+		msg["intro_start_seconds"] = *state.IntroStartSeconds
+	}
+	if state.IntroEndSeconds != nil {
+		msg["intro_end_seconds"] = *state.IntroEndSeconds
+	}
+	payload, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("marshal playback session update: %v", err)
 		return

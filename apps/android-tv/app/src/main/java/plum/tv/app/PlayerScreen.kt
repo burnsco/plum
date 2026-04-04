@@ -16,10 +16,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -123,6 +123,13 @@ fun PlayerRoute(
     // Always show controls when paused or buffering
     LaunchedEffect(ui.isPlaying, ui.isBuffering) {
         if (!ui.isPlaying || ui.isBuffering) {
+            showControls()
+        }
+    }
+
+    // Surface the skip control when intro detection kicks in mid-playback (auto-hide would hide it).
+    LaunchedEffect(ui.showSkipIntro) {
+        if (ui.showSkipIntro) {
             showControls()
         }
     }
@@ -370,6 +377,15 @@ fun PlayerRoute(
                             onClick = { viewModel.forward10() },
                             modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                         )
+                        if (ui.showSkipIntro) {
+                            SkipIntroControl(
+                                onClick = {
+                                    viewModel.skipIntro()
+                                    showControls()
+                                },
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            )
+                        }
                         PlayerControlButton(
                             icon = Icons.Filled.SkipNext,
                             contentDescription = "Next",
@@ -433,7 +449,6 @@ private fun TrackPickerOverlay(
     onSelect: (String) -> Unit,
 ) {
     val palette = PlumTheme.palette
-    val shape = RoundedCornerShape(20.dp)
     val options = picker.options
     val focusRequesters = remember(picker) { List(options.size) { FocusRequester() } }
 
@@ -449,27 +464,30 @@ private fun TrackPickerOverlay(
                 .background(Color.Black.copy(alpha = 0.75f)),
         contentAlignment = Alignment.Center,
     ) {
+        val panelShape = RoundedCornerShape(16.dp)
         Column(
             modifier =
                 Modifier
-                    .widthIn(max = 520.dp)
-                    .fillMaxWidth(0.92f)
-                    .clip(shape)
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(0.82f)
+                    .fillMaxHeight(0.82f)
+                    .clip(panelShape)
                     .background(PlumTheme.palette.panel)
-                    .padding(horizontal = 28.dp, vertical = 24.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             Text(
                 text = picker.title,
-                style = PlumTheme.typography.titleLarge,
+                style = PlumTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 18.dp),
+                modifier = Modifier.padding(bottom = 12.dp),
             )
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
                 modifier =
                     Modifier
-                        .heightIn(max = 380.dp)
+                        .weight(1f, fill = true)
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
             ) {
                 options.forEachIndexed { index, opt ->
@@ -480,26 +498,26 @@ private fun TrackPickerOverlay(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Surface(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth(),
-                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(14.dp)),
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
                 colors =
                     ClickableSurfaceDefaults.colors(
                         containerColor = Color.White.copy(alpha = 0.08f),
                         contentColor = Color.White.copy(alpha = 0.85f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.18f),
+                        focusedContainerColor = Color.White.copy(alpha = 0.16f),
                         focusedContentColor = Color.White,
-                        pressedContainerColor = Color.White.copy(alpha = 0.18f),
+                        pressedContainerColor = Color.White.copy(alpha = 0.16f),
                         pressedContentColor = Color.White,
                     ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
                 border =
                     ClickableSurfaceDefaults.border(
-                        border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(14.dp)),
-                        focusedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.5.dp, RoundedCornerShape(14.dp)),
-                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.5.dp, RoundedCornerShape(14.dp)),
+                        border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(10.dp)),
+                        focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
+                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
                     ),
                 glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
             ) {
@@ -507,12 +525,12 @@ private fun TrackPickerOverlay(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 12.dp, horizontal = 16.dp),
+                            .padding(vertical = 9.dp, horizontal = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Cancel",
-                        style = PlumTheme.typography.labelLarge,
+                        style = PlumTheme.typography.labelMedium,
                     )
                 }
             }
@@ -527,7 +545,7 @@ private fun TrackPickerRow(
     modifier: Modifier = Modifier,
 ) {
     val palette = PlumTheme.palette
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(10.dp)
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -536,17 +554,17 @@ private fun TrackPickerRow(
             ClickableSurfaceDefaults.colors(
                 containerColor = Color.White.copy(alpha = 0.06f),
                 contentColor = Color.White,
-                focusedContainerColor = Color.White.copy(alpha = 0.14f),
+                focusedContainerColor = Color.White.copy(alpha = 0.12f),
                 focusedContentColor = Color.White,
-                pressedContainerColor = Color.White.copy(alpha = 0.14f),
+                pressedContainerColor = Color.White.copy(alpha = 0.12f),
                 pressedContentColor = Color.White,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(Color.White.copy(alpha = 0.08f), 1.dp, shape),
-                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.7f), 1.5.dp, shape),
-                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.7f), 1.5.dp, shape),
+                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.dp, shape),
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
@@ -554,13 +572,13 @@ private fun TrackPickerRow(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = option.label,
-                style = PlumTheme.typography.bodyLarge,
+                style = PlumTheme.typography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -568,9 +586,9 @@ private fun TrackPickerRow(
             if (option.selected) {
                 Text(
                     text = "●",
-                    style = PlumTheme.typography.labelMedium,
+                    style = PlumTheme.typography.labelSmall,
                     color = palette.accent,
-                    modifier = Modifier.padding(start = 12.dp),
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }
@@ -719,6 +737,52 @@ private fun PlexSeekBar(
 }
 
 // ── Control button ────────────────────────────────────────────────────────────
+
+@Composable
+private fun SkipIntroControl(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = PlumTheme.palette
+    val shape = RoundedCornerShape(16.dp)
+    Surface(
+        onClick = onClick,
+        modifier =
+            modifier
+                .height(50.dp)
+                .widthIn(min = 128.dp)
+                .semantics { contentDescription = "Skip intro" },
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors =
+            ClickableSurfaceDefaults.colors(
+                containerColor = palette.accent.copy(alpha = 0.24f),
+                contentColor = Color.White,
+                focusedContainerColor = palette.accent.copy(alpha = 0.42f),
+                focusedContentColor = Color.White,
+                pressedContainerColor = palette.accent.copy(alpha = 0.48f),
+                pressedContentColor = Color.White,
+            ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        border =
+            ClickableSurfaceDefaults.border(
+                border = plumBorder(palette.accent.copy(alpha = 0.5f), 1.5.dp, shape),
+                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.9f), 2.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.9f), 2.dp, shape),
+            ),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(palette.accent.copy(alpha = 0.38f), 8.dp)),
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Skip intro",
+                style = PlumTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
 
 @Composable
 private fun PlayerControlButton(

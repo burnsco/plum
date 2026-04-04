@@ -20,6 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -139,6 +140,7 @@ private fun HomeContent(
                         val subtitle = listOfNotNull(baseLabel, remaining).joinToString(" • ")
                         MediaEntryCard(
                             media = entry.media,
+                            preferShowPoster = entry.kind == "show",
                             subtitle = subtitle.ifBlank { null },
                             progressPercent = entry.media.progressPercent,
                             onClick = {
@@ -173,6 +175,7 @@ private fun HomeContent(
                     items(recentlyAddedTv, key = { "tv-${it.media.id}" }) { entry ->
                         MediaEntryCard(
                             media = entry.media,
+                            preferShowPoster = true,
                             subtitle = entry.episodeLabel ?: entry.showTitle,
                             progressPercent = null,
                             onClick = {
@@ -199,6 +202,7 @@ private fun HomeContent(
                     items(recentlyAddedMovies, key = { "mv-${it.media.id}" }) { entry ->
                         MediaEntryCard(
                             media = entry.media,
+                            preferShowPoster = false,
                             subtitle = entry.media.releaseDate?.take(4),
                             progressPercent = null,
                             onClick = {
@@ -260,11 +264,16 @@ private fun HeroSection(
     val serverBase = LocalServerBaseUrl.current
     val media = entry.media
 
-    // Prefer backdrop for the wide hero, fall back to poster
+    // Prefer backdrop for the wide hero; for shows, series poster before episode still/poster (no thumbnails).
     val heroImageUrl =
         resolveArtworkUrl(serverBase, media.backdropUrl, media.backdropPath, PlumImageSizes.BACKDROP_HERO)
-            ?: resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_DETAIL)
-            ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_DETAIL)
+            ?: if (entry.kind == "show") {
+                resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.BACKDROP_HERO)
+                    ?: resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_DETAIL)
+            } else {
+                resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_DETAIL)
+                    ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_DETAIL)
+            }
 
     val metrics = PlumTheme.metrics
     Box(
@@ -341,19 +350,28 @@ private fun HeroSection(
 @Composable
 private fun MediaEntryCard(
     media: MediaItemJson,
+    preferShowPoster: Boolean,
     subtitle: String?,
     progressPercent: Double?,
     onClick: () -> Unit,
 ) {
     val serverBase = LocalServerBaseUrl.current
+    val showArt =
+        resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_GRID)
+    val itemArt =
+        resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_GRID)
+    val imageUrl =
+        if (preferShowPoster) {
+            showArt ?: itemArt
+        } else {
+            itemArt ?: showArt
+        }
+            ?: media.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
+            ?: media.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
     PlumPosterCard(
         title = media.title,
         subtitle = subtitle,
-        imageUrl =
-            resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_GRID)
-                ?: resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_GRID)
-                ?: media.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
-                ?: media.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
+        imageUrl = imageUrl,
         onClick = onClick,
         compact = true,
         progressPercent = progressPercent,

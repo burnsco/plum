@@ -1992,6 +1992,30 @@
   background: #000;
 }
 
+.playback-dock__skip-intro {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 3.25rem;
+  transform: translateX(-50%);
+  padding: 0.45rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 11, 20, 0.9);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 3px 18px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+
+.playback-dock__skip-intro:hover {
+  background: rgba(22, 20, 34, 0.95);
+  border-color: rgba(255, 255, 255, 0.38);
+}
+
 .playback-dock__video::cue,
 .fullscreen-player__video::cue {
   color: var(--plum-subtitle-color, #fff);
@@ -2111,6 +2135,39 @@
   height: 100%;
   object-fit: contain;
   background: #000;
+}
+
+.fullscreen-player__skip-intro {
+  position: absolute;
+  z-index: 4;
+  bottom: 5.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.55rem 1.15rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(20, 20, 24, 0.92);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    opacity 0.35s ease;
+}
+
+.fullscreen-player__skip-intro:hover {
+  background: rgba(40, 40, 48, 0.96);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.fullscreen-player--hidden .fullscreen-player__skip-intro {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ── Top title bar ── */

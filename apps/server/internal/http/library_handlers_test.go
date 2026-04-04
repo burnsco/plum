@@ -61,7 +61,7 @@ func TestUpdateLibraryPlaybackPreferences(t *testing.T) {
 	req := httptest.NewRequest(
 		http.MethodPut,
 		"/api/libraries/"+strconv.Itoa(libraryID)+"/playback-preferences",
-		strings.NewReader(`{"preferred_audio_language":"ja","preferred_subtitle_language":"en","subtitles_enabled_by_default":true}`),
+		strings.NewReader(`{"preferred_audio_language":"ja","preferred_subtitle_language":"en","subtitles_enabled_by_default":true,"intro_skip_mode":"manual"}`),
 	)
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()

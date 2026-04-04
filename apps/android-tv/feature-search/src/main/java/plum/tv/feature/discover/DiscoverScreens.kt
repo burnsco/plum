@@ -6,10 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -266,57 +268,73 @@ fun DiscoverBrowseRoute(
             val metrics = PlumTheme.metrics
             // Adaptive grid: same approach as LibraryBrowseScreen so column count responds to width.
             val minCell = remember(metrics) { metrics.posterCompactWidth + metrics.cardGap }
+            val filterScroll = rememberScrollState()
 
-            Column(
+            // Side column for filters + header keeps the poster grid full-height; stacking everything
+            // in a Column made the filter panel dominate and squeezed the grid to a thin strip on TV.
+            Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(PlumScreenPadding()),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                PlumPanel(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PlumScreenTitle(
-                            title = s.title,
-                            subtitle = "${s.totalResults} titles",
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
-                        }
-                    }
+                Column(
+                    modifier =
+                        Modifier
+                            .width(340.dp)
+                            .fillMaxHeight()
+                            .verticalScroll(filterScroll),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
+                    PlumScreenTitle(
+                        title = s.title,
+                        subtitle = "${s.totalResults} titles",
+                    )
+                    DiscoverBrowseFilters(
+                        category = s.category,
+                        mediaType = s.mediaType,
+                        genre = s.genre,
+                        genres = s.genres,
+                        compact = true,
+                        onChange = { nextCategory, nextMediaType, nextGenreId ->
+                            viewModel.refresh(nextCategory, nextMediaType, nextGenreId)
+                        },
+                    )
                 }
 
-                DiscoverBrowseFilters(
-                    category = s.category,
-                    mediaType = s.mediaType,
-                    genre = s.genre,
-                    genres = s.genres,
-                    onChange = { nextCategory, nextMediaType, nextGenreId ->
-                        viewModel.refresh(nextCategory, nextMediaType, nextGenreId)
-                    },
-                )
-
-                if (s.items.isEmpty()) {
-                    PlumStatePanel(
-                        modifier = Modifier.fillMaxWidth(),
-                        title = "No titles found",
-                        message = "Try a different category, media type, or genre filter.",
-                    )
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = minCell),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
-                        verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
-                        contentPadding = PaddingValues(bottom = 24.dp),
-                    ) {
-                        items(s.items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
-                            DiscoverPosterCard(
-                                item = item,
-                                serverBase = serverBase,
-                                onClick = { onOpenTitle(item.mediaType, item.tmdbId) },
+                Box(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                ) {
+                    if (s.items.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            PlumStatePanel(
+                                modifier = Modifier.fillMaxWidth(),
+                                title = "No titles found",
+                                message = "Try a different category, media type, or genre filter.",
                             )
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = minCell),
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
+                            verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
+                            contentPadding = PaddingValues(bottom = 24.dp),
+                        ) {
+                            items(s.items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
+                                DiscoverPosterCard(
+                                    item = item,
+                                    serverBase = serverBase,
+                                    onClick = { onOpenTitle(item.mediaType, item.tmdbId) },
+                                )
+                            }
                         }
                     }
                 }
@@ -331,14 +349,17 @@ private fun DiscoverBrowseFilters(
     mediaType: String?,
     genre: DiscoverGenreJson?,
     genres: List<DiscoverGenreJson>,
+    compact: Boolean = false,
     onChange: (String?, String?, Int?) -> Unit,
 ) {
-    PlumPanel(contentPadding = PaddingValues(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            PlumSectionHeader(
-                title = "Browse filters",
-                subtitle = "Refine the shelf without losing your place.",
-            )
+    PlumPanel(contentPadding = if (compact) PaddingValues(12.dp) else PaddingValues(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
+            if (!compact) {
+                PlumSectionHeader(
+                    title = "Browse filters",
+                    subtitle = "Refine the shelf without losing your place.",
+                )
+            }
             DiscoverFilterGroup(title = "Catalog") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {

@@ -1,4 +1,4 @@
-import type { Library } from "../api";
+import type { IntroSkipMode, Library } from "../api";
 
 export type SubtitleSize = "small" | "medium" | "large";
 export type SubtitlePosition = "top" | "bottom";
@@ -13,6 +13,7 @@ export type ResolvedLibraryPlaybackPreferences = {
   preferredAudioLanguage: string;
   preferredSubtitleLanguage: string;
   subtitlesEnabledByDefault: boolean;
+  introSkipMode: IntroSkipMode;
 };
 
 export const subtitleAppearanceStorageKey = "plum:subtitle-appearance";
@@ -86,12 +87,20 @@ const languageAliases = new Map<string, string>([
   ["chinese", "zh"],
 ]);
 
+function normalizeIntroSkipMode(raw: string | undefined | null): IntroSkipMode {
+  if (raw === "off" || raw === "auto") {
+    return raw;
+  }
+  return "manual";
+}
+
 function defaultLibraryPreferencesForType(type: Library["type"] | undefined): ResolvedLibraryPlaybackPreferences {
   if (type === "anime") {
     return {
       preferredAudioLanguage: "ja",
       preferredSubtitleLanguage: "en",
       subtitlesEnabledByDefault: true,
+      introSkipMode: "manual",
     };
   }
   if (type === "movie" || type === "tv") {
@@ -99,12 +108,14 @@ function defaultLibraryPreferencesForType(type: Library["type"] | undefined): Re
       preferredAudioLanguage: "en",
       preferredSubtitleLanguage: "en",
       subtitlesEnabledByDefault: true,
+      introSkipMode: "manual",
     };
   }
   return {
     preferredAudioLanguage: "",
     preferredSubtitleLanguage: "",
     subtitlesEnabledByDefault: false,
+    introSkipMode: "manual",
   };
 }
 
@@ -131,6 +142,7 @@ export function resolveLibraryPlaybackPreferences(
     | "preferred_audio_language"
     | "preferred_subtitle_language"
     | "subtitles_enabled_by_default"
+    | "intro_skip_mode"
   > | null
     | undefined,
 ): ResolvedLibraryPlaybackPreferences {
@@ -144,6 +156,7 @@ export function resolveLibraryPlaybackPreferences(
     ),
     subtitlesEnabledByDefault:
       library?.subtitles_enabled_by_default ?? defaults.subtitlesEnabledByDefault,
+    introSkipMode: normalizeIntroSkipMode(library?.intro_skip_mode ?? defaults.introSkipMode),
   };
 }
 

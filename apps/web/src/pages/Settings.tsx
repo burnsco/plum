@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
   HardwareEncodeFormat,
+  IntroSkipMode,
   Library,
   MetadataArtworkSettings as MetadataArtworkSettingsShape,
   MediaStackServiceValidationResult,
@@ -228,6 +229,7 @@ type LibraryPlaybackPreferencesForm = {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
   subtitles_enabled_by_default: boolean;
+  intro_skip_mode: IntroSkipMode;
   watcher_enabled: boolean;
   watcher_mode: "auto" | "poll";
   scan_interval_minutes: number;
@@ -239,6 +241,7 @@ function cloneLibraryPlaybackPreferences(library: Library): LibraryPlaybackPrefe
     preferred_audio_language: normalizeLanguagePreference(resolved.preferredAudioLanguage),
     preferred_subtitle_language: normalizeLanguagePreference(resolved.preferredSubtitleLanguage),
     subtitles_enabled_by_default: resolved.subtitlesEnabledByDefault,
+    intro_skip_mode: resolved.introSkipMode,
     watcher_enabled: library.watcher_enabled ?? false,
     watcher_mode: library.watcher_mode === "poll" ? "poll" : "auto",
     scan_interval_minutes: library.scan_interval_minutes ?? 0,
@@ -253,6 +256,7 @@ function libraryPreferencesEqual(
     left.preferred_audio_language === right.preferred_audio_language &&
     left.preferred_subtitle_language === right.preferred_subtitle_language &&
     left.subtitles_enabled_by_default === right.subtitles_enabled_by_default &&
+    left.intro_skip_mode === right.intro_skip_mode &&
     left.watcher_enabled === right.watcher_enabled &&
     left.watcher_mode === right.watcher_mode &&
     left.scan_interval_minutes === right.scan_interval_minutes
@@ -338,6 +342,7 @@ export function Settings() {
           preferred_audio_language: "en",
           preferred_subtitle_language: "en",
           subtitles_enabled_by_default: true,
+          intro_skip_mode: "manual",
           watcher_enabled: false,
           watcher_mode: "auto" as const,
           scan_interval_minutes: 0,
@@ -609,7 +614,7 @@ export function Settings() {
                 </div>
 
                 {supportsPlaybackPreferences ? (
-                  <div className="mt-5 grid gap-4 md:grid-cols-3">
+                  <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <div>
                       <label
                         className="mb-2 block text-sm font-medium text-(--plum-text)"
@@ -673,6 +678,36 @@ export function Settings() {
                         }
                         description="If the preferred subtitle language exists, Plum will enable it automatically."
                       />
+                    </div>
+
+                    <div>
+                      <label
+                        className="mb-2 block text-sm font-medium text-(--plum-text)"
+                        htmlFor={`library-intro-skip-${library.id}`}
+                      >
+                        Intro skip
+                      </label>
+                      <select
+                        id={`library-intro-skip-${library.id}`}
+                        value={current.intro_skip_mode}
+                        onChange={(event) =>
+                          setLibraryField(
+                            library.id,
+                            "intro_skip_mode",
+                            event.target.value as IntroSkipMode,
+                          )
+                        }
+                        className="flex h-9 w-full rounded-md border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
+                      >
+                        <option value="off">Off</option>
+                        <option value="manual">Show skip button</option>
+                        <option value="auto">Auto-skip</option>
+                      </select>
+                      <p className="mt-1.5 text-xs leading-snug text-(--plum-muted)">
+                        When the video file has a chapter titled Intro, Opening, or similar, Plum can
+                        jump past it. Rescan the library after adding chapters so timestamps are
+                        picked up.
+                      </p>
                     </div>
                   </div>
                 ) : (

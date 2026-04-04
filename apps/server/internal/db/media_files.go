@@ -9,6 +9,27 @@ import (
 	"time"
 )
 
+// UpdateMediaFileIntroFromProbe persists chapter-derived intro range for a concrete file path.
+// Call after a successful ffprobe when intro columns exist; clears intro when probe found no intro chapter.
+func UpdateMediaFileIntroFromProbe(ctx context.Context, dbConn *sql.DB, mediaID int, path string, probed VideoProbeResult) error {
+	if mediaID <= 0 || strings.TrimSpace(path) == "" {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	var start, end interface{}
+	if probed.IntroStartSeconds != nil {
+		start = *probed.IntroStartSeconds
+	}
+	if probed.IntroEndSeconds != nil {
+		end = *probed.IntroEndSeconds
+	}
+	_, err := dbConn.ExecContext(ctx,
+		`UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, updated_at = ? WHERE media_id = ? AND path = ?`,
+		start, end, now, mediaID, path,
+	)
+	return err
+}
+
 func ShowPosterURL(libraryID int, showKey string) string {
 	showKey = strings.TrimSpace(showKey)
 	if libraryID <= 0 || showKey == "" {
@@ -26,16 +47,18 @@ func isMissingMediaFilesSchemaError(err error) bool {
 }
 
 type mediaFileRow struct {
-	MediaID       int
-	Path          string
-	FileSizeBytes int64
-	FileModTime   string
-	FileHash      string
-	FileHashKind  string
-	Duration      int
-	MissingSince  string
-	LastSeenAt    string
-	IsPrimary     bool
+	MediaID         int
+	Path            string
+	FileSizeBytes   int64
+	FileModTime     string
+	FileHash        string
+	FileHashKind    string
+	Duration        int
+	MissingSince    string
+	LastSeenAt      string
+	IsPrimary       bool
+	IntroStartSec   sql.NullFloat64
+	IntroEndSec     sql.NullFloat64
 }
 
 func decorateMediaItemURLs(item *MediaItem) {
@@ -69,18 +92,92 @@ func attachMediaFilesBatch(dbConn *sql.DB, items []MediaItem) ([]MediaItem, erro
 		args = append(args, items[i].ID)
 	}
 	query := `SELECT media_id, path, COALESCE(file_size_bytes, 0), COALESCE(file_mod_time, ''), COALESCE(file_hash, ''),
-COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0)
+COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0),
+intro_start_sec, intro_end_sec
 FROM media_files
 WHERE media_id IN (` + strings.Join(ids, ",") + `)
 ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC`
 	rows, err := dbConn.Query(query, args...)
 	if err != nil {
 		if isMissingMediaFilesSchemaError(err) {
-			for i := range items {
-				decorateMediaItemURLs(&items[i])
-			}
-			return items, nil
+			return attachMediaFilesBatchLegacy(dbConn, items)
 		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[int]struct{}, len(items))
+	for rows.Next() {
+		var row mediaFileRow
+		var isPrimary int
+		if err := rows.Scan(
+			&row.MediaID,
+			&row.Path,
+			&row.FileSizeBytes,
+			&row.FileModTime,
+			&row.FileHash,
+			&row.FileHashKind,
+			&row.Duration,
+			&row.MissingSince,
+			&row.LastSeenAt,
+			&isPrimary,
+			&row.IntroStartSec,
+			&row.IntroEndSec,
+		); err != nil {
+			return nil, err
+		}
+		if _, ok := seen[row.MediaID]; ok {
+			continue
+		}
+		seen[row.MediaID] = struct{}{}
+		idx, ok := index[row.MediaID]
+		if !ok {
+			continue
+		}
+		items[idx].Path = row.Path
+		if row.Duration > 0 {
+			items[idx].Duration = row.Duration
+		}
+		items[idx].FileSizeBytes = row.FileSizeBytes
+		items[idx].FileModTime = row.FileModTime
+		items[idx].FileHash = row.FileHash
+		items[idx].FileHashKind = row.FileHashKind
+		items[idx].MissingSince = row.MissingSince
+		items[idx].Missing = row.MissingSince != ""
+		if row.IntroStartSec.Valid {
+			v := row.IntroStartSec.Float64
+			items[idx].IntroStartSeconds = &v
+		}
+		if row.IntroEndSec.Valid {
+			v := row.IntroEndSec.Float64
+			items[idx].IntroEndSeconds = &v
+		}
+	}
+	for i := range items {
+		decorateMediaItemURLs(&items[i])
+	}
+	return items, rows.Err()
+}
+
+func attachMediaFilesBatchLegacy(dbConn *sql.DB, items []MediaItem) ([]MediaItem, error) {
+	if len(items) == 0 {
+		return items, nil
+	}
+	ids := make([]string, 0, len(items))
+	index := make(map[int]int, len(items))
+	args := make([]any, 0, len(items))
+	for i := range items {
+		index[items[i].ID] = i
+		ids = append(ids, "?")
+		args = append(args, items[i].ID)
+	}
+	query := `SELECT media_id, path, COALESCE(file_size_bytes, 0), COALESCE(file_mod_time, ''), COALESCE(file_hash, ''),
+COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0)
+FROM media_files
+WHERE media_id IN (` + strings.Join(ids, ",") + `)
+ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC`
+	rows, err := dbConn.Query(query, args...)
+	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
@@ -172,6 +269,40 @@ func lookupPrimaryMediaFile(dbConn *sql.DB, mediaID int) (mediaFileRow, error) {
 	var row mediaFileRow
 	err := dbConn.QueryRow(
 		`SELECT media_id, path, COALESCE(file_size_bytes, 0), COALESCE(file_mod_time, ''), COALESCE(file_hash, ''),
+		        COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0),
+		        intro_start_sec, intro_end_sec
+		   FROM media_files
+		  WHERE media_id = ?
+		  ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC
+		  LIMIT 1`,
+		mediaID,
+	).Scan(
+		&row.MediaID,
+		&row.Path,
+		&row.FileSizeBytes,
+		&row.FileModTime,
+		&row.FileHash,
+		&row.FileHashKind,
+		&row.Duration,
+		&row.MissingSince,
+		&row.LastSeenAt,
+		&row.IsPrimary,
+		&row.IntroStartSec,
+		&row.IntroEndSec,
+	)
+	if err != nil {
+		if isMissingMediaFilesSchemaError(err) {
+			return lookupPrimaryMediaFileLegacy(dbConn, mediaID)
+		}
+		return row, err
+	}
+	return row, nil
+}
+
+func lookupPrimaryMediaFileLegacy(dbConn *sql.DB, mediaID int) (mediaFileRow, error) {
+	var row mediaFileRow
+	err := dbConn.QueryRow(
+		`SELECT media_id, path, COALESCE(file_size_bytes, 0), COALESCE(file_mod_time, ''), COALESCE(file_hash, ''),
 		        COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0)
 		   FROM media_files
 		  WHERE media_id = ?
@@ -190,8 +321,5 @@ func lookupPrimaryMediaFile(dbConn *sql.DB, mediaID int) (mediaFileRow, error) {
 		&row.LastSeenAt,
 		&row.IsPrimary,
 	)
-	if err != nil {
-		return row, err
-	}
-	return row, nil
+	return row, err
 }

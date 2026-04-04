@@ -67,6 +67,8 @@ data class MediaItemJson(
     @Json(name = "thumbnail_url") val thumbnailUrl: String? = null,
     @Json(name = "missing") val missing: Boolean? = null,
     @Json(name = "missing_since") val missingSince: String? = null,
+    @Json(name = "intro_start_seconds") val introStartSeconds: Double? = null,
+    @Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -101,6 +103,7 @@ data class LibraryJson(
     @Json(name = "type") val type: String,
     @Json(name = "path") val path: String,
     @Json(name = "user_id") val userId: Int,
+    @Json(name = "intro_skip_mode") val introSkipMode: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -139,6 +142,8 @@ data class LibraryBrowseItemJson(
     @Json(name = "thumbnail_path") val thumbnailPath: String? = null,
     @Json(name = "thumbnail_url") val thumbnailUrl: String? = null,
     @Json(name = "missing") val missing: Boolean? = null,
+    @Json(name = "intro_start_seconds") val introStartSeconds: Double? = null,
+    @Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -209,6 +214,7 @@ data class ShowSeasonEpisodesJson(
 
 @JsonClass(generateAdapter = true)
 data class ShowEpisodesResponseJson(
+    @Json(name = "intro_skip_mode") val introSkipMode: String? = null,
     @Json(name = "seasons") val seasons: List<ShowSeasonEpisodesJson> = emptyList(),
 )
 

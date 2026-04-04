@@ -92,6 +92,8 @@ function mergePlaybackTracks(
       session.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })) ?? item.embeddedSubtitles,
     embeddedAudioTracks:
       session.embeddedAudioTracks?.map((track) => ({ ...track })) ?? item.embeddedAudioTracks,
+    intro_start_seconds: item.intro_start_seconds ?? session.intro_start_seconds,
+    intro_end_seconds: item.intro_end_seconds ?? session.intro_end_seconds,
   };
 }
 

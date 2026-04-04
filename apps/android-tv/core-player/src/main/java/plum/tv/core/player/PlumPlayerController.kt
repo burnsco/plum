@@ -81,6 +81,7 @@ data class PlayerUiState(
     val subtitleTrackLabel: String? = null,
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
+    val showSkipIntro: Boolean = false,
 ) {
     val progressFraction: Float
         get() = if (durationMs > 0) (positionMs.coerceAtMost(durationMs).toDouble() / durationMs).toFloat() else 0f
@@ -92,6 +93,8 @@ data class PlayerUiState(
 private const val RESTART_PREVIOUS_THRESHOLD_MS = 10_000L
 private const val PROGRESS_HEARTBEAT_MS = 10_000L
 private const val PROGRESS_DUPLICATE_WINDOW_MS = 3_000L
+private const val INTRO_SKIP_LEADING_SLACK_SEC = 0.35
+private const val INTRO_SKIP_TRAILING_SLACK_SEC = 0.35
 
 /**
  * Core playback controller used by the TV app.
@@ -141,6 +144,18 @@ class PlumPlayerController(
 
     @Volatile
     private var queueIndex: Int = -1
+
+    @Volatile
+    private var introStartSec: Double? = null
+
+    @Volatile
+    private var introEndSec: Double? = null
+
+    @Volatile
+    private var sessionIntroSkipMode: String = "manual"
+
+    @Volatile
+    private var introAutoSkipConsumed: Boolean = false
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -278,6 +293,7 @@ class PlumPlayerController(
                 val heartbeatSeconds = (PROGRESS_HEARTBEAT_MS / 1000).toInt().coerceAtLeast(1)
                 while (isActive) {
                     delay(1_000)
+                    maybeAutoSkipIntro()
                     refreshUiState()
                     if (player.isPlaying) {
                         ticks++
@@ -328,6 +344,65 @@ class PlumPlayerController(
 
     private fun currentDurationMs(): Long = resolvedDurationMs()
 
+    private fun normalizeIntroSkipMode(raw: String?): String =
+        when (raw?.trim()?.lowercase()) {
+            "off", "manual", "auto" -> raw.trim().lowercase()
+            else -> "manual"
+        }
+
+    private fun effectiveIntroSkipMode(): String = normalizeIntroSkipMode(sessionIntroSkipMode)
+
+    private fun positionInsideIntroWindow(positionSec: Double): Boolean {
+        val end = introEndSec ?: return false
+        val start = introStartSec ?: 0.0
+        return positionSec >= start - INTRO_SKIP_LEADING_SLACK_SEC &&
+            positionSec < end - INTRO_SKIP_TRAILING_SLACK_SEC
+    }
+
+    /**
+     * Seeks to the end of the detected intro window when the server provided bounds and the
+     * library is not in "off" mode.
+     */
+    fun skipIntro() {
+        if (effectiveIntroSkipMode() == "off") return
+        val end = introEndSec ?: return
+        scope.launch(Dispatchers.Main) {
+            val targetMs = (end * 1000.0).toLong().coerceIn(0L, resolvedDurationMs())
+            if (targetMs > player.currentPosition) {
+                player.seekTo(targetMs)
+            }
+            introAutoSkipConsumed = true
+        }
+    }
+
+    private fun maybeAutoSkipIntro() {
+        if (!player.isPlaying) return
+        if (effectiveIntroSkipMode() != "auto") return
+        if (introAutoSkipConsumed) return
+        val end = introEndSec ?: return
+        val start = introStartSec ?: 0.0
+        val posSec = player.currentPosition.coerceAtLeast(0) / 1000.0
+        if (posSec < start - INTRO_SKIP_LEADING_SLACK_SEC) return
+        if (posSec >= end - INTRO_SKIP_TRAILING_SLACK_SEC) return
+        introAutoSkipConsumed = true
+        scope.launch(Dispatchers.Main) {
+            val targetMs = (end * 1000.0).toLong().coerceIn(0L, resolvedDurationMs())
+            if (targetMs > player.currentPosition) {
+                player.seekTo(targetMs)
+            }
+        }
+    }
+
+    private fun mergeIntroFromSession(
+        skipMode: String?,
+        start: Double?,
+        end: Double?,
+    ) {
+        skipMode?.trim()?.takeIf { it.isNotEmpty() }?.let { sessionIntroSkipMode = it }
+        start?.let { introStartSec = it }
+        end?.let { introEndSec = it }
+    }
+
     private fun refreshUiState(
         statusOverride: String? = null,
         errorOverride: String? = null,
@@ -337,8 +412,16 @@ class PlumPlayerController(
         val subtitle = item?.subtitle
         val durationMs = currentDurationMs()
         val positionMs = player.currentPosition.coerceAtLeast(0)
+        val positionSec = positionMs / 1000.0
         val status = statusOverride ?: _status.value
         val error = errorOverride ?: _error.value
+        val mode = effectiveIntroSkipMode()
+        val showSkipIntro =
+            mode == "manual" &&
+                introEndSec != null &&
+                positionInsideIntroWindow(positionSec) &&
+                player.mediaItemCount > 0 &&
+                error == null
         _uiState.value =
             PlayerUiState(
                 title = title,
@@ -358,6 +441,7 @@ class PlumPlayerController(
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
                 queueIndex = queueIndex,
                 queueSize = episodeQueue.size,
+                showSkipIntro = showSkipIntro,
             )
     }
 
@@ -403,6 +487,10 @@ class PlumPlayerController(
         embeddedAudioTracks = session.embeddedAudioTracks.orEmpty()
         embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
+        introStartSec = session.introStartSeconds
+        introEndSec = session.introEndSeconds
+        sessionIntroSkipMode = session.introSkipMode?.trim()?.takeIf { it.isNotEmpty() } ?: "manual"
+        introAutoSkipConsumed = false
     }
 
     /**
@@ -414,6 +502,11 @@ class PlumPlayerController(
         session.embeddedAudioTracks?.let { embeddedAudioTracks = it }
         session.embeddedSubtitles?.let { embeddedSubtitleTracks = it }
         session.audioIndex?.let { serverAudioIndex = it }
+        mergeIntroFromSession(
+            session.introSkipMode,
+            session.introStartSeconds,
+            session.introEndSeconds,
+        )
     }
 
     private fun trackGroups(trackType: Int): List<Tracks.Group> =
@@ -792,6 +885,9 @@ class PlumPlayerController(
         activeStreamUrl = null
         hlsSessionId = null
         lastAppliedStreamRevision = -1
+        introStartSec = null
+        introEndSec = null
+        introAutoSkipConsumed = false
         openMedia(mediaId, resumeSec)
     }
 
@@ -834,6 +930,11 @@ class PlumPlayerController(
 
     private suspend fun handleSessionUpdate(ev: PlaybackSessionUpdateEventJson) {
         serverAudioIndex = ev.audioIndex
+        mergeIntroFromSession(
+            ev.introSkipMode,
+            ev.introStartSeconds,
+            ev.introEndSeconds,
+        )
         when (ev.status) {
             "ready" -> {
                 swapToReadyStream(

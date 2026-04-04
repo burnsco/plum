@@ -15,6 +15,10 @@ export type MediaType = "tv" | "movie" | "music" | "anime";
 
 export const MediaTypeSchema = Schema.Literals(["tv", "movie", "music", "anime"]);
 
+export type IntroSkipMode = "off" | "manual" | "auto";
+
+export const IntroSkipModeSchema = Schema.Literals(["off", "manual", "auto"]);
+
 export type MatchStatus = "identified" | "local" | "unmatched";
 
 export const MatchStatusSchema = Schema.Literals(["identified", "local", "unmatched"]);
@@ -115,6 +119,9 @@ export interface MediaItem {
   missing_since?: string;
   duplicate?: boolean;
   duplicate_count?: number;
+  /** From container chapter metadata (ffprobe), when present. */
+  intro_start_seconds?: number;
+  intro_end_seconds?: number;
 }
 
 export const MediaItemSchema = Schema.Struct({
@@ -164,6 +171,8 @@ export const MediaItemSchema = Schema.Struct({
   missing_since: Schema.optional(Schema.String),
   duplicate: Schema.optional(Schema.Boolean),
   duplicate_count: Schema.optional(Schema.Number),
+  intro_start_seconds: Schema.optional(Schema.Number),
+  intro_end_seconds: Schema.optional(Schema.Number),
 });
 
 export interface LibraryBrowseItem {
@@ -208,6 +217,8 @@ export interface LibraryBrowseItem {
   thumbnail_url?: string;
   missing?: boolean;
   missing_since?: string;
+  intro_start_seconds?: number;
+  intro_end_seconds?: number;
 }
 
 export const LibraryBrowseItemSchema = Schema.Struct({
@@ -252,6 +263,8 @@ export const LibraryBrowseItemSchema = Schema.Struct({
   thumbnail_url: Schema.optional(Schema.String),
   missing: Schema.optional(Schema.Boolean),
   missing_since: Schema.optional(Schema.String),
+  intro_start_seconds: Schema.optional(Schema.Number),
+  intro_end_seconds: Schema.optional(Schema.Number),
 });
 
 export interface LibraryMediaPage {
@@ -281,10 +294,12 @@ export const ShowSeasonEpisodesSchema = Schema.Struct({
 });
 
 export interface ShowEpisodesResponse {
+  intro_skip_mode?: IntroSkipMode;
   seasons: ShowSeasonEpisodes[];
 }
 
 export const ShowEpisodesResponseSchema = Schema.Struct({
+  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   seasons: Schema.Array(ShowSeasonEpisodesSchema),
 });
 
@@ -362,6 +377,9 @@ export interface DirectPlaybackSession {
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
   error?: string;
+  intro_skip_mode?: IntroSkipMode;
+  intro_start_seconds?: number;
+  intro_end_seconds?: number;
 }
 
 export interface HlsPlaybackSession {
@@ -377,6 +395,9 @@ export interface HlsPlaybackSession {
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
   error?: string;
+  intro_skip_mode?: IntroSkipMode;
+  intro_start_seconds?: number;
+  intro_end_seconds?: number;
 }
 
 export type PlaybackSession = DirectPlaybackSession | HlsPlaybackSession;
@@ -392,6 +413,9 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   error: Schema.optional(Schema.String),
+  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
+  intro_start_seconds: Schema.optional(Schema.Number),
+  intro_end_seconds: Schema.optional(Schema.Number),
 });
 
 export const HlsPlaybackSessionSchema = Schema.Struct({
@@ -407,6 +431,9 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   error: Schema.optional(Schema.String),
+  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
+  intro_start_seconds: Schema.optional(Schema.Number),
+  intro_end_seconds: Schema.optional(Schema.Number),
 });
 
 export const PlaybackSessionSchema = Schema.Union([
@@ -482,6 +509,7 @@ export interface Library {
   watcher_enabled?: boolean;
   watcher_mode?: "auto" | "poll";
   scan_interval_minutes?: number;
+  intro_skip_mode?: IntroSkipMode;
 }
 
 export const LibrarySchema = Schema.Struct({
@@ -496,12 +524,14 @@ export const LibrarySchema = Schema.Struct({
   watcher_enabled: Schema.optional(Schema.Boolean),
   watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
   scan_interval_minutes: Schema.optional(Schema.Number),
+  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
 });
 
 export interface UpdateLibraryPlaybackPreferencesPayload {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
   subtitles_enabled_by_default: boolean;
+  intro_skip_mode?: IntroSkipMode;
   watcher_enabled?: boolean;
   watcher_mode?: "auto" | "poll";
   scan_interval_minutes?: number;
@@ -511,6 +541,7 @@ export const UpdateLibraryPlaybackPreferencesPayloadSchema = Schema.Struct({
   preferred_audio_language: Schema.String,
   preferred_subtitle_language: Schema.String,
   subtitles_enabled_by_default: Schema.Boolean,
+  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   watcher_enabled: Schema.optional(Schema.Boolean),
   watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
   scan_interval_minutes: Schema.optional(Schema.Number),
@@ -1601,7 +1632,7 @@ export interface DetachPlaybackSessionCommand {
 export interface PlaybackSessionUpdateEvent {
   type: "playback_session_update";
   sessionId: string;
-  delivery: "remux" | "transcode";
+  delivery: "remux" | "transcode" | "direct";
   mediaId: number;
   revision: number;
   audioIndex: number;
@@ -1609,6 +1640,9 @@ export interface PlaybackSessionUpdateEvent {
   streamUrl: string;
   durationSeconds: number;
   error?: string;
+  intro_skip_mode?: IntroSkipMode;
+  intro_start_seconds?: number;
+  intro_end_seconds?: number;
 }
 
 export interface LibraryScanUpdateEvent {
@@ -1646,7 +1680,7 @@ export const DetachPlaybackSessionCommandSchema = Schema.Struct({
 export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   type: Schema.Literal("playback_session_update"),
   sessionId: Schema.String,
-  delivery: Schema.Literals(["remux", "transcode"]),
+  delivery: Schema.Literals(["remux", "transcode", "direct"]),
   mediaId: Schema.Number,
   revision: Schema.Number,
   audioIndex: Schema.Number,
@@ -1654,6 +1688,9 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
   error: Schema.optional(Schema.String),
+  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
+  intro_start_seconds: Schema.optional(Schema.Number),
+  intro_end_seconds: Schema.optional(Schema.Number),
 });
 
 export const LibraryScanUpdateEventSchema = Schema.Struct({

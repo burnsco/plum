@@ -45,6 +45,20 @@ function dashboardDetailHref(entry: DashboardEntry): string | undefined {
   return undefined;
 }
 
+/** TV/anime shelves should show series poster art, not episode stills or generated frame thumbnails. */
+function dashboardPosterFields(entry: DashboardEntry): { posterPath?: string; posterUrl?: string } {
+  if (entry.kind === "show") {
+    return {
+      posterPath: entry.media.show_poster_path ?? entry.media.poster_path,
+      posterUrl: entry.media.show_poster_url ?? entry.media.poster_url,
+    };
+  }
+  return {
+    posterPath: entry.media.poster_path,
+    posterUrl: entry.media.poster_url,
+  };
+}
+
 function toPosterGridItem(
   entry: DashboardEntry,
   shelf: DashboardShelf,
@@ -58,13 +72,14 @@ function toPosterGridItem(
     label: entry.media.imdb_rating ? "IMDb" : undefined,
     value: entry.media.imdb_rating,
   };
+  const { posterPath, posterUrl } = dashboardPosterFields(entry);
 
   return {
     key: `${shelf}-${entry.kind}-${entry.media.id}`,
     title: getDashboardEntryTitle(entry),
     subtitle: getDashboardEntrySubtitle(entry, shelf),
-    posterPath: entry.media.poster_path,
-    posterUrl: entry.media.poster_url,
+    posterPath,
+    posterUrl,
     ratingLabel: rating.label,
     ratingValue: rating.value,
     progressPercent: shelf === "continueWatching" ? entry.media.progress_percent : undefined,

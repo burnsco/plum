@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -13,6 +14,10 @@ const (
 	completedProgressPercent = 95.0
 	completedRemainingSecs   = 120.0
 	recentlyAddedLimit       = 24
+
+	// Home dashboard "recently added" merges newest rows across movie/tv/anime; per-kind caps bound DB work.
+	dashboardRecentPerKindCap = 250
+	dashboardRecentMergeCap   = 500
 )
 
 type ContinueWatchingEntry struct {
@@ -68,16 +73,60 @@ func GetMediaPageByLibraryIDForUser(db *sql.DB, libraryID int, userID int, offse
 }
 
 func GetHomeDashboardForUser(db *sql.DB, userID int) (HomeDashboard, error) {
-	items, err := queryAllMediaByKind(db, userID, "")
+	movieItems, err := loadDashboardMoviesInProgress(db, userID)
 	if err != nil {
 		return HomeDashboard{}, err
 	}
-	items, err = attachPlaybackProgressBatch(db, userID, items)
+	movieItems, err = attachMediaFilesBatch(db, movieItems)
 	if err != nil {
 		return HomeDashboard{}, err
 	}
-	continueWatching := buildContinueWatching(items)
-	recentlyAdded := buildRecentlyAdded(items)
+	movieItems, err = attachDuplicateState(db, movieItems)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+	movieItems, err = attachPlaybackProgressBatch(db, userID, movieItems)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+
+	showEntries, err := loadDashboardContinueWatchingShows(db, userID)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+
+	continueWatching := make([]ContinueWatchingEntry, 0, len(movieItems)+len(showEntries))
+	for _, item := range movieItems {
+		continueWatching = append(continueWatching, ContinueWatchingEntry{
+			Kind:             "movie",
+			Media:            item,
+			RemainingSeconds: item.RemainingSeconds,
+			activityAt:       item.LastWatchedAt,
+		})
+	}
+	continueWatching = append(continueWatching, showEntries...)
+	sort.Slice(continueWatching, func(i, j int) bool {
+		return continueWatching[i].activityAt > continueWatching[j].activityAt
+	})
+
+	recentCandidates, err := loadRecentDashboardMediaCandidates(db, userID)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+	recentCandidates, err = attachMediaFilesBatch(db, recentCandidates)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+	recentCandidates, err = attachDuplicateState(db, recentCandidates)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+	recentCandidates, err = attachPlaybackProgressBatch(db, userID, recentCandidates)
+	if err != nil {
+		return HomeDashboard{}, err
+	}
+	recentlyAdded := buildRecentlyAdded(recentCandidates)
+
 	continueWatching, recentlyAdded, err = attachDashboardEntrySubtitles(db, continueWatching, recentlyAdded)
 	if err != nil {
 		return HomeDashboard{}, err
@@ -87,6 +136,507 @@ func GetHomeDashboardForUser(db *sql.DB, userID int) (HomeDashboard, error) {
 		ContinueWatching: continueWatching,
 		RecentlyAdded:    recentlyAdded,
 	}, nil
+}
+
+// loadDashboardMoviesInProgress returns movie rows the user is partially watching (same rules as buildContinueWatching).
+func loadDashboardMoviesInProgress(db *sql.DB, userID int) ([]MediaItem, error) {
+	if userID <= 0 {
+		return nil, nil
+	}
+	const q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating
+FROM playback_progress pp
+JOIN media_global g ON g.id = pp.media_id AND g.kind = 'movie'
+JOIN movies m ON g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE pp.user_id = ? AND pp.completed = 0 AND pp.progress_percent > 0`
+	rows, err := db.Query(q, userID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMovieMediaItems(rows)
+}
+
+func scanMovieMediaItems(rows *sql.Rows) ([]MediaItem, error) {
+	items := make([]MediaItem, 0)
+	for rows.Next() {
+		var m MediaItem
+		m.Type = LibraryTypeMovie
+		var overview, posterPath, backdropPath, releaseDate, matchStatus, imdbID sql.NullString
+		var voteAvg, imdbRating sql.NullFloat64
+		var tmdbID sql.NullInt64
+		var tvdbID sql.NullString
+		err := rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)
+		if err != nil {
+			return nil, err
+		}
+		m.TMDBID = int(tmdbID.Int64)
+		if tvdbID.Valid {
+			m.TVDBID = tvdbID.String
+		}
+		if overview.Valid {
+			m.Overview = overview.String
+		}
+		if posterPath.Valid {
+			m.PosterPath = posterPath.String
+		}
+		if backdropPath.Valid {
+			m.BackdropPath = backdropPath.String
+		}
+		if releaseDate.Valid {
+			m.ReleaseDate = releaseDate.String
+		}
+		if voteAvg.Valid {
+			m.VoteAverage = voteAvg.Float64
+		}
+		if imdbID.Valid {
+			m.IMDbID = imdbID.String
+		}
+		if imdbRating.Valid {
+			m.IMDbRating = imdbRating.Float64
+		}
+		if matchStatus.Valid {
+			m.MatchStatus = matchStatus.String
+		}
+		m.Missing = m.MissingSince != ""
+		items = append(items, m)
+	}
+	return items, rows.Err()
+}
+
+type dashboardShowKey struct {
+	libraryID int
+	kind      string
+	showKey   string
+}
+
+func loadDashboardContinueWatchingShows(db *sql.DB, userID int) ([]ContinueWatchingEntry, error) {
+	if userID <= 0 {
+		return nil, nil
+	}
+	seen := make(map[dashboardShowKey]struct{})
+	var keys []dashboardShowKey
+
+	const tvQ = `SELECT m.library_id, COALESCE(m.tmdb_id, 0), m.title
+FROM playback_progress pp
+JOIN media_global g ON g.id = pp.media_id AND g.kind = 'tv'
+JOIN tv_episodes m ON g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE pp.user_id = ?`
+	if err := collectDistinctShowKeys(db, tvQ, userID, userID, LibraryTypeTV, seen, &keys); err != nil {
+		return nil, err
+	}
+	const animeQ = `SELECT m.library_id, COALESCE(m.tmdb_id, 0), m.title
+FROM playback_progress pp
+JOIN media_global g ON g.id = pp.media_id AND g.kind = 'anime'
+JOIN anime_episodes m ON g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE pp.user_id = ?`
+	if err := collectDistinctShowKeys(db, animeQ, userID, userID, LibraryTypeAnime, seen, &keys); err != nil {
+		return nil, err
+	}
+
+	entries := make([]ContinueWatchingEntry, 0, len(keys))
+	for _, sk := range keys {
+		episodes, err := loadDashboardEpisodesForShow(db, sk.libraryID, sk.kind, sk.showKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(episodes) == 0 {
+			continue
+		}
+		episodes, err = attachMediaFilesBatch(db, episodes)
+		if err != nil {
+			return nil, err
+		}
+		episodes, err = attachDuplicateState(db, episodes)
+		if err != nil {
+			return nil, err
+		}
+		episodes, err = attachPlaybackProgressBatch(db, userID, episodes)
+		if err != nil {
+			return nil, err
+		}
+		entry, ok := continueWatchingEntryForShow(sk.showKey, episodes)
+		if !ok {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func collectDistinctShowKeys(db *sql.DB, q string, libUserArg, ppUserArg int, kind string, seen map[dashboardShowKey]struct{}, keys *[]dashboardShowKey) error {
+	rows, err := db.Query(q, libUserArg, ppUserArg)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var libraryID, tmdbID int
+		var title string
+		if err := rows.Scan(&libraryID, &tmdbID, &title); err != nil {
+			return err
+		}
+		dk := dashboardShowKey{libraryID: libraryID, kind: kind, showKey: showKeyFromItem(tmdbID, title)}
+		if _, ok := seen[dk]; ok {
+			continue
+		}
+		seen[dk] = struct{}{}
+		*keys = append(*keys, dk)
+	}
+	return rows.Err()
+}
+
+// loadDashboardEpisodesForShow loads all episodes belonging to the same UI show key within a library.
+func loadDashboardEpisodesForShow(db *sql.DB, libraryID int, kind, showKey string) ([]MediaItem, error) {
+	if err := ensureLibraryShowsAndSeasons(db, libraryID, kind); err != nil {
+		return nil, err
+	}
+	showID, _, _, _, _, _, _, _, _, _, _, err := getShowCanonicalMetadata(db, libraryID, kind, showKey)
+	if err != nil {
+		return nil, err
+	}
+	if showID > 0 {
+		return queryMediaByShowID(db, libraryID, kind, showID)
+	}
+	refs, err := ListShowEpisodeRefs(db, libraryID, showKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	ids := make([]int, len(refs))
+	for i := range refs {
+		ids[i] = refs[i].GlobalID
+	}
+	return batchLoadEpisodeMediaItems(db, libraryID, kind, ids)
+}
+
+func batchLoadEpisodeMediaItems(db *sql.DB, libraryID int, kind string, globalIDs []int) ([]MediaItem, error) {
+	if len(globalIDs) == 0 {
+		return nil, nil
+	}
+	table := mediaTableForKind(kind)
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return nil, nil
+	}
+	placeholders := make([]string, len(globalIDs))
+	args := make([]interface{}, 0, len(globalIDs)+3)
+	args = append(args, kind, libraryID)
+	for i, id := range globalIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
+FROM ` + table + ` m
+JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+LEFT JOIN shows s ON s.id = m.show_id
+WHERE m.library_id = ? AND g.id IN (` + strings.Join(placeholders, ",") + `)
+ORDER BY COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.title, ''), g.id`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items, err := scanEpisodeMediaItems(rows, kind)
+	if err != nil {
+		return nil, err
+	}
+	if err := hydrateEpisodeShowPosters(db, libraryID, kind, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func scanEpisodeMediaItems(rows *sql.Rows, kind string) ([]MediaItem, error) {
+	items := make([]MediaItem, 0)
+	for rows.Next() {
+		var m MediaItem
+		m.Type = kind
+		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
+		var showPosterPath sql.NullString
+		var voteAvg, showVoteAvg, imdbRating sql.NullFloat64
+		var tmdbID sql.NullInt64
+		var tvdbID sql.NullString
+		var metadataReviewNeeded sql.NullBool
+		var metadataConfirmed sql.NullBool
+		err := rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
+		if err != nil {
+			return nil, err
+		}
+		m.TMDBID = int(tmdbID.Int64)
+		if tvdbID.Valid {
+			m.TVDBID = tvdbID.String
+		}
+		if overview.Valid {
+			m.Overview = overview.String
+		}
+		if posterPath.Valid {
+			m.PosterPath = posterPath.String
+		}
+		if backdropPath.Valid {
+			m.BackdropPath = backdropPath.String
+		}
+		if releaseDate.Valid {
+			m.ReleaseDate = releaseDate.String
+		}
+		if voteAvg.Valid {
+			m.VoteAverage = voteAvg.Float64
+		}
+		if imdbID.Valid {
+			m.IMDbID = imdbID.String
+		}
+		if imdbRating.Valid {
+			m.IMDbRating = imdbRating.Float64
+		}
+		if metadataReviewNeeded.Valid {
+			m.MetadataReviewNeeded = metadataReviewNeeded.Bool
+		}
+		if metadataConfirmed.Valid {
+			m.MetadataConfirmed = metadataConfirmed.Bool
+		}
+		if thumbnailPath.Valid {
+			m.ThumbnailPath = thumbnailPath.String
+		}
+		if showPosterPath.Valid {
+			m.ShowPosterPath = showPosterPath.String
+		}
+		if showVoteAvg.Valid {
+			m.ShowVoteAverage = showVoteAvg.Float64
+		}
+		if matchStatus.Valid {
+			m.MatchStatus = matchStatus.String
+		}
+		m.Missing = m.MissingSince != ""
+		items = append(items, m)
+	}
+	return items, rows.Err()
+}
+
+type globalKindRow struct {
+	id   int
+	kind string
+}
+
+func loadRecentDashboardMediaCandidates(db *sql.DB, userID int) ([]MediaItem, error) {
+	if userID <= 0 {
+		return nil, nil
+	}
+	limit := strconv.Itoa(dashboardRecentPerKindCap)
+	var rows []globalKindRow
+
+	add := func(rowsOut *[]globalKindRow, q string, args ...interface{}) error {
+		r, err := db.Query(q, args...)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		for r.Next() {
+			var id int
+			var kind string
+			if err := r.Scan(&id, &kind); err != nil {
+				return err
+			}
+			*rowsOut = append(*rowsOut, globalKindRow{id: id, kind: kind})
+		}
+		return r.Err()
+	}
+	movieQ := `SELECT g.id, 'movie' FROM movies m
+JOIN media_global g ON g.kind = 'movie' AND g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+ORDER BY g.id DESC LIMIT ` + limit
+	if err := add(&rows, movieQ, userID); err != nil {
+		return nil, err
+	}
+	tvQ := `SELECT g.id, 'tv' FROM tv_episodes m
+JOIN media_global g ON g.kind = 'tv' AND g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+ORDER BY g.id DESC LIMIT ` + limit
+	if err := add(&rows, tvQ, userID); err != nil {
+		return nil, err
+	}
+	animeQ := `SELECT g.id, 'anime' FROM anime_episodes m
+JOIN media_global g ON g.kind = 'anime' AND g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+ORDER BY g.id DESC LIMIT ` + limit
+	if err := add(&rows, animeQ, userID); err != nil {
+		return nil, err
+	}
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].id > rows[j].id })
+	if len(rows) > dashboardRecentMergeCap {
+		rows = rows[:dashboardRecentMergeCap]
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	movieIDs := make([]int, 0)
+	tvIDs := make([]int, 0)
+	animeIDs := make([]int, 0)
+	for _, r := range rows {
+		switch r.kind {
+		case LibraryTypeMovie:
+			movieIDs = append(movieIDs, r.id)
+		case LibraryTypeTV:
+			tvIDs = append(tvIDs, r.id)
+		case LibraryTypeAnime:
+			animeIDs = append(animeIDs, r.id)
+		}
+	}
+
+	out := make([]MediaItem, 0, len(rows))
+	if len(movieIDs) > 0 {
+		it, err := batchLoadMoviesByGlobalIDsForUser(db, userID, movieIDs)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it...)
+	}
+	if len(tvIDs) > 0 {
+		it, err := batchLoadEpisodeMediaByKindAndGlobalIDs(db, userID, LibraryTypeTV, tvIDs)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it...)
+	}
+	if len(animeIDs) > 0 {
+		it, err := batchLoadEpisodeMediaByKindAndGlobalIDs(db, userID, LibraryTypeAnime, animeIDs)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it...)
+	}
+	return out, nil
+}
+
+func batchLoadMoviesByGlobalIDsForUser(db *sql.DB, userID int, globalIDs []int) ([]MediaItem, error) {
+	placeholders := make([]string, len(globalIDs))
+	args := make([]interface{}, 0, len(globalIDs)+1)
+	args = append(args, userID)
+	for i, id := range globalIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating
+FROM movies m
+JOIN media_global g ON g.kind = 'movie' AND g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+WHERE g.id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMovieMediaItems(rows)
+}
+
+func batchLoadEpisodeMediaByKindAndGlobalIDs(db *sql.DB, userID int, kind string, globalIDs []int) ([]MediaItem, error) {
+	table := mediaTableForKind(kind)
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return nil, nil
+	}
+	placeholders := make([]string, len(globalIDs))
+	args := make([]interface{}, 0, len(globalIDs)+2)
+	args = append(args, kind, userID)
+	for i, id := range globalIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
+FROM ` + table + ` m
+JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
+LEFT JOIN shows s ON s.id = m.show_id
+WHERE g.id IN (` + strings.Join(placeholders, ",") + `)
+ORDER BY g.id`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]MediaItem, 0, len(globalIDs))
+	for rows.Next() {
+		var m MediaItem
+		m.Type = kind
+		var libID int
+		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
+		var showPosterPath sql.NullString
+		var voteAvg, showVoteAvg, imdbRating sql.NullFloat64
+		var tmdbID sql.NullInt64
+		var tvdbID sql.NullString
+		var metadataReviewNeeded sql.NullBool
+		var metadataConfirmed sql.NullBool
+		err := rows.Scan(&m.ID, &libID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
+		if err != nil {
+			return nil, err
+		}
+		m.LibraryID = libID
+		m.TMDBID = int(tmdbID.Int64)
+		if tvdbID.Valid {
+			m.TVDBID = tvdbID.String
+		}
+		if overview.Valid {
+			m.Overview = overview.String
+		}
+		if posterPath.Valid {
+			m.PosterPath = posterPath.String
+		}
+		if backdropPath.Valid {
+			m.BackdropPath = backdropPath.String
+		}
+		if releaseDate.Valid {
+			m.ReleaseDate = releaseDate.String
+		}
+		if voteAvg.Valid {
+			m.VoteAverage = voteAvg.Float64
+		}
+		if imdbID.Valid {
+			m.IMDbID = imdbID.String
+		}
+		if imdbRating.Valid {
+			m.IMDbRating = imdbRating.Float64
+		}
+		if metadataReviewNeeded.Valid {
+			m.MetadataReviewNeeded = metadataReviewNeeded.Bool
+		}
+		if metadataConfirmed.Valid {
+			m.MetadataConfirmed = metadataConfirmed.Bool
+		}
+		if thumbnailPath.Valid {
+			m.ThumbnailPath = thumbnailPath.String
+		}
+		if showPosterPath.Valid {
+			m.ShowPosterPath = showPosterPath.String
+		}
+		if showVoteAvg.Valid {
+			m.ShowVoteAverage = showVoteAvg.Float64
+		}
+		if matchStatus.Valid {
+			m.MatchStatus = matchStatus.String
+		}
+		m.Missing = m.MissingSince != ""
+		items = append(items, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	byLibrary := make(map[int][]MediaItem)
+	for _, it := range items {
+		lib := it.LibraryID
+		byLibrary[lib] = append(byLibrary[lib], it)
+	}
+	out := make([]MediaItem, 0, len(items))
+	for libID, chunk := range byLibrary {
+		k := chunk[0].Type
+		if err := hydrateEpisodeShowPosters(db, libID, k, chunk); err != nil {
+			return nil, err
+		}
+		out = append(out, chunk...)
+	}
+	return out, nil
 }
 
 func attachDashboardEntrySubtitles(db *sql.DB, continueWatching []ContinueWatchingEntry, recentlyAdded []RecentlyAddedEntry) ([]ContinueWatchingEntry, []RecentlyAddedEntry, error) {

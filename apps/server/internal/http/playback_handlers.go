@@ -70,7 +70,8 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	state, err := h.Sessions.Create(*media, settings, payload.AudioIndex, user.ID, payload.ClientCapabilities)
+	introMode := db.GetLibraryIntroSkipMode(h.DB, media.LibraryID)
+	state, err := h.Sessions.Create(*media, introMode, settings, payload.AudioIndex, user.ID, payload.ClientCapabilities)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

@@ -14,6 +14,7 @@ import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.TimeUnit
 import plum.tv.core.data.AuthTokenBridge
 
 @Module
@@ -40,7 +41,11 @@ object NetworkModule {
             chain.proceed(req)
         }
         val httpCache = buildHttpCache(context)
+        // Default OkHttp read timeout is 10s; /api/home loads the full library server-side and can exceed that on large libraries or slow disks.
         return OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .cache(httpCache)
             .addInterceptor(auth)
             .apply {

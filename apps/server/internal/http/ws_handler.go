@@ -91,7 +91,7 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 			return
 		}
 		if state != nil {
-			payload, marshalErr := json.Marshal(map[string]any{
+			msg := map[string]any{
 				"type":            "playback_session_update",
 				"sessionId":       state.SessionID,
 				"delivery":        state.Delivery,
@@ -102,7 +102,17 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 				"streamUrl":       state.StreamURL,
 				"durationSeconds": state.DurationSeconds,
 				"error":           state.Error,
-			})
+			}
+			if state.IntroSkipMode != "" {
+				msg["intro_skip_mode"] = state.IntroSkipMode
+			}
+			if state.IntroStartSeconds != nil {
+				msg["intro_start_seconds"] = *state.IntroStartSeconds
+			}
+			if state.IntroEndSeconds != nil {
+				msg["intro_end_seconds"] = *state.IntroEndSeconds
+			}
+			payload, marshalErr := json.Marshal(msg)
 			if marshalErr != nil {
 				log.Printf("attach playback session marshal replay session=%s client=%s user=%d error=%v", command.SessionID, client.ID(), client.User().ID, marshalErr)
 				return
