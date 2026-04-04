@@ -90,6 +90,7 @@ func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
 			VideoCodecs: []string{"h264"},
 			AudioCodecs: []string{"aac"},
 		},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("Create: %v", err)

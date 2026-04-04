@@ -47,6 +47,8 @@ export interface EmbeddedSubtitle {
   title: string;
   codec?: string;
   supported?: boolean;
+  /** Playback session only: false for bitmap subs that need server-side burn-in. */
+  vttEligible?: boolean;
 }
 
 export const EmbeddedSubtitleSchema = Schema.Struct({
@@ -55,6 +57,7 @@ export const EmbeddedSubtitleSchema = Schema.Struct({
   title: Schema.String,
   codec: Schema.optional(Schema.String),
   supported: Schema.optional(Schema.Boolean),
+  vttEligible: Schema.optional(Schema.Boolean),
 });
 
 export interface EmbeddedAudioTrack {
@@ -357,11 +360,14 @@ export const ClientPlaybackCapabilitiesSchema = Schema.Struct({
 export interface CreatePlaybackSessionPayload {
   audioIndex?: number;
   clientCapabilities?: ClientPlaybackCapabilities;
+  /** Image-based embedded subtitle stream index (e.g. PGS); forces transcode with burn-in. */
+  burnEmbeddedSubtitleStreamIndex?: number;
 }
 
 export const CreatePlaybackSessionPayloadSchema = Schema.Struct({
   audioIndex: Schema.optional(Schema.Number),
   clientCapabilities: Schema.optional(ClientPlaybackCapabilitiesSchema),
+  burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
 });
 
 export interface UpdatePlaybackSessionAudioPayload {
@@ -382,6 +388,7 @@ export interface DirectPlaybackSession {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
@@ -400,6 +407,7 @@ export interface HlsPlaybackSession {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
@@ -418,6 +426,7 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
@@ -436,6 +445,7 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
@@ -1678,6 +1688,7 @@ export interface PlaybackSessionUpdateEvent {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
@@ -1726,6 +1737,7 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),

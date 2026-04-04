@@ -32,6 +32,7 @@ type MockTextTrack = {
 
 const mockUsePlayer = vi.fn();
 const mockChangeAudioTrack = vi.fn();
+const mockChangeEmbeddedSubtitleBurn = vi.fn();
 const { mockHlsInstances } = vi.hoisted(() => ({
   mockHlsInstances: [] as MockHlsInstance[],
 }));
@@ -148,6 +149,7 @@ function defaultPlaybackDockUsePlayer() {
       "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
     playbackDurationSeconds: 120,
     videoAudioIndex: -1,
+    burnEmbeddedSubtitleStreamIndex: null,
     wsConnected: false,
     lastEvent: "",
     registerMediaElement: vi.fn(),
@@ -163,6 +165,7 @@ function defaultPlaybackDockUsePlayer() {
     toggleShuffle: vi.fn(),
     cycleRepeatMode: vi.fn(),
     changeAudioTrack: mockChangeAudioTrack,
+    changeEmbeddedSubtitleBurn: mockChangeEmbeddedSubtitleBurn,
   };
 }
 
@@ -173,6 +176,8 @@ describe("PlaybackDock audio track selection", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     mockChangeAudioTrack.mockReset();
     mockChangeAudioTrack.mockResolvedValue(undefined);
+    mockChangeEmbeddedSubtitleBurn.mockReset();
+    mockChangeEmbeddedSubtitleBurn.mockResolvedValue(undefined);
     mockHlsInstances.length = 0;
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       {

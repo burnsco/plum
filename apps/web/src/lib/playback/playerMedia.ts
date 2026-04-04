@@ -35,6 +35,8 @@ export type SubtitleTrackOption = TrackMenuOption & {
   src: string;
   srcLang: string;
   supported?: boolean;
+  /** PGS-style track: selecting it restarts playback with server burn-in transcode. */
+  requiresBurn?: boolean;
 };
 
 export type AudioTrackOption = TrackMenuOption & {

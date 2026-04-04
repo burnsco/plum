@@ -25,6 +25,11 @@ func buildPlaybackHLSPlans(
 	probe playbackSourceProbe,
 	decision playbackDecision,
 ) []transcodePlan {
+	if decision.BurnEmbeddedSubtitleStreamIdx >= 0 {
+		variants := buildAdaptiveVariants(probe, settings)
+		// Subtitle overlay is CPU filtergraph-only today; skip VAAPI attempts.
+		return []transcodePlan{buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, decision, variants)}
+	}
 	switch decision.Delivery {
 	case "remux":
 		return []transcodePlan{buildRemuxHLSPlan(itemPath, outDir, settings, decision)}
@@ -83,12 +88,21 @@ func buildSoftwareAdaptiveHLSPlan(
 ) transcodePlan {
 	args := appendFFmpegInput([]string{"-y"}, itemPath)
 
-	filterParts := make([]string, 0, len(variants)+1)
+	filterParts := make([]string, 0, len(variants)+2)
+	videoSrc := "[0:v:0]"
+	if decision.BurnEmbeddedSubtitleStreamIdx >= 0 {
+		st := decision.BurnEmbeddedSubtitleStreamIdx
+		filterParts = append(
+			filterParts,
+			fmt.Sprintf("[0:v:0][0:%d]overlay=eof_action=pass:repeatlast=0[vburn]", st),
+		)
+		videoSrc = "[vburn]"
+	}
 	splitTargets := make([]string, 0, len(variants))
 	for index := range variants {
 		splitTargets = append(splitTargets, fmt.Sprintf("[v%d]", index))
 	}
-	filterParts = append(filterParts, fmt.Sprintf("[0:v:0]split=%d%s", len(variants), strings.Join(splitTargets, "")))
+	filterParts = append(filterParts, fmt.Sprintf("%ssplit=%d%s", videoSrc, len(variants), strings.Join(splitTargets, "")))
 	for index, variant := range variants {
 		filterParts = append(
 			filterParts,

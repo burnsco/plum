@@ -25,17 +25,26 @@ func (c ClientPlaybackCapabilities) supportsHLS() bool {
 }
 
 type playbackDecision struct {
-	Delivery       string
-	StreamURL      string
-	AudioIndex     int
-	VideoCodec     string
-	AudioCodec     string
-	VideoCopy      bool
-	AudioCopy      bool
-	AudioTranscode bool
+	Delivery                      string
+	StreamURL                     string
+	AudioIndex                    int
+	VideoCodec                    string
+	AudioCodec                    string
+	VideoCopy                     bool
+	AudioCopy                     bool
+	AudioTranscode                bool
+	BurnEmbeddedSubtitleStreamIdx int // <0 means none; forces full video transcode + overlay
 }
 
-func decidePlayback(mediaID int, probe playbackSourceProbe, capabilities ClientPlaybackCapabilities, audioIndex int) playbackDecision {
+// decidePlayback picks direct vs HLS remux vs full transcode from container/codecs/capabilities.
+// burnEmbeddedSubtitleStreamIndex (when >= 0) forces HLS transcode with subtitle burn-in (image subs only).
+func decidePlayback(
+	mediaID int,
+	probe playbackSourceProbe,
+	capabilities ClientPlaybackCapabilities,
+	audioIndex int,
+	burnEmbeddedSubtitleStreamIndex *int,
+) playbackDecision {
 	capabilities = capabilities.normalized()
 
 	video, hasVideo := probe.primaryVideoStream()
@@ -56,14 +65,36 @@ func decidePlayback(mediaID int, probe playbackSourceProbe, capabilities ClientP
 	audioSupported := !hasAudio || containsCapability(capabilities.AudioCodecs, audioCodec)
 
 	decision := playbackDecision{
-		Delivery:   "transcode",
-		StreamURL:  mediaStreamPath(mediaID),
-		AudioIndex: audioIndex,
-		VideoCodec: videoCodec,
-		AudioCodec: audioCodec,
+		Delivery:                      "transcode",
+		StreamURL:                     mediaStreamPath(mediaID),
+		AudioIndex:                    audioIndex,
+		VideoCodec:                    videoCodec,
+		AudioCodec:                    audioCodec,
+		BurnEmbeddedSubtitleStreamIdx: -1,
+	}
+
+	burnIdx := -1
+	if burnEmbeddedSubtitleStreamIndex != nil && *burnEmbeddedSubtitleStreamIndex >= 0 {
+		burnIdx = *burnEmbeddedSubtitleStreamIndex
+		decision.BurnEmbeddedSubtitleStreamIdx = burnIdx
 	}
 
 	alternateAudioSelection := audioIndex >= 0 && hasAudio && hasPrimaryAudio && audio.Index != primaryAudio.Index
+
+	if burnIdx >= 0 {
+		if !capabilities.supportsHLS() || !videoSupported {
+			// Caller should reject burn when HLS is unavailable; keep a safe transcode-shaped decision.
+			decision.VideoCopy = false
+			decision.AudioCopy = audioSupported && isHLSSafeAudioCodec(audioCodec)
+			decision.AudioTranscode = hasAudio && !decision.AudioCopy
+			return decision
+		}
+		decision.Delivery = "transcode"
+		decision.VideoCopy = false
+		decision.AudioCopy = audioSupported && isHLSSafeAudioCodec(audioCodec)
+		decision.AudioTranscode = hasAudio && !decision.AudioCopy
+		return decision
+	}
 
 	if containerSupported && videoSupported && audioSupported && !alternateAudioSelection {
 		decision.Delivery = "direct"

@@ -1,5 +1,6 @@
 package plum.tv.core.player
 
+import android.app.ActivityManager
 import android.content.Context
 import androidx.annotation.OptIn
 import android.net.Uri
@@ -20,6 +21,8 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.text.TextRenderer
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.TsExtractor
 import java.util.ArrayList
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -70,6 +73,8 @@ private data class SubtitleRestoreState(
     val disabled: Boolean,
     val language: String?,
     val label: String?,
+    /** [MediaItem.SubtitleConfiguration.Builder.setId] / [Format.id] when sideloading; HLS uses manifest ids. */
+    val configurationId: String?,
 )
 
 data class PlayerUiState(
@@ -148,6 +153,7 @@ class PlumPlayerController(
     private var lastDurationSec: Double = 0.0
 
     /** Last HLS revision we applied; audio switches bump revision even when URL normalization matches. */
+    @Volatile
     private var lastAppliedStreamRevision: Int = -1
 
     @Volatile
@@ -232,15 +238,35 @@ class PlumPlayerController(
             }
         }
 
+    /**
+     * Low-RAM TV devices: smaller TS probe window (Jellyfin-style) so timestamp discovery is cheaper.
+     * CBR-friendly seeking for .ts sidecars and some broadcast captures.
+     */
+    private val mediaExtractorsFactory =
+        DefaultExtractorsFactory().apply {
+            val lowRam = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            setTsExtractorTimestampSearchBytes(
+                if (lowRam?.isLowRamDevice == true) {
+                    TsExtractor.TS_PACKET_SIZE * 1800
+                } else {
+                    TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES
+                },
+            )
+            setConstantBitrateSeekingEnabled(true)
+            setConstantBitrateSeekingAlwaysEnabled(true)
+        }
+
     val player: ExoPlayer =
         ExoPlayer.Builder(appContext, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, mediaExtractorsFactory))
             .build()
 
     private var wsCollectJob: Job? = null
     private var progressJob: Job? = null
     private var queueLoadJob: Job? = null
     private var upNextJob: Job? = null
+    /** Polls until a new revision’s HLS master is readable; cancelled when WebSocket applies the swap. */
+    private var revisionReadyPollJob: Job? = null
     private val progressPersistMutex = Mutex()
 
     @Volatile
@@ -832,10 +858,15 @@ class PlumPlayerController(
         if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
         val params = player.trackSelectionParameters
         if (params.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
-            return SubtitleRestoreState(disabled = true, language = null, label = null)
+            return SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
         }
         val fmt = selectedSubtitleFormat() ?: return null
-        return SubtitleRestoreState(disabled = false, language = fmt.language, label = fmt.label)
+        return SubtitleRestoreState(
+            disabled = false,
+            language = fmt.language,
+            label = fmt.label,
+            configurationId = fmt.id?.trim()?.takeIf { it.isNotEmpty() },
+        )
     }
 
     private fun restorePendingSubtitlesIfNeeded() {
@@ -846,9 +877,22 @@ class PlumPlayerController(
             disableTextTracks()
             return
         }
+        val wantId = pending.configurationId?.trim()?.takeIf { it.isNotEmpty() }
         val wantLang = pending.language?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
         val wantLabel = pending.label?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
         val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                val sid = fmt.id?.trim()?.takeIf { it.isNotEmpty() }
+                if (wantId != null && sid == wantId) {
+                    applyTextTrackOverride(gi, j)
+                    return
+                }
+            }
+        }
         for (gi in groups.indices) {
             val g = groups[gi]
             if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
@@ -896,20 +940,69 @@ class PlumPlayerController(
         player.trackSelectionParameters = b.build()
     }
 
+    private fun cancelRevisionReadyPoll() {
+        revisionReadyPollJob?.cancel()
+        revisionReadyPollJob = null
+    }
+
     private suspend fun applyServerAudioStream(streamIndex: Int) {
         val sid = hlsSessionId ?: return
+        cancelRevisionReadyPoll()
         val result =
             withContext(Dispatchers.IO) {
                 playbackRepository.updateSessionAudio(sid, streamIndex)
             }
         result.getOrNull()?.let { session ->
             mergeTrackMetadataFromSession(session)
-            if (session.status == "ready") {
-                swapToReadyStream(
-                    streamUrl = session.streamUrl,
-                    revision = session.revision,
-                    durationSeconds = session.durationSeconds,
-                )
+            when (session.status) {
+                "ready" -> {
+                    swapToReadyStream(
+                        streamUrl = session.streamUrl,
+                        revision = session.revision,
+                        durationSeconds = session.durationSeconds,
+                    )
+                    updateStatus("Playing")
+                }
+                "error" -> {
+                    updateError(session.error ?: "Audio switch failed")
+                    updateStatus("Error")
+                }
+                else -> {
+                    // PATCH typically returns "starting": do not swap immediately — an empty/partial m3u8
+                    // leaves ExoPlayer buffering for a long time. Keep the current revision playing
+                    // until the playlist is readable or WebSocket reports ready.
+                    val rev = session.revision
+                    if (session.streamUrl.isBlank() || rev == null) {
+                        updateStatus("Preparing…")
+                        return@let
+                    }
+                    updateStatus("Switching audio…")
+                    val relUrl = session.streamUrl
+                    val targetRev = rev
+                    val durationSec = session.durationSeconds
+                    revisionReadyPollJob =
+                        scope.launch {
+                            val deadline = SystemClock.elapsedRealtime() + 3 * 60_000L
+                            try {
+                                val absUrl = playbackRepository.absoluteStreamUrl(relUrl)
+                                while (isActive && SystemClock.elapsedRealtime() < deadline) {
+                                    if (lastAppliedStreamRevision == targetRev) return@launch
+                                    if (playbackRepository.hlsMasterPlaylistLooksReady(absUrl)) {
+                                        swapToReadyStream(relUrl, targetRev, durationSec)
+                                        updateStatus("Playing")
+                                        return@launch
+                                    }
+                                    delay(250L)
+                                }
+                                if (isActive && lastAppliedStreamRevision != targetRev) {
+                                    updateError("Audio track took too long to prepare")
+                                    updateStatus("Playing")
+                                }
+                            } finally {
+                                revisionReadyPollJob = null
+                            }
+                        }
+                }
             }
         }
         result.onFailure { e ->
@@ -970,43 +1063,49 @@ class PlumPlayerController(
     private suspend fun buildMediaItem(streamUrl: String): MediaItem {
         val subtitleConfigurations = mutableListOf<MediaItem.SubtitleConfiguration>()
 
-        externalSubtitles.forEach { subtitle ->
-            val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
-            val builder =
-                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                    .setMimeType(MimeTypes.TEXT_VTT)
-            if (subtitle.language.isNotBlank()) {
-                builder.setLanguage(subtitle.language)
+        // HLS master already includes #EXT-X-MEDIA subtitle renditions (same WebVTT URLs). Sideloading
+        // the same tracks again duplicates text groups and confuses the picker (Jellyfin-style: one path).
+        if (hlsSessionId == null) {
+            externalSubtitles.forEach { subtitle ->
+                val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
+                val builder =
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                        .setId("ext:${subtitle.id}")
+                        // Server converts sidecars to WebVTT on the fly (see HandleStreamSubtitle).
+                        .setMimeType(MimeTypes.TEXT_VTT)
+                if (subtitle.language.isNotBlank()) {
+                    builder.setLanguage(subtitle.language)
+                }
+                if (subtitle.title.isNotBlank()) {
+                    builder.setLabel(subtitle.title)
+                }
+                subtitleConfigurations += builder.build()
             }
-            if (subtitle.title.isNotBlank()) {
-                builder.setLabel(subtitle.title)
-            }
-            subtitleConfigurations += builder.build()
-        }
 
-        embeddedSubtitleTracks.forEach { subtitle ->
-            // Match web (`supported ?? true`): JSON omits `supported` when null in the DB, so we
-            // must not skip those tracks — otherwise Android never requests /api/.../embedded/N and
-            // subtitles stay on “loading” while the web player still tries them.
-            if (subtitle.supported == false) {
-                android.util.Log.d(
-                    "PlumTV",
-                    "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}",
-                )
-                return@forEach
+            embeddedSubtitleTracks.forEach { subtitle ->
+                // Session payload omits bitmap/unsupported streams server-side; keep client guard for older servers.
+                if (subtitle.supported == false) {
+                    android.util.Log.d(
+                        "PlumTV",
+                        "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}",
+                    )
+                    return@forEach
+                }
+                val subtitleUrl =
+                    playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+                val builder =
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                        .setId("emb:${subtitle.streamIndex}")
+                        // Embedded extract endpoint always serves text/vtt (ffmpeg).
+                        .setMimeType(MimeTypes.TEXT_VTT)
+                if (subtitle.language.isNotBlank()) {
+                    builder.setLanguage(subtitle.language)
+                }
+                if (subtitle.title.isNotBlank()) {
+                    builder.setLabel(subtitle.title)
+                }
+                subtitleConfigurations += builder.build()
             }
-            val subtitleUrl =
-                playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
-            val builder =
-                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                    .setMimeType(MimeTypes.TEXT_VTT)
-            if (subtitle.language.isNotBlank()) {
-                builder.setLanguage(subtitle.language)
-            }
-            if (subtitle.title.isNotBlank()) {
-                builder.setLabel(subtitle.title)
-            }
-            subtitleConfigurations += builder.build()
         }
 
         return MediaItem.Builder()
@@ -1016,6 +1115,9 @@ class PlumPlayerController(
     }
 
     private suspend fun createAndLoadMedia(mediaId: Int, resumeSec: Float) {
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching { playbackRepository.warmEmbeddedSubtitleCaches(mediaId) }
+        }
         val audioIndex = serverAudioIndex.takeIf { it >= 0 }
         playbackRepository.createSession(mediaId, audioIndex = audioIndex).fold(
             onSuccess = { session ->
@@ -1130,6 +1232,7 @@ class PlumPlayerController(
             clearUpNextCountdown()
         }
         if (this.mediaId == mediaId && hlsSessionId != null) return
+        cancelRevisionReadyPoll()
         val previousMediaId = this.mediaId
         val previousSessionId = hlsSessionId
         persistProgressAsync(completed = false, mediaIdOverride = previousMediaId)
@@ -1194,6 +1297,7 @@ class PlumPlayerController(
         )
         when (ev.status) {
             "ready" -> {
+                cancelRevisionReadyPoll()
                 swapToReadyStream(
                     streamUrl = ev.streamUrl,
                     revision = ev.revision,

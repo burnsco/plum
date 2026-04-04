@@ -39,7 +39,7 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 	}
 
 	for _, e := range media.EmbeddedSubtitles {
-		if !embeddedSubtitleHlsEligible(e) {
+		if !db.EmbeddedSubtitleWebVTTDeliveryEligible(e) {
 			continue
 		}
 		out = append(out, HlsWebSubtitle{
@@ -57,23 +57,6 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 func sidecarSubtitleHlsEligible(s db.Subtitle) bool {
 	switch strings.ToLower(strings.TrimSpace(s.Format)) {
 	case "vtt", "srt", "ass", "ssa":
-		return true
-	default:
-		return false
-	}
-}
-
-func embeddedSubtitleHlsEligible(e db.EmbeddedSubtitle) bool {
-	if e.Supported != nil && !*e.Supported {
-		return false
-	}
-	return !embeddedCodecLikelyBitmap(e.Codec)
-}
-
-func embeddedCodecLikelyBitmap(codec string) bool {
-	c := strings.ToLower(strings.TrimSpace(codec))
-	switch c {
-	case "hdmv_pgs_subtitle", "pgssub", "dvd_subtitle", "dvdsub", "dvb_subtitle", "xsub", "dvb_teletext":
 		return true
 	default:
 		return false

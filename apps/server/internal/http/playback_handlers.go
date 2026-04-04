@@ -62,8 +62,9 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var payload struct {
-		AudioIndex         int                                   `json:"audioIndex"`
-		ClientCapabilities transcoder.ClientPlaybackCapabilities `json:"clientCapabilities"`
+		AudioIndex                        int                                   `json:"audioIndex"`
+		ClientCapabilities                transcoder.ClientPlaybackCapabilities `json:"clientCapabilities"`
+		BurnEmbeddedSubtitleStreamIndex   *int                                  `json:"burnEmbeddedSubtitleStreamIndex"`
 	}
 	payload.AudioIndex = -1
 	if r.ContentLength != 0 {
@@ -74,7 +75,15 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	introMode := db.GetLibraryIntroSkipMode(h.DB, media.LibraryID)
-	state, err := h.Sessions.Create(*media, introMode, settings, payload.AudioIndex, user.ID, payload.ClientCapabilities)
+	state, err := h.Sessions.Create(
+		*media,
+		introMode,
+		settings,
+		payload.AudioIndex,
+		user.ID,
+		payload.ClientCapabilities,
+		payload.BurnEmbeddedSubtitleStreamIndex,
+	)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -316,6 +325,11 @@ func parsePathInt(w http.ResponseWriter, raw string, message string) (int, bool)
 }
 
 func writePlaybackError(w http.ResponseWriter, err error) {
+	var burnErr transcoder.BurnSubtitleError
+	if errors.As(err, &burnErr) {
+		http.Error(w, burnErr.Error(), http.StatusBadRequest)
+		return
+	}
 	status := http.StatusInternalServerError
 	if errors.Is(err, db.ErrNotFound) {
 		status = http.StatusNotFound

@@ -112,6 +112,9 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 			if state.IntroEndSeconds != nil {
 				msg["intro_end_seconds"] = *state.IntroEndSeconds
 			}
+			if state.BurnEmbeddedSubtitleStreamIndex != nil {
+				msg["burnEmbeddedSubtitleStreamIndex"] = *state.BurnEmbeddedSubtitleStreamIndex
+			}
 			payload, marshalErr := json.Marshal(msg)
 			if marshalErr != nil {
 				log.Printf("attach playback session marshal replay session=%s client=%s user=%d error=%v", command.SessionID, client.ID(), client.User().ID, marshalErr)

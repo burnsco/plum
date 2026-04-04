@@ -16,6 +16,7 @@ import {
   createPlaybackSession,
   warmEmbeddedSubtitleCaches,
   getShowEpisodes,
+  type CreatePlaybackSessionPayload,
   type MediaItem,
   type PlaybackSession as ApiPlaybackSession,
   type PlumWebSocketCommand,
@@ -61,6 +62,8 @@ type VideoSessionState = {
   streamUrl: string;
   durationSeconds: number;
   error: string;
+  /** Server-side PGS burn-in; null when subtitles are not burned into the video. */
+  burnEmbeddedSubtitleStreamIndex: number | null;
 };
 
 type PlaybackSessionSource =
@@ -72,6 +75,7 @@ type PlaybackSessionSource =
       streamUrl: string;
       durationSeconds: number;
       error?: string;
+      burnEmbeddedSubtitleStreamIndex?: number;
     }
   | {
       delivery: "remux" | "transcode";
@@ -83,6 +87,7 @@ type PlaybackSessionSource =
       streamUrl: string;
       durationSeconds: number;
       error?: string;
+      burnEmbeddedSubtitleStreamIndex?: number;
     };
 
 function mergePlaybackTracks(
@@ -107,6 +112,10 @@ function resolvePlaybackStreamUrl(streamUrl: string): string {
 }
 
 function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState {
+  const burn =
+    session.burnEmbeddedSubtitleStreamIndex !== undefined
+      ? session.burnEmbeddedSubtitleStreamIndex
+      : null;
   if (session.delivery === "direct") {
     return {
       delivery: session.delivery,
@@ -119,6 +128,7 @@ function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState 
       streamUrl: resolvePlaybackStreamUrl(session.streamUrl),
       durationSeconds: session.durationSeconds,
       error: session.error ?? "",
+      burnEmbeddedSubtitleStreamIndex: burn,
     };
   }
 
@@ -133,6 +143,7 @@ function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState 
     streamUrl: resolvePlaybackStreamUrl(session.streamUrl),
     durationSeconds: session.durationSeconds,
     error: session.error ?? "",
+    burnEmbeddedSubtitleStreamIndex: burn,
   };
 }
 
@@ -176,6 +187,9 @@ type PlayerContextValue = {
   toggleShuffle: () => void;
   cycleRepeatMode: () => void;
   changeAudioTrack: (audioIndex: number) => Promise<void>;
+  /** Active burned-in embedded subtitle stream, or null. */
+  burnEmbeddedSubtitleStreamIndex: number | null;
+  changeEmbeddedSubtitleBurn: (streamIndex: number | null) => Promise<void>;
   wsConnected: boolean;
   lastEvent: string;
 };
@@ -230,6 +244,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           : Math.max(activeItem?.duration ?? 0, 0))
       : 0;
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
+  const burnEmbeddedSubtitleStreamIndex =
+    activeMode === "video"
+      ? (videoSession?.burnEmbeddedSubtitleStreamIndex ?? null)
+      : null;
 
   const sendPlaybackCommand = useCallback(
     (command: PlumWebSocketCommand) => {
@@ -269,11 +287,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createClientPlaybackSession = useCallback(
-    (item: MediaItem, audioIndex: number) =>
-      createPlaybackSession(item.id, {
+    (
+      item: MediaItem,
+      audioIndex: number,
+      options?: { burnEmbeddedSubtitleStreamIndex?: number },
+    ) => {
+      const payload: CreatePlaybackSessionPayload = {
         audioIndex,
         clientCapabilities: detectClientPlaybackCapabilities(),
-      }),
+      };
+      if (options?.burnEmbeddedSubtitleStreamIndex != null) {
+        payload.burnEmbeddedSubtitleStreamIndex =
+          options.burnEmbeddedSubtitleStreamIndex;
+      }
+      return createPlaybackSession(item.id, payload);
+    },
     [],
   );
 
@@ -462,9 +490,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setLastEvent("Switching audio track...");
       try {
         if (!session?.sessionId) {
+          const burn = session?.burnEmbeddedSubtitleStreamIndex;
           const nextSession = await createClientPlaybackSession(
             activeItem,
             audioIndex,
+            burn != null ? { burnEmbeddedSubtitleStreamIndex: burn } : undefined,
           );
           applyPlaybackSession(nextSession);
           return;
@@ -490,6 +520,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 streamUrl: resolvePlaybackStreamUrl(nextSession.streamUrl),
                 durationSeconds: nextSession.durationSeconds,
                 error: nextSession.error ?? "",
+                burnEmbeddedSubtitleStreamIndex:
+                  nextSession.burnEmbeddedSubtitleStreamIndex ??
+                  current.burnEmbeddedSubtitleStreamIndex,
               },
         );
       } catch (err) {
@@ -500,6 +533,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     },
     [activeItem, activeMode, applyPlaybackSession, createClientPlaybackSession],
+  );
+
+  const changeEmbeddedSubtitleBurn = useCallback(
+    async (streamIndex: number | null) => {
+      if (activeMode !== "video" || !activeItem) return;
+      const vs = videoSessionRef.current;
+      const activeLibrary =
+        libraries.find((library) => library.id === activeItem.library_id) ?? null;
+      const preferredAudioLanguage = resolveLibraryPlaybackPreferences(
+        activeLibrary ?? { type: activeItem.type },
+      ).preferredAudioLanguage;
+      const audioIndex =
+        vs?.audioIndex ??
+        preferredInitialAudioIndex(activeItem, preferredAudioLanguage);
+
+      setLastEvent("Switching subtitles...");
+      try {
+        closeVideoSession(vs?.sessionId ?? null);
+        const nextSession = await createClientPlaybackSession(
+          activeItem,
+          audioIndex,
+          streamIndex != null
+            ? { burnEmbeddedSubtitleStreamIndex: streamIndex }
+            : undefined,
+        );
+        if (!mountedRef.current) return;
+        applyPlaybackSession(nextSession);
+      } catch (err) {
+        console.error("[Player] changeEmbeddedSubtitleBurn failed", err);
+        setLastEvent(
+          `Error: ${err instanceof Error ? err.message : "Failed to switch subtitles"}`,
+        );
+      }
+    },
+    [
+      activeItem,
+      activeMode,
+      applyPlaybackSession,
+      closeVideoSession,
+      createClientPlaybackSession,
+      libraries,
+    ],
   );
 
   const playMovie = useCallback(
@@ -794,6 +869,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                   ? latestEvent.durationSeconds
                   : current.durationSeconds,
               error: latestEvent.error ?? "",
+              burnEmbeddedSubtitleStreamIndex:
+                latestEvent.burnEmbeddedSubtitleStreamIndex ??
+                current.burnEmbeddedSubtitleStreamIndex,
             },
       );
       if (shouldActivate) {
@@ -843,6 +921,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       videoSourceUrl,
       playbackDurationSeconds,
       videoAudioIndex,
+      burnEmbeddedSubtitleStreamIndex,
       playMedia,
       playMovie,
       playEpisode,
@@ -861,6 +940,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       toggleShuffle,
       cycleRepeatMode,
       changeAudioTrack,
+      changeEmbeddedSubtitleBurn,
       wsConnected,
       lastEvent,
     }),
@@ -879,6 +959,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       videoSourceUrl,
       playbackDurationSeconds,
       videoAudioIndex,
+      burnEmbeddedSubtitleStreamIndex,
       playMedia,
       playMovie,
       playEpisode,
@@ -897,6 +978,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       toggleShuffle,
       cycleRepeatMode,
       changeAudioTrack,
+      changeEmbeddedSubtitleBurn,
       wsConnected,
       lastEvent,
     ],

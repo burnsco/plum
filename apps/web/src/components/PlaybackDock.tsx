@@ -290,6 +290,12 @@ function PlayerLoadingOverlay({
   );
 }
 
+function embeddedStreamIndexFromKey(key: string): number | null {
+  if (!key.startsWith("emb-")) return null;
+  const n = Number(key.slice(4));
+  return Number.isFinite(n) ? n : null;
+}
+
 function buildSubtitleTrackRequests(source: PlaybackTrackSource | null): SubtitleTrackOption[] {
   if (source == null) return [];
   const external =
@@ -302,16 +308,23 @@ function buildSubtitleTrackRequests(source: PlaybackTrackSource | null): Subtitl
     })) ?? [];
   const embedded =
     source.embeddedSubtitles?.map((subtitle, index) => {
-      const supported = subtitle.supported ?? true;
+      const catalogOk = subtitle.supported !== false;
+      const requiresBurn = catalogOk && subtitle.vttEligible === false;
       const labelBase =
         subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`;
+      const label = !catalogOk
+        ? `${labelBase} (Unavailable)`
+        : requiresBurn
+          ? `${labelBase} (burn-in)`
+          : labelBase;
       return {
         key: `emb-${subtitle.streamIndex}`,
-        label: supported ? labelBase : `${labelBase} (Unavailable)`,
+        label,
         src: embeddedSubtitleUrl(BASE_URL, source.mediaId, subtitle.streamIndex),
         srcLang: subtitle.language || "und",
-        supported,
-        disabled: !supported,
+        supported: catalogOk,
+        disabled: !catalogOk,
+        requiresBurn,
       };
     }) ?? [];
   return [...external, ...embedded];
@@ -425,7 +438,17 @@ export function PlaybackDock() {
     playNextInQueue,
     playPreviousInQueue,
     changeAudioTrack,
+    burnEmbeddedSubtitleStreamIndex,
+    changeEmbeddedSubtitleBurn,
   } = usePlayer();
+  const captureSubtitleResumePosition = useCallback(() => {
+    const v = videoRef.current;
+    if (v && Number.isFinite(v.currentTime) && v.currentTime > 0) {
+      seekToAfterReloadRef.current = v.currentTime;
+      resumePlaybackAfterReloadRef.current = !v.paused && !v.ended;
+    }
+  }, []);
+
   const seekToRef = useRef(seekTo);
   const seekSliderRef = useRef<HTMLInputElement | null>(null);
   const scrubWindowListenersRef = useRef<(() => void) | null>(null);
@@ -774,6 +797,10 @@ export function PlaybackDock() {
       if (blockedSubtitleRetryKeysRef.current.has(trackKey)) return;
       const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
       if (!track) return;
+      if (track.requiresBurn) {
+        setPendingSubtitleKey(null);
+        return;
+      }
       if (videoSourceIsHls && hlsRef.current) {
         const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, trackKey);
         if (hlsIdx >= 0) {
@@ -891,6 +918,11 @@ export function PlaybackDock() {
 
   useEffect(() => {
     if (selectedSubtitleKey === "off") return;
+    const req = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    if (req?.requiresBurn) {
+      setPendingSubtitleKey(null);
+      return;
+    }
     if (!loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
       setPendingSubtitleKey((current) =>
         current === selectedSubtitleKey ? current : selectedSubtitleKey,
@@ -902,6 +934,7 @@ export function PlaybackDock() {
     loadedSubtitleTracks,
     selectedSubtitleKey,
     subtitleReadyVersion,
+    subtitleTrackRequests,
   ]);
 
   useEffect(() => {
@@ -1410,6 +1443,18 @@ export function PlaybackDock() {
       return;
     }
 
+    const burnIdx = burnEmbeddedSubtitleStreamIndex;
+    if (
+      burnIdx != null &&
+      selectedSubtitleKey === `emb-${burnIdx}`
+    ) {
+      clearTextTrackCues(manualSubtitleTrackRef.current);
+      if (manualSubtitleTrackRef.current) {
+        manualSubtitleTrackRef.current.mode = "disabled";
+      }
+      return;
+    }
+
     if (videoSourceIsHls && hlsRef.current && selectedSubtitleKey !== "off") {
       const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, selectedSubtitleKey);
       if (hlsIdx >= 0) {
@@ -1455,6 +1500,7 @@ export function PlaybackDock() {
     }
     track.mode = "showing";
   }, [
+    burnEmbeddedSubtitleStreamIndex,
     loadedSubtitleTracks,
     selectedSubtitleKey,
     subtitleAppearance.position,
@@ -1587,7 +1633,7 @@ export function PlaybackDock() {
   }, [hasSupportedSubtitleTracks, refreshActivePlaybackTracks]);
 
   const selectSubtitleTrack = useCallback(
-    (key: string) => {
+    async (key: string) => {
       const track = subtitleTrackOptions.find((candidate) => candidate.key === key) ?? null;
       if (key !== "off" && (track == null || track.supported === false)) {
         setSubtitleStatusMessage("This subtitle track is unavailable.");
@@ -1597,11 +1643,41 @@ export function PlaybackDock() {
       setSubtitleStatusMessage("");
       manualSubtitleSelectionRef.current = activeItem?.id ?? null;
       if (key === "off") {
+        if (burnEmbeddedSubtitleStreamIndex != null) {
+          captureSubtitleResumePosition();
+          await changeEmbeddedSubtitleBurn(null);
+        }
         blockedSubtitleRetryKeysRef.current.clear();
         setSelectedSubtitleKey("off");
         setPendingSubtitleKey(null);
         return;
       }
+
+      if (track?.requiresBurn) {
+        const idx = embeddedStreamIndexFromKey(key);
+        if (idx == null) return;
+        if (
+          selectedSubtitleKey === key &&
+          burnEmbeddedSubtitleStreamIndex === idx
+        ) {
+          return;
+        }
+        captureSubtitleResumePosition();
+        blockedSubtitleRetryKeysRef.current.delete(key);
+        setLoadedSubtitleTracks((current) =>
+          current.filter((candidate) => candidate.key !== key),
+        );
+        setPendingSubtitleKey(null);
+        await changeEmbeddedSubtitleBurn(idx);
+        setSelectedSubtitleKey(key);
+        return;
+      }
+
+      if (burnEmbeddedSubtitleStreamIndex != null) {
+        captureSubtitleResumePosition();
+        await changeEmbeddedSubtitleBurn(null);
+      }
+
       const shouldRefreshBeforeRetry = blockedSubtitleRetryKeysRef.current.has(key);
       setLoadedSubtitleTracks((current) =>
         current.filter((candidate) => candidate.key !== key),
@@ -1623,6 +1699,9 @@ export function PlaybackDock() {
     },
     [
       activeItem?.id,
+      burnEmbeddedSubtitleStreamIndex,
+      captureSubtitleResumePosition,
+      changeEmbeddedSubtitleBurn,
       ensureSubtitleTrackLoaded,
       rememberQueuedSubtitlePreference,
       retrySubtitleTrackLoad,
@@ -1630,6 +1709,27 @@ export function PlaybackDock() {
       subtitleTrackOptions,
     ],
   );
+
+  useEffect(() => {
+    if (!isVideo || activeItemId == null || videoSourceUrl === "") return;
+    if (selectedSubtitleKey === "off") return;
+    const req = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    if (!req?.requiresBurn) return;
+    const idx = embeddedStreamIndexFromKey(selectedSubtitleKey);
+    if (idx == null) return;
+    if (burnEmbeddedSubtitleStreamIndex === idx) return;
+    captureSubtitleResumePosition();
+    void changeEmbeddedSubtitleBurn(idx);
+  }, [
+    activeItemId,
+    burnEmbeddedSubtitleStreamIndex,
+    captureSubtitleResumePosition,
+    changeEmbeddedSubtitleBurn,
+    isVideo,
+    selectedSubtitleKey,
+    subtitleTrackRequests,
+    videoSourceUrl,
+  ]);
 
   const selectAudioTrack = useCallback(
     (key: string) => {
@@ -1742,6 +1842,15 @@ export function PlaybackDock() {
     if (!videoSourceIsHls) return;
     const hls = hlsRef.current;
     if (!hls) return;
+    const burnIdx = burnEmbeddedSubtitleStreamIndex;
+    if (
+      burnIdx != null &&
+      selectedSubtitleKey === `emb-${burnIdx}`
+    ) {
+      hls.subtitleTrack = -1;
+      hls.subtitleDisplay = false;
+      return;
+    }
     if (selectedSubtitleKey === "off") {
       hls.subtitleTrack = -1;
       return;
@@ -1753,7 +1862,13 @@ export function PlaybackDock() {
     } else {
       hls.subtitleTrack = -1;
     }
-  }, [selectedSubtitleKey, subtitleReadyVersion, videoAttachmentVersion, videoSourceIsHls]);
+  }, [
+    burnEmbeddedSubtitleStreamIndex,
+    selectedSubtitleKey,
+    subtitleReadyVersion,
+    videoAttachmentVersion,
+    videoSourceIsHls,
+  ]);
 
   useEffect(() => {
     if (!videoSourceIsHls || selectedSubtitleKey === "off") return;
@@ -2403,7 +2518,7 @@ export function PlaybackDock() {
                       ariaLabel="Select subtitle track"
                       offLabel="Off"
                       onSelect={(key) => {
-                        selectSubtitleTrack(key);
+                        void selectSubtitleTrack(key);
                         setSubtitleMenuOpen(false);
                       }}
                     />

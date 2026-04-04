@@ -61,6 +61,7 @@ func TestCollectHlsWebSubtitles_FiltersUnsupportedEmbedded(t *testing.T) {
 		EmbeddedSubtitles: []db.EmbeddedSubtitle{
 			{StreamIndex: 1, Language: "en", Codec: "subrip"},
 			{StreamIndex: 2, Language: "ja", Codec: "hdmv_pgs_subtitle", Supported: &falseVal},
+			{StreamIndex: 3, Language: "de", Codec: "hdmv_pgs_subtitle"},
 		},
 		Subtitles: []db.Subtitle{{ID: 10, Language: "fr", Format: "srt"}},
 	}

@@ -65,17 +65,16 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	if err != nil {
 		return err
 	}
-	// Use stored metadata for the codec check — avoids an expensive ffprobe on the full video file.
-	// The Supported flag is populated during library scanning; if absent (nil) we proceed optimistically.
+	// Bitmap / unsupported subs: reject before cache locks or ffmpeg (matches HLS + session filtering).
 	if stored := findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex); stored != nil {
-		if stored.Supported != nil && !*stored.Supported {
+		if !EmbeddedSubtitleWebVTTDeliveryEligible(*stored) {
 			codec := stored.Codec
 			if codec == "" {
 				codec = "unknown"
 			}
 			return &StatusError{
 				Status:  http.StatusUnprocessableEntity,
-				Message: fmt.Sprintf("embedded subtitle codec %q is not supported for web playback", codec),
+				Message: fmt.Sprintf("embedded subtitle codec %q cannot be delivered as WebVTT", codec),
 			}
 		}
 	}
@@ -337,7 +336,7 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 		return
 	}
 	for _, sub := range item.EmbeddedSubtitles {
-		if sub.Supported != nil && !*sub.Supported {
+		if !EmbeddedSubtitleWebVTTDeliveryEligible(sub) {
 			continue
 		}
 		cachePath, cerr := embeddedSubtitleVTTCachePath(sourcePath, sub.StreamIndex)
