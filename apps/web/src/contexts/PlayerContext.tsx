@@ -233,8 +233,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     activeMode === "video" ? (activeItem?.id ?? null) : null;
   videoSessionRef.current = videoSession;
 
+  // Keep the previous stream URL while the server prepares a new revision (audio/subtitle
+  // restarts). Clearing the URL here detached the <video> and destroyed HLS — matching
+  // Jellyfin/Android behavior of continuing playback until the new playlist is ready.
   const videoSourceUrl =
-    activeMode === "video" && videoSession?.status === "ready"
+    activeMode === "video" &&
+    videoSession &&
+    videoSession.streamUrl &&
+    (videoSession.status === "ready" || videoSession.status === "starting")
       ? videoSession.streamUrl
       : "";
   const playbackDurationSeconds =
@@ -517,7 +523,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 desiredRevision: nextSession.revision,
                 audioIndex: nextSession.audioIndex,
                 status: nextSession.status,
-                streamUrl: resolvePlaybackStreamUrl(nextSession.streamUrl),
+                streamUrl:
+                  nextSession.status === "starting"
+                    ? current.streamUrl
+                    : resolvePlaybackStreamUrl(nextSession.streamUrl),
                 durationSeconds: nextSession.durationSeconds,
                 error: nextSession.error ?? "",
                 burnEmbeddedSubtitleStreamIndex:

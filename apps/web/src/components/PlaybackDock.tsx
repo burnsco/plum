@@ -277,15 +277,18 @@ function PlayerLoadingOverlay({
   label: string;
   fullscreen?: boolean;
 }) {
+  const ariaLabel = label.trim() !== "" ? label : "Loading";
   return (
     <div
       className={`player-loading-overlay${fullscreen ? " player-loading-overlay--fullscreen" : ""}`}
       role="status"
       aria-live="polite"
-      aria-label={label}
+      aria-label={ariaLabel}
     >
       <div className="player-loading-overlay__spinner" aria-hidden="true" />
-      <span className="player-loading-overlay__label">{label}</span>
+      {label.trim() !== "" ? (
+        <span className="player-loading-overlay__label">{label}</span>
+      ) : null}
     </div>
   );
 }
@@ -561,12 +564,14 @@ export function PlaybackDock() {
     subtitleStatusMessage ||
     lastEvent ||
     (wsConnected ? "Waiting for transcode updates" : "WebSocket disconnected");
-  const playerLoadingLabel =
+  const playerLoadingLabelRaw =
     hlsStatusMessage && !hlsStatusMessage.startsWith("Stream error:")
       ? hlsStatusMessage
       : lastEvent && !lastEvent.startsWith("Error:")
         ? lastEvent
         : "Preparing playback...";
+  const playerLoadingLabel =
+    playerLoadingLabelRaw === "Stream ready" ? "" : playerLoadingLabelRaw;
   const showPlayerLoadingOverlay =
     isVideo &&
     (isVideoLoading ||
