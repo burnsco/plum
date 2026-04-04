@@ -985,14 +985,13 @@ class PlumPlayerController(
         }
 
         embeddedSubtitleTracks.forEach { subtitle ->
-            // Match web: only load embedded subtitle streams we know are safe.
-            // Unknown support is treated as unsafe here because merging a bad track into the
-            // MediaItem can make Exo fetch /api/.../embedded/N and fail the whole source with an
-            // opaque IO error instead of just hiding the subtitle track.
-            if (subtitle.supported != true) {
+            // Match web (`supported ?? true`): JSON omits `supported` when null in the DB, so we
+            // must not skip those tracks — otherwise Android never requests /api/.../embedded/N and
+            // subtitles stay on “loading” while the web player still tries them.
+            if (subtitle.supported == false) {
                 android.util.Log.d(
                     "PlumTV",
-                    "Skipping embedded subtitle stream=${subtitle.streamIndex} supported=${subtitle.supported} codec=${subtitle.codec.orEmpty()}",
+                    "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}",
                 )
                 return@forEach
             }

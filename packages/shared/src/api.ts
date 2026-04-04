@@ -31,6 +31,7 @@ import type {
     Library,
     LibraryBrowseItem,
     LibraryMediaPage,
+    LibraryPlaybackTracksRefreshResult,
     LibraryScanActivity,
     LibraryScanActivityEntry,
     LibraryScanStatus,
@@ -97,6 +98,7 @@ import {
     HomeDashboardSchema,
     IdentifyResultSchema,
     LibraryMediaPageSchema,
+    LibraryPlaybackTracksRefreshResultSchema,
     LibraryScanStatusSchema,
     LibrarySchema,
     MediaItemSchema,
@@ -157,6 +159,7 @@ export type {
     Library,
     LibraryBrowseItem,
     LibraryMediaPage,
+    LibraryPlaybackTracksRefreshResult,
     LibraryScanActivity,
     LibraryScanActivityEntry,
     LibraryScanStatus,
@@ -954,6 +957,20 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: PlaybackTrackMetadataSchema,
         errorMessage: ({ status, body }) => body || `Refresh playback tracks: ${status}`,
       }),
+    warmEmbeddedSubtitleCaches: (id: number) =>
+      voidRequestEffect({
+        method: "POST",
+        path: `/api/media/${id}/embedded-subtitles/warm-cache`,
+        errorMessage: ({ status, body }) => body || `Warm embedded subtitle caches: ${status}`,
+      }),
+    refreshLibraryPlaybackTracks: (libraryId: number) =>
+      jsonRequestEffect({
+        method: "POST",
+        path: `/api/libraries/${libraryId}/playback-tracks/refresh`,
+        schema: LibraryPlaybackTracksRefreshResultSchema,
+        errorMessage: ({ status, body }) =>
+          body || `Refresh library playback tracks: ${status}`,
+      }),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       decodeSchemaEffect(
         UpdatePlaybackSessionAudioPayloadSchema,
@@ -1274,6 +1291,9 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     createPlaybackSession: (id: number, payload?: CreatePlaybackSessionPayload) =>
       run(effects.createPlaybackSession(id, payload)),
     refreshPlaybackTracks: (id: number) => run(effects.refreshPlaybackTracks(id)),
+    warmEmbeddedSubtitleCaches: (id: number) => run(effects.warmEmbeddedSubtitleCaches(id)),
+    refreshLibraryPlaybackTracks: (libraryId: number) =>
+      run(effects.refreshLibraryPlaybackTracks(libraryId)),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       run(effects.updatePlaybackSessionAudio(sessionId, payload)),
     closePlaybackSession: (sessionId: string) => run(effects.closePlaybackSession(sessionId)),

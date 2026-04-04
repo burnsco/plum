@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -77,8 +80,46 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	mid := media.ID
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
+	}()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(state)
+}
+
+// WarmEmbeddedSubtitleCaches starts background materialization of on-disk WebVTT caches for all
+// embedded subtitle tracks. The client should call this as soon as playback is requested (e.g. when
+// subtitles are enabled by default) so work begins before the first GET …/subtitles/embedded/… .
+func (h *PlaybackHandler) WarmEmbeddedSubtitleCaches(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	media, err := db.GetMediaByID(h.DB, id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if media == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	mid := media.ID
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
+	}()
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (h *PlaybackHandler) RefreshPlaybackTracks(w http.ResponseWriter, r *http.Request) {
@@ -162,8 +203,14 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitle(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	if err := db.HandleStreamEmbeddedSubtitle(w, r, h.DB, id, streamIndex); err != nil {
-		writePlaybackError(w, err)
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamEmbeddedSubtitle(tw, r, h.DB, id, streamIndex); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			log.Printf("embedded subtitle stream ended after response started media=%d stream=%d: %v", id, streamIndex, err)
+		}
 	}
 }
 
@@ -172,8 +219,14 @@ func (h *PlaybackHandler) StreamSubtitle(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	if err := db.HandleStreamSubtitle(w, r, h.DB, id); err != nil {
-		writePlaybackError(w, err)
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamSubtitle(tw, r, h.DB, id); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			log.Printf("subtitle stream ended after response started subtitle_id=%d: %v", id, err)
+		}
 	}
 }
 
@@ -229,6 +282,27 @@ func (h *PlaybackHandler) ServeShowArtwork(w http.ResponseWriter, r *http.Reques
 	}
 	if err := db.HandleServeShowArtwork(w, r, h.DB, target.ID, h.ArtDir, "poster", target.PosterPath); err != nil {
 		writePlaybackError(w, err)
+	}
+}
+
+// trackStreamBody sets *started when non-empty body bytes are written so handlers can avoid
+// http.Error after a chunked response has begun (would corrupt output and trigger superfluous WriteHeader).
+type trackStreamBody struct {
+	http.ResponseWriter
+	started *bool
+}
+
+func (t *trackStreamBody) Write(p []byte) (int, error) {
+	n, err := t.ResponseWriter.Write(p)
+	if n > 0 && t.started != nil {
+		*t.started = true
+	}
+	return n, err
+}
+
+func (t *trackStreamBody) Flush() {
+	if fl, ok := t.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
 	}
 }
 

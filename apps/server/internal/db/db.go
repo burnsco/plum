@@ -2206,6 +2206,34 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 	return metadata, nil
 }
 
+// RefreshPlaybackTrackMetadataForLibrary runs RefreshPlaybackTrackMetadata for every present
+// (non-missing) item in the library. Music libraries are no-ops. Per-item errors are counted in
+// failed and do not abort the rest.
+func RefreshPlaybackTrackMetadataForLibrary(ctx context.Context, dbConn *sql.DB, libraryID int) (refreshed int, failed int, err error) {
+	var typ string
+	if err := dbConn.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ); err != nil {
+		return 0, 0, err
+	}
+	if typ == LibraryTypeMusic {
+		return 0, 0, nil
+	}
+	items, err := GetMediaByLibraryID(dbConn, libraryID)
+	if err != nil {
+		return 0, 0, err
+	}
+	for i := range items {
+		it := items[i]
+		_, rerr := RefreshPlaybackTrackMetadata(ctx, dbConn, &it)
+		if rerr != nil {
+			log.Printf("refresh playback tracks library=%d media=%d: %v", libraryID, it.ID, rerr)
+			failed++
+		} else {
+			refreshed++
+		}
+	}
+	return refreshed, failed, nil
+}
+
 func getPersistedPlaybackTracks(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, []EmbeddedAudioTrack, error) {
 	embeddedSubtitles, err := getEmbeddedSubtitlesForMedia(db, mediaID)
 	if err != nil {
@@ -3091,13 +3119,18 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 		}
 		switch stream.CodecType {
 		case "subtitle":
-			supported := isSupportedEmbeddedSubtitleCodec(stream.CodecName)
+			codec := strings.TrimSpace(stream.CodecName)
+			var supportedPtr *bool
+			if codec != "" {
+				supported := isSupportedEmbeddedSubtitleCodec(codec)
+				supportedPtr = &supported
+			}
 			result.EmbeddedSubtitles = append(result.EmbeddedSubtitles, EmbeddedSubtitle{
 				StreamIndex: stream.Index,
 				Language:    lang,
 				Title:       title,
-				Codec:       strings.TrimSpace(stream.CodecName),
-				Supported:   &supported,
+				Codec:       codec,
+				Supported:   supportedPtr,
 			})
 		case "audio":
 			result.EmbeddedAudioTracks = append(result.EmbeddedAudioTracks, EmbeddedAudioTrack{
@@ -3130,7 +3163,9 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 
 func isSupportedEmbeddedSubtitleCodec(codec string) bool {
 	switch strings.ToLower(strings.TrimSpace(codec)) {
-	case "ass", "ssa", "subrip", "srt", "webvtt", "text", "mov_text", "ttml", "tx3g":
+	case "ass", "ssa", "subrip", "srt", "webvtt", "text", "mov_text", "ttml", "tx3g",
+		"hdmv_text_subtitle", // Blu-ray TextST; ffmpeg can mux to WebVTT
+		"eia_608", "eia_708": // ATSC closed captions
 		return true
 	default:
 		return false

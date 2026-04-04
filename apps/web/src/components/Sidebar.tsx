@@ -1,9 +1,20 @@
 import { Link, useLocation, useParams } from "react-router-dom";
-import { useLibraries } from "@/queries";
+import { useLibraries, useRefreshLibraryPlaybackTracks } from "@/queries";
 import { getLibraryActivity } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
-import { ArrowDownCircle, Compass, Film, Home, Music, RefreshCw, ScanLine, Tv } from "lucide-react";
+import {
+  ArrowDownCircle,
+  Captions,
+  Compass,
+  Film,
+  Home,
+  Music,
+  RefreshCw,
+  ScanLine,
+  Tv,
+} from "lucide-react";
+import { toast } from "sonner";
 import type { Library } from "@/api";
 import { useIdentifyQueue } from "@/contexts/IdentifyQueueContext";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
@@ -24,6 +35,7 @@ function LibraryIcon({ lib }: { lib: Library }) {
 export function Sidebar() {
   const { libraryId } = useParams();
   const { data: libraries = [], isLoading } = useLibraries();
+  const refreshLibraryPlaybackTracksMutation = useRefreshLibraryPlaybackTracks();
   const { getLibraryPhase, queueLibraryIdentify } = useIdentifyQueue();
   const { getLibraryScanStatus, queueLibraryScan } = useScanQueue();
   const location = useLocation();
@@ -154,6 +166,28 @@ export function Sidebar() {
                       >
                         <RefreshCw className="size-4 text-(--plum-muted)" />
                         Refresh metadata
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={isBusy || refreshLibraryPlaybackTracksMutation.isPending}
+                        onSelect={() => {
+                          void refreshLibraryPlaybackTracksMutation
+                            .mutateAsync({ libraryId: lib.id })
+                            .then(() => {
+                              toast.success(
+                                `Rescanning tracks and subtitles for “${label}” in the background. This can take several minutes on large libraries; watch the server log for progress.`,
+                              );
+                            })
+                            .catch((err: unknown) => {
+                              toast.error(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Could not start library tracks rescan.",
+                              );
+                            });
+                        }}
+                      >
+                        <Captions className="size-4 text-(--plum-muted)" />
+                        Rescan tracks & subtitles (entire library)
                       </ContextMenuItem>
                     </>
                   ) : null}

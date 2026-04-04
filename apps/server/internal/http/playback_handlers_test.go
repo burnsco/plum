@@ -35,6 +35,71 @@ func writeFFprobeShim(t *testing.T, payload string) {
 	})
 }
 
+func TestWarmEmbeddedSubtitleCachesReturnsAccepted(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"test@example.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"Anime",
+		db.LibraryTypeAnime,
+		"/anime",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	var episodeID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Test E1",
+		"/anime/e1.mkv",
+		0,
+		db.MatchStatusLocal,
+		1,
+		1,
+	).Scan(&episodeID); err != nil {
+		t.Fatalf("insert episode: %v", err)
+	}
+
+	var globalID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`,
+		db.LibraryTypeAnime,
+		episodeID,
+	).Scan(&globalID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+
+	handler := &PlaybackHandler{DB: dbConn, Sessions: transcoder.NewPlaybackSessionManager(t.TempDir(), nil)}
+	req := httptest.NewRequest(http.MethodPost, "/api/media/"+strconv.Itoa(globalID)+"/embedded-subtitles/warm-cache", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(globalID))
+	req = req.WithContext(withUser(context.WithValue(req.Context(), chi.RouteCtxKey, rctx), &db.User{ID: userID}))
+	rec := httptest.NewRecorder()
+	handler.WarmEmbeddedSubtitleCaches(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("warm-cache status = %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateSessionReturnsNotFoundWhenMediaFileIsMissing(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {

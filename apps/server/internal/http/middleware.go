@@ -111,6 +111,10 @@ func (w *loggingResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 }
 
 func (w *loggingResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		// Headers already sent (e.g. streaming handler wrote body then failed).
+		return
+	}
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }

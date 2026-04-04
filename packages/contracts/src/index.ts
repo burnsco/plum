@@ -1384,6 +1384,17 @@ export const ShowActionResultSchema = Schema.Struct({
   updated: Schema.Number,
 });
 
+/** Response from POST /api/libraries/{id}/playback-tracks/refresh (202 Accepted). Work runs in the background. */
+export interface LibraryPlaybackTracksRefreshResult {
+  accepted: boolean;
+  libraryId: number;
+}
+
+export const LibraryPlaybackTracksRefreshResultSchema = Schema.Struct({
+  accepted: Schema.Boolean,
+  libraryId: Schema.Number,
+});
+
 export interface ShowRefreshPayload {
   showKey: string;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Image, RefreshCw, ScanSearch } from "lucide-react";
+import { Captions, ExternalLink, Image, RefreshCw, ScanSearch } from "lucide-react";
+import { toast } from "sonner";
 import type { Library, MediaItem } from "../api";
 import { IdentifyMovieDialog } from "../components/IdentifyMovieDialog";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
@@ -20,7 +21,13 @@ import { getPreferredMovieRating } from "../lib/ratings";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
 import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
-import { useConfirmShow, useLibraryMedia, useLibraries, useRefreshShow } from "../queries";
+import {
+  useConfirmShow,
+  useLibraryMedia,
+  useLibraries,
+  useRefreshPlaybackTrackMetadata,
+  useRefreshShow,
+} from "../queries";
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -206,6 +213,7 @@ export function Home() {
       ? selectedLibraryScanStatus.error
       : undefined;
   const refreshShowMutation = useRefreshShow();
+  const refreshPlaybackTrackMetadataMutation = useRefreshPlaybackTrackMetadata();
   const confirmShowMutation = useConfirmShow();
 
   const [identifyGroup, setIdentifyGroup] = useState<ShowGroup | null>(null);
@@ -358,6 +366,33 @@ export function Home() {
                   <RefreshCw className="size-4 text-(--plum-muted)" />
                   Refresh metadata
                 </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={refreshPlaybackTrackMetadataMutation.isPending}
+                  onSelect={() => {
+                    const mediaIds = group.episodes.map((ep) => ep.id);
+                    void refreshPlaybackTrackMetadataMutation
+                      .mutateAsync({
+                        libraryId: selectedLibraryId,
+                        mediaIds,
+                      })
+                      .then(() => {
+                        const n = mediaIds.length;
+                        toast.success(
+                          n === 1
+                            ? `Tracks and subtitles rescanned for one episode of “${group.showTitle}”.`
+                            : `Tracks and subtitles rescanned for ${n} episodes of “${group.showTitle}”.`,
+                        );
+                      })
+                      .catch((err: unknown) => {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
+                        );
+                      });
+                  }}
+                >
+                  <Captions className="size-4 text-(--plum-muted)" />
+                  Rescan tracks & subtitles (all episodes)
+                </ContextMenuItem>
                 <ContextMenuItem onSelect={() => setIdentifyGroup(group)}>
                   <ScanSearch className="size-4 text-(--plum-muted)" />
                   Identify…
@@ -383,6 +418,7 @@ export function Home() {
     confirmShowMutation,
     navigate,
     playShowGroup,
+    refreshPlaybackTrackMetadataMutation,
     refreshShowMutation,
     shouldRevealSearchingCards,
     selectedLibraryCanShowFailure,
@@ -454,6 +490,28 @@ export function Home() {
                   Change poster…
                 </ContextMenuItem>
                 <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={refreshPlaybackTrackMetadataMutation.isPending}
+                  onSelect={() => {
+                    void refreshPlaybackTrackMetadataMutation
+                      .mutateAsync({
+                        libraryId: selectedLibraryId,
+                        mediaIds: [item.id],
+                      })
+                      .then(() => {
+                        toast.success(`Tracks and subtitles rescanned for “${item.title}”.`);
+                      })
+                      .catch((err: unknown) => {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
+                        );
+                      });
+                  }}
+                >
+                  <Captions className="size-4 text-(--plum-muted)" />
+                  Rescan tracks & subtitles
+                </ContextMenuItem>
+                <ContextMenuSeparator />
                 <ContextMenuItem onSelect={() => setIdentifyMovieItem({ id: item.id, title: item.title })}>
                   <ScanSearch className="size-4 text-(--plum-muted)" />
                   Identify…
@@ -477,6 +535,7 @@ export function Home() {
   }, [
     navigate,
     playMovie,
+    refreshPlaybackTrackMetadataMutation,
     selectedItems,
     shouldRevealSearchingCards,
     selectedLibraryCanShowFailure,

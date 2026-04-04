@@ -185,6 +185,7 @@ function mockDefaultAppApis() {
     streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
     durationSeconds: 7200,
   }));
+  vi.spyOn(api, "warmEmbeddedSubtitleCaches").mockResolvedValue();
   vi.spyOn(api, "updatePlaybackSessionAudio").mockImplementation(async (sessionId, payload) => ({
     sessionId,
     delivery: "transcode",
@@ -196,6 +197,15 @@ function mockDefaultAppApis() {
     durationSeconds: 7200,
   }));
   vi.spyOn(api, "closePlaybackSession").mockResolvedValue();
+  vi.spyOn(api, "refreshPlaybackTracks").mockResolvedValue({
+    subtitles: [],
+    embeddedSubtitles: [],
+    embeddedAudioTracks: [],
+  });
+  vi.spyOn(api, "refreshLibraryPlaybackTracks").mockResolvedValue({
+    accepted: true,
+    libraryId: 1,
+  });
 }
 
 describe("App library and player wiring", () => {

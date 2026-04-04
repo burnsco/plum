@@ -49,6 +49,9 @@ export default defineConfig({
             "/api": {
               target: proxyTarget,
               changeOrigin: true,
+              // Embedded subtitle extraction can take many seconds before first bytes; avoid dev-proxy timeouts.
+              timeout: 600_000,
+              proxyTimeout: 600_000,
             },
             "/ws": {
               target: proxyTarget,

@@ -198,6 +198,92 @@ function parseVttTimestamp(value: string): number | null {
   return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
 }
 
+/**
+ * Normalizes bytes received so far for {@link buildSubtitleCues} / {@link parseVttCueBlocks}.
+ *
+ * While streaming we must **not** truncate to the last `\n\n`: ffmpeg often emits the first cue
+ * as `WEBVTT`, blank line, timing line, then cue text **without** a trailing blank line for a long
+ * time. Truncating to the header-only prefix yields zero cues and leaves the UI stuck on “Loading”.
+ * {@link parseVttCueBlocks} already treats an in-progress last cue (no closing blank line) as a
+ * valid block once the timing line is complete.
+ */
+export function streamingVttPrefixForParse(accum: string, streamDone: boolean): string {
+  const n = accum.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  if (streamDone) {
+    return n;
+  }
+  return n;
+}
+
+function normalizeVttInput(raw: string): string {
+  return raw.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
+const defaultSubtitleStreamFlushMs = 280;
+
+/**
+ * Reads a fetch Response body incrementally and invokes onPartial with a VTT prefix safe for
+ * {@link buildSubtitleCues} while bytes are still arriving. Lets subtitles appear before the
+ * server finishes the full embedded extract.
+ */
+export async function consumeSubtitleResponseWithPartialUpdates(
+  response: Response,
+  signal: AbortSignal,
+  onPartial: (bodyForState: string, streamDone: boolean) => void,
+  flushMs: number = defaultSubtitleStreamFlushMs,
+): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    const n = normalizeVttInput(text);
+    onPartial(n, true);
+    return n;
+  }
+
+  const decoder = new TextDecoder();
+  let accum = "";
+  let lastFlushAt = 0;
+
+  const flush = (streamDone: boolean) => {
+    const bodyForState = streamingVttPrefixForParse(accum, streamDone);
+    if (streamDone) {
+      const full = normalizeVttInput(accum);
+      onPartial(full, true);
+    } else {
+      onPartial(bodyForState, false);
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) {
+        await reader.cancel().catch(() => {});
+        throw new DOMException("Aborted", "AbortError");
+      }
+      if (value) {
+        accum += decoder.decode(value, { stream: true });
+      }
+      const now = Date.now();
+      if (done) {
+        accum += decoder.decode();
+        flush(true);
+        return normalizeVttInput(accum);
+      }
+      if (now - lastFlushAt >= flushMs) {
+        lastFlushAt = now;
+        flush(false);
+      }
+    }
+  } catch (error) {
+    if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+      await reader.cancel().catch(() => {});
+      throw new DOMException("Aborted", "AbortError");
+    }
+    throw error;
+  }
+}
+
 export function parseVttCueBlocks(body: string): ParsedVttCueBlock[] {
   const normalized = body.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
   const lines = normalized.split("\n");

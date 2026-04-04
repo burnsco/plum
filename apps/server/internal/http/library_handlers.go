@@ -35,6 +35,9 @@ type LibraryHandler struct {
 	ScanJobs    *LibraryScanManager
 	SearchIndex *SearchIndexManager
 	identifyRun *identifyRunTracker
+
+	playbackRefreshMu      sync.Mutex
+	playbackRefreshRunning map[int]struct{}
 }
 
 type identifyRunTracker struct {
@@ -3642,6 +3645,71 @@ type updateMediaProgressRequest struct {
 	PositionSeconds float64 `json:"position_seconds"`
 	DurationSeconds float64 `json:"duration_seconds"`
 	Completed       bool    `json:"completed"`
+}
+
+func (h *LibraryHandler) tryStartLibraryPlaybackRefresh(libraryID int) bool {
+	h.playbackRefreshMu.Lock()
+	defer h.playbackRefreshMu.Unlock()
+	if h.playbackRefreshRunning == nil {
+		h.playbackRefreshRunning = make(map[int]struct{})
+	}
+	if _, ok := h.playbackRefreshRunning[libraryID]; ok {
+		return false
+	}
+	h.playbackRefreshRunning[libraryID] = struct{}{}
+	return true
+}
+
+func (h *LibraryHandler) finishLibraryPlaybackRefresh(libraryID int) {
+	h.playbackRefreshMu.Lock()
+	defer h.playbackRefreshMu.Unlock()
+	delete(h.playbackRefreshRunning, libraryID)
+}
+
+func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	var libraryID, ownerID int
+	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !h.tryStartLibraryPlaybackRefresh(libraryID) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"accepted":  false,
+			"libraryId": libraryID,
+			"error":     "playback track refresh already running for this library",
+		})
+		return
+	}
+	go func(libID int) {
+		defer h.finishLibraryPlaybackRefresh(libID)
+		ctx := context.Background()
+		refreshed, failed, runErr := db.RefreshPlaybackTrackMetadataForLibrary(ctx, h.DB, libID)
+		if runErr != nil {
+			log.Printf("library playback refresh library=%d: %v", libID, runErr)
+			return
+		}
+		log.Printf("library playback refresh library=%d done refreshed=%d failed=%d", libID, refreshed, failed)
+	}(libraryID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"accepted":  true,
+		"libraryId": libraryID,
+	})
 }
 
 func (h *LibraryHandler) RefreshShow(w http.ResponseWriter, r *http.Request) {

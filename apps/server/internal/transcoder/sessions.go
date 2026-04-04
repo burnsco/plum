@@ -567,9 +567,16 @@ func (m *PlaybackSessionManager) runRevision(
 			_ = os.MkdirAll(revision.dir, 0o755)
 		}
 
-		cmd := ffmpegCommandContext(ctx, "ffmpeg", plan.Args...)
+		// Quiet ffmpeg: default stderr is endless HLS progress (frame/size/time lines). Keep stderr
+		// in-memory only and log it on failure via compactFFmpegError; avoid teeing to os.Stderr.
+		playbackFFmpegArgs := append([]string{
+			"-hide_banner",
+			"-nostats",
+			"-loglevel", "error",
+		}, plan.Args...)
+		cmd := ffmpegCommandContext(ctx, "ffmpeg", playbackFFmpegArgs...)
 		var stderrBuf bytes.Buffer
-		cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stderr)
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			finalState.Error = err.Error()
 			log.Printf(

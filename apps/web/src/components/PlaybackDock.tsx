@@ -63,6 +63,7 @@ import {
   bufferedRangeStartsNearZero,
   buildSubtitleCues,
   clearTextTrackCues,
+  consumeSubtitleResponseWithPartialUpdates,
   formatClock,
   formatHlsErrorMessage,
   formatTrackLabel,
@@ -119,7 +120,10 @@ type QueuedSubtitlePreference =
     };
 
 const CONTROLS_HIDE_DELAY = 3000;
+/** Sidecar SRT/VTT etc. */
 const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
+/** Embedded tracks are transcoded server-side (often full-file ffmpeg); client abort was killing ffmpeg at ~45s. */
+const EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS = 600_000;
 const VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS = 5;
 const UPNEXT_COUNTDOWN_SECONDS = 10;
 
@@ -769,13 +773,16 @@ export function PlaybackDock() {
       const controller = new AbortController();
       subtitleLoadControllersRef.current.set(trackKey, controller);
       let timedOut = false;
+      const subtitleTimeoutMs = track.src.includes("/subtitles/embedded/")
+        ? EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS
+        : SUBTITLE_LOAD_TIMEOUT_MS;
       const timeoutId =
         typeof window === "undefined"
           ? null
           : window.setTimeout(() => {
               timedOut = true;
               controller.abort();
-            }, SUBTITLE_LOAD_TIMEOUT_MS);
+            }, subtitleTimeoutMs);
 
       try {
         setSubtitleStatusMessage("Loading subtitles...");
@@ -786,11 +793,35 @@ export function PlaybackDock() {
         if (!response.ok) {
           throw new Error(`Subtitle request failed: ${response.status}`);
         }
-        const body = await response.text();
-        setLoadedSubtitleTracks((current) =>
-          current.some((candidate) => candidate.key === track.key)
-            ? current
-            : [...current, { ...track, body }],
+        let lastFlushedCueCount = 0;
+        let lastFlushedBodyLen = 0;
+        await consumeSubtitleResponseWithPartialUpdates(
+          response,
+          controller.signal,
+          (bodyForState, streamDone) => {
+            const cues = buildSubtitleCues(bodyForState);
+            if (!streamDone) {
+              if (cues.length === 0) return;
+              if (
+                cues.length === lastFlushedCueCount &&
+                bodyForState.length === lastFlushedBodyLen
+              ) {
+                return;
+              }
+              lastFlushedCueCount = cues.length;
+              lastFlushedBodyLen = bodyForState.length;
+            } else {
+              lastFlushedCueCount = cues.length;
+              lastFlushedBodyLen = bodyForState.length;
+            }
+            setLoadedSubtitleTracks((current) => {
+              const rest = current.filter((candidate) => candidate.key !== track.key);
+              return [...rest, { ...track, body: bodyForState }];
+            });
+            if (cues.length > 0) {
+              setSubtitleStatusMessage("");
+            }
+          },
         );
         blockedSubtitleRetryKeysRef.current.delete(track.key);
         setPendingSubtitleKey((current) => (current === track.key ? null : current));

@@ -33,6 +33,8 @@ import {
   getTranscodingSettings,
   identifyLibrary,
   listLibraries,
+  refreshLibraryPlaybackTracks,
+  refreshPlaybackTracks,
   refreshShow,
   scanLibraryById,
   type DiscoverBrowseCategory,
@@ -58,6 +60,7 @@ import {
   setMoviePosterSelection,
   setShowPosterSelection,
   type SeriesDetails,
+  type LibraryPlaybackTracksRefreshResult,
   type ShowActionResult,
   type ShowDetails,
   type ShowEpisodesResponse,
@@ -506,6 +509,42 @@ export function useRefreshShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+  });
+}
+
+/** Re-probes every item in the library (same as per-title refresh, server-side). */
+export function useRefreshLibraryPlaybackTracks(): UseMutationResult<
+  LibraryPlaybackTracksRefreshResult,
+  Error,
+  { libraryId: number }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ libraryId }) => refreshLibraryPlaybackTracks(libraryId),
+    onSuccess: (_, { libraryId }) => {
+      invalidateLibraryCatalogQueries(queryClient, libraryId);
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+  });
+}
+
+/** Re-probes each file (ffprobe), rescans sidecar subtitles, and persists embedded audio/subtitle streams. */
+export function useRefreshPlaybackTrackMetadata(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; mediaIds: number[] }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ mediaIds }) => {
+      for (const id of mediaIds) {
+        await refreshPlaybackTracks(id);
+      }
+    },
+    onSuccess: (_, { libraryId }) => {
+      invalidateLibraryCatalogQueries(queryClient, libraryId);
       void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });

@@ -264,6 +264,7 @@ describe("PlayerContext playback session updates", () => {
       streamUrl: "/api/playback/sessions/session-99/revisions/1/index.m3u8",
       durationSeconds: 7200,
     });
+    vi.spyOn(api, "warmEmbeddedSubtitleCaches").mockResolvedValue();
     vi.spyOn(api, "closePlaybackSession").mockResolvedValue();
     vi.spyOn(api, "updatePlaybackSessionAudio").mockResolvedValue({
       sessionId: "session-99",

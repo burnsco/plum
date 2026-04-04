@@ -5186,3 +5186,121 @@ func TestGetDiscover_DoesNotMatchTVShowsWithoutActiveEpisodes(t *testing.T) {
 		t.Fatalf("expected no library matches, got %+v", payload.Shelves[0].Items[0].LibraryMatches)
 	}
 }
+
+func TestRefreshLibraryPlaybackTracks_EmptyMovieLibrary(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"test@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/libraries/"+strconv.Itoa(libraryID)+"/playback-tracks/refresh",
+		nil,
+	)
+	req = req.WithContext(
+		context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx),
+	)
+	rec := httptest.NewRecorder()
+
+	handler.RefreshLibraryPlaybackTracks(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Accepted  bool `json:"accepted"`
+		LibraryID int  `json:"libraryId"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !payload.Accepted || payload.LibraryID != libraryID {
+		t.Fatalf("payload = %+v", payload)
+	}
+	// Background goroutine uses the same DB; wait so it finishes before test cleanup closes the handle.
+	time.Sleep(150 * time.Millisecond)
+}
+
+func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var ownerID, otherID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"owner@test.com",
+		"hash",
+		now,
+	).Scan(&ownerID); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"other@test.com",
+		"hash2",
+		now,
+	).Scan(&otherID); err != nil {
+		t.Fatalf("insert other user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		ownerID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/libraries/"+strconv.Itoa(libraryID)+"/playback-tracks/refresh",
+		nil,
+	)
+	req = req.WithContext(
+		context.WithValue(withUser(req.Context(), &db.User{ID: otherID, IsAdmin: true}), chi.RouteCtxKey, rctx),
+	)
+	rec := httptest.NewRecorder()
+
+	handler.RefreshLibraryPlaybackTracks(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}

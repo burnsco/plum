@@ -14,6 +14,7 @@ import {
   PLAYBACK_STREAM_BASE_URL,
   closePlaybackSession,
   createPlaybackSession,
+  warmEmbeddedSubtitleCaches,
   getShowEpisodes,
   type MediaItem,
   type PlaybackSession as ApiPlaybackSession,
@@ -363,6 +364,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setMusicBaseQueue([]);
       setLastEvent("");
       if (!nextItem) return;
+      void warmEmbeddedSubtitleCaches(nextItem.id).catch(() => {});
       const activeLibrary =
         libraries.find((library) => library.id === nextItem.library_id) ?? null;
       const preferredAudioLanguage = resolveLibraryPlaybackPreferences(
@@ -426,6 +428,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         )?.title ||
         resolveLibraryPlaybackPreferences(activeLibrary ?? { type: nextItem.type })
           .preferredAudioLanguage;
+      void warmEmbeddedSubtitleCaches(nextItem.id).catch(() => {});
       createClientPlaybackSession(
         nextItem,
         preferredInitialAudioIndex(nextItem, preferredAudioLanguage),

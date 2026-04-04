@@ -389,23 +389,6 @@ func TestHandleStreamEmbeddedSubtitle_ReturnsClientErrorForUnsupportedCodec(t *t
 		t.Fatalf("write source file: %v", err)
 	}
 
-	previousReadVideoMetadata := readVideoMetadata
-	readVideoMetadata = func(context.Context, string) (VideoProbeResult, error) {
-		supported := false
-		return VideoProbeResult{
-			EmbeddedSubtitles: []EmbeddedSubtitle{{
-				StreamIndex: 7,
-				Language:    "en",
-				Title:       "English PGS",
-				Codec:       "hdmv_pgs_subtitle",
-				Supported:   &supported,
-			}},
-		}, nil
-	}
-	t.Cleanup(func() {
-		readVideoMetadata = previousReadVideoMetadata
-	})
-
 	now := time.Now().UTC()
 	var userID int
 	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
@@ -425,8 +408,8 @@ func TestHandleStreamEmbeddedSubtitle_ReturnsClientErrorForUnsupportedCodec(t *t
 	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
 		t.Fatalf("insert media_global: %v", err)
 	}
-	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`,
-		mediaID, 7, "en", "English PGS"); err != nil {
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
+		mediaID, 7, "en", "English PGS", "hdmv_pgs_subtitle", 0); err != nil {
 		t.Fatalf("insert embedded subtitle: %v", err)
 	}
 
@@ -461,7 +444,13 @@ func TestHandleStreamEmbeddedSubtitle_ServesConvertedVTT(t *testing.T) {
 
 	ffmpegDir := t.TempDir()
 	ffmpegPath := filepath.Join(ffmpegDir, "ffmpeg")
-	ffmpegScript := "#!/bin/sh\nprintf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:02.000\\nHello world\\n'"
+	ffmpegScript := "#!/bin/sh\n" +
+		"last=\"\"\n" +
+		"for a in \"$@\"; do last=\"$a\"; done\n" +
+		"case \"$last\" in\n" +
+		"  -) printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:02.000\\nHello world\\n' ;;\n" +
+		"  *) printf '1\\n00:00:00,000 --> 00:00:02,000\\nHello\\n' >\"$last\" ;;\n" +
+		"esac\n"
 	if err := os.WriteFile(ffmpegPath, []byte(ffmpegScript), 0o755); err != nil {
 		t.Fatalf("write ffmpeg shim: %v", err)
 	}

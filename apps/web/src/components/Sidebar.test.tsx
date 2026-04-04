@@ -5,6 +5,10 @@ import { Sidebar } from "./Sidebar";
 
 vi.mock("@/queries", () => ({
   useLibraries: vi.fn(),
+  useRefreshLibraryPlaybackTracks: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ accepted: true, libraryId: 1 }),
+    isPending: false,
+  }),
 }));
 
 vi.mock("@/contexts/IdentifyQueueContext", () => ({
