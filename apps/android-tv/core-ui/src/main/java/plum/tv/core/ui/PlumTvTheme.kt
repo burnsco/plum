@@ -4,11 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -17,10 +14,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -291,30 +286,6 @@ fun PlumTvScaffold(
                 .fillMaxSize()
                 .background(palette.background),
     ) {
-        // Subtle purple corner wash — confined to ~half the screen so we don't run a full-viewport
-        // radial shader on low-end TV SoCs (same look at a glance, less blended area).
-        val density = LocalDensity.current
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val radiusPx =
-                with(density) {
-                    (maxOf(maxWidth, maxHeight) * 0.72f).toPx()
-                }
-            Box(
-                modifier =
-                    Modifier
-                        .align(Alignment.TopStart)
-                        .width(maxWidth * 0.58f)
-                        .height(maxHeight * 0.48f)
-                        .background(
-                            brush =
-                                Brush.radialGradient(
-                                    colors = listOf(palette.accent.copy(alpha = 0.07f), Color.Transparent),
-                                    center = Offset.Zero,
-                                    radius = radiusPx,
-                                ),
-                        ),
-            )
-        }
         content()
     }
 }

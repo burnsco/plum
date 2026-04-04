@@ -19,7 +19,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.tv.material3.Text
 import plum.tv.core.network.LibraryJson
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
@@ -85,12 +84,6 @@ fun LibraryListRoute(
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        PlumScreenTitle(
-                            title = libraryTypeLabel(libraryType),
-                            subtitle = "Jump into movies, shows, anime, and music shelves.",
-                        )
-                    }
                     items(libraries, key = { it.id }) { lib ->
                         PlumPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -119,15 +112,6 @@ fun LibraryListRoute(
         }
     }
 }
-
-private fun libraryTypeLabel(libraryType: String?): String =
-    when (libraryType) {
-        "movie" -> "Movies"
-        "music" -> "Music"
-        "anime" -> "Anime"
-        "tv" -> "TV"
-        else -> "Libraries"
-    }
 
 private fun libraryLabel(lib: LibraryJson): String =
     when {

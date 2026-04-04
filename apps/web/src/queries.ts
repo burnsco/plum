@@ -35,13 +35,11 @@ import {
   listLibraries,
   refreshShow,
   scanLibraryById,
-  type DiscoverAcquisition,
   type DiscoverBrowseCategory,
-  type DiscoverBrowseResponse,
-  type DiscoverGenre,
-  type DiscoverGenresResponse,
-  type DiscoverLibraryMatch,
   type DiscoverMediaType,
+  type DiscoverAcquisition,
+  type DiscoverBrowseResponse,
+  type DiscoverGenresResponse,
   type DiscoverResponse,
   type DiscoverSearchResponse,
   type DiscoverTitleDetails,
@@ -75,33 +73,13 @@ import {
 } from "./api";
 import { recentlyAddedEntryKey } from "@/lib/libraryReadyNotifications";
 
-type LibrariesResult = Awaited<ReturnType<typeof listLibraries>>;
-type DiscoverResult = Awaited<ReturnType<typeof getDiscover>>;
-type DiscoverBrowseResult = Awaited<ReturnType<typeof browseDiscover>>;
-type DiscoverGenresResult = Awaited<ReturnType<typeof getDiscoverGenres>>;
-type DiscoverSearchResult = Awaited<ReturnType<typeof searchDiscover>>;
-type DiscoverTitleDetailsResult = Awaited<ReturnType<typeof getDiscoverTitleDetails>>;
-type DownloadsResult = Awaited<ReturnType<typeof getDownloads>>;
+/** Schema-decoded API payloads are deeply readonly; cache entries use mutable view types. */
+function decodeAs<T>(value: unknown): T {
+  return value as T;
+}
+
 type LibraryMediaPageResult = Exclude<Awaited<ReturnType<typeof fetchLibraryMedia>>, MediaItem[]>;
 type HomeDashboardResult = Awaited<ReturnType<typeof getHomeDashboard>>;
-type MovieDetailsResult = Awaited<ReturnType<typeof getMovieDetails>>;
-type MoviePosterCandidatesResult = Awaited<ReturnType<typeof getMoviePosterCandidates>>;
-type MetadataArtworkSettingsResult = Awaited<ReturnType<typeof getMetadataArtworkSettings>>;
-type MediaStackSettingsResult = Awaited<ReturnType<typeof getMediaStackSettings>>;
-type ShowDetailsResult = Awaited<ReturnType<typeof getShowDetails>>;
-type ShowEpisodesResult = Awaited<ReturnType<typeof getShowEpisodes>>;
-type ShowPosterCandidatesResult = Awaited<ReturnType<typeof getShowPosterCandidates>>;
-type SearchLibraryMediaResult = Awaited<ReturnType<typeof searchLibraryMedia>>;
-type TranscodingSettingsResult = Awaited<ReturnType<typeof getTranscodingSettings>>;
-type HomeDashboardMediaResult = HomeDashboardResult["continueWatching"][number]["media"];
-
-function cloneLibrary(library: LibrariesResult[number]): Library {
-  return { ...library };
-}
-
-function cloneDiscoverLibraryMatch(match: DiscoverLibraryMatch): DiscoverLibraryMatch {
-  return { ...match };
-}
 
 function normalizeLibraryMediaPage(
   response: Awaited<ReturnType<typeof fetchLibraryMedia>>,
@@ -114,181 +92,6 @@ function normalizeLibraryMediaPage(
     };
   }
   return response;
-}
-
-function cloneMediaItem(item: HomeDashboardMediaResult): MediaItem {
-  return {
-    ...item,
-    subtitles: item.subtitles?.map((subtitle) => ({ ...subtitle })),
-    embeddedSubtitles: item.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
-    embeddedAudioTracks: item.embeddedAudioTracks?.map((track) => ({ ...track })),
-  };
-}
-
-function cloneDiscoverAcquisition(acquisition: DiscoverAcquisition): DiscoverAcquisition {
-  return { ...acquisition };
-}
-
-function cloneDiscoverItem(item: DiscoverResult["shelves"][number]["items"][number]) {
-  return {
-    ...item,
-    library_matches: item.library_matches?.map(cloneDiscoverLibraryMatch),
-    acquisition: item.acquisition ? cloneDiscoverAcquisition(item.acquisition) : undefined,
-  };
-}
-
-function cloneDiscoverResponse(response: DiscoverResult): DiscoverResponse {
-  return {
-    shelves: response.shelves.map((shelf) => ({
-      ...shelf,
-      items: shelf.items.map(cloneDiscoverItem),
-    })),
-  };
-}
-
-function cloneDiscoverGenre(genre: DiscoverGenre): DiscoverGenre {
-  return { ...genre };
-}
-
-function cloneDiscoverGenresResponse(response: DiscoverGenresResult): DiscoverGenresResponse {
-  return {
-    movie_genres: response.movie_genres.map(cloneDiscoverGenre),
-    tv_genres: response.tv_genres.map(cloneDiscoverGenre),
-  };
-}
-
-function cloneDiscoverBrowseResponse(response: DiscoverBrowseResult): DiscoverBrowseResponse {
-  return {
-    items: response.items.map(cloneDiscoverItem),
-    page: response.page,
-    total_pages: response.total_pages,
-    total_results: response.total_results,
-    media_type: response.media_type,
-    genre: response.genre ? cloneDiscoverGenre(response.genre) : undefined,
-    category: response.category,
-  };
-}
-
-function cloneDiscoverSearchResponse(response: DiscoverSearchResult): DiscoverSearchResponse {
-  return {
-    movies: response.movies.map(cloneDiscoverItem),
-    tv: response.tv.map(cloneDiscoverItem),
-  };
-}
-
-function cloneDiscoverTitleDetails(
-  details: DiscoverTitleDetailsResult,
-): DiscoverTitleDetails | null {
-  if (details == null) {
-    return null;
-  }
-  return {
-    ...details,
-    genres: [...details.genres],
-    videos: details.videos.map((video) => ({ ...video })),
-    library_matches: details.library_matches?.map(cloneDiscoverLibraryMatch),
-    acquisition: details.acquisition ? cloneDiscoverAcquisition(details.acquisition) : undefined,
-  };
-}
-
-function cloneDownloadsResponse(response: DownloadsResult): DownloadsResponse {
-  return {
-    configured: response.configured,
-    items: response.items.map((item) => ({ ...item })),
-  };
-}
-
-function cloneMediaStackSettings(settings: MediaStackSettingsResult): MediaStackSettings {
-  return {
-    radarr: { ...settings.radarr },
-    sonarrTv: { ...settings.sonarrTv },
-  };
-}
-
-function cloneMediaStackValidationResult(
-  result: Awaited<ReturnType<typeof validateMediaStackSettings>>,
-): MediaStackValidationResult {
-  return {
-    radarr: {
-      ...result.radarr,
-      rootFolders: result.radarr.rootFolders.map((folder) => ({ ...folder })),
-      qualityProfiles: result.radarr.qualityProfiles.map((profile) => ({ ...profile })),
-    },
-    sonarrTv: {
-      ...result.sonarrTv,
-      rootFolders: result.sonarrTv.rootFolders.map((folder) => ({ ...folder })),
-      qualityProfiles: result.sonarrTv.qualityProfiles.map((profile) => ({ ...profile })),
-    },
-  };
-}
-
-function cloneMovieDetails(details: MovieDetailsResult): MovieDetails | null {
-  if (details == null) {
-    return null;
-  }
-  return {
-    ...details,
-    subtitles: details.subtitles?.map((subtitle) => ({ ...subtitle })),
-    embeddedSubtitles: details.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
-    embeddedAudioTracks: details.embeddedAudioTracks?.map((track) => ({ ...track })),
-    genres: [...details.genres],
-    cast: details.cast.map((member) => ({ ...member })),
-  };
-}
-
-function cloneShowDetails(details: ShowDetailsResult): ShowDetails | null {
-  if (details == null) {
-    return null;
-  }
-  return {
-    ...details,
-    genres: [...details.genres],
-    cast: details.cast.map((member) => ({ ...member })),
-  };
-}
-
-function cloneShowEpisodes(response: ShowEpisodesResult): ShowEpisodesResponse {
-  return {
-    seasons: response.seasons.map((s) => ({
-      seasonNumber: s.seasonNumber,
-      label: s.label,
-      episodes: s.episodes.map((e) => ({ ...e })),
-    })),
-  };
-}
-
-function cloneSeriesDetails(details: Awaited<ReturnType<typeof fetchSeriesByTmdbId>>): SeriesDetails | null {
-  if (details == null) {
-    return null;
-  }
-  return {
-    ...details,
-    genres: [...details.genres],
-    cast: details.cast.map((member) => ({ ...member })),
-  };
-}
-
-function cloneSearchResponse(response: SearchLibraryMediaResult): SearchResponse {
-  return {
-    ...response,
-    results: response.results.map((result) => ({
-      ...result,
-      genres: result.genres ? [...result.genres] : undefined,
-    })),
-    facets: {
-      libraries: response.facets.libraries.map((facet) => ({ ...facet })),
-      types: response.facets.types.map((facet) => ({ ...facet })),
-      genres: response.facets.genres.map((facet) => ({ ...facet })),
-    },
-  };
-}
-
-function cloneRecentlyAddedEntries(entries: RecentlyAddedEntry[] | undefined): RecentlyAddedEntry[] {
-  const list = entries ?? [];
-  return list.map((entry) => ({
-    ...entry,
-    media: cloneMediaItem(entry.media),
-  })) as RecentlyAddedEntry[];
 }
 
 /** Deduped merge for LibraryReadyNotifier (TV episodes → shows → movies → anime episodes → anime shows). */
@@ -311,79 +114,22 @@ function mergeDashboardRecentlyAddedForNotifier(
   return out;
 }
 
-function cloneHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
-  const recentlyAddedTvEpisodes = cloneRecentlyAddedEntries(
-    dashboard.recentlyAddedTvEpisodes as unknown as RecentlyAddedEntry[] | undefined,
-  );
-  const recentlyAddedTvShows = cloneRecentlyAddedEntries(
-    dashboard.recentlyAddedTvShows as unknown as RecentlyAddedEntry[] | undefined,
-  );
-  const recentlyAddedMovies = cloneRecentlyAddedEntries(
-    dashboard.recentlyAddedMovies as unknown as RecentlyAddedEntry[] | undefined,
-  );
-  const recentlyAddedAnimeEpisodes = cloneRecentlyAddedEntries(
-    dashboard.recentlyAddedAnimeEpisodes as unknown as RecentlyAddedEntry[] | undefined,
-  );
-  const recentlyAddedAnimeShows = cloneRecentlyAddedEntries(
-    dashboard.recentlyAddedAnimeShows as unknown as RecentlyAddedEntry[] | undefined,
-  );
-  const recentlyAdded = mergeDashboardRecentlyAddedForNotifier(
-    recentlyAddedTvEpisodes,
-    recentlyAddedTvShows,
-    recentlyAddedMovies,
-    recentlyAddedAnimeEpisodes,
-    recentlyAddedAnimeShows,
-  );
+function buildHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
+  const recentlyAddedTvEpisodes = (dashboard.recentlyAddedTvEpisodes ?? []) as RecentlyAddedEntry[];
+  const recentlyAddedTvShows = (dashboard.recentlyAddedTvShows ?? []) as RecentlyAddedEntry[];
+  const recentlyAddedMovies = (dashboard.recentlyAddedMovies ?? []) as RecentlyAddedEntry[];
+  const recentlyAddedAnimeEpisodes = (dashboard.recentlyAddedAnimeEpisodes ?? []) as RecentlyAddedEntry[];
+  const recentlyAddedAnimeShows = (dashboard.recentlyAddedAnimeShows ?? []) as RecentlyAddedEntry[];
   return {
     ...dashboard,
-    continueWatching: dashboard.continueWatching.map((entry) => ({
-      ...entry,
-      media: cloneMediaItem(entry.media),
-    })),
-    recentlyAddedTvEpisodes,
-    recentlyAddedTvShows,
-    recentlyAddedMovies,
-    recentlyAddedAnimeEpisodes,
-    recentlyAddedAnimeShows,
-    recentlyAdded,
-  };
-}
-
-function cloneTranscodingSettingsResponse(
-  response: TranscodingSettingsResult,
-): TranscodingSettingsResponse {
-  return {
-    settings: {
-      ...response.settings,
-      decodeCodecs: { ...response.settings.decodeCodecs },
-      encodeFormats: { ...response.settings.encodeFormats },
-    },
-    warnings: response.warnings.map((warning) => ({ ...warning })),
-  };
-}
-
-function cloneMetadataArtworkSettingsResponse(
-  response: MetadataArtworkSettingsResult,
-): MetadataArtworkSettingsResponse {
-  return {
-    settings: {
-      movies: { ...response.settings.movies },
-      shows: { ...response.settings.shows },
-      seasons: { ...response.settings.seasons },
-      episodes: { ...response.settings.episodes },
-    },
-    provider_availability: response.provider_availability.map((provider) => ({ ...provider })),
-  };
-}
-
-function clonePosterCandidatesResponse(
-  response: MoviePosterCandidatesResult | ShowPosterCandidatesResult,
-): PosterCandidatesResponse {
-  return {
-    candidates: response.candidates.map((candidate) => ({ ...candidate })),
-    provider_availability: response.provider_availability.map((provider) => ({ ...provider })),
-    has_custom_selection: response.has_custom_selection,
-  };
+    recentlyAdded: mergeDashboardRecentlyAddedForNotifier(
+      recentlyAddedTvEpisodes,
+      recentlyAddedTvShows,
+      recentlyAddedMovies,
+      recentlyAddedAnimeEpisodes,
+      recentlyAddedAnimeShows,
+    ),
+  } as HomeDashboard;
 }
 
 export const queryKeys = {
@@ -446,7 +192,7 @@ const DISCOVER_STALE_MS = 5 * 60 * 1000;
 export function useLibraries(): UseQueryResult<Library[], Error> {
   return useQuery({
     queryKey: queryKeys.libraries,
-    queryFn: async () => (await listLibraries()).map(cloneLibrary),
+    queryFn: async () => decodeAs<Library[]>(await listLibraries()),
     staleTime: LIBRARIES_STALE_MS,
   });
 }
@@ -457,7 +203,7 @@ export function useDiscover(options?: {
 }): UseQueryResult<DiscoverResponse, Error> {
   return useQuery({
     queryKey: queryKeys.discover,
-    queryFn: async () => cloneDiscoverResponse(await getDiscover()),
+    queryFn: async () => decodeAs<DiscoverResponse>(await getDiscover()),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -470,7 +216,7 @@ export function useDiscoverGenres(options?: {
 }): UseQueryResult<DiscoverGenresResponse, Error> {
   return useQuery({
     queryKey: queryKeys.discoverGenres,
-    queryFn: async () => cloneDiscoverGenresResponse(await getDiscoverGenres()),
+    queryFn: async () => decodeAs<DiscoverGenresResponse>(await getDiscoverGenres()),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -492,7 +238,7 @@ export function useDiscoverBrowse(
   return useInfiniteQuery({
     queryKey: queryKeys.discoverBrowse(category, mediaType, genreId),
     queryFn: async ({ pageParam }) =>
-      cloneDiscoverBrowseResponse(
+      decodeAs<DiscoverBrowseResponse>(
         await browseDiscover({
           category: category === "" ? undefined : category,
           mediaType: mediaType === "" ? undefined : mediaType,
@@ -516,7 +262,7 @@ export function useDiscoverSearch(
   const normalizedQuery = query.trim();
   return useQuery({
     queryKey: queryKeys.discoverSearch(normalizedQuery),
-    queryFn: async () => cloneDiscoverSearchResponse(await searchDiscover(normalizedQuery)),
+    queryFn: async () => decodeAs<DiscoverSearchResponse>(await searchDiscover(normalizedQuery)),
     enabled: (options?.enabled ?? true) && normalizedQuery.length >= 2,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -530,7 +276,8 @@ export function useDiscoverTitleDetails(
 ): UseQueryResult<DiscoverTitleDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.discoverTitle(mediaType ?? "movie", tmdbId ?? 0),
-    queryFn: async () => cloneDiscoverTitleDetails(await getDiscoverTitleDetails(mediaType!, tmdbId!)),
+    queryFn: async () =>
+      decodeAs<DiscoverTitleDetails | null>(await getDiscoverTitleDetails(mediaType!, tmdbId!)),
     enabled: (options?.enabled ?? true) && mediaType != null && tmdbId != null && tmdbId > 0,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -543,7 +290,7 @@ export function useDownloads(options?: {
 }): UseQueryResult<DownloadsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.downloads,
-    queryFn: async () => cloneDownloadsResponse(await getDownloads()),
+    queryFn: async () => decodeAs<DownloadsResponse>(await getDownloads()),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: 5_000,
@@ -555,7 +302,7 @@ export function useHomeDashboard(options?: {
 }): UseQueryResult<HomeDashboard, Error> {
   return useQuery({
     queryKey: queryKeys.home,
-    queryFn: async () => cloneHomeDashboard(await getHomeDashboard()),
+    queryFn: async () => buildHomeDashboard(await getHomeDashboard()),
     enabled: options?.enabled ?? true,
     staleTime: LIBRARY_MEDIA_STALE_MS,
   });
@@ -624,7 +371,7 @@ export function useUpdateLibraryPlaybackPreferences(): UseMutationResult<
         queryKeys.libraries,
         (current) =>
           current?.map((item) => (item.id === library.id ? { ...item, ...library } : item)) ?? [
-            cloneLibrary(library),
+            { ...library },
           ],
       );
     },
@@ -639,7 +386,7 @@ export function useSeries(
 ): UseQueryResult<SeriesDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.series(tmdbId ?? 0),
-    queryFn: async () => cloneSeriesDetails(await fetchSeriesByTmdbId(tmdbId!)),
+    queryFn: async () => decodeAs<SeriesDetails | null>(await fetchSeriesByTmdbId(tmdbId!)),
     enabled: (options?.enabled ?? true) && tmdbId != null && tmdbId > 0,
     staleTime: SERIES_STALE_MS,
   });
@@ -652,7 +399,7 @@ export function useMovieDetails(
 ): UseQueryResult<MovieDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.movieDetails(libraryId ?? 0, mediaId ?? 0),
-    queryFn: async () => cloneMovieDetails(await getMovieDetails(libraryId!, mediaId!)),
+    queryFn: async () => decodeAs<MovieDetails | null>(await getMovieDetails(libraryId!, mediaId!)),
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
     staleTime: SERIES_STALE_MS,
   });
@@ -665,7 +412,7 @@ export function useShowDetails(
 ): UseQueryResult<ShowDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.showDetails(libraryId ?? 0, showKey ?? ""),
-    queryFn: async () => cloneShowDetails(await getShowDetails(libraryId!, showKey!)),
+    queryFn: async () => decodeAs<ShowDetails | null>(await getShowDetails(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: SERIES_STALE_MS,
   });
@@ -678,7 +425,7 @@ export function useShowEpisodes(
 ): UseQueryResult<ShowEpisodesResponse, Error> {
   return useQuery({
     queryKey: queryKeys.showEpisodes(libraryId ?? 0, showKey ?? ""),
-    queryFn: async () => cloneShowEpisodes(await getShowEpisodes(libraryId!, showKey!)),
+    queryFn: async () => decodeAs<ShowEpisodesResponse>(await getShowEpisodes(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: LIBRARY_MEDIA_STALE_MS,
   });
@@ -691,7 +438,8 @@ export function useMoviePosterCandidates(
 ): UseQueryResult<PosterCandidatesResponse, Error> {
   return useQuery({
     queryKey: queryKeys.moviePosterCandidates(libraryId ?? 0, mediaId ?? 0),
-    queryFn: async () => clonePosterCandidatesResponse(await getMoviePosterCandidates(libraryId!, mediaId!)),
+    queryFn: async () =>
+      decodeAs<PosterCandidatesResponse>(await getMoviePosterCandidates(libraryId!, mediaId!)),
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
     staleTime: 30_000,
   });
@@ -704,7 +452,8 @@ export function useShowPosterCandidates(
 ): UseQueryResult<PosterCandidatesResponse, Error> {
   return useQuery({
     queryKey: queryKeys.showPosterCandidates(libraryId ?? 0, showKey ?? ""),
-    queryFn: async () => clonePosterCandidatesResponse(await getShowPosterCandidates(libraryId!, showKey!)),
+    queryFn: async () =>
+      decodeAs<PosterCandidatesResponse>(await getShowPosterCandidates(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: 30_000,
   });
@@ -732,7 +481,7 @@ export function useLibrarySearch(
       normalizedGenre,
     ),
     queryFn: async () =>
-      cloneSearchResponse(
+      decodeAs<SearchResponse>(
         await searchLibraryMedia(normalizedQuery, {
           libraryId: normalizedLibraryId ?? undefined,
           type: normalizedType === "" ? undefined : normalizedType,
@@ -784,7 +533,7 @@ export function useTranscodingSettings(options?: {
 }): UseQueryResult<TranscodingSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.transcodingSettings,
-    queryFn: async () => cloneTranscodingSettingsResponse(await getTranscodingSettings()),
+    queryFn: async () => decodeAs<TranscodingSettingsResponse>(await getTranscodingSettings()),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
   });
@@ -795,7 +544,8 @@ export function useMetadataArtworkSettings(options?: {
 }): UseQueryResult<MetadataArtworkSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.metadataArtworkSettings,
-    queryFn: async () => cloneMetadataArtworkSettingsResponse(await getMetadataArtworkSettings()),
+    queryFn: async () =>
+      decodeAs<MetadataArtworkSettingsResponse>(await getMetadataArtworkSettings()),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
   });
@@ -806,7 +556,7 @@ export function useMediaStackSettings(options?: {
 }): UseQueryResult<MediaStackSettings, Error> {
   return useQuery({
     queryKey: queryKeys.mediaStackSettings,
-    queryFn: async () => cloneMediaStackSettings(await getMediaStackSettings()),
+    queryFn: async () => decodeAs<MediaStackSettings>(await getMediaStackSettings()),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
   });
@@ -820,7 +570,7 @@ export function useUpdateTranscodingSettings(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (settings) =>
-      cloneTranscodingSettingsResponse(await updateTranscodingSettings(settings)),
+      decodeAs<TranscodingSettingsResponse>(await updateTranscodingSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.transcodingSettings, data);
     },
@@ -835,7 +585,7 @@ export function useUpdateMetadataArtworkSettings(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (settings) =>
-      cloneMetadataArtworkSettingsResponse(await updateMetadataArtworkSettings(settings)),
+      decodeAs<MetadataArtworkSettingsResponse>(await updateMetadataArtworkSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.metadataArtworkSettings, data);
     },
@@ -849,7 +599,7 @@ export function useUpdateMediaStackSettings(): UseMutationResult<
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (settings) => cloneMediaStackSettings(await updateMediaStackSettings(settings)),
+    mutationFn: updateMediaStackSettings,
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.mediaStackSettings, data);
       invalidateDiscoverRelatedQueries(queryClient);
@@ -865,7 +615,7 @@ export function useValidateMediaStackSettings(): UseMutationResult<
 > {
   return useMutation({
     mutationFn: async (settings) =>
-      cloneMediaStackValidationResult(await validateMediaStackSettings(settings)),
+      decodeAs<MediaStackValidationResult>(await validateMediaStackSettings(settings)),
   });
 }
 
@@ -876,7 +626,8 @@ export function useAddDiscoverTitle(): UseMutationResult<
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ mediaType, tmdbId }) => addDiscoverTitle(mediaType, tmdbId),
+    mutationFn: async ({ mediaType, tmdbId }) =>
+      decodeAs<DiscoverAcquisition>(await addDiscoverTitle(mediaType, tmdbId)),
     onSuccess: () => {
       invalidateDiscoverRelatedQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: queryKeys.downloads });

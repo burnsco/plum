@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -21,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import plum.tv.core.network.LibraryBrowseItemJson
@@ -33,7 +31,6 @@ import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
-import plum.tv.core.ui.PlumScreenTitle
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumStatePanel
@@ -115,13 +112,6 @@ fun LibraryBrowseRoute(
             horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
             verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                PlumScreenTitle(
-                    title = "Library",
-                    subtitle = "Browse your collection with a tighter poster grid.",
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-            }
             if (s.rows.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     PlumStatePanel(

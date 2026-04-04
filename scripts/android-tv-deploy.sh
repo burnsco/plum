@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Install release Plum TV APK on a connected ADB device and bring the app to the foreground.
+# Install release Plum TV APK on connected ADB device(s); optionally launch the app.
 # Use JAVA_HOME=Android Studio JBR and ANDROID_HOME=SDK (see apps/android-tv/AGENT_DEPLOY.md).
 #
-# ANDROID_SERIAL — if set, uninstall/install/launch only this device. Use when several TVs are
+# ANDROID_SERIAL — if set, uninstall/install/(launch) only this device. Use when several TVs are
 #   connected or when a stale mDNS entry (e.g. adb-…. _adb-tls-connect._tcp) breaks Gradle’s
 #   installDebug (ddmlib “device not found”).
 #
 # PLUM_TV_REINSTALL=1 — adb uninstall the app before install (fixes signature mismatch /
 #   INSTALL_FAILED_UPDATE_INCOMPATIBLE; clears app data). Ignores uninstall failure if absent.
+#
+# PLUM_TV_NO_LAUNCH=1 — install only; do not run `am start` (useful when pushing to all TVs
+#   without interrupting what is on screen).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -111,19 +114,23 @@ else
   done
 fi
 
-echo "android-tv-deploy: launching ${APP_ID}/${ACTIVITY}…"
-if [[ -n "${ANDROID_SERIAL:-}" ]]; then
-  "$ADB" -s "$ANDROID_SERIAL" shell am start -a android.intent.action.MAIN \
-    -c android.intent.category.LEANBACK_LAUNCHER \
-    -n "${APP_ID}/${ACTIVITY}" \
-    || "$ADB" -s "$ANDROID_SERIAL" shell am start -n "${APP_ID}/${ACTIVITY}" || true
+if [[ "${PLUM_TV_NO_LAUNCH:-}" == "1" ]]; then
+  echo "android-tv-deploy: skipping launch (PLUM_TV_NO_LAUNCH=1)."
 else
-  while IFS= read -r serial; do
-    "$ADB" -s "$serial" shell am start -a android.intent.action.MAIN \
+  echo "android-tv-deploy: launching ${APP_ID}/${ACTIVITY}…"
+  if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+    "$ADB" -s "$ANDROID_SERIAL" shell am start -a android.intent.action.MAIN \
       -c android.intent.category.LEANBACK_LAUNCHER \
       -n "${APP_ID}/${ACTIVITY}" \
-      || "$ADB" -s "$serial" shell am start -n "${APP_ID}/${ACTIVITY}" || true
-  done < <(device_serials)
+      || "$ADB" -s "$ANDROID_SERIAL" shell am start -n "${APP_ID}/${ACTIVITY}" || true
+  else
+    while IFS= read -r serial; do
+      "$ADB" -s "$serial" shell am start -a android.intent.action.MAIN \
+        -c android.intent.category.LEANBACK_LAUNCHER \
+        -n "${APP_ID}/${ACTIVITY}" \
+        || "$ADB" -s "$serial" shell am start -n "${APP_ID}/${ACTIVITY}" || true
+    done < <(device_serials)
+  fi
 fi
 
 echo "android-tv-deploy: done."

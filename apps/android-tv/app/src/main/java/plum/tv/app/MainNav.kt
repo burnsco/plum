@@ -113,6 +113,9 @@ fun MainNavHost(
             entry?.destination?.route?.startsWith("hub/") == true -> {
                 browseRailType = entry.arguments?.getString("libraryType")
             }
+            entry?.destination?.route == Routes.LIBRARY_TYPE -> {
+                browseRailType = entry.arguments?.getString("libraryType")
+            }
             entry?.destination?.route == Routes.LIBRARY_BROWSE -> {
                 val id = entry.arguments?.getInt("libraryId")
                 browseRailType = if (id != null) mainNavVm.railTypeForBrowseLibraryId(id) else null

@@ -771,18 +771,15 @@ private fun PlumRailButton(
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(42.dp)
-                .padding(
-                    start = if (railExpanded) 4.dp else 0.dp,
-                    end = if (railExpanded) 8.dp else 0.dp,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (railExpanded) Arrangement.Start else Arrangement.Center,
-        ) {
-            if (railExpanded) {
+        if (railExpanded) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .padding(start = 4.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start,
+            ) {
                 Box(
                     modifier = Modifier
                         .width(3.dp)
@@ -791,18 +788,16 @@ private fun PlumRailButton(
                         .background(if (item.selected) palette.accent else Color.Transparent),
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-            }
-            Icon(
-                imageVector = item.icon,
-                contentDescription = item.label,
-                tint = when {
-                    item.selected -> palette.accent
-                    isFocused -> palette.text
-                    else -> palette.muted
-                },
-                modifier = Modifier.size(iconSize),
-            )
-            if (railExpanded) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.label,
+                    tint = when {
+                        item.selected -> palette.accent
+                        isFocused -> palette.text
+                        else -> palette.muted
+                    },
+                    modifier = Modifier.size(iconSize),
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = item.label,
@@ -814,6 +809,39 @@ private fun PlumRailButton(
                         else -> palette.textSecondary
                     },
                     maxLines = 1,
+                )
+            }
+        } else {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(42.dp),
+            ) {
+                if (item.selected) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 2.dp)
+                                .width(3.dp)
+                                .height(20.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(palette.accent),
+                    )
+                }
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.label,
+                    tint = when {
+                        item.selected -> palette.accent
+                        isFocused -> palette.text
+                        else -> palette.muted
+                    },
+                    modifier =
+                        Modifier
+                            .align(Alignment.Center)
+                            .size(iconSize),
                 )
             }
         }

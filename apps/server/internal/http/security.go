@@ -60,12 +60,18 @@ func (l *AuthRateLimiter) Allow(key string, now time.Time) bool {
 			existing = append(existing, attempt)
 		}
 	}
+	// Prune the map key when all prior attempts have expired.
+	if len(existing) == 0 {
+		delete(l.attempts, key)
+		existing = nil
+	}
 	if len(existing) >= l.maxAttempts {
 		l.attempts[key] = existing
 		return false
 	}
 
-	l.attempts[key] = append(existing, now)
+	existing = append(existing, now)
+	l.attempts[key] = existing
 	return true
 }
 
@@ -134,15 +140,11 @@ func isLoopbackHTTPOrigin(origin string) bool {
 	}
 }
 
+// clientIP returns the client IP for rate limiting purposes.
+// It uses only RemoteAddr to prevent X-Forwarded-For spoofing attacks.
+// If the server is behind a trusted reverse proxy, the proxy should be
+// configured to rewrite RemoteAddr (e.g. via PROXY protocol or a shim).
 func clientIP(r *http.Request) string {
-	forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
-	if forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err == nil && host != "" {
 		return host

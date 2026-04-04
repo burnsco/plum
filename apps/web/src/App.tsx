@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { Component, type ErrorInfo, type ReactNode, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
 import { MainLayout } from "./components/MainLayout";
@@ -20,6 +20,40 @@ import { Onboarding } from "./pages/Onboarding";
 import { SearchPage } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { ShowDetail } from "./pages/ShowDetail";
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Uncaught render error:", error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="auth-screen">
+          <div className="auth-card">
+            <p style={{ fontWeight: 600, marginBottom: 8 }}>Something went wrong</p>
+            <p className="auth-muted" style={{ marginBottom: 16, fontFamily: "monospace", fontSize: 12 }}>
+              {(this.state.error as Error).message}
+            </p>
+            <button
+              className="auth-button"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
+          </div>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppRouter() {
   const { hasAdmin, user, loading } = useAuthState();
@@ -89,11 +123,13 @@ function App() {
   );
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AppRouter />
-      </AuthProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

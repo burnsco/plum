@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	_ "modernc.org/sqlite"
 
 	"plum/internal/arr"
@@ -88,9 +89,14 @@ func main() {
 
 	hub := ws.NewHub()
 	go hub.Run()
-	playbackSessions := transcoder.NewPlaybackSessionManager(filepath.Join(os.TempDir(), "plum_playback"), hub)
+	playbackRoot := filepath.Join(os.TempDir(), "plum_playback")
+	playbackSessions := transcoder.NewPlaybackSessionManager(playbackRoot, hub)
 	if err := transcoder.CleanupLegacyTranscodes(os.TempDir()); err != nil {
 		log.Printf("cleanup legacy transcodes: %v", err)
+	}
+	// Remove any session temp dirs left over from a previous (crashed) run.
+	if err := transcoder.CleanupOrphanedSessionDirs(playbackRoot, 0); err != nil {
+		log.Printf("cleanup orphaned session dirs: %v", err)
 	}
 
 	appCtx, appCancel := context.WithCancel(context.Background())
@@ -222,6 +228,7 @@ type mediaStackConfig struct {
 
 func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string, artDir string) http.Handler {
 	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
 	r.Use(httpapi.RequestLoggingMiddleware())
 	allowedOrigins := httpapi.AllowedOriginsFromEnv(os.Getenv("PLUM_ALLOWED_ORIGINS"))
 	r.Use(httpapi.CORSMiddleware(allowedOrigins))

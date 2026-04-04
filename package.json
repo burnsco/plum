@@ -24,10 +24,15 @@
     "android:install": "bash ./scripts/android-tv.sh :app:installDebug",
     "android:deploy": "bun run deploy-tv",
     "android:deploy:reinstall": "PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy.sh",
+    "android:deploy:install": "PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy.sh",
     "deploy-tv": "bash ./scripts/android-tv-deploy.sh",
+    "deploy-tv-install": "PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy.sh",
     "deploy-tv-reinstall": "PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy.sh",
+    "deploy-tv-reinstall-install": "PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy.sh",
     "deploy-tv-lr": "ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh",
+    "deploy-tv-lr-install": "PLUM_TV_NO_LAUNCH=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh",
     "deploy-tv-lr-reinstall": "PLUM_TV_REINSTALL=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh",
+    "deploy-tv-lr-reinstall-install": "PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh",
     "android:lint": "bash ./scripts/android-tv.sh :app:lintDebug"
   },
   "dependencies": {

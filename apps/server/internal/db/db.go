@@ -308,6 +308,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at DATETIME NOT NULL,
   expires_at DATETIME NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS libraries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1329,6 +1331,17 @@ CREATE TABLE IF NOT EXISTS quick_connect_codes (
 );
 CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_user_id ON quick_connect_codes(user_id);
 CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_expires_at ON quick_connect_codes(expires_at);
+`)
+			return err
+		},
+	},
+	{
+		version: 27,
+		name:    "sessions_expires_at_index",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 `)
 			return err
 		},
