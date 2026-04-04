@@ -492,7 +492,7 @@ func TestHandleStreamEmbeddedSubtitle_ServesConvertedVTT(t *testing.T) {
 	if err := HandleStreamEmbeddedSubtitle(rec, req, dbConn, mediaID, 7); err != nil {
 		t.Fatalf("HandleStreamEmbeddedSubtitle: %v", err)
 	}
-	if contentType := rec.Header().Get("Content-Type"); contentType != "text/vtt" {
+	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/vtt") {
 		t.Fatalf("expected text/vtt content type, got %q", contentType)
 	}
 	if body := rec.Body.String(); body != "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello world\n" {

@@ -31,7 +31,9 @@ func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 	}
 
 	if s.Format == "vtt" {
-		w.Header().Set("Content-Type", "text/vtt")
+		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+		// Sidecar file is tied to library path; reuse across playback sessions (If-None-Match via ServeFile).
+		w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
 		http.ServeFile(w, r, s.Path)
 		return nil
 	}
@@ -403,7 +405,9 @@ func tryServeEmbeddedSubtitleFromCache(w http.ResponseWriter, r *http.Request, c
 	if err != nil || fi.Size() == 0 {
 		return false
 	}
-	w.Header().Set("Content-Type", "text/vtt")
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	// Hash filename tracks source path + mtime + size + stream index; immutable until media changes.
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
 	http.ServeFile(w, r, cachePath)
 	return true
 }
@@ -422,6 +426,8 @@ func subtitleDemuxFormat(codec string) (format string, ok bool) {
 	case "mov_text", "text", "ttml", "tx3g", "hdmv_text_subtitle":
 		return "srt", true
 	case "eia_608", "eia_708":
+		return "srt", true
+	case "sami":
 		return "srt", true
 	default:
 		return "", false
@@ -580,7 +586,9 @@ func streamFFmpegWebVTT(w http.ResponseWriter, r *http.Request, args ...string) 
 }
 
 func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, tee io.Writer, args ...string) error {
-	w.Header().Set("Content-Type", "text/vtt")
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	// Response is generated on the fly (conversion or first-fill of disk cache); avoid storing partial streams.
+	w.Header().Set("Cache-Control", "no-store")
 	// -nostats keeps stderr usable on failure (we were truncating to a tail that was often progress only).
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
 	ffmpegArgs = append(ffmpegArgs, args...)

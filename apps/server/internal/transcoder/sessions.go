@@ -373,6 +373,28 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 	return nil
 }
 
+func serveVirtualHlsSubtitlePlaylist(w http.ResponseWriter, session *playbackSession, baseName string) error {
+	tracks := CollectHlsWebSubtitles(session.media)
+	var picked *HlsWebSubtitle
+	for i := range tracks {
+		if filepath.Base(tracks[i].PlaylistFile) == baseName {
+			picked = &tracks[i]
+			break
+		}
+	}
+	if picked == nil {
+		return db.ErrNotFound
+	}
+	session.mu.Lock()
+	dur := session.durationSeconds
+	session.mu.Unlock()
+	body := BuildWebVttSubtitleMediaPlaylist(picked.VTTPath, dur)
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Header().Set("Cache-Control", "no-store")
+	_, err := w.Write([]byte(body))
+	return err
+}
+
 func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Request, sessionID string, revisionNumber int, name string) error {
 	m.mu.RLock()
 	session := m.sessions[sessionID]
@@ -392,10 +414,17 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 	if cleanName == "/" || strings.Contains(cleanName, "..") {
 		return db.ErrNotFound
 	}
-	target := filepath.Join(revision.dir, cleanName)
+	relFromRoot := strings.TrimPrefix(cleanName, "/")
+	target := filepath.Join(revision.dir, relFromRoot)
 	if !strings.HasPrefix(target, revision.dir+string(filepath.Separator)) {
 		return db.ErrNotFound
 	}
+
+	baseName := filepath.Base(relFromRoot)
+	if _, _, ok := ParseVirtualSubtitlePlaylistName(baseName); ok {
+		return serveVirtualHlsSubtitlePlaylist(w, session, baseName)
+	}
+
 	if err := waitForPlaybackFile(r.Context(), target); err != nil {
 		if os.IsNotExist(err) {
 			return db.ErrNotFound
@@ -410,6 +439,22 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Content-Type", "video/mp2t")
 	}
 	w.Header().Set("Cache-Control", "no-store")
+
+	if filepath.Ext(target) == ".m3u8" && baseName == "index.m3u8" && relFromRoot == "index.m3u8" {
+		raw, err := os.ReadFile(target)
+		if err != nil {
+			return err
+		}
+		tracks := CollectHlsWebSubtitles(session.media)
+		out := InjectHlsSubtitleRenditions(string(raw), tracks)
+		if info, statErr := os.Stat(target); statErr == nil {
+			http.ServeContent(w, r, baseName, info.ModTime(), strings.NewReader(out))
+			return nil
+		}
+		_, err = w.Write([]byte(out))
+		return err
+	}
+
 	file, err := os.Open(target)
 	if err != nil {
 		return err

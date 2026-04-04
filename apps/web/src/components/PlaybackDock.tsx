@@ -20,12 +20,14 @@ import {
   resolvePosterUrl,
 } from "@plum/shared";
 import {
+  FastForward,
   Maximize2,
   Settings,
   Minimize2,
   Pause,
   Play,
   Repeat,
+  Rewind,
   SkipBack,
   SkipForward,
   Subtitles,
@@ -64,6 +66,7 @@ import {
   buildSubtitleCues,
   clearTextTrackCues,
   consumeSubtitleResponseWithPartialUpdates,
+  findHlsSubtitleTrackIndexForPlumKey,
   formatClock,
   formatHlsErrorMessage,
   formatTrackLabel,
@@ -125,6 +128,7 @@ const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
 /** Embedded tracks are transcoded server-side (often full-file ffmpeg); client abort was killing ffmpeg at ~45s. */
 const EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS = 600_000;
 const VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS = 5;
+const VIDEO_SKIP_BUTTON_SECONDS = 30;
 const UPNEXT_COUNTDOWN_SECONDS = 10;
 
 /* ── Track popover menu (shared between docked & fullscreen) ── */
@@ -423,6 +427,7 @@ export function PlaybackDock() {
     changeAudioTrack,
   } = usePlayer();
   const seekToRef = useRef(seekTo);
+  const seekSliderRef = useRef<HTMLInputElement | null>(null);
   const scrubWindowListenersRef = useRef<(() => void) | null>(null);
   const playbackQueue = queue ?? EMPTY_PLAYBACK_QUEUE;
   const playNextInQueueRef = useRef(playNextInQueue);
@@ -435,6 +440,11 @@ export function PlaybackDock() {
   useEffect(() => {
     seekToRef.current = seekTo;
   }, [seekTo]);
+
+  const removeScrubWindowListeners = useCallback(() => {
+    scrubWindowListenersRef.current?.();
+    scrubWindowListenersRef.current = null;
+  }, []);
 
   useEffect(
     () => () => {
@@ -764,6 +774,14 @@ export function PlaybackDock() {
       if (blockedSubtitleRetryKeysRef.current.has(trackKey)) return;
       const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
       if (!track) return;
+      if (videoSourceIsHls && hlsRef.current) {
+        const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, trackKey);
+        if (hlsIdx >= 0) {
+          setPendingSubtitleKey(null);
+          setSubtitleStatusMessage("");
+          return;
+        }
+      }
       if (track.supported === false) {
         setSubtitleStatusMessage("This subtitle track is unavailable.");
         setPendingSubtitleKey(null);
@@ -859,7 +877,12 @@ export function PlaybackDock() {
         subtitleLoadControllersRef.current.delete(trackKey);
       }
     },
-    [activeItem?.id, loadedSubtitleTracks, subtitleTrackRequests],
+    [
+      activeItem?.id,
+      loadedSubtitleTracks,
+      subtitleTrackRequests,
+      videoSourceIsHls,
+    ],
   );
 
   useEffect(() => {
@@ -874,7 +897,12 @@ export function PlaybackDock() {
       );
     }
     void ensureSubtitleTrackLoaded(selectedSubtitleKey);
-  }, [ensureSubtitleTrackLoaded, loadedSubtitleTracks, selectedSubtitleKey]);
+  }, [
+    ensureSubtitleTrackLoaded,
+    loadedSubtitleTracks,
+    selectedSubtitleKey,
+    subtitleReadyVersion,
+  ]);
 
   useEffect(() => {
     if (selectedSubtitleKey === "off") {
@@ -1382,6 +1410,17 @@ export function PlaybackDock() {
       return;
     }
 
+    if (videoSourceIsHls && hlsRef.current && selectedSubtitleKey !== "off") {
+      const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, selectedSubtitleKey);
+      if (hlsIdx >= 0) {
+        clearTextTrackCues(manualSubtitleTrackRef.current);
+        if (manualSubtitleTrackRef.current) {
+          manualSubtitleTrackRef.current.mode = "disabled";
+        }
+        return;
+      }
+    }
+
     let track = manualSubtitleTrackRef.current;
     if (manualSubtitleVideoRef.current !== video || track == null || !hasTextTrack(video, track)) {
       try {
@@ -1415,7 +1454,12 @@ export function PlaybackDock() {
       track.addCue(cue);
     }
     track.mode = "showing";
-  }, [loadedSubtitleTracks, selectedSubtitleKey, subtitleAppearance.position]);
+  }, [
+    loadedSubtitleTracks,
+    selectedSubtitleKey,
+    subtitleAppearance.position,
+    videoSourceIsHls,
+  ]);
 
   useEffect(() => {
     applyManagedSubtitleTrack();
@@ -1694,6 +1738,39 @@ export function PlaybackDock() {
     videoSourceUrl,
   ]);
 
+  useEffect(() => {
+    if (!videoSourceIsHls) return;
+    const hls = hlsRef.current;
+    if (!hls) return;
+    if (selectedSubtitleKey === "off") {
+      hls.subtitleTrack = -1;
+      return;
+    }
+    const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
+    if (idx >= 0) {
+      hls.subtitleTrack = idx;
+      hls.subtitleDisplay = true;
+    } else {
+      hls.subtitleTrack = -1;
+    }
+  }, [selectedSubtitleKey, subtitleReadyVersion, videoAttachmentVersion, videoSourceIsHls]);
+
+  useEffect(() => {
+    if (!videoSourceIsHls || selectedSubtitleKey === "off") return;
+    const hls = hlsRef.current;
+    if (!hls) return;
+    const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
+    if (idx < 0) return;
+    const controller = subtitleLoadControllersRef.current.get(selectedSubtitleKey);
+    if (controller) {
+      controller.abort();
+      subtitleLoadControllersRef.current.delete(selectedSubtitleKey);
+    }
+    setLoadedSubtitleTracks((current) =>
+      current.filter((candidate) => candidate.key !== selectedSubtitleKey),
+    );
+  }, [selectedSubtitleKey, subtitleReadyVersion, videoSourceIsHls]);
+
   /* ── Close track menus on outside click ── */
   useEffect(() => {
     if (!subtitleMenuOpen && !audioMenuOpen && !playerSettingsOpen) return;
@@ -1898,13 +1975,30 @@ export function PlaybackDock() {
   const [seekPreviewSec, setSeekPreviewSec] = useState<number | null>(null);
   /** True while pointer-dragging the seek slider (synchronous; avoids seek spam before pointerup). */
   const seekScrubActiveRef = useRef(false);
-  /** Latest slider seconds during scrub; read on pointerup for a single committed seek. */
+  /** Latest slider seconds during scrub; fallback if DOM value is not yet readable. */
   const seekPreviewValueRef = useRef<number | null>(null);
 
-  const removeScrubWindowListeners = useCallback(() => {
-    scrubWindowListenersRef.current?.();
-    scrubWindowListenersRef.current = null;
-  }, []);
+  const finishSeekScrub = useCallback(
+    (input: HTMLInputElement | null) => {
+      if (!seekScrubActiveRef.current) return;
+      seekScrubActiveRef.current = false;
+      removeScrubWindowListeners();
+      const el = input ?? seekSliderRef.current;
+      const parsed = el ? Number(el.value) : NaN;
+      const preview = seekPreviewValueRef.current;
+      seekPreviewValueRef.current = null;
+      setSeekPreviewSec(null);
+      const v = Number.isFinite(parsed)
+        ? parsed
+        : preview != null && Number.isFinite(preview)
+          ? preview
+          : null;
+      if (v != null && Number.isFinite(v)) {
+        seekToRef.current(v);
+      }
+    },
+    [removeScrubWindowListeners],
+  );
 
   const handleSeekSliderPointerDown = useCallback(
     (e: PointerEvent<HTMLInputElement>) => {
@@ -1916,51 +2010,61 @@ export function PlaybackDock() {
       removeScrubWindowListeners();
 
       seekScrubActiveRef.current = true;
-      const mediaEl = (isVideo ? videoRef.current : audioRef.current) as HTMLMediaElement | null;
-      const t =
-        mediaEl != null && Number.isFinite(mediaEl.currentTime)
-          ? mediaEl.currentTime
-          : playbackState.currentTime;
-      seekPreviewValueRef.current = t;
-      setSeekPreviewSec(t);
+      const pointerId = e.pointerId;
 
-      const finishScrub = () => {
-        if (seekScrubActiveRef.current) {
-          const v = seekPreviewValueRef.current;
-          if (v != null && Number.isFinite(v)) {
-            seekToRef.current(v);
-          }
-        }
-        seekScrubActiveRef.current = false;
-        seekPreviewValueRef.current = null;
-        setSeekPreviewSec(null);
-        window.removeEventListener("pointerup", finishScrub);
-        window.removeEventListener("pointercancel", finishScrub);
-        scrubWindowListenersRef.current = null;
+      const onWindowPointerEnd = (ev: Event) => {
+        if (!(ev instanceof PointerEvent) || ev.pointerId !== pointerId) return;
+        removeScrubWindowListeners();
+        queueMicrotask(() => {
+          finishSeekScrub(seekSliderRef.current);
+        });
       };
 
+      window.addEventListener("pointerup", onWindowPointerEnd);
+      window.addEventListener("pointercancel", onWindowPointerEnd);
       scrubWindowListenersRef.current = () => {
-        window.removeEventListener("pointerup", finishScrub);
-        window.removeEventListener("pointercancel", finishScrub);
+        window.removeEventListener("pointerup", onWindowPointerEnd);
+        window.removeEventListener("pointercancel", onWindowPointerEnd);
       };
-
-      window.addEventListener("pointerup", finishScrub);
-      window.addEventListener("pointercancel", finishScrub);
     },
-    [isVideo, playbackState.currentTime, removeScrubWindowListeners],
+    [finishSeekScrub, removeScrubWindowListeners],
   );
 
   const handleSeekSliderChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const next = Number(event.target.value);
+    (event: ChangeEvent<HTMLInputElement> | { currentTarget: HTMLInputElement }) => {
+      const next = Number(event.currentTarget.value);
+      if (!Number.isFinite(next)) return;
       seekPreviewValueRef.current = next;
       setSeekPreviewSec(next);
-      /* During pointer scrub, commit once on pointerup — rapid seeks confuse MSE/HLS. */
+      /* During pointer scrub, commit once on pointer release — rapid seeks confuse MSE/HLS. */
       if (!seekScrubActiveRef.current) {
         seekToRef.current(next);
       }
     },
     [],
+  );
+
+  const seekRelativeSeconds = useCallback(
+    (delta: number) => {
+      removeScrubWindowListeners();
+      seekScrubActiveRef.current = false;
+      seekPreviewValueRef.current = null;
+      setSeekPreviewSec(null);
+      const cap =
+        progressMax > 0 && Number.isFinite(progressMax) ? progressMax : Number.POSITIVE_INFINITY;
+      const el = videoRef.current;
+      const t =
+        el != null && Number.isFinite(el.currentTime) ? el.currentTime : playbackState.currentTime;
+      seekTo(Math.max(0, Math.min(cap, t + delta)));
+      resetHideTimer();
+    },
+    [
+      playbackState.currentTime,
+      progressMax,
+      removeScrubWindowListeners,
+      resetHideTimer,
+      seekTo,
+    ],
   );
 
   useEffect(() => {
@@ -2224,6 +2328,7 @@ export function PlaybackDock() {
           {/* Seek bar full-width */}
           <div className="fullscreen-player__seek">
             <input
+              ref={seekSliderRef}
               type="range"
               className="fullscreen-player__seek-slider"
               aria-label="Seek playback"
@@ -2233,6 +2338,7 @@ export function PlaybackDock() {
               value={seekSliderDisplayValue}
               onPointerDown={handleSeekSliderPointerDown}
               onChange={handleSeekSliderChange}
+              onInput={handleSeekSliderChange}
             />
           </div>
 
@@ -2251,6 +2357,24 @@ export function PlaybackDock() {
                 ) : (
                   <Play className="size-[1.125rem]" strokeWidth={2.25} />
                 )}
+              </button>
+              <button
+                type="button"
+                className="fullscreen-player__ctrl-btn"
+                onClick={() => seekRelativeSeconds(-VIDEO_SKIP_BUTTON_SECONDS)}
+                aria-label={`Seek back ${VIDEO_SKIP_BUTTON_SECONDS} seconds`}
+                title={`Back ${VIDEO_SKIP_BUTTON_SECONDS}s`}
+              >
+                <Rewind className="size-[1.125rem]" strokeWidth={2.25} />
+              </button>
+              <button
+                type="button"
+                className="fullscreen-player__ctrl-btn"
+                onClick={() => seekRelativeSeconds(VIDEO_SKIP_BUTTON_SECONDS)}
+                aria-label={`Seek forward ${VIDEO_SKIP_BUTTON_SECONDS} seconds`}
+                title={`Forward ${VIDEO_SKIP_BUTTON_SECONDS}s`}
+              >
+                <FastForward className="size-[1.125rem]" strokeWidth={2.25} />
               </button>
               <span className="fullscreen-player__time">
                 {formatClock(seekTimeLabelSec)} / {formatClock(progressMax)}

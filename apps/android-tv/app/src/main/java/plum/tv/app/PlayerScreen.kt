@@ -104,7 +104,7 @@ import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.plumBorder
 
-private const val CONTROLS_HIDE_DELAY_MS = 5_000L
+private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 
 @UnstableApi
 @Composable

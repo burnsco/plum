@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { consumeSubtitleResponseWithPartialUpdates, streamingVttPrefixForParse } from "./playerMedia";
+import type Hls from "hls.js";
+import {
+  consumeSubtitleResponseWithPartialUpdates,
+  findHlsSubtitleTrackIndexForPlumKey,
+  plumHlsSubtitlePlaylistFileForTrackKey,
+  streamingVttPrefixForParse,
+} from "./playerMedia";
 
 describe("streamingVttPrefixForParse", () => {
   it("returns the full accumulated body while streaming (first cue may lack trailing blank line)", () => {
@@ -17,6 +23,24 @@ describe("streamingVttPrefixForParse", () => {
   it("returns full body when the stream is done", () => {
     const full = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n";
     expect(streamingVttPrefixForParse(full, true)).toBe(full);
+  });
+});
+
+describe("plumHlsSubtitlePlaylistFileForTrackKey", () => {
+  it("maps emb and ext keys to virtual playlist filenames", () => {
+    expect(plumHlsSubtitlePlaylistFileForTrackKey("emb-3")).toBe("plum_subs_emb_3.m3u8");
+    expect(plumHlsSubtitlePlaylistFileForTrackKey("ext-12")).toBe("plum_subs_ext_12.m3u8");
+    expect(plumHlsSubtitlePlaylistFileForTrackKey("off")).toBeNull();
+  });
+});
+
+describe("findHlsSubtitleTrackIndexForPlumKey", () => {
+  it("matches hls subtitle track url containing the virtual playlist name", () => {
+    const hls = {
+      subtitleTracks: [{ url: "https://x.test/sessions/a/revisions/1/plum_subs_emb_2.m3u8" }],
+    } as unknown as Hls;
+    expect(findHlsSubtitleTrackIndexForPlumKey(hls, "emb-2")).toBe(0);
+    expect(findHlsSubtitleTrackIndexForPlumKey(hls, "emb-9")).toBe(-1);
   });
 });
 

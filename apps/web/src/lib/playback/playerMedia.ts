@@ -470,6 +470,26 @@ export function hasTextTrack(video: HTMLVideoElement, track: TextTrack | null): 
   return false;
 }
 
+/** Virtual media playlist filename served under the playback revision (matches server `plum_subs_*` names). */
+export function plumHlsSubtitlePlaylistFileForTrackKey(trackKey: string): string | null {
+  if (trackKey === "off") return null;
+  const match = /^(emb|ext)-(\d+)$/.exec(trackKey);
+  if (!match) return null;
+  return `plum_subs_${match[1]}_${match[2]}.m3u8`;
+}
+
+/** Resolves hls.js subtitle track index for a Plum menu key when the master lists our virtual playlists. */
+export function findHlsSubtitleTrackIndexForPlumKey(hls: Hls, trackKey: string): number {
+  const wantFile = plumHlsSubtitlePlaylistFileForTrackKey(trackKey);
+  if (!wantFile) return -1;
+  const tracks = hls.subtitleTracks ?? [];
+  for (let i = 0; i < tracks.length; i++) {
+    const url = tracks[i]?.url ?? "";
+    if (url.includes(wantFile)) return i;
+  }
+  return -1;
+}
+
 export function getSeasonEpisodeLabel(item: MediaItem): string | null {
   const season = item.season ?? 0;
   const episode = item.episode ?? 0;
