@@ -7,6 +7,7 @@ import io.mockk.verify
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import plum.tv.core.network.LibraryScanStatusJson
 import plum.tv.core.network.LibraryScanUpdateWsEventJson
 
 class LibraryCatalogRefreshCoordinatorTest {
@@ -44,5 +45,15 @@ class LibraryCatalogRefreshCoordinatorTest {
         val json = """{"type":"library_scan_update","scan":{"libraryId":1,"phase":"idle"}}"""
         assertTrue(coordinator.handleWebSocketText(adapter, json))
         verify(exactly = 0) { browse.invalidateLibrariesCache() }
+    }
+
+    @Test
+    fun applyScanStatusFromRest_matchesWebSocketScanningPath() {
+        val browse = mockk<BrowseRepository>(relaxed = true)
+        val coordinator = LibraryCatalogRefreshCoordinator(browse)
+        coordinator.applyScanStatusFromRest(LibraryScanStatusJson(libraryId = 1, phase = "scanning"))
+        verify(exactly = 1) { browse.invalidateLibrariesCache() }
+        coordinator.applyScanStatusFromRest(LibraryScanStatusJson(libraryId = 1, phase = "scanning"))
+        verify(exactly = 1) { browse.invalidateLibrariesCache() }
     }
 }

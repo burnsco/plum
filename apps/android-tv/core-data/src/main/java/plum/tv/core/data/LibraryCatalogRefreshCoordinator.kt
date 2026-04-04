@@ -8,6 +8,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import plum.tv.core.network.LibraryScanStatusJson
 import plum.tv.core.network.LibraryScanUpdateWsEventJson
 
 /**
@@ -38,6 +39,14 @@ class LibraryCatalogRefreshCoordinator @Inject constructor(
         synchronized(lock) {
             lastByLibrary.clear()
         }
+    }
+
+    /**
+     * Applies the same logic as [handleWebSocketText] for [GET /api/libraries/{id}/scan] poll results
+     * so catalog invalidation still runs when WebSocket updates are missed (TV networks / reconnects).
+     */
+    fun applyScanStatusFromRest(scan: LibraryScanStatusJson) {
+        onLibraryScanStatus(scan.toSnapshot())
     }
 
     /**

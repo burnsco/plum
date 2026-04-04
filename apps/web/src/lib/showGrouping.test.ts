@@ -112,6 +112,6 @@ describe("groupMediaByShow", () => {
     ]);
 
     expect(groups[0]?.showVoteAverage).toBe(8.2);
-    expect(groups[0]?.voteAverage).toBeUndefined();
+    expect(groups[0]?.showImdbRating).toBeUndefined();
   });
 });

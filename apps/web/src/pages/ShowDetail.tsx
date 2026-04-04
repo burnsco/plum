@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
@@ -33,6 +33,7 @@ export function ShowDetail() {
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
+  const activeSeasonPillRef = useRef<HTMLButtonElement | null>(null);
 
   const episodes = useMemo<MediaItem[]>(() => {
     if (!episodesData?.seasons) return [];
@@ -71,11 +72,10 @@ export function ShowDetail() {
       : (showKey ?? "Show"));
   const showImdbRating =
     details?.imdb_rating ??
-    episodes.find((episode) => (episode.imdb_rating ?? 0) > 0)?.imdb_rating;
+    episodes.find((episode) => (episode.show_imdb_rating ?? 0) > 0)?.show_imdb_rating;
   const showTmdbRating =
     details?.vote_average ??
-    episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average ??
-    episodes.find((episode) => (episode.vote_average ?? 0) > 0)?.vote_average;
+    episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average;
 
   useEffect(() => {
     if (episodesBySeason.seasons.length === 0) {
@@ -88,6 +88,14 @@ export function ShowDetail() {
         : episodesBySeason.seasons[0],
     );
   }, [episodesBySeason.seasons]);
+
+  useLayoutEffect(() => {
+    activeSeasonPillRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeSeason]);
 
   if (libraryId == null || showKey == null) {
     return (
@@ -239,6 +247,7 @@ export function ShowDetail() {
               return (
                 <button
                   key={seasonNum}
+                  ref={isActive ? activeSeasonPillRef : undefined}
                   type="button"
                   role="tab"
                   aria-selected={isActive}

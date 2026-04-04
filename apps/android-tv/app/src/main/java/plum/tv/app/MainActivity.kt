@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import plum.tv.core.data.LibraryScanStatusPoller
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.data.SessionPreferences
 import plum.tv.core.ui.PlumTvTheme
@@ -24,6 +25,9 @@ class MainActivity : ComponentActivity() {
     lateinit var webSocketManager: PlumWebSocketManager
 
     @Inject
+    lateinit var libraryScanStatusPoller: LibraryScanStatusPoller
+
+    @Inject
     lateinit var sessionPreferences: SessionPreferences
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,6 +37,7 @@ class MainActivity : ComponentActivity() {
             PlumTvTheme(serverBaseUrl = serverUrl ?: "") {
                 PlumTvRoot(
                     webSocketManager = webSocketManager,
+                    libraryScanStatusPoller = libraryScanStatusPoller,
                     defaultServerUrl = BuildConfig.DEFAULT_SERVER_URL,
                     defaultAdminEmail = BuildConfig.DEFAULT_ADMIN_EMAIL,
                     defaultAdminPassword = BuildConfig.DEFAULT_ADMIN_PASSWORD,
@@ -46,6 +51,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PlumTvRoot(
     webSocketManager: PlumWebSocketManager,
+    libraryScanStatusPoller: LibraryScanStatusPoller,
     defaultServerUrl: String,
     defaultAdminEmail: String,
     defaultAdminPassword: String,
@@ -61,6 +67,7 @@ private fun PlumTvRoot(
     } else {
         MainNavHost(
             webSocketManager = webSocketManager,
+            libraryScanStatusPoller = libraryScanStatusPoller,
             defaultServerUrl = defaultServerUrl,
             onLogout = {
                 webSocketManager.stop()

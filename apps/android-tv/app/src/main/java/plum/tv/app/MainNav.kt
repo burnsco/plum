@@ -47,6 +47,7 @@ import androidx.navigation.navArgument
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import plum.tv.core.data.LibraryScanStatusPoller
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
@@ -90,6 +91,7 @@ private object Routes {
 @Composable
 fun MainNavHost(
     webSocketManager: PlumWebSocketManager,
+    libraryScanStatusPoller: LibraryScanStatusPoller,
     defaultServerUrl: String,
     onLogout: () -> Unit,
 ) {
@@ -132,6 +134,11 @@ fun MainNavHost(
     DisposableEffect(webSocketManager) {
         webSocketManager.start(scope)
         onDispose { webSocketManager.stop() }
+    }
+
+    DisposableEffect(libraryScanStatusPoller) {
+        libraryScanStatusPoller.start(scope)
+        onDispose { libraryScanStatusPoller.stop() }
     }
 
     LaunchedEffect(Unit) {

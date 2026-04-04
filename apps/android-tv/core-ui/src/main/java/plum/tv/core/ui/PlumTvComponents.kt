@@ -440,6 +440,8 @@ fun PlumPosterCard(
      * that overflow, so the first column beside the side rail looks cropped. Use `1f` there.
      */
     focusedScale: Float? = null,
+    /** Library thumbnails can be wider than 2:3; crop keeps the frame edge-aligned with the artwork. */
+    imageContentScale: ContentScale = ContentScale.Fit,
 ) {
     val palette = PlumTheme.palette
     val metrics = PlumTheme.metrics
@@ -545,7 +547,7 @@ fun PlumPosterCard(
                         model = posterRequest,
                         contentDescription = title,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
+                        contentScale = imageContentScale,
                     )
                 } else {
                     Box(

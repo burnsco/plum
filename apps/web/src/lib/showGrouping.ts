@@ -46,7 +46,7 @@ export type ShowGroup = {
   backdropPath: string | undefined;
   backdropUrl: string | undefined;
   showVoteAverage: number | undefined;
-  voteAverage: number | undefined;
+  showImdbRating: number | undefined;
   unmatchedCount: number;
   localCount: number;
   identifiedCount: number;
@@ -80,7 +80,6 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
     const first = episodes[0];
     const posterEpisode = episodes.find((episode) => episode.show_poster_path || episode.poster_path);
     const backdropEpisode = episodes.find((episode) => episode.backdrop_path);
-    const ratingEpisode = episodes.find((episode) => (episode.vote_average ?? 0) > 0);
     groups.push({
       showKey,
       showTitle: getShowName(first.title),
@@ -89,7 +88,7 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       backdropPath: backdropEpisode?.backdrop_path,
       backdropUrl: backdropEpisode?.backdrop_url,
       showVoteAverage: episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average,
-      voteAverage: ratingEpisode?.vote_average,
+      showImdbRating: episodes.find((episode) => (episode.show_imdb_rating ?? 0) > 0)?.show_imdb_rating,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
       localCount: episodes.filter(
         (episode) => episode.match_status === "local" && !episodeHasProviderIdentity(episode),

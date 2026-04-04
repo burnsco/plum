@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -67,6 +68,9 @@ fun HomeRoute(
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
+    LaunchedEffect(Unit) {
+        viewModel.onAppear()
+    }
     val state by viewModel.state.collectAsState()
     when (val s = state) {
         is HomeUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

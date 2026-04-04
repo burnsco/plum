@@ -719,16 +719,11 @@ func (p *Pipeline) GetEpisode(ctx context.Context, provider, seriesID string, se
 		if prov == nil {
 			return nil, nil
 		}
-		ep, err := prov.GetEpisode(ctx, seriesID, season, episode)
-		if err == nil && ep != nil {
-			p.enrichIMDbRating(ctx, ep)
-		}
-		return ep, err
+		return prov.GetEpisode(ctx, seriesID, season, episode)
 	}
 	for _, prov := range p.tvProviders {
 		ep, err := prov.GetEpisode(ctx, seriesID, season, episode)
 		if err == nil && ep != nil {
-			p.enrichIMDbRating(ctx, ep)
 			return ep, nil
 		}
 	}

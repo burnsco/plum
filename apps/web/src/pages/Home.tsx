@@ -122,18 +122,12 @@ function getGroupIdentifyState(group: ShowGroup): ItemIdentifyState {
   return undefined;
 }
 
-function getPreferredEpisodeRating(group: ShowGroup) {
+function getShowGroupRating(group: ShowGroup) {
+  if ((group.showImdbRating ?? 0) > 0) {
+    return { label: "IMDb", value: group.showImdbRating };
+  }
   if ((group.showVoteAverage ?? 0) > 0) {
     return { label: "TMDb", value: group.showVoteAverage };
-  }
-  const episodes = group.episodes;
-  const imdbEpisode = episodes.find((episode) => (episode.imdb_rating ?? 0) > 0);
-  if (imdbEpisode?.imdb_rating) {
-    return { label: "IMDb", value: imdbEpisode.imdb_rating };
-  }
-  const tmdbEpisode = episodes.find((episode) => (episode.vote_average ?? 0) > 0);
-  if (tmdbEpisode?.vote_average) {
-    return { label: "TMDb", value: tmdbEpisode.vote_average };
   }
   return { label: undefined, value: undefined };
 }
@@ -282,7 +276,7 @@ export function Home() {
         !needsMetadataReview &&
         !isActiveIdentifyState(identifyState) &&
         (identifyState === "failed" || selectedLibraryCanShowFailure);
-      const rating = getPreferredEpisodeRating(group);
+      const rating = getShowGroupRating(group);
 
       return [
         {

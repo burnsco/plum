@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.network.LibraryJson
 
 sealed interface LibraryListUiState {
@@ -20,6 +21,7 @@ sealed interface LibraryListUiState {
 @HiltViewModel
 class LibraryListViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<LibraryListUiState>(LibraryListUiState.Loading)
@@ -27,6 +29,11 @@ class LibraryListViewModel @Inject constructor(
 
     init {
         loadInitial()
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect {
+                refresh()
+            }
+        }
     }
 
     /** Uses cached libraries when available (e.g. after rail shortcut). */

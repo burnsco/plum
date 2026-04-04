@@ -92,6 +92,8 @@ export interface MediaItem {
   show_poster_url?: string;
   release_date?: string;
   show_vote_average?: number;
+  /** Series IMDb user rating from `shows` (TV/anime browse rows only). */
+  show_imdb_rating?: number;
   vote_average?: number;
   imdb_id?: string;
   imdb_rating?: number;
@@ -147,6 +149,7 @@ export const MediaItemSchema = Schema.Struct({
   show_poster_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
   show_vote_average: Schema.optional(Schema.Number),
+  show_imdb_rating: Schema.optional(Schema.Number),
   vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
@@ -195,6 +198,8 @@ export interface LibraryBrowseItem {
   show_poster_url?: string;
   release_date?: string;
   show_vote_average?: number;
+  /** Series IMDb user rating from `shows` (TV/anime browse rows only). */
+  show_imdb_rating?: number;
   vote_average?: number;
   imdb_id?: string;
   imdb_rating?: number;
@@ -241,6 +246,7 @@ export const LibraryBrowseItemSchema = Schema.Struct({
   show_poster_url: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
   show_vote_average: Schema.optional(Schema.Number),
+  show_imdb_rating: Schema.optional(Schema.Number),
   vote_average: Schema.optional(Schema.Number),
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),

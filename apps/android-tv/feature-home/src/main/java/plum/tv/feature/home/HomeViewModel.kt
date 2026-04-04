@@ -33,17 +33,28 @@ class HomeViewModel @Inject constructor(
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     init {
-        refresh()
         viewModelScope.launch {
             catalogRefreshCoordinator.catalogRefreshEvents.collect {
-                refresh()
+                refresh(showLoading = false)
             }
         }
     }
 
-    fun refresh() {
+    /**
+     * Called when the Home destination is composed (including after returning from Library/Details).
+     * The ViewModel is scoped to the Home back stack entry, so without this the dashboard JSON and
+     * Coil URLs stay frozen at the first fetch while browse screens load fresher metadata.
+     */
+    fun onAppear() {
+        refresh(showLoading = _state.value !is HomeUiState.Ready)
+    }
+
+    fun refresh(showLoading: Boolean = true) {
         viewModelScope.launch {
-            _state.value = HomeUiState.Loading
+            val hadReadyDashboard = _state.value is HomeUiState.Ready
+            if (showLoading || !hadReadyDashboard) {
+                _state.value = HomeUiState.Loading
+            }
             browseRepository.homeDashboard().fold(
                 onSuccess = { dash: HomeDashboardJson ->
                     val mergedRecentlyAdded =
@@ -60,6 +71,9 @@ class HomeViewModel @Inject constructor(
                     )
                 },
                 onFailure = { e ->
+                    if (hadReadyDashboard && !showLoading) {
+                        return@fold
+                    }
                     _state.value = HomeUiState.Error(e.message ?: "Failed to load home")
                 },
             )

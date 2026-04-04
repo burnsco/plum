@@ -1054,6 +1054,28 @@ func TestListIdentifiableByLibrary_IncludesRowsWithMetadata(t *testing.T) {
 	}
 }
 
+func TestListIdentifiableByLibrary_MovieOmitsIdentifiedWithoutImdb(t *testing.T) {
+	db := newTestDB(t)
+	movieLibID := getLibraryID(t, db, "movie")
+	path := "/movies/identified-no-imdb.mkv"
+	_, err := db.Exec(
+		`INSERT INTO movies (library_id, title, path, duration, match_status, tmdb_id, poster_path, imdb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		movieLibID, "Some Film", path, 100, MatchStatusIdentified, 999, "https://example.com/poster.jpg", "",
+	)
+	if err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	rows, err := ListIdentifiableByLibrary(db, movieLibID)
+	if err != nil {
+		t.Fatalf("list rows: %v", err)
+	}
+	for _, r := range rows {
+		if r.Path == path {
+			t.Fatalf("identified movie with tmdb+poster should not be listed solely due to missing imdb_id")
+		}
+	}
+}
+
 func TestHandleScanLibrary_SkipsMovieExtrasAndSamples(t *testing.T) {
 	db := newTestDB(t)
 	movieLibID := getLibraryID(t, db, "movie")

@@ -417,6 +417,19 @@ export const queryKeys = {
   transcodingSettings: ["transcoding-settings"] as const,
 };
 
+/**
+ * Refetch library browse, home, and per-title movie/show detail caches for one library.
+ * Used when scan status changes over WebSocket *and* when status is refreshed via polling so
+ * behavior stays the same if `/ws` is down or stale after deploy.
+ */
+export function invalidateLibraryCatalogQueries(queryClient: QueryClient, libraryId: number): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+  void queryClient.invalidateQueries({ queryKey: ["show-details", libraryId] });
+  void queryClient.invalidateQueries({ queryKey: ["movie-details", libraryId] });
+}
+
 /** Refetch Discover shelves, search, and title detail queries (e.g. after downloads or library scans). */
 export function invalidateDiscoverRelatedQueries(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.discover });

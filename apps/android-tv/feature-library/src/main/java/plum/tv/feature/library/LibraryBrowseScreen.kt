@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -49,7 +50,7 @@ fun LibraryBrowseRoute(
     val gridState = rememberLazyGridState()
     val firstPosterFocus = remember { FocusRequester() }
     val metrics = PlumTheme.metrics
-    val minCell = metrics.posterCompactWidth + metrics.cardGap + 6.dp
+    val minCell = metrics.posterCompactWidth + metrics.cardGap
 
     // Observe scroll and UI state in one snapshotFlow so row counts / flags stay in sync
     // with the visible index (LaunchedEffect(gridState) alone would freeze `state` in the collector).
@@ -111,8 +112,8 @@ fun LibraryBrowseRoute(
             state = gridState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PlumScreenPadding(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
+            verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 PlumScreenTitle(
@@ -184,11 +185,12 @@ private fun BrowseMoviePosterCard(
                 ?: item.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: item.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
-        modifier = modifier.padding(2.dp),
+        modifier = modifier,
         compact = true,
         progressPercent = item.progressPercent,
         watched = item.completed == true,
         focusedScale = 1f,
+        imageContentScale = ContentScale.Crop,
     )
 }
 
@@ -217,9 +219,10 @@ private fun BrowseShowPosterCard(
                 ?: ep.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) }
                 ?: ep.thumbnailPath?.takeIf { it.isNotBlank() }?.let { resolveImageUrl(serverBase, it) },
         onClick = onClick,
-        modifier = modifier.padding(2.dp),
+        modifier = modifier,
         compact = true,
         watched = unwatched == 0 && row.episodes.isNotEmpty(),
         focusedScale = 1f,
+        imageContentScale = ContentScale.Crop,
     )
 }

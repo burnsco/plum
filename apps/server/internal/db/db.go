@@ -150,6 +150,7 @@ type MediaItem struct {
 	ShowPosterURL             string               `json:"show_poster_url,omitempty"`
 	ReleaseDate               string               `json:"release_date"`
 	ShowVoteAverage           float64              `json:"show_vote_average,omitempty"`
+	ShowIMDbRating            float64              `json:"show_imdb_rating,omitempty"`
 	VoteAverage               float64              `json:"vote_average"`
 	IMDbID                    string               `json:"imdb_id,omitempty"`
 	IMDbRating                float64              `json:"imdb_rating,omitempty"`
@@ -1692,6 +1693,9 @@ type EpisodeIdentifyGroup struct {
 
 // ListIdentifiableByLibrary returns non-music media rows that still need identification
 // or metadata repair (for example, missing TMDB IDs or poster art).
+//
+// Movies: missing imdb_id alone does not keep a TMDB-matched row in the queue. Otherwise
+// libraries accrue endless "refresh" work that starves new files and duplicates TMDB calls.
 func ListIdentifiableByLibrary(db *sql.DB, libraryID int) ([]IdentificationRow, error) {
 	var typ string
 	if err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ); err != nil {
@@ -1727,8 +1731,7 @@ WHERE m.library_id = ?
   AND (
     COALESCE(m.match_status, '') != ? OR
     COALESCE(m.tmdb_id, 0) = 0 OR
-    COALESCE(m.poster_path, '') = '' OR
-    COALESCE(m.imdb_id, '') = ''
+    COALESCE(m.poster_path, '') = ''
   )`
 		args = []interface{}{libraryID, MatchStatusIdentified}
 	}
@@ -2558,7 +2561,7 @@ JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
 WHERE m.library_id = ? AND COALESCE(m.missing_since, '') = ''
 ORDER BY g.id`
 	case "tv_episodes", "anime_episodes":
-		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
+		q = `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
@@ -2600,7 +2603,7 @@ ORDER BY g.id`
 		m.LibraryID = libraryID
 		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
 		var showPosterPath sql.NullString
-		var voteAvg, showVoteAvg, imdbRating sql.NullFloat64
+		var voteAvg, showVoteAvg, showImdbAvg, imdbRating sql.NullFloat64
 		var tmdbID sql.NullInt64
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
@@ -2623,7 +2626,7 @@ ORDER BY g.id`
 				m.PosterPath = musicPosterPath.String
 			}
 		case "tv_episodes", "anime_episodes":
-			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
+			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg, &showImdbAvg)
 			m.TMDBID = int(tmdbID.Int64)
 			if tvdbID.Valid {
 				m.TVDBID = tvdbID.String
@@ -2663,6 +2666,9 @@ ORDER BY g.id`
 			}
 			if showVoteAvg.Valid {
 				m.ShowVoteAverage = showVoteAvg.Float64
+			}
+			if showImdbAvg.Valid {
+				m.ShowIMDbRating = showImdbAvg.Float64
 			}
 		default:
 			err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating)
@@ -2718,7 +2724,7 @@ func queryMediaByShowID(db *sql.DB, libraryID int, kind string, showID int) ([]M
 	if table != "tv_episodes" && table != "anime_episodes" {
 		return nil, nil
 	}
-	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0)
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
@@ -2736,12 +2742,12 @@ WHERE m.library_id = ? AND m.show_id = ? AND COALESCE(m.missing_since, '') = ''
 		m.LibraryID = libraryID
 		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
 		var showPosterPath sql.NullString
-		var voteAvg, showVoteAvg, imdbRating sql.NullFloat64
+		var voteAvg, showVoteAvg, showImdbAvg, imdbRating sql.NullFloat64
 		var tmdbID sql.NullInt64
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
 		var metadataConfirmed sql.NullBool
-		err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg)
+		err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg, &showImdbAvg)
 		if err != nil {
 			return nil, err
 		}
@@ -2784,6 +2790,9 @@ WHERE m.library_id = ? AND m.show_id = ? AND COALESCE(m.missing_since, '') = ''
 		}
 		if showVoteAvg.Valid {
 			m.ShowVoteAverage = showVoteAvg.Float64
+		}
+		if showImdbAvg.Valid {
+			m.ShowIMDbRating = showImdbAvg.Float64
 		}
 		if matchStatus.Valid {
 			m.MatchStatus = matchStatus.String

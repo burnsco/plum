@@ -203,6 +203,7 @@ type libraryBrowseItemResponse struct {
 	ShowPosterURL        string  `json:"show_poster_url,omitempty"`
 	ReleaseDate          string  `json:"release_date,omitempty"`
 	ShowVoteAverage      float64 `json:"show_vote_average,omitempty"`
+	ShowIMDbRating       float64 `json:"show_imdb_rating,omitempty"`
 	VoteAverage          float64 `json:"vote_average,omitempty"`
 	IMDbID               string  `json:"imdb_id,omitempty"`
 	IMDbRating           float64 `json:"imdb_rating,omitempty"`
@@ -237,7 +238,7 @@ type libraryMediaPageResponse struct {
 }
 
 func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse {
-	return libraryBrowseItemResponse{
+	resp := libraryBrowseItemResponse{
 		ID:                   item.ID,
 		LibraryID:            item.LibraryID,
 		Title:                item.Title,
@@ -257,6 +258,7 @@ func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse
 		ShowPosterURL:        item.ShowPosterURL,
 		ReleaseDate:          item.ReleaseDate,
 		ShowVoteAverage:      item.ShowVoteAverage,
+		ShowIMDbRating:       item.ShowIMDbRating,
 		VoteAverage:          item.VoteAverage,
 		IMDbID:               item.IMDbID,
 		IMDbRating:           item.IMDbRating,
@@ -282,6 +284,13 @@ func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse
 		IntroStartSeconds:    item.IntroStartSeconds,
 		IntroEndSeconds:      item.IntroEndSeconds,
 	}
+	if item.Type == db.LibraryTypeTV || item.Type == db.LibraryTypeAnime {
+		// Ratings apply to the series/movie identity, not individual episodes.
+		resp.VoteAverage = 0
+		resp.IMDbRating = 0
+		resp.IMDbID = ""
+	}
+	return resp
 }
 
 func defaultLibraryPlaybackPreferences(libraryType string) (preferredAudio string, preferredSubtitle string, subtitlesEnabled bool) {

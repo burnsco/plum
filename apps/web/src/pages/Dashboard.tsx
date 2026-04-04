@@ -3,7 +3,7 @@ import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
-import { getPreferredMovieRating } from "@/lib/ratings";
+import { getPreferredMovieRating, getPreferredShowRatingFromBrowseEpisode } from "@/lib/ratings";
 import { useHomeDashboard } from "@/queries";
 
 type DashboardEntry =
@@ -87,10 +87,7 @@ function toPosterGridItem(
   const rating =
     entry.kind === "movie"
       ? getPreferredMovieRating(entry.media)
-      : {
-          label: entry.media.imdb_rating ? "IMDb" : undefined,
-          value: entry.media.imdb_rating,
-        };
+      : getPreferredShowRatingFromBrowseEpisode(entry.media);
   const { posterPath, posterUrl } = dashboardPosterFields(entry);
 
   return {

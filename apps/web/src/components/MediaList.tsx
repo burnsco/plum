@@ -41,7 +41,13 @@ export function MediaList({ items, onSelect, onTranscode }: Props) {
             </div>
             <div className="media-subtitle">
               {m.release_date && <span>{m.release_date.split("-")[0]}</span>}
-              {m.vote_average ? <span>⭐ {m.vote_average.toFixed(1)}</span> : null}
+              {m.type === "tv" || m.type === "anime" ? (
+                (m.show_vote_average ?? 0) > 0 ? (
+                  <span>⭐ {m.show_vote_average!.toFixed(1)}</span>
+                ) : null
+              ) : m.vote_average ? (
+                <span>⭐ {m.vote_average.toFixed(1)}</span>
+              ) : null}
             </div>
           </div>
           <button

@@ -13,7 +13,11 @@ import {
   type LibraryScanStatus,
 } from "../api";
 import { getEnrichmentPhase } from "../lib/libraryActivity";
-import { invalidateDiscoverRelatedQueries, queryKeys, useLibraries } from "../queries";
+import {
+  invalidateDiscoverRelatedQueries,
+  invalidateLibraryCatalogQueries,
+  useLibraries,
+} from "../queries";
 import { ScanQueueContext, type QueueScanOptions, type RecentLibraryActivity } from "./ScanQueueContext";
 import { useWs } from "./WsContext";
 
@@ -221,9 +225,7 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       const status = await fetchLibraryScanStatus(libraryId);
       setScanStatus(status);
       if (isLibraryProcessing(status) || status.phase === "completed" || status.phase === "failed") {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+        invalidateLibraryCatalogQueries(queryClient, libraryId);
       }
       const wasTerminal = previous?.phase === "completed" || previous?.phase === "failed";
       const isTerminal = status.phase === "completed" || status.phase === "failed";
@@ -239,9 +241,7 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
     async (libraryId: number, options?: QueueScanOptions) => {
       const status = await startLibraryScan(libraryId, options);
       setScanStatus(status);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      invalidateLibraryCatalogQueries(queryClient, libraryId);
       return status;
     },
     [queryClient, setScanStatus],
@@ -313,15 +313,7 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
         nextStatus.phase === "completed" ||
         nextStatus.phase === "failed")
     ) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.library(nextStatus.libraryId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({
-        queryKey: ["show-details", nextStatus.libraryId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["movie-details", nextStatus.libraryId],
-      });
+      invalidateLibraryCatalogQueries(queryClient, nextStatus.libraryId);
     }
     if (
       hasMeaningfulStatusChange(previous, nextStatus) &&

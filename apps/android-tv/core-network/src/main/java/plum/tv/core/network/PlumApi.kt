@@ -63,6 +63,9 @@ interface PlumApi {
         @Query("limit") limit: Int? = null,
     ): Response<LibraryMediaPageJson>
 
+    @GET("/api/libraries/{id}/scan")
+    suspend fun libraryScanStatus(@Path("id") libraryId: Int): Response<LibraryScanStatusJson>
+
     @GET("/api/libraries/{libraryId}/movies/{mediaId}")
     suspend fun movieDetails(
         @Path("libraryId") libraryId: Int,
