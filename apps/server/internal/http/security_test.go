@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestOriginAllowed_LoopbackHTTPAnyPort(t *testing.T) {
@@ -42,5 +43,23 @@ func TestOriginAllowed_ExplicitListDoesNotAllowLoopbackWildcard(t *testing.T) {
 	req.Header.Set("Origin", "http://localhost:5174")
 	if OriginAllowed(req, allowed) {
 		t.Fatal("expected explicit allowlist to reject loopback wildcard origin")
+	}
+}
+
+func TestAuthRateLimiter_FullPruneRemovesExpiredKeys(t *testing.T) {
+	l := NewAuthRateLimiter(10, time.Minute)
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	if !l.Allow("alpha", t0) {
+		t.Fatal("alpha")
+	}
+	t1 := t0.Add(2 * time.Minute)
+	if !l.Allow("beta", t1) {
+		t.Fatal("beta")
+	}
+	l.mu.Lock()
+	_, hasAlpha := l.attempts["alpha"]
+	l.mu.Unlock()
+	if hasAlpha {
+		t.Fatal("expected full prune to drop expired key alpha")
 	}
 }

@@ -144,8 +144,10 @@ fun PlayerRoute(
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.pauseWhenBackgrounded()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> viewModel.pauseWhenBackgrounded()
+                Lifecycle.Event.ON_START -> viewModel.resumeWhenForegrounded()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

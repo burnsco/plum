@@ -57,6 +57,12 @@ func TestTranscodingSettingsHandler_GetDefaults(t *testing.T) {
 	if payload.Settings.PreferredHardwareEncodeFormat != "h264" {
 		t.Fatalf("preferred format = %q", payload.Settings.PreferredHardwareEncodeFormat)
 	}
+	if payload.Settings.OpenCLToneMappingEnabled {
+		t.Fatalf("expected OpenCL tone mapping default off")
+	}
+	if payload.Settings.OpenCLToneMapAlgorithm != "hable" {
+		t.Fatalf("opencl algorithm = %q", payload.Settings.OpenCLToneMapAlgorithm)
+	}
 }
 
 func TestTranscodingSettingsHandler_PutRequiresAdmin(t *testing.T) {

@@ -96,6 +96,10 @@ class PlayerViewModel @Inject constructor(
         controller.pauseWhenBackgrounded()
     }
 
+    fun resumeWhenForegrounded() {
+        controller.resumeWhenForegrounded()
+    }
+
     fun rewind10() {
         controller.rewind10()
     }

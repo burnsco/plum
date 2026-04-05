@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"plum/internal/db"
+	"plum/internal/httputil"
 	"plum/internal/transcoder"
 )
 
@@ -21,6 +22,55 @@ type PlaybackHandler struct {
 	Sessions *transcoder.PlaybackSessionManager
 	ThumbDir string
 	ArtDir   string
+}
+
+// mediaItemForUser returns media the authenticated user may access (library owner). Uses 404 when
+// denied so existence is not leaked to other accounts.
+func (h *PlaybackHandler) mediaItemForUser(w http.ResponseWriter, user *db.User, mediaID int) (*db.MediaItem, bool) {
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return nil, false
+	}
+	media, err := db.GetMediaByID(h.DB, mediaID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return nil, false
+	}
+	if media == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return nil, false
+	}
+	ok, err := db.UserHasLibraryAccess(h.DB, user.ID, media.LibraryID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return nil, false
+	}
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return nil, false
+	}
+	return media, true
+}
+
+// subtitleForUser resolves a sidecar subtitle by id and ensures the user may access its media (404 when denied).
+func (h *PlaybackHandler) subtitleForUser(w http.ResponseWriter, user *db.User, subtitleID int) (*db.Subtitle, bool) {
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return nil, false
+	}
+	s, err := db.GetSubtitleByID(h.DB, subtitleID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return nil, false
+	}
+	if s == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return nil, false
+	}
+	if _, ok := h.mediaItemForUser(w, user, s.MediaID); !ok {
+		return nil, false
+	}
+	return s, true
 }
 
 func (h *PlaybackHandler) ListMedia(w http.ResponseWriter, r *http.Request) {
@@ -37,13 +87,9 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	media, err := db.GetMediaByID(h.DB, id)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if media == nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	user := UserFromContext(r.Context())
+	media, ok := h.mediaItemForUser(w, user, id)
+	if !ok {
 		return
 	}
 	if _, err := db.RefreshPlaybackTrackMetadata(r.Context(), h.DB, media); err != nil {
@@ -55,27 +101,22 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	user := UserFromContext(r.Context())
-	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 
 	var payload struct {
-		AudioIndex                        int                                   `json:"audioIndex"`
-		ClientCapabilities                transcoder.ClientPlaybackCapabilities `json:"clientCapabilities"`
-		BurnEmbeddedSubtitleStreamIndex   *int                                  `json:"burnEmbeddedSubtitleStreamIndex"`
+		AudioIndex                      int                                   `json:"audioIndex"`
+		ClientCapabilities              transcoder.ClientPlaybackCapabilities `json:"clientCapabilities"`
+		BurnEmbeddedSubtitleStreamIndex *int                                  `json:"burnEmbeddedSubtitleStreamIndex"`
 	}
 	payload.AudioIndex = -1
 	if r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, "invalid json", http.StatusBadRequest)
+		if !decodeRequestJSON(w, r, &payload) {
 			return
 		}
 	}
 
 	introMode := db.GetLibraryIntroSkipMode(h.DB, media.LibraryID)
 	state, err := h.Sessions.Create(
+		r.Context(),
 		*media,
 		introMode,
 		settings,
@@ -85,6 +126,10 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		payload.BurnEmbeddedSubtitleStreamIndex,
 	)
 	if err != nil {
+		if errors.Is(err, transcoder.ErrTooManyPlaybackSessions) {
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
+			return
+		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -109,17 +154,8 @@ func (h *PlaybackHandler) WarmEmbeddedSubtitleCaches(w http.ResponseWriter, r *h
 		return
 	}
 	user := UserFromContext(r.Context())
-	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	media, err := db.GetMediaByID(h.DB, id)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if media == nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	media, ok := h.mediaItemForUser(w, user, id)
+	if !ok {
 		return
 	}
 	mid := media.ID
@@ -136,13 +172,9 @@ func (h *PlaybackHandler) RefreshPlaybackTracks(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	media, err := db.GetMediaByID(h.DB, id)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if media == nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	user := UserFromContext(r.Context())
+	media, ok := h.mediaItemForUser(w, user, id)
+	if !ok {
 		return
 	}
 	metadata, err := db.RefreshPlaybackTrackMetadata(r.Context(), h.DB, media)
@@ -156,11 +188,19 @@ func (h *PlaybackHandler) RefreshPlaybackTracks(w http.ResponseWriter, r *http.R
 
 func (h *PlaybackHandler) UpdateSessionAudio(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionId")
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := h.Sessions.EnsureSessionOwner(sessionID, user.ID); err != nil {
+		writePlaybackError(w, err)
+		return
+	}
 	var payload struct {
 		AudioIndex int `json:"audioIndex"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	settings, err := db.GetTranscodingSettings(h.DB)
@@ -178,17 +218,38 @@ func (h *PlaybackHandler) UpdateSessionAudio(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *PlaybackHandler) CloseSession(w http.ResponseWriter, r *http.Request) {
-	h.Sessions.Close(chi.URLParam(r, "sessionId"))
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	sessionID := chi.URLParam(r, "sessionId")
+	if err := h.Sessions.EnsureSessionOwner(sessionID, user.ID); err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	h.Sessions.Close(sessionID)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "closed"})
 }
 
 func (h *PlaybackHandler) ServeSessionRevision(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	sessionID := chi.URLParam(r, "sessionId")
+	if err := h.Sessions.EnsureSessionOwner(sessionID, user.ID); err != nil {
+		writePlaybackError(w, err)
+		return
+	}
 	revision, ok := parsePathInt(w, chi.URLParam(r, "revision"), "invalid revision")
 	if !ok {
 		return
 	}
-	if err := h.Sessions.ServeFile(w, r, chi.URLParam(r, "sessionId"), revision, chi.URLParam(r, "*")); err != nil {
+	httputil.ClearStreamWriteDeadline(w)
+	if err := h.Sessions.ServeFile(w, r, sessionID, revision, chi.URLParam(r, "*")); err != nil {
 		writePlaybackError(w, err)
 	}
 }
@@ -198,6 +259,11 @@ func (h *PlaybackHandler) StreamMedia(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
 	if err := db.HandleStreamMedia(w, r, h.DB, id); err != nil {
 		writePlaybackError(w, err)
 	}
@@ -208,17 +274,22 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitle(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
 	streamIndex, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
 	if !ok {
 		return
 	}
+	httputil.ClearStreamWriteDeadline(w)
 	var bodyStarted bool
 	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
 	if err := db.HandleStreamEmbeddedSubtitle(tw, r, h.DB, id, streamIndex); err != nil {
 		if !bodyStarted {
 			writePlaybackError(w, err)
 		} else {
-			log.Printf("embedded subtitle stream ended after response started media=%d stream=%d: %v", id, streamIndex, err)
+			slog.Error("embedded subtitle stream ended after response started", "media_id", id, "stream_index", streamIndex, "error", err)
 		}
 	}
 }
@@ -228,17 +299,22 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitleSup(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
 	streamIndex, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
 	if !ok {
 		return
 	}
+	httputil.ClearStreamWriteDeadline(w)
 	var bodyStarted bool
 	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
 	if err := db.HandleStreamEmbeddedSubtitleSup(tw, r, h.DB, id, streamIndex); err != nil {
 		if !bodyStarted {
 			writePlaybackError(w, err)
 		} else {
-			log.Printf("embedded pgs stream ended after response started media=%d stream=%d: %v", id, streamIndex, err)
+			slog.Error("embedded pgs stream ended after response started", "media_id", id, "stream_index", streamIndex, "error", err)
 		}
 	}
 }
@@ -248,17 +324,22 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitleAss(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
 	streamIndex, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
 	if !ok {
 		return
 	}
+	httputil.ClearStreamWriteDeadline(w)
 	var bodyStarted bool
 	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
 	if err := db.HandleStreamEmbeddedSubtitleAss(tw, r, h.DB, id, streamIndex); err != nil {
 		if !bodyStarted {
 			writePlaybackError(w, err)
 		} else {
-			log.Printf("embedded ass stream ended after response started media=%d stream=%d: %v", id, streamIndex, err)
+			slog.Error("embedded ass stream ended after response started", "media_id", id, "stream_index", streamIndex, "error", err)
 		}
 	}
 }
@@ -268,13 +349,18 @@ func (h *PlaybackHandler) StreamSubtitle(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.subtitleForUser(w, user, id); !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
 	var bodyStarted bool
 	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
 	if err := db.HandleStreamSubtitle(tw, r, h.DB, id); err != nil {
 		if !bodyStarted {
 			writePlaybackError(w, err)
 		} else {
-			log.Printf("subtitle stream ended after response started subtitle_id=%d: %v", id, err)
+			slog.Error("subtitle stream ended after response started", "subtitle_id", id, "error", err)
 		}
 	}
 }
@@ -284,13 +370,18 @@ func (h *PlaybackHandler) StreamSubtitleAss(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.subtitleForUser(w, user, id); !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
 	var bodyStarted bool
 	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
 	if err := db.HandleStreamSubtitleAss(tw, r, h.DB, id); err != nil {
 		if !bodyStarted {
 			writePlaybackError(w, err)
 		} else {
-			log.Printf("subtitle ass stream ended after response started subtitle_id=%d: %v", id, err)
+			slog.Error("subtitle ass stream ended after response started", "subtitle_id", id, "error", err)
 		}
 	}
 }
@@ -300,6 +391,11 @@ func (h *PlaybackHandler) ServeThumbnail(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
 	if err := db.HandleServeThumbnail(w, r, h.DB, id, h.ThumbDir); err != nil {
 		writePlaybackError(w, err)
 	}
@@ -310,6 +406,11 @@ func (h *PlaybackHandler) ServeArtwork(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
 	kind := chi.URLParam(r, "kind")
 	if err := db.HandleServeArtwork(w, r, h.DB, id, h.ArtDir, kind); err != nil {
 		writePlaybackError(w, err)
@@ -345,6 +446,7 @@ func (h *PlaybackHandler) ServeShowArtwork(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	httputil.ClearStreamWriteDeadline(w)
 	if err := db.HandleServeShowArtwork(w, r, h.DB, target.ID, h.ArtDir, "poster", target.PosterPath); err != nil {
 		writePlaybackError(w, err)
 	}

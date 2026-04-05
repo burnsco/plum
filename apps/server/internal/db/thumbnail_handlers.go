@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -63,7 +63,7 @@ func HandleServeThumbnail(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 		return err
 	}
 	if err := GenerateThumbnail(r.Context(), sourcePath, absPath); err != nil {
-		log.Printf("generate thumbnail for media %d: %v", globalID, err)
+		slog.Warn("generate thumbnail", "media_id", globalID, "error", err)
 		return fmt.Errorf("thumbnail generation failed: %w", err)
 	}
 	if err := UpdateThumbnailPath(dbConn, globalID, relPath); err != nil {

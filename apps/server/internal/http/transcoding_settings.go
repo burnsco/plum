@@ -35,8 +35,7 @@ func (h *TranscodingSettingsHandler) Get(w http.ResponseWriter, r *http.Request)
 
 func (h *TranscodingSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	var payload db.TranscodingSettings
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 

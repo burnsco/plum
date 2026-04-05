@@ -88,7 +88,7 @@ func TestWarmEmbeddedSubtitleCachesReturnsAccepted(t *testing.T) {
 		t.Fatalf("insert media_global: %v", err)
 	}
 
-	handler := &PlaybackHandler{DB: dbConn, Sessions: transcoder.NewPlaybackSessionManager(t.TempDir(), nil)}
+	handler := &PlaybackHandler{DB: dbConn, Sessions: transcoder.NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)}
 	req := httptest.NewRequest(http.MethodPost, "/api/media/"+strconv.Itoa(globalID)+"/embedded-subtitles/warm-cache", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", strconv.Itoa(globalID))
@@ -155,7 +155,7 @@ func TestCreateSessionReturnsNotFoundWhenMediaFileIsMissing(t *testing.T) {
 
 	handler := &PlaybackHandler{
 		DB:       dbConn,
-		Sessions: transcoder.NewPlaybackSessionManager(t.TempDir(), nil),
+		Sessions: transcoder.NewPlaybackSessionManager(context.Background(), t.TempDir(), nil),
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/playback/sessions/"+strconv.Itoa(globalID), nil)
 	rctx := chi.NewRouteContext()
@@ -238,7 +238,7 @@ func TestCreateSessionReturnsSidecarSubtitlesBeforeEnrichment(t *testing.T) {
 
 	handler := &PlaybackHandler{
 		DB:       dbConn,
-		Sessions: transcoder.NewPlaybackSessionManager(t.TempDir(), nil),
+		Sessions: transcoder.NewPlaybackSessionManager(context.Background(), t.TempDir(), nil),
 	}
 	body := strings.NewReader(`{"clientCapabilities":{"supportsNativeHls":false,"supportsMseHls":false,"videoCodecs":["h264"],"audioCodecs":["aac"],"containers":["mp4"]}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/playback/sessions/"+strconv.Itoa(globalID), body)
@@ -335,7 +335,7 @@ func TestRefreshPlaybackTracksReturnsOnDemandMetadata(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/media/"+strconv.Itoa(globalID)+"/playback-tracks/refresh", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", strconv.Itoa(globalID))
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	req = req.WithContext(withUser(context.WithValue(req.Context(), chi.RouteCtxKey, rctx), &db.User{ID: userID}))
 	rec := httptest.NewRecorder()
 
 	handler.RefreshPlaybackTracks(rec, req)

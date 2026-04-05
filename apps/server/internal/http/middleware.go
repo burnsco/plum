@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"plum/internal/db"
+	"plum/internal/env"
 )
 
 type contextKey string
@@ -160,9 +161,9 @@ func RequestLoggingMiddleware() func(http.Handler) http.Handler {
 				entry.UserID = user.ID
 			}
 			if raw, err := json.Marshal(entry); err != nil {
-				log.Printf(`{"component":"server","event":"request_log_marshal_error","error":%q}`, err.Error())
+				slog.Error("request log marshal error", "error", err)
 			} else {
-				log.Print(string(raw))
+				slog.Info(string(raw))
 			}
 		})
 	}
@@ -209,17 +210,6 @@ func effectiveSessionID(r *http.Request) string {
 	return bearerSessionToken(r)
 }
 
-func envBoolEnabled(key string) (bool, bool) {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
-	case "1", "true", "yes", "on":
-		return true, true
-	case "0", "false", "no", "off":
-		return false, true
-	default:
-		return false, false
-	}
-}
-
 func requestHost(r *http.Request) string {
 	host := strings.TrimSpace(r.Host)
 	if host == "" {
@@ -237,10 +227,10 @@ func isLocalhostHost(host string) bool {
 }
 
 func secureCookiesEnabled(r *http.Request) bool {
-	if secure, ok := envBoolEnabled("PLUM_SECURE_COOKIES"); ok {
+	if secure, ok := env.Bool("PLUM_SECURE_COOKIES"); ok {
 		return secure
 	}
-	if insecure, ok := envBoolEnabled("PLUM_INSECURE_COOKIES"); ok && insecure {
+	if insecure, ok := env.Bool("PLUM_INSECURE_COOKIES"); ok && insecure {
 		return false
 	}
 	if r != nil {
@@ -287,44 +277,28 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookieID := sessionIDFromCookie(r)
 			bearerID := bearerSessionToken(r)
-			type sessionCandidate struct {
-				id          string
-				viaBearer   bool
-				clearCookie bool
-			}
-			candidates := make([]sessionCandidate, 0, 2)
-			if cookieID != "" {
-				candidates = append(candidates, sessionCandidate{id: cookieID, clearCookie: true})
-			}
-			if bearerID != "" && bearerID != cookieID {
-				candidates = append(candidates, sessionCandidate{id: bearerID, viaBearer: true})
-			}
-			if len(candidates) == 0 {
-				next.ServeHTTP(w, r)
-				return
-			}
 
-			for _, candidate := range candidates {
+			trySession := func(sessionID string, viaBearer, clearCookie bool) bool {
 				var (
 					userID    int
 					expiresAt time.Time
 				)
 				err := dbConn.QueryRow(
 					`SELECT user_id, expires_at FROM sessions WHERE id = ?`,
-					candidate.id,
+					sessionID,
 				).Scan(&userID, &expiresAt)
 				if err != nil {
-					if errors.Is(err, sql.ErrNoRows) && candidate.clearCookie {
+					if errors.Is(err, sql.ErrNoRows) && clearCookie {
 						clearSessionCookie(w, r)
 					}
-					continue
+					return false
 				}
 				if time.Now().After(expiresAt) {
-					_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, candidate.id)
-					if candidate.clearCookie {
+					_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessionID)
+					if clearCookie {
 						clearSessionCookie(w, r)
 					}
-					continue
+					return false
 				}
 
 				var u db.User
@@ -334,18 +308,35 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 				).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt)
 				if err != nil {
 					if errors.Is(err, sql.ErrNoRows) {
-						_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, candidate.id)
-						if candidate.clearCookie {
+						_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessionID)
+						if clearCookie {
 							clearSessionCookie(w, r)
 						}
 					}
-					continue
+					return false
 				}
 
-				ctx := withSessionAuth(withUser(r.Context(), &u), candidate.id, candidate.viaBearer)
+				ctx := withSessionAuth(withUser(r.Context(), &u), sessionID, viaBearer)
 				next.ServeHTTP(w, r.WithContext(ctx))
+				return true
+			}
+
+			// If a session cookie was sent but is invalid or expired, do not fall back to Bearer:
+			// avoids authenticating as a different principal when the browser still has a stale cookie.
+			if cookieID != "" {
+				if trySession(cookieID, false, true) {
+					return
+				}
+				next.ServeHTTP(w, r)
 				return
 			}
+
+			if bearerID != "" {
+				if trySession(bearerID, true, false) {
+					return
+				}
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}

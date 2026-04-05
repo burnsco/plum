@@ -335,7 +335,7 @@ function buildSubtitleTrackRequests(source: PlaybackTrackSource | null): Subtitl
     source.embeddedSubtitles?.map((subtitle, index) => {
       const catalogOk = subtitle.supported !== false;
       const requiresBurn = catalogOk && embeddedSubtitleNeedsWebBurnIn(subtitle);
-      const assEligible = catalogOk && !requiresBurn && (subtitle.assEligible === true || isAssFormat(subtitle.codec ?? ""));
+      const assEligible = catalogOk && !requiresBurn && subtitle.assEligible === true;
       const labelBase =
         subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`;
       const label = !catalogOk

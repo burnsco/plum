@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -92,6 +93,9 @@ type TranscodingSettings struct {
 	Threads                       int                  `json:"threads"`
 	KeyframeInterval              int                  `json:"keyframeInterval"`
 	MaxBitrate                    string               `json:"maxBitrate"`
+	OpenCLToneMappingEnabled      bool                 `json:"openclToneMappingEnabled"`
+	OpenCLToneMapAlgorithm        string               `json:"openclToneMapAlgorithm"`
+	OpenCLToneMapDesat            float64              `json:"openclToneMapDesat"`
 }
 
 type TranscodingSettingsWarning struct {
@@ -128,6 +132,9 @@ func DefaultTranscodingSettings() TranscodingSettings {
 		Threads:                       0,
 		KeyframeInterval:              48,
 		MaxBitrate:                    "",
+		OpenCLToneMappingEnabled:      false,
+		OpenCLToneMapAlgorithm:        "hable",
+		OpenCLToneMapDesat:            0.5,
 	}
 }
 
@@ -169,7 +176,23 @@ func NormalizeTranscodingSettings(settings TranscodingSettings) TranscodingSetti
 		settings.KeyframeInterval = defaults.KeyframeInterval
 	}
 	settings.MaxBitrate = strings.TrimSpace(settings.MaxBitrate)
+	settings.OpenCLToneMapAlgorithm = normalizeOpenCLToneMapAlgorithm(settings.OpenCLToneMapAlgorithm)
+	if math.IsNaN(settings.OpenCLToneMapDesat) || math.IsInf(settings.OpenCLToneMapDesat, 0) || settings.OpenCLToneMapDesat < 0 {
+		settings.OpenCLToneMapDesat = defaults.OpenCLToneMapDesat
+	}
+	if settings.OpenCLToneMapDesat > 4 {
+		settings.OpenCLToneMapDesat = 4
+	}
 	return settings
+}
+
+func normalizeOpenCLToneMapAlgorithm(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "linear", "gamma", "clip", "reinhard", "hable", "mobius":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "hable"
+	}
 }
 
 func ValidateTranscodingSettings(settings TranscodingSettings) error {

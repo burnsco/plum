@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverBrowseCategory, DiscoverGenre, DiscoverItem, DiscoverResponse } from "@/api";
@@ -9,6 +9,7 @@ import type { PosterGridItem } from "@/components/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthState } from "@/contexts/AuthContext";
+import { DiscoverOriginProvider, useDiscoverOrigin } from "@/contexts/DiscoverOriginContext";
 import {
   DISCOVER_CATEGORY_OPTIONS,
   DISCOVER_ORIGIN_PRESETS,
@@ -21,7 +22,6 @@ import {
   discoverMediaLabel,
   discoverVisibleItems,
   discoverYear,
-  normalizeDiscoverOriginKey,
 } from "@/lib/discover";
 import { useAddDiscoverTitle, useDiscover, useDiscoverGenres, useDiscoverSearch } from "@/queries";
 
@@ -30,24 +30,18 @@ function isDiscoverConfigError(error: Error | null): boolean {
 }
 
 export function Discover() {
+  return (
+    <DiscoverOriginProvider>
+      <DiscoverContent />
+    </DiscoverOriginProvider>
+  );
+}
+
+function DiscoverContent() {
   const { user } = useAuthState();
   const isAdmin = user?.is_admin ?? false;
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const originCountry = useMemo(
-    () => normalizeDiscoverOriginKey(searchParams.get("origin")),
-    [searchParams],
-  );
-  const setOriginCountry = (code: string) => {
-    const normalized = normalizeDiscoverOriginKey(code);
-    const next = new URLSearchParams(searchParams);
-    if (normalized) {
-      next.set("origin", normalized);
-    } else {
-      next.delete("origin");
-    }
-    setSearchParams(next, { replace: true });
-  };
+  const { originCountry, setOriginCountry } = useDiscoverOrigin();
   const [mediaFilter, setMediaFilter] = useState<DiscoverMediaFilter>("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -142,7 +136,6 @@ export function Discover() {
           movieGenres={genres?.movie_genres ?? []}
           tvGenres={genres?.tv_genres ?? []}
           mediaFilter={mediaFilter}
-          originCountry={originCountry}
         />
       ) : null}
 
@@ -190,7 +183,6 @@ export function Discover() {
         <DiscoverShelves
           discover={discover}
           mediaFilter={mediaFilter}
-          originCountry={originCountry}
           isAdmin={isAdmin}
           addTitle={addTitle}
           onOpenSettings={() => navigate("/settings")}
@@ -278,13 +270,12 @@ function DiscoverGenreSection({
   movieGenres,
   tvGenres,
   mediaFilter,
-  originCountry,
 }: {
   movieGenres: DiscoverGenre[];
   tvGenres: DiscoverGenre[];
   mediaFilter: DiscoverMediaFilter;
-  originCountry: string;
 }) {
+  const { originCountry } = useDiscoverOrigin();
   if (mediaFilter === "all") {
     if (movieGenres.length === 0 && tvGenres.length === 0) {
       return null;
@@ -301,18 +292,8 @@ function DiscoverGenreSection({
           </div>
         </div>
         <div className="space-y-4">
-          <DiscoverGenreRow
-            title="Movie Genres"
-            genres={movieGenres}
-            mediaType="movie"
-            originCountry={originCountry}
-          />
-          <DiscoverGenreRow
-            title="TV Genres"
-            genres={tvGenres}
-            mediaType="tv"
-            originCountry={originCountry}
-          />
+          <DiscoverGenreRow title="Movie Genres" genres={movieGenres} mediaType="movie" />
+          <DiscoverGenreRow title="TV Genres" genres={tvGenres} mediaType="tv" />
         </div>
       </section>
     );
@@ -333,7 +314,7 @@ function DiscoverGenreSection({
           </p>
         </div>
       </div>
-      <DiscoverGenreChips genres={genres} mediaType={mediaFilter} originCountry={originCountry} />
+      <DiscoverGenreChips genres={genres} mediaType={mediaFilter} />
     </section>
   );
 }
@@ -342,12 +323,10 @@ function DiscoverGenreRow({
   title,
   genres,
   mediaType,
-  originCountry,
 }: {
   title: string;
   genres: DiscoverGenre[];
   mediaType: "movie" | "tv";
-  originCountry: string;
 }) {
   if (genres.length === 0) {
     return null;
@@ -357,7 +336,7 @@ function DiscoverGenreRow({
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
         {title}
       </div>
-      <DiscoverGenreChips genres={genres} mediaType={mediaType} originCountry={originCountry} />
+      <DiscoverGenreChips genres={genres} mediaType={mediaType} />
     </div>
   );
 }
@@ -365,12 +344,11 @@ function DiscoverGenreRow({
 function DiscoverGenreChips({
   genres,
   mediaType,
-  originCountry,
 }: {
   genres: DiscoverGenre[];
   mediaType: "movie" | "tv";
-  originCountry: string;
 }) {
+  const { originCountry } = useDiscoverOrigin();
   return (
     <div className="flex flex-wrap gap-2">
       {genres.slice(0, 18).map((genre) => (
@@ -389,18 +367,17 @@ function DiscoverGenreChips({
 function DiscoverShelves({
   discover,
   mediaFilter,
-  originCountry,
   isAdmin,
   addTitle,
   onOpenSettings,
 }: {
   discover: DiscoverResponse | undefined;
   mediaFilter: DiscoverMediaFilter;
-  originCountry: string;
   isAdmin: boolean;
   addTitle: ReturnType<typeof useAddDiscoverTitle>;
   onOpenSettings: () => void;
 }) {
+  const { originCountry } = useDiscoverOrigin();
   const shelves = useMemo(
     () =>
       (discover?.shelves ?? [])

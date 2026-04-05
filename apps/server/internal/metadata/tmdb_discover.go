@@ -94,6 +94,8 @@ func isTMDBDiscoverHTTPStatus(err error, statusCode int) bool {
 	return errors.As(err, &providerErr) && providerErr.Provider == "tmdb" && providerErr.StatusCode == statusCode
 }
 
+// normalizeDiscoverOrigin accepts only 2 ASCII letters (uppercased). Mirrors httpapi.parseDiscoverOriginCountry
+// and web normalizeDiscoverOriginKey; change all three together.
 func normalizeDiscoverOrigin(raw string) string {
 	s := strings.TrimSpace(strings.ToUpper(raw))
 	if len(s) != 2 {

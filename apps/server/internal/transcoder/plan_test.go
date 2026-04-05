@@ -27,6 +27,66 @@ func TestBuildTranscodePlans_SoftwareOnlyWhenHardwareDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildTranscodePlans_OpenCLTonemapOffByDefault(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	stream := videoStreamInfo{
+		CodecName:     "hevc",
+		PixelFmt:      "yuv420p10le",
+		ColorTransfer: "smpte2084",
+	}
+
+	plans := buildTranscodePlans("/media/hdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+
+	for _, plan := range plans {
+		if containsFilter(plan.Args, "tonemap_opencl") {
+			t.Fatalf("did not expect tonemap_opencl in default settings: mode=%s args=%v", plan.Mode, plan.Args)
+		}
+	}
+}
+
+func TestBuildTranscodePlans_OpenCLTonemapInsertsWhenEnabledAndHDR(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	settings.OpenCLToneMappingEnabled = true
+	settings.OpenCLToneMapAlgorithm = "hable"
+	settings.OpenCLToneMapDesat = 0.5
+	stream := videoStreamInfo{
+		CodecName:     "hevc",
+		PixelFmt:      "yuv420p10le",
+		ColorTransfer: "smpte2084",
+	}
+
+	plans := buildTranscodePlans("/media/hdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+	if len(plans) < 1 {
+		t.Fatalf("plan count = %d", len(plans))
+	}
+	hw := plans[0]
+	if hw.Mode != "hardware" {
+		t.Fatalf("mode = %q", hw.Mode)
+	}
+	if !containsFilter(hw.Args, "tonemap_opencl=tonemap=hable") {
+		t.Fatalf("expected OpenCL tonemap in hardware vf: %v", hw.Args)
+	}
+}
+
+func TestBuildTranscodePlans_OpenCLTonemapSkippedForSDR(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	settings.OpenCLToneMappingEnabled = true
+	stream := videoStreamInfo{CodecName: "h264", PixelFmt: "yuv420p", ColorTransfer: "bt709"}
+
+	plans := buildTranscodePlans("/media/sdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+	for _, plan := range plans {
+		if containsFilter(plan.Args, "tonemap_opencl") {
+			t.Fatalf("did not expect tonemap for SDR stream: mode=%s", plan.Mode)
+		}
+	}
+}
+
 func TestBuildTranscodePlans_UsesVAAPIDecodeForEnabledCodec(t *testing.T) {
 	settings := db.DefaultTranscodingSettings()
 	settings.VAAPIEnabled = true
@@ -46,6 +106,46 @@ func TestBuildTranscodePlans_UsesVAAPIDecodeForEnabledCodec(t *testing.T) {
 	}
 	if !containsArgs(plans[0].Args, "-hwaccel") || !containsFilter(plans[0].Args, "scale_vaapi=format=nv12") {
 		t.Fatalf("expected vaapi decode path: %v", plans[0].Args)
+	}
+}
+
+func TestBuildTranscodePlans_SoftwareDecodeOpenCLHandoffUsesScaleVAAPI(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	settings.OpenCLToneMappingEnabled = true
+	settings.DecodeCodecs.HEVC10Bit = false
+	settings.EncodeFormats.H264 = false
+	settings.EncodeFormats.HEVC = true
+	settings.PreferredHardwareEncodeFormat = "hevc"
+	stream := videoStreamInfo{
+		CodecName:     "hevc",
+		PixelFmt:      "yuv420p10le",
+		ColorTransfer: "smpte2084",
+	}
+
+	plans := buildTranscodePlans("/media/hdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+	if len(plans) < 1 || plans[0].Mode != "hardware" {
+		t.Fatalf("expected hardware plan first: %v", plans)
+	}
+	var vf string
+	for i := 0; i < len(plans[0].Args)-1; i++ {
+		if plans[0].Args[i] == "-vf" {
+			vf = plans[0].Args[i+1]
+			break
+		}
+	}
+	if vf == "" {
+		t.Fatalf("missing -vf: %v", plans[0].Args)
+	}
+	if !strings.Contains(vf, "tonemap_opencl") {
+		t.Fatalf("expected OpenCL tonemap in vf: %q", vf)
+	}
+	if !strings.Contains(vf, "scale_vaapi=format=p010") {
+		t.Fatalf("expected scale_vaapi after VAAPI handoff, got: %q", vf)
+	}
+	if strings.Contains(vf, "derive_device=vaapi,format=") {
+		t.Fatalf("must not insert software format filter after VAAPI hwupload: %q", vf)
 	}
 }
 
@@ -251,6 +351,40 @@ func TestBuildHLSPlans_SoftwareOutputIsBrowserCompatible(t *testing.T) {
 	}
 	if !containsArgPair(plans[0].Args, "-sc_threshold", "0") {
 		t.Fatalf("missing scene-cut suppression in software HLS args: %v", plans[0].Args)
+	}
+}
+
+func TestBuildHLSPlans_SoftwareDecodeOpenCLHandoffUsesScaleVAAPI(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	settings.OpenCLToneMappingEnabled = true
+	settings.DecodeCodecs.HEVC10Bit = false
+	settings.EncodeFormats.H264 = false
+	settings.EncodeFormats.HEVC = true
+	settings.PreferredHardwareEncodeFormat = "hevc"
+	stream := videoStreamInfo{
+		CodecName:     "hevc",
+		PixelFmt:      "yuv420p10le",
+		ColorTransfer: "smpte2084",
+	}
+
+	plans := buildHLSPlans("/media/hdr.mkv", "/tmp/out", settings, stream, -1)
+	if len(plans) < 1 || plans[0].Mode != "hardware" {
+		t.Fatalf("expected hardware HLS plan first: %v", plans)
+	}
+	var vf string
+	for i := 0; i < len(plans[0].Args)-1; i++ {
+		if plans[0].Args[i] == "-vf" {
+			vf = plans[0].Args[i+1]
+			break
+		}
+	}
+	if !strings.Contains(vf, "scale_vaapi=format=p010") {
+		t.Fatalf("expected scale_vaapi after VAAPI handoff, got: %q", vf)
+	}
+	if strings.Contains(vf, "derive_device=vaapi,format=") {
+		t.Fatalf("must not insert software format after VAAPI hwupload: %q", vf)
 	}
 }
 

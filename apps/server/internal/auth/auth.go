@@ -12,6 +12,11 @@ const (
 	// BcryptCost controls the hashing cost. This is intentionally
 	// conservative for a local media server; adjust via env if needed.
 	BcryptCost = bcrypt.DefaultCost
+
+	// LoginTimingMitigationHash is a bcrypt hash of a fixed passphrase. When no user row exists,
+	// login still runs CompareHashAndPassword against this value so timing does not reveal whether
+	// the email is registered (see Login / DeviceLogin handlers).
+	LoginTimingMitigationHash = `$2a$10$xcZFe5r2fCNWiKJnq.Qog.B4de8owge/5Xfh9OCYX1PLFgc/tVvXS`
 )
 
 func HashPassword(plain string) (string, error) {

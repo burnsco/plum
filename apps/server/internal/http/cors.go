@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+func methodRequiresAllowedOrigin(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
 const loopbackHTTPAnyPortOrigin = "__plum_loopback_http_any_port__"
 
 var defaultAllowedOrigins = []string{
@@ -57,6 +66,13 @@ func CORSMiddleware(allowedOrigins map[string]struct{}) func(http.Handler) http.
 					return
 				}
 				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			// Reject cross-origin mutating requests when Origin is present but not allowlisted
+			// (defense in depth; browsers still enforce CORS on reads).
+			if origin != "" && !allowed && methodRequiresAllowedOrigin(r.Method) {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
 				return
 			}
 

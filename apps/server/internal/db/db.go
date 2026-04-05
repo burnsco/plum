@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1346,6 +1346,78 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 			return err
 		},
 	},
+	{
+		version: 28,
+		name:    "users_single_admin_unique",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHERE is_admin = 1;
+`)
+			return err
+		},
+	},
+	{
+		version: 29,
+		name:    "quick_connect_codes_unix_timestamps",
+		apply:   migrateQuickConnectCodesToUnixTx,
+	},
+}
+
+func migrateQuickConnectCodesToUnixTx(ctx context.Context, tx *sql.Tx) error {
+	var tableName string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='quick_connect_codes'`).Scan(&tableName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE quick_connect_codes_unix (
+  code TEXT NOT NULL PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)`); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT code, user_id, expires_at, created_at FROM quick_connect_codes`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var code, expStr, creStr string
+		var userID int
+		if err := rows.Scan(&code, &userID, &expStr, &creStr); err != nil {
+			return err
+		}
+		expT, e1 := time.Parse(time.RFC3339, expStr)
+		creT, e2 := time.Parse(time.RFC3339, creStr)
+		if e1 != nil || e2 != nil {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO quick_connect_codes_unix (code, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+			code, userID, expT.Unix(), creT.Unix(),
+		); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE quick_connect_codes`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE quick_connect_codes_unix RENAME TO quick_connect_codes`); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_user_id ON quick_connect_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_expires_at ON quick_connect_codes(expires_at);
+`)
+	return err
 }
 
 func applySchemaMigrations(ctx context.Context, db *sql.DB) error {
@@ -2253,7 +2325,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 	}
 
 	if err := scanForSubtitles(ctx, db, item.ID, sourcePath); err != nil {
-		log.Printf("refresh playback sidecar subtitles media=%d path=%q error=%v", item.ID, sourcePath, err)
+		slog.Warn("refresh playback sidecar subtitles", "media_id", item.ID, "path", sourcePath, "error", err)
 	}
 
 	subtitles, err := getSubtitlesForMedia(db, item.ID)
@@ -2266,7 +2338,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 
 	probed, err := readVideoMetadata(ctx, sourcePath)
 	if err != nil {
-		log.Printf("refresh playback embedded tracks media=%d path=%q error=%v", item.ID, sourcePath, err)
+		slog.Warn("refresh playback embedded tracks", "media_id", item.ID, "path", sourcePath, "error", err)
 		embeddedSubtitles, embeddedAudioTracks, getErr := getPersistedPlaybackTracks(db, item.ID)
 		if getErr != nil {
 			return metadata, getErr
@@ -2278,7 +2350,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		metadata.EmbeddedSubtitles = append(metadata.EmbeddedSubtitles, probed.EmbeddedSubtitles...)
 		metadata.EmbeddedAudioTracks = append(metadata.EmbeddedAudioTracks, probed.EmbeddedAudioTracks...)
 		if err := UpdateMediaFileIntroFromProbe(ctx, db, item.ID, sourcePath, probed); err != nil {
-			log.Printf("persist intro chapters media=%d path=%s: %v", item.ID, sourcePath, err)
+			slog.Warn("persist intro chapters", "media_id", item.ID, "path", sourcePath, "error", err)
 		}
 		if probed.IntroStartSeconds != nil {
 			v := *probed.IntroStartSeconds
@@ -2319,7 +2391,7 @@ func RefreshPlaybackTrackMetadataForLibrary(ctx context.Context, dbConn *sql.DB,
 		it := items[i]
 		_, rerr := RefreshPlaybackTrackMetadata(ctx, dbConn, &it)
 		if rerr != nil {
-			log.Printf("refresh playback tracks library=%d media=%d: %v", libraryID, it.ID, rerr)
+			slog.Warn("refresh playback tracks", "library_id", libraryID, "media_id", it.ID, "error", rerr)
 			failed++
 		} else {
 			refreshed++
@@ -3330,7 +3402,7 @@ func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, su
 		return
 	}
 	if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, mediaID); err != nil {
-		log.Printf("clear embedded_subtitles for media %d: %v", mediaID, err)
+		slog.Warn("clear embedded_subtitles", "media_id", mediaID, "error", err)
 	} else {
 		for _, s := range subtitles {
 			var supportedVal interface{}
@@ -3345,17 +3417,17 @@ func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, su
 				`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
 				mediaID, s.StreamIndex, s.Language, s.Title, s.Codec, supportedVal,
 			); err != nil {
-				log.Printf("insert embedded_subtitles for media %d: %v", mediaID, err)
+				slog.Warn("insert embedded_subtitles", "media_id", mediaID, "error", err)
 			}
 		}
 	}
 
 	if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, mediaID); err != nil {
-		log.Printf("clear embedded_audio_tracks for media %d: %v", mediaID, err)
+		slog.Warn("clear embedded_audio_tracks", "media_id", mediaID, "error", err)
 	} else {
 		for _, track := range audioTracks {
 			if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, mediaID, track.StreamIndex, track.Language, track.Title); err != nil {
-				log.Printf("insert embedded_audio_tracks for media %d: %v", mediaID, err)
+				slog.Warn("insert embedded_audio_tracks", "media_id", mediaID, "error", err)
 			}
 		}
 	}
@@ -4022,7 +4094,7 @@ func enrichTask(
 		}
 		if probedVideo != nil {
 			if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, task.Path, *probedVideo); err != nil {
-				log.Printf("persist intro chapters media=%d path=%s: %v", globalID, task.Path, err)
+				slog.Warn("persist intro chapters", "media_id", globalID, "path", task.Path, "error", err)
 			}
 		}
 	}
@@ -4031,7 +4103,7 @@ func enrichTask(
 	}
 	if options.ScanSidecarSubtitles && globalID > 0 {
 		if err := scanForSubtitles(ctx, dbConn, globalID, task.Path); err != nil {
-			log.Printf("scan subtitles for %s: %v", task.Path, err)
+			slog.Warn("scan subtitles", "path", task.Path, "error", err)
 		}
 	}
 	persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubtitles, embeddedAudio)
@@ -4399,7 +4471,7 @@ func HandleScanLibraryWithOptions(
 			}
 			if scanSidecarSubtitles {
 				if err := scanForSubtitles(ctx, dbConn, globalID, path); err != nil {
-					log.Printf("scan subtitles for %s: %v", path, err)
+					slog.Warn("scan subtitles", "path", path, "error", err)
 				}
 			}
 
@@ -4426,7 +4498,7 @@ func HandleScanLibraryWithOptions(
 					embeddedAudioTracks = probed.EmbeddedAudioTracks
 					if globalID > 0 {
 						if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, path, probed); err != nil {
-							log.Printf("persist intro chapters media=%d path=%s: %v", globalID, path, err)
+							slog.Warn("persist intro chapters", "media_id", globalID, "path", path, "error", err)
 						}
 					}
 				}

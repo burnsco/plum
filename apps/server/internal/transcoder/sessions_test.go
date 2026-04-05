@@ -2,6 +2,7 @@ package transcoder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ import (
 
 func TestRunRevisionFallsBackToSoftwareBeforeReady(t *testing.T) {
 	root := t.TempDir()
-	manager := NewPlaybackSessionManager(root, nil)
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
 	session := &playbackSession{
 		id: "session-fallback",
 		media: db.MediaItem{
@@ -44,7 +45,7 @@ func TestRunRevisionFallsBackToSoftwareBeforeReady(t *testing.T) {
 		ffmpegCommandContext = previousCommandContext
 	})
 
-	if _, err := manager.startRevision(session, settings, -1, playbackDecision{Delivery: "transcode"}); err != nil {
+	if _, err := manager.startRevision(session, settings, -1, playbackDecision{Delivery: "transcode"}, nil); err != nil {
 		t.Fatalf("startRevision: %v", err)
 	}
 
@@ -109,6 +110,70 @@ func TestRevisionReadyShortMediaUsesFewerSegments(t *testing.T) {
 	}
 }
 
+func TestCreateRespectsMaxSessionsPerUser(t *testing.T) {
+	t.Setenv("PLUM_MAX_PLAYBACK_SESSIONS_PER_USER", "1")
+
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "media.mkv")
+	if err := os.WriteFile(mediaPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	previousProbeCommandContext := ffprobeCommandContext
+	ffprobeCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeFFProbeCommand(
+			ctx,
+			`{"format":{"format_name":"matroska","bit_rate":"0","duration":"120"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","bit_rate":"0"},{"index":1,"codec_type":"audio","codec_name":"aac","bit_rate":"0"}]}`,
+		)
+	}
+	t.Cleanup(func() {
+		ffprobeCommandContext = previousProbeCommandContext
+	})
+
+	previousCommandContext := ffmpegCommandContext
+	ffmpegCommandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		return fakeHLSCommand(ctx, args, "0")
+	}
+	t.Cleanup(func() {
+		ffmpegCommandContext = previousCommandContext
+	})
+
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
+	// Empty video codec list forces transcode so a session is registered in the manager.
+	caps := ClientPlaybackCapabilities{
+		SupportsNativeHLS: true,
+		SupportsMSEHLS:    true,
+		VideoCodecs:       nil,
+		AudioCodecs:       []string{"aac"},
+		Containers:        []string{"mkv"},
+	}
+	if _, err := manager.Create(
+		context.Background(),
+		db.MediaItem{ID: 501, Path: mediaPath},
+		db.IntroSkipModeManual,
+		db.DefaultTranscodingSettings(),
+		-1,
+		77,
+		caps,
+		nil,
+	); err != nil {
+		t.Fatalf("first Create: %v", err)
+	}
+	_, err := manager.Create(
+		context.Background(),
+		db.MediaItem{ID: 502, Path: mediaPath},
+		db.IntroSkipModeManual,
+		db.DefaultTranscodingSettings(),
+		-1,
+		77,
+		caps,
+		nil,
+	)
+	if !errors.Is(err, ErrTooManyPlaybackSessions) {
+		t.Fatalf("second Create: want ErrTooManyPlaybackSessions, got %v", err)
+	}
+}
+
 func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "media.mp4")
@@ -127,8 +192,9 @@ func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
 		ffprobeCommandContext = previousProbeCommandContext
 	})
 
-	manager := NewPlaybackSessionManager(root, nil)
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
 	state, err := manager.Create(
+		context.Background(),
 		db.MediaItem{ID: 21, Path: mediaPath, Duration: 120},
 		db.IntroSkipModeManual,
 		db.DefaultTranscodingSettings(),
@@ -179,7 +245,7 @@ func TestRunRevisionUpdatesDurationSecondsFromProbe(t *testing.T) {
 		ffmpegCommandContext = previousCommandContext
 	})
 
-	manager := NewPlaybackSessionManager(root, nil)
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
 	session := &playbackSession{
 		id:              "session-duration",
 		media:           db.MediaItem{ID: 44, Path: mediaPath},
@@ -187,7 +253,7 @@ func TestRunRevisionUpdatesDurationSecondsFromProbe(t *testing.T) {
 		revisions:       make(map[int]*playbackRevision),
 	}
 
-	if _, err := manager.startRevision(session, db.DefaultTranscodingSettings(), -1, playbackDecision{Delivery: "transcode"}); err != nil {
+	if _, err := manager.startRevision(session, db.DefaultTranscodingSettings(), -1, playbackDecision{Delivery: "transcode"}, nil); err != nil {
 		t.Fatalf("startRevision: %v", err)
 	}
 
@@ -203,7 +269,7 @@ func TestRunRevisionUpdatesDurationSecondsFromProbe(t *testing.T) {
 
 func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 	root := t.TempDir()
-	manager := NewPlaybackSessionManager(root, nil)
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
 	session := &playbackSession{
 		id: "session-error",
 		media: db.MediaItem{
@@ -226,7 +292,7 @@ func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 		ffmpegCommandContext = previousCommandContext
 	})
 
-	if _, err := manager.startRevision(session, settings, -1, playbackDecision{Delivery: "transcode"}); err != nil {
+	if _, err := manager.startRevision(session, settings, -1, playbackDecision{Delivery: "transcode"}, nil); err != nil {
 		t.Fatalf("startRevision: %v", err)
 	}
 
@@ -245,7 +311,7 @@ func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 
 func TestServeFileWaitsForDelayedSegment(t *testing.T) {
 	root := t.TempDir()
-	manager := NewPlaybackSessionManager(root, nil)
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
 	revisionDir := filepath.Join(root, "session-serve", "revision_1")
 	if err := os.MkdirAll(revisionDir, 0o755); err != nil {
 		t.Fatalf("mkdir revision dir: %v", err)
@@ -285,7 +351,7 @@ func TestServeFileWaitsForDelayedSegment(t *testing.T) {
 }
 
 func TestMarkRevisionReadyDefersPreviousRevisionCancellation(t *testing.T) {
-	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	canceled := make(chan struct{}, 1)
 	session := &playbackSession{
 		id:              "session-ready",
@@ -328,7 +394,7 @@ func TestMarkRevisionReadyDefersPreviousRevisionCancellation(t *testing.T) {
 }
 
 func TestHandleDisconnectClosesSessionAfterGracePeriod(t *testing.T) {
-	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	session := &playbackSession{
 		id:        "session-disconnect",
 		userID:    7,
@@ -356,7 +422,7 @@ func TestHandleDisconnectClosesSessionAfterGracePeriod(t *testing.T) {
 }
 
 func TestAttachCancelsPendingDisconnectClose(t *testing.T) {
-	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	session := &playbackSession{
 		id:        "session-reattach",
 		userID:    8,
@@ -402,7 +468,7 @@ func TestAttachCancelsPendingDisconnectClose(t *testing.T) {
 }
 
 func TestAttachTransfersOwnershipFromPreviousClient(t *testing.T) {
-	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	session := &playbackSession{
 		id:        "session-transfer",
 		userID:    9,
@@ -444,7 +510,7 @@ func TestAttachTransfersOwnershipFromPreviousClient(t *testing.T) {
 }
 
 func TestAttachReturnsReplayStateForReadyRevision(t *testing.T) {
-	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	session := &playbackSession{
 		id:              "session-ready-replay",
 		userID:          10,
@@ -481,7 +547,7 @@ func TestAttachReturnsReplayStateForReadyRevision(t *testing.T) {
 }
 
 func TestAttachReturnsReplayStateForErroredRevision(t *testing.T) {
-	manager := NewPlaybackSessionManager(t.TempDir(), nil)
+	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	session := &playbackSession{
 		id:              "session-error-replay",
 		userID:          11,
@@ -535,7 +601,7 @@ func TestUpdateAudioReturnsDurationSecondsFromProbe(t *testing.T) {
 		ffprobeCommandContext = previousProbeCommandContext
 	})
 
-	manager := NewPlaybackSessionManager(root, nil)
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
 	session := &playbackSession{
 		id:     "session-update-audio",
 		userID: 42,

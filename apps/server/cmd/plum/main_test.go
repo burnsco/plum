@@ -19,13 +19,16 @@ import (
 	"plum/internal/ws"
 )
 
-func TestNewHTTPServer_DisablesGlobalWriteTimeout(t *testing.T) {
+func TestNewHTTPServer_SetsBoundedWriteTimeout(t *testing.T) {
 	srv := newHTTPServer(":8080", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	if srv.WriteTimeout != 0 {
-		t.Fatalf("expected WriteTimeout to be disabled, got %s", srv.WriteTimeout)
+	if srv.WriteTimeout != 30*time.Second {
+		t.Fatalf("expected WriteTimeout 30s for non-streaming safety net, got %s", srv.WriteTimeout)
 	}
 	if srv.ReadTimeout != 15*time.Second {
 		t.Fatalf("expected ReadTimeout to remain 15s, got %s", srv.ReadTimeout)
+	}
+	if srv.ReadHeaderTimeout != 5*time.Second {
+		t.Fatalf("expected ReadHeaderTimeout 5s, got %s", srv.ReadHeaderTimeout)
 	}
 }
 
@@ -125,7 +128,7 @@ func testServer(t *testing.T) (string, *sql.DB, func()) {
 	hub := ws.NewHub()
 	go hub.Run()
 
-	playbackSessions := transcoder.NewPlaybackSessionManager(filepath.Join(t.TempDir(), "playback"), hub)
+	playbackSessions := transcoder.NewPlaybackSessionManager(context.Background(), filepath.Join(t.TempDir(), "playback"), hub)
 	router := buildRouter(dbConn, hub, playbackSessions, metadata.NewPipeline("", "", "", "", ""), t.TempDir(), t.TempDir())
 	server := httptest.NewServer(router)
 

@@ -5267,7 +5267,7 @@ func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
 		t.Fatalf("insert owner: %v", err)
 	}
 	if err := dbConn.QueryRow(
-		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 0, ?) RETURNING id`,
 		"other@test.com",
 		"hash2",
 		now,
@@ -5295,7 +5295,7 @@ func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
 		nil,
 	)
 	req = req.WithContext(
-		context.WithValue(withUser(req.Context(), &db.User{ID: otherID, IsAdmin: true}), chi.RouteCtxKey, rctx),
+		context.WithValue(withUser(req.Context(), &db.User{ID: otherID, IsAdmin: false}), chi.RouteCtxKey, rctx),
 	)
 	rec := httptest.NewRecorder()
 
@@ -5303,5 +5303,39 @@ func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestParseDiscoverOriginCountry(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+		ok   bool
+	}{
+		{"", "", true},
+		{"US", "US", true},
+		{"gb", "GB", true},
+		{"  fr ", "FR", true},
+		{"USA", "", false},
+		{"u1", "", false},
+		{"U-S", "", false},
+		{"1U", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			got, err := parseDiscoverOriginCountry(tc.raw)
+			if !tc.ok {
+				if err == nil {
+					t.Fatalf("want error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -21,17 +21,21 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
     const videoEl: HTMLVideoElement = video;
 
     let instance: JassubInstance | null = null;
-    let aborted = false;
+    const ac = new AbortController();
+    const { signal } = ac;
 
     async function init() {
       try {
-        const response = await fetch(assSrc!, { credentials: "include" });
+        const response = await fetch(assSrc!, { credentials: "include", signal });
         if (!response.ok) {
           console.error("[JassubRenderer] Failed to fetch ASS:", response.status);
           return;
         }
         const subContent = await response.text();
-        if (aborted) return;
+        if (signal.aborted) {
+          console.warn("[JassubRenderer] ASS fetch completed after subtitle deselected; discarding load");
+          return;
+        }
 
         const [
           { default: JASSUB },
@@ -46,7 +50,10 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
           // @ts-ignore — ?url import resolved by Vite
           import("jassub/dist/wasm/jassub-worker.wasm?url"),
         ]);
-        if (aborted) return;
+        if (signal.aborted) {
+          console.warn("[JassubRenderer] JASSUB load aborted after subtitle deselected");
+          return;
+        }
 
         instance = new JASSUB({
           video: videoEl,
@@ -55,6 +62,10 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
           wasmUrl,
         });
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          console.warn("[JassubRenderer] ASS fetch aborted (subtitle deselected or track changed)");
+          return;
+        }
         console.error("[JassubRenderer] Initialization failed:", err);
       }
     }
@@ -62,7 +73,7 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
     void init();
 
     return () => {
-      aborted = true;
+      ac.abort();
       void instance?.destroy();
     };
   }, [videoElement, assSrc]);

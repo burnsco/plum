@@ -49,6 +49,32 @@ func TestEmbeddedSubtitlePgsBinaryDeliveryEligible(t *testing.T) {
 	}
 }
 
+func TestEmbeddedSubtitleAssDeliveryEligible(t *testing.T) {
+	falseVal := false
+	trueVal := true
+	cases := []struct {
+		name string
+		sub  EmbeddedSubtitle
+		want bool
+	}{
+		{"ass", EmbeddedSubtitle{Codec: "ass"}, true},
+		{"ssa", EmbeddedSubtitle{Codec: "ssa"}, true},
+		{"ASS casing", EmbeddedSubtitle{Codec: "ASS"}, true},
+		{"ssa whitespace", EmbeddedSubtitle{Codec: "  ssa  "}, true},
+		{"subrip", EmbeddedSubtitle{Codec: "subrip"}, false},
+		{"pgs", EmbeddedSubtitle{Codec: "hdmv_pgs_subtitle"}, false},
+		{"supported false ass", EmbeddedSubtitle{Codec: "ass", Supported: &falseVal}, false},
+		{"supported true ass", EmbeddedSubtitle{Codec: "ass", Supported: &trueVal}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EmbeddedSubtitleAssDeliveryEligible(tc.sub); got != tc.want {
+				t.Fatalf("got %v want %v for %#v", got, tc.want, tc.sub)
+			}
+		})
+	}
+}
+
 func TestPlaybackEmbeddedSubtitles(t *testing.T) {
 	in := []EmbeddedSubtitle{
 		{StreamIndex: 1, Codec: "subrip"},

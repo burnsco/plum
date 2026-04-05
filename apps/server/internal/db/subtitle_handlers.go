@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -85,7 +85,7 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 
 	cachePath, cacheErr := embeddedSubtitleVTTCachePath(sourcePath, streamIndex)
 	if cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
-		log.Printf("embedded subtitle cache hit media=%d stream=%d", mediaID, streamIndex)
+		slog.Debug("embedded subtitle cache hit", "media_id", mediaID, "stream_index", streamIndex)
 		return nil
 	}
 
@@ -98,7 +98,7 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	defer mu.Unlock()
 
 	if cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
-		log.Printf("embedded subtitle cache hit after lock media=%d stream=%d", mediaID, streamIndex)
+		slog.Debug("embedded subtitle cache hit after lock", "media_id", mediaID, "stream_index", streamIndex)
 		return nil
 	}
 
@@ -114,7 +114,7 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 				teeFile = f
 				tee = f
 			} else {
-				log.Printf("embedded subtitle cache open partial: %v", oerr)
+				slog.Warn("embedded subtitle cache open partial", "error", oerr)
 			}
 		}
 	}
@@ -133,7 +133,7 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	}
 	if partialPath != "" && cachePath != "" {
 		if ren := os.Rename(partialPath, cachePath); ren != nil {
-			log.Printf("embedded subtitle cache rename: %v", ren)
+			slog.Warn("embedded subtitle cache rename", "error", ren)
 			_ = os.Remove(partialPath)
 		}
 	}
@@ -196,7 +196,7 @@ func HandleStreamEmbeddedSubtitleSup(w http.ResponseWriter, r *http.Request, dbC
 		if len(msg) > 512 {
 			msg = msg[len(msg)-512:]
 		}
-		log.Printf("ffmpeg embedded pgs stream stderr_tail=%s", msg)
+		slog.Warn("ffmpeg embedded pgs stream", "stderr_tail", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
 	}
 	return nil
@@ -266,7 +266,8 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 		"-",
 	)
 	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
-	cmd.Stdout = responseWriterForFFmpegStdout(w)
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -278,8 +279,11 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 		if len(msg) > 512 {
 			msg = msg[len(msg)-512:]
 		}
-		log.Printf("ffmpeg embedded ass stream stderr_tail=%s", msg)
+		slog.Warn("ffmpeg embedded ass stream", "stderr_tail", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	if _, werr := w.Write(stdoutBuf.Bytes()); werr != nil {
+		return werr
 	}
 	return nil
 }
@@ -300,51 +304,39 @@ func transcodeEmbeddedSubtitleToWebVTT(
 			defer cleanup()
 			err := streamFFmpegWebVTTWithOptionalTee(w, r, tee, []string{"-i", tmpPath, "-f", "webvtt", "-"}...)
 			if err == nil {
-				log.Printf(
-					"stream embedded subtitle served (demux+convert) media=%d stream=%d source=%q duration=%s",
-					mediaID,
-					streamIndex,
-					sourcePath,
-					time.Since(startedAt).Round(time.Millisecond),
+				slog.Info("stream embedded subtitle served (demux+convert)",
+					"media_id", mediaID,
+					"stream_index", streamIndex,
+					"source", sourcePath,
+					"duration", time.Since(startedAt).Round(time.Millisecond).String(),
 				)
 				return nil
 			}
-			log.Printf(
-				"embedded subtitle vtt convert failed after demux media=%d stream=%d: %v; trying direct transcode",
-				mediaID,
-				streamIndex,
-				err,
-			)
+			slog.Warn("embedded subtitle vtt convert failed after demux; trying direct transcode",
+				"media_id", mediaID, "stream_index", streamIndex, "error", err)
 		} else {
-			log.Printf(
-				"embedded subtitle demux extract failed media=%d stream=%d codec=%q: %v; trying direct transcode",
-				mediaID,
-				streamIndex,
-				codec,
-				extractErr,
-			)
+			slog.Warn("embedded subtitle demux extract failed; trying direct transcode",
+				"media_id", mediaID, "stream_index", streamIndex, "codec", codec, "error", extractErr)
 		}
 	}
 	ffmpegIn := append(append([]string{}, ffopts.InputProbeEmbeddedExtract...),
 		"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-")
 	err := streamFFmpegWebVTTWithOptionalTee(w, r, tee, ffmpegIn...)
 	if err != nil {
-		log.Printf(
-			"stream embedded subtitle failed media=%d stream=%d source=%q duration=%s error=%v",
-			mediaID,
-			streamIndex,
-			sourcePath,
-			time.Since(startedAt).Round(time.Millisecond),
-			err,
+		slog.Warn("stream embedded subtitle failed",
+			"media_id", mediaID,
+			"stream_index", streamIndex,
+			"source", sourcePath,
+			"duration", time.Since(startedAt).Round(time.Millisecond).String(),
+			"error", err,
 		)
 		return err
 	}
-	log.Printf(
-		"stream embedded subtitle served (direct) media=%d stream=%d source=%q duration=%s",
-		mediaID,
-		streamIndex,
-		sourcePath,
-		time.Since(startedAt).Round(time.Millisecond),
+	slog.Info("stream embedded subtitle served (direct)",
+		"media_id", mediaID,
+		"stream_index", streamIndex,
+		"source", sourcePath,
+		"duration", time.Since(startedAt).Round(time.Millisecond).String(),
 	)
 	return nil
 }
@@ -366,7 +358,7 @@ func ffmpegSubtitleTranscodeToWriter(ctx context.Context, out io.Writer, args ..
 		if len(msg) > 512 {
 			msg = msg[len(msg)-512:]
 		}
-		log.Printf("ffmpeg subtitle cache materialize stderr_tail=%s", msg)
+		slog.Warn("ffmpeg subtitle cache materialize", "stderr_tail", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
 	}
 	return nil
@@ -409,11 +401,10 @@ func materializeEmbeddedSubtitleCacheFile(ctx context.Context, sourcePath string
 			defer cleanup()
 			convErr := tryWrite("-i", tmpPath, "-f", "webvtt", "-")
 			if convErr == nil {
-				log.Printf(
-					"subtitle cache warm (demux+convert) media=%d stream=%d duration=%s",
-					mediaID,
-					streamIndex,
-					time.Since(startedAt).Round(time.Millisecond),
+				slog.Info("subtitle cache warm (demux+convert)",
+					"media_id", mediaID,
+					"stream_index", streamIndex,
+					"duration", time.Since(startedAt).Round(time.Millisecond).String(),
 				)
 				abort = false
 				_ = f.Close()
@@ -424,20 +415,11 @@ func materializeEmbeddedSubtitleCacheFile(ctx context.Context, sourcePath string
 				}
 				return nil
 			}
-			log.Printf(
-				"subtitle cache warm vtt convert after demux failed media=%d stream=%d: %v; trying direct",
-				mediaID,
-				streamIndex,
-				convErr,
-			)
+			slog.Warn("subtitle cache warm vtt convert after demux failed; trying direct",
+				"media_id", mediaID, "stream_index", streamIndex, "error", convErr)
 		} else {
-			log.Printf(
-				"subtitle cache warm demux failed media=%d stream=%d codec=%q: %v; trying direct",
-				mediaID,
-				streamIndex,
-				codec,
-				extractErr,
-			)
+			slog.Warn("subtitle cache warm demux failed; trying direct",
+				"media_id", mediaID, "stream_index", streamIndex, "codec", codec, "error", extractErr)
 		}
 	}
 	if err := resetWriterFileForRetry(f); err != nil {
@@ -448,11 +430,10 @@ func materializeEmbeddedSubtitleCacheFile(ctx context.Context, sourcePath string
 	if err := tryWrite(ffmpegIn...); err != nil {
 		return err
 	}
-	log.Printf(
-		"subtitle cache warm (direct) media=%d stream=%d duration=%s",
-		mediaID,
-		streamIndex,
-		time.Since(startedAt).Round(time.Millisecond),
+	slog.Info("subtitle cache warm (direct)",
+		"media_id", mediaID,
+		"stream_index", streamIndex,
+		"duration", time.Since(startedAt).Round(time.Millisecond).String(),
 	)
 	abort = false
 	_ = f.Close()
@@ -476,7 +457,7 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 	}
 	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
 	if err != nil {
-		log.Printf("subtitle cache warm skip media=%d: resolve path: %v", mediaID, err)
+		slog.Debug("subtitle cache warm skip", "media_id", mediaID, "error", err)
 		return
 	}
 	for _, sub := range item.EmbeddedSubtitles {
@@ -498,12 +479,12 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 			continue
 		}
 		if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr != nil {
-			log.Printf("subtitle cache warm mkdir media=%d stream=%d: %v", mediaID, sub.StreamIndex, mkErr)
+			slog.Warn("subtitle cache warm mkdir", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", mkErr)
 			mu.Unlock()
 			continue
 		}
 		if matErr := materializeEmbeddedSubtitleCacheFile(ctx, sourcePath, sub.StreamIndex, sub.Codec, cachePath, mediaID); matErr != nil {
-			log.Printf("subtitle cache warm failed media=%d stream=%d: %v", mediaID, sub.StreamIndex, matErr)
+			slog.Warn("subtitle cache warm failed", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
 		}
 		mu.Unlock()
 	}
@@ -748,7 +729,7 @@ func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, t
 		if len(msg) > 512 {
 			msg = msg[len(msg)-512:]
 		}
-		log.Printf("ffmpeg subtitle stream stderr_tail=%s", msg)
+		slog.Warn("ffmpeg subtitle stream", "stderr_tail", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
 	}
 	return nil

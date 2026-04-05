@@ -368,8 +368,7 @@ func (h *MetadataArtworkSettingsHandler) Get(w http.ResponseWriter, r *http.Requ
 
 func (h *MetadataArtworkSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	var payload db.MetadataArtworkSettings
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	settings, err := db.SaveMetadataArtworkSettings(h.DB, payload)
@@ -444,8 +443,7 @@ func (h *LibraryHandler) SetMoviePosterSelection(w http.ResponseWriter, r *http.
 		return
 	}
 	var payload setPosterSelectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if h.Artwork == nil {
@@ -579,8 +577,7 @@ func (h *LibraryHandler) SetShowPosterSelection(w http.ResponseWriter, r *http.R
 	}
 	showKey := chi.URLParam(r, "showKey")
 	var payload setPosterSelectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if h.Artwork == nil {

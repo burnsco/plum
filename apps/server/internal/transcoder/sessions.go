@@ -6,24 +6,43 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"plum/internal/db"
+	"plum/internal/httputil"
 	"plum/internal/ws"
 )
+
+// ErrTooManyPlaybackSessions is returned when a user already holds the configured maximum
+// number of concurrent playback sessions (see PLUM_MAX_PLAYBACK_SESSIONS_PER_USER).
+var ErrTooManyPlaybackSessions = errors.New("too many concurrent playback sessions")
 
 var ffmpegCommandContext = exec.CommandContext
 var previousRevisionCancelDelay = 20 * time.Second
 var playbackDisconnectGracePeriod = 10 * time.Second
+
+func maxPlaybackSessionsPerUser() int {
+	raw := strings.TrimSpace(os.Getenv("PLUM_MAX_PLAYBACK_SESSIONS_PER_USER"))
+	if raw == "" {
+		return 3
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 3
+	}
+	return n
+}
 
 type PlaybackSessionState struct {
 	SessionID                       string                         `json:"sessionId,omitempty"`
@@ -57,20 +76,20 @@ type playbackRevision struct {
 }
 
 type playbackSession struct {
-	mu              sync.Mutex
-	id              string
-	userID          int
-	media           db.MediaItem
-	introSkipMode   string
-	durationSeconds int
-	capabilities    ClientPlaybackCapabilities
-	audioIndex      int
-	activeRevision  int
-	desiredRevision int
-	revisions                    map[int]*playbackRevision
-	ownerClientID                string
-	disconnectTimer              *time.Timer
-	burnEmbeddedSubtitleStream   *int // non-nil when subtitles are burned into the transcoded video
+	mu                         sync.Mutex
+	id                         string
+	userID                     int
+	media                      db.MediaItem
+	introSkipMode              string
+	durationSeconds            int
+	capabilities               ClientPlaybackCapabilities
+	audioIndex                 int
+	activeRevision             int
+	desiredRevision            int
+	revisions                  map[int]*playbackRevision
+	ownerClientID              string
+	disconnectTimer            *time.Timer
+	burnEmbeddedSubtitleStream *int // non-nil when subtitles are burned into the transcoded video
 }
 
 func attachIntroFields(state *PlaybackSessionState, media db.MediaItem, introSkipMode string) {
@@ -86,24 +105,79 @@ func attachIntroFields(state *PlaybackSessionState, media db.MediaItem, introSki
 }
 
 type PlaybackSessionManager struct {
-	root string
-	hub  *ws.Hub
+	shutdownCtx context.Context
+	root        string
+	hub         *ws.Hub
 
 	mu       sync.RWMutex
 	sessions map[string]*playbackSession
 	clients  map[string]string
 }
 
-func NewPlaybackSessionManager(root string, hub *ws.Hub) *PlaybackSessionManager {
+func NewPlaybackSessionManager(shutdownCtx context.Context, root string, hub *ws.Hub) *PlaybackSessionManager {
+	if shutdownCtx == nil {
+		shutdownCtx = context.Background()
+	}
 	return &PlaybackSessionManager{
-		root:     root,
-		hub:      hub,
-		sessions: make(map[string]*playbackSession),
-		clients:  make(map[string]string),
+		shutdownCtx: shutdownCtx,
+		root:        root,
+		hub:         hub,
+		sessions:    make(map[string]*playbackSession),
+		clients:     make(map[string]string),
+	}
+}
+
+// EnsureSessionOwner returns ErrNotFound if the session does not exist or belongs to another user.
+func (m *PlaybackSessionManager) EnsureSessionOwner(sessionID string, userID int) error {
+	m.mu.RLock()
+	session := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if session == nil {
+		return db.ErrNotFound
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.userID != userID {
+		return db.ErrNotFound
+	}
+	return nil
+}
+
+func (m *PlaybackSessionManager) countSessionsForUser(userID int) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	for _, s := range m.sessions {
+		if s.userID == userID {
+			n++
+		}
+	}
+	return n
+}
+
+// Shutdown cancels all in-flight transcodes. It does not remove session records or temp dirs;
+// use Close(sessionID) per session for that. Safe to call more than once.
+func (m *PlaybackSessionManager) Shutdown() {
+	m.mu.RLock()
+	sessions := make([]*playbackSession, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.mu.RUnlock()
+
+	for _, session := range sessions {
+		session.mu.Lock()
+		for _, rev := range session.revisions {
+			if rev != nil && rev.cancel != nil {
+				rev.cancel()
+			}
+		}
+		session.mu.Unlock()
 	}
 }
 
 func (m *PlaybackSessionManager) Create(
+	ctx context.Context,
 	media db.MediaItem,
 	introSkipMode string,
 	settings db.TranscodingSettings,
@@ -112,9 +186,12 @@ func (m *PlaybackSessionManager) Create(
 	capabilities ClientPlaybackCapabilities,
 	burnEmbeddedSubtitleStreamIndex *int,
 ) (PlaybackSessionState, error) {
-	probe, err := probePlaybackSource(context.Background(), media.Path)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probe, err := probePlaybackSource(ctx, media.Path)
 	if err != nil {
-		log.Printf("playback probe failed media=%d path=%s error=%v", media.ID, media.Path, err)
+		slog.Warn("playback probe failed", "media_id", media.ID, "path", media.Path, "error", err)
 	}
 	durationSeconds := resolvePlaybackDurationSeconds(media.Duration, probe.DurationSeconds)
 
@@ -153,21 +230,25 @@ func (m *PlaybackSessionManager) Create(
 		return PlaybackSessionState{}, err
 	}
 
+	if lim := maxPlaybackSessionsPerUser(); lim > 0 && m.countSessionsForUser(userID) >= lim {
+		return PlaybackSessionState{}, ErrTooManyPlaybackSessions
+	}
+
 	sessionID, err := newPlaybackSessionID()
 	if err != nil {
 		return PlaybackSessionState{}, err
 	}
 
 	session := &playbackSession{
-		id:                              sessionID,
-		userID:                          userID,
-		media:                           media,
-		introSkipMode:                   db.NormalizeIntroSkipMode(introSkipMode),
-		durationSeconds:                 durationSeconds,
-		capabilities:                    capabilities,
-		audioIndex:                      audioIndex,
-		activeRevision:                  0,
-		desiredRevision:                 0,
+		id:                         sessionID,
+		userID:                     userID,
+		media:                      media,
+		introSkipMode:              db.NormalizeIntroSkipMode(introSkipMode),
+		durationSeconds:            durationSeconds,
+		capabilities:               capabilities,
+		audioIndex:                 audioIndex,
+		activeRevision:             0,
+		desiredRevision:            0,
 		revisions:                  make(map[int]*playbackRevision),
 		burnEmbeddedSubtitleStream: burnStored,
 	}
@@ -180,16 +261,15 @@ func (m *PlaybackSessionManager) Create(
 	if burnStored != nil {
 		burnLog = *burnStored
 	}
-	log.Printf(
-		"playback session create session=%s media=%d audio_index=%d delivery=%s burn_sub=%d",
-		sessionID,
-		media.ID,
-		audioIndex,
-		decision.Delivery,
-		burnLog,
+	slog.Info("playback session create",
+		"session_id", sessionID,
+		"media_id", media.ID,
+		"audio_index", audioIndex,
+		"delivery", decision.Delivery,
+		"burn_sub", burnLog,
 	)
 
-	return m.startRevision(session, settings, audioIndex, decision)
+	return m.startRevision(session, settings, audioIndex, decision, &probe)
 }
 
 func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.TranscodingSettings, audioIndex int) (PlaybackSessionState, error) {
@@ -199,9 +279,9 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 	if session == nil {
 		return PlaybackSessionState{}, db.ErrNotFound
 	}
-	probe, err := probePlaybackSource(context.Background(), session.media.Path)
+	probe, err := probePlaybackSource(m.shutdownCtx, session.media.Path)
 	if err != nil {
-		log.Printf("playback probe failed media=%d path=%s error=%v", session.media.ID, session.media.Path, err)
+		slog.Warn("playback probe failed", "media_id", session.media.ID, "path", session.media.Path, "error", err)
 	}
 	durationSeconds := resolvePlaybackDurationSeconds(session.media.Duration, probe.DurationSeconds)
 	session.mu.Lock()
@@ -230,7 +310,7 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 		attachIntroFields(&state, session.media, session.introSkipMode)
 		return state, nil
 	}
-	return m.startRevision(session, settings, audioIndex, decision)
+	return m.startRevision(session, settings, audioIndex, decision, &probe)
 }
 
 func (m *PlaybackSessionManager) Attach(sessionID string, userID int, clientID string) (*PlaybackSessionState, error) {
@@ -269,7 +349,7 @@ func (m *PlaybackSessionManager) Attach(sessionID string, userID int, clientID s
 	}
 	m.mu.Unlock()
 
-	log.Printf("playback session attach session=%s user=%d client=%s", sessionID, userID, clientID)
+	slog.Debug("playback session attach", "session_id", sessionID, "user_id", userID, "client_id", clientID)
 	return replayState, nil
 }
 
@@ -425,6 +505,8 @@ func serveVirtualHlsSubtitlePlaylist(w http.ResponseWriter, session *playbackSes
 }
 
 func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Request, sessionID string, revisionNumber int, name string) error {
+	httputil.ClearStreamWriteDeadline(w)
+
 	m.mu.RLock()
 	session := m.sessions[sessionID]
 	m.mu.RUnlock()
@@ -440,7 +522,7 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 	}
 
 	cleanName := filepath.Clean("/" + name)
-	if cleanName == "/" || strings.Contains(cleanName, "..") {
+	if cleanName == "/" {
 		return db.ErrNotFound
 	}
 	relFromRoot := strings.TrimPrefix(cleanName, "/")
@@ -509,6 +591,7 @@ func (m *PlaybackSessionManager) startRevision(
 	settings db.TranscodingSettings,
 	audioIndex int,
 	decision playbackDecision,
+	cachedProbe *playbackSourceProbe,
 ) (PlaybackSessionState, error) {
 	session.mu.Lock()
 	session.desiredRevision += 1
@@ -527,7 +610,7 @@ func (m *PlaybackSessionManager) startRevision(
 		return PlaybackSessionState{}, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.shutdownCtx)
 	revision := &playbackRevision{
 		number:     revisionNumber,
 		delivery:   decision.Delivery,
@@ -540,16 +623,15 @@ func (m *PlaybackSessionManager) startRevision(
 	session.revisions[revisionNumber] = revision
 	session.mu.Unlock()
 
-	log.Printf(
-		"playback revision start session=%s media=%d revision=%d audio_index=%d delivery=%s",
-		session.id,
-		session.media.ID,
-		revision.number,
-		audioIndex,
-		decision.Delivery,
+	slog.Info("playback revision start",
+		"session_id", session.id,
+		"media_id", session.media.ID,
+		"revision", revision.number,
+		"audio_index", audioIndex,
+		"delivery", decision.Delivery,
 	)
 
-	go m.runRevision(ctx, session, revision, settings, decision)
+	go m.runRevision(ctx, session, revision, settings, decision, cachedProbe)
 
 	starting := PlaybackSessionState{
 		SessionID:                       session.id,
@@ -585,12 +667,11 @@ func (m *PlaybackSessionManager) scheduleDisconnectLocked(session *playbackSessi
 	session.disconnectTimer = time.AfterFunc(playbackDisconnectGracePeriod, func() {
 		m.Close(sessionID)
 	})
-	log.Printf(
-		"playback session disconnect pending session=%s user=%d client=%s grace=%s",
-		session.id,
-		userID,
-		clientID,
-		playbackDisconnectGracePeriod,
+	slog.Info("playback session disconnect pending",
+		"session_id", session.id,
+		"user_id", userID,
+		"client_id", clientID,
+		"grace", playbackDisconnectGracePeriod,
 	)
 }
 
@@ -600,10 +681,17 @@ func (m *PlaybackSessionManager) runRevision(
 	revision *playbackRevision,
 	settings db.TranscodingSettings,
 	decision playbackDecision,
+	cachedProbe *playbackSourceProbe,
 ) {
-	probe, err := probePlaybackSource(ctx, session.media.Path)
-	if err != nil {
-		log.Printf("playback probe failed media=%d path=%s error=%v", session.media.ID, session.media.Path, err)
+	var probe playbackSourceProbe
+	var err error
+	if cachedProbe != nil {
+		probe = *cachedProbe
+	} else {
+		probe, err = probePlaybackSource(ctx, session.media.Path)
+		if err != nil {
+			slog.Warn("playback probe failed", "media_id", session.media.ID, "path", session.media.Path, "error", err)
+		}
 	}
 	durationSeconds := resolvePlaybackDurationSeconds(session.media.Duration, probe.DurationSeconds)
 	session.mu.Lock()
@@ -635,14 +723,13 @@ func (m *PlaybackSessionManager) runRevision(
 			return
 		}
 
-		log.Printf(
-			"playback revision ffmpeg start session=%s media=%d revision=%d mode=%s attempt=%d/%d",
-			session.id,
-			session.media.ID,
-			revision.number,
-			plan.Mode,
-			index+1,
-			len(plans),
+		slog.Info("playback revision ffmpeg start",
+			"session_id", session.id,
+			"media_id", session.media.ID,
+			"revision", revision.number,
+			"mode", plan.Mode,
+			"attempt", index+1,
+			"attempts", len(plans),
 		)
 
 		if err := os.RemoveAll(revision.dir); err == nil {
@@ -661,13 +748,12 @@ func (m *PlaybackSessionManager) runRevision(
 		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			finalState.Error = err.Error()
-			log.Printf(
-				"playback revision ffmpeg start failed session=%s media=%d revision=%d mode=%s error=%q",
-				session.id,
-				session.media.ID,
-				revision.number,
-				plan.Mode,
-				finalState.Error,
+			slog.Error("playback revision ffmpeg start failed",
+				"session_id", session.id,
+				"media_id", session.media.ID,
+				"revision", revision.number,
+				"mode", plan.Mode,
+				"error", finalState.Error,
 			)
 			continue
 		}
@@ -692,14 +778,13 @@ func (m *PlaybackSessionManager) runRevision(
 						return
 					}
 					finalState.Error = compactFFmpegError(stderrBuf.String(), err)
-					log.Printf(
-						"playback revision ffmpeg failed session=%s media=%d revision=%d mode=%s ready=%t error=%q",
-						session.id,
-						session.media.ID,
-						revision.number,
-						plan.Mode,
-						ready,
-						finalState.Error,
+					slog.Error("playback revision ffmpeg failed",
+						"session_id", session.id,
+						"media_id", session.media.ID,
+						"revision", revision.number,
+						"mode", plan.Mode,
+						"ready", ready,
+						"error", finalState.Error,
 					)
 					break loop
 				}
@@ -707,13 +792,12 @@ func (m *PlaybackSessionManager) runRevision(
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
-				log.Printf(
-					"playback revision ffmpeg exited session=%s media=%d revision=%d mode=%s ready=%t",
-					session.id,
-					session.media.ID,
-					revision.number,
-					plan.Mode,
-					ready,
+				slog.Info("playback revision ffmpeg exited",
+					"session_id", session.id,
+					"media_id", session.media.ID,
+					"revision", revision.number,
+					"mode", plan.Mode,
+					"ready", ready,
 				)
 				return
 			case <-ticker.C:
@@ -725,13 +809,12 @@ func (m *PlaybackSessionManager) runRevision(
 		}
 
 		if plan.Mode == "hardware" && settings.AllowSoftwareFallback && index+1 < len(plans) && !ready {
-			log.Printf(
-				"playback revision fallback session=%s media=%d revision=%d from=%s to=%s",
-				session.id,
-				session.media.ID,
-				revision.number,
-				plan.Mode,
-				plans[index+1].Mode,
+			slog.Info("playback revision fallback",
+				"session_id", session.id,
+				"media_id", session.media.ID,
+				"revision", revision.number,
+				"from_mode", plan.Mode,
+				"to_mode", plans[index+1].Mode,
 			)
 			continue
 		}
@@ -743,12 +826,11 @@ func (m *PlaybackSessionManager) runRevision(
 	}
 	revision.status = "error"
 	revision.err = finalState.Error
-	log.Printf(
-		"playback revision error session=%s media=%d revision=%d error=%q",
-		session.id,
-		session.media.ID,
-		revision.number,
-		finalState.Error,
+	slog.Error("playback revision error",
+		"session_id", session.id,
+		"media_id", session.media.ID,
+		"revision", revision.number,
+		"error", finalState.Error,
 	)
 	m.broadcast(finalState)
 }
@@ -798,13 +880,12 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 		session.mu.Unlock()
 		if previous != nil && previous.cancel != nil {
 			delay := previousRevisionCancelDelay
-			log.Printf(
-				"playback revision ready session=%s media=%d revision=%d previous_revision=%d cancel_delay=%s",
-				sessionID,
-				mediaID,
-				revision.number,
-				previousActive,
-				delay,
+			slog.Info("playback revision ready",
+				"session_id", sessionID,
+				"media_id", mediaID,
+				"revision", revision.number,
+				"previous_revision", previousActive,
+				"cancel_delay", delay,
 			)
 			time.AfterFunc(delay, func() {
 				previous.cancel()
@@ -843,7 +924,7 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("marshal playback session update: %v", err)
+		slog.Error("marshal playback session update", "error", err)
 		return
 	}
 	m.hub.Broadcast(payload)
@@ -858,11 +939,14 @@ func revisionReady(dir string, durationSeconds float64) bool {
 		return false
 	}
 
-	segmentRoot := dir
-	if st, statErr := os.Stat(filepath.Join(dir, "variant_0")); statErr == nil && st.IsDir() {
-		segmentRoot = filepath.Join(dir, "variant_0")
+	segCount := countHlsSegmentEntriesFromPlaylist(dir)
+	if segCount < 1 {
+		segmentRoot := dir
+		if st, statErr := os.Stat(filepath.Join(dir, "variant_0")); statErr == nil && st.IsDir() {
+			segmentRoot = filepath.Join(dir, "variant_0")
+		}
+		segCount = countNonEmptyHlsSegments(segmentRoot)
 	}
-	segCount := countNonEmptyHlsSegments(segmentRoot)
 	if segCount < 1 {
 		return false
 	}
@@ -881,18 +965,40 @@ func revisionReady(dir string, durationSeconds float64) bool {
 	return segCount >= minSegments
 }
 
+// countHlsSegmentEntriesFromPlaylist counts #EXTINF entries in the active media playlist (one read),
+// which tracks what ffmpeg has committed to the playlist. Falls back to countNonEmptyHlsSegments when empty.
+func countHlsSegmentEntriesFromPlaylist(revisionDir string) int {
+	playlist := filepath.Join(revisionDir, "index.m3u8")
+	if st, err := os.Stat(filepath.Join(revisionDir, "variant_0")); err == nil && st.IsDir() {
+		playlist = filepath.Join(revisionDir, "variant_0", "index.m3u8")
+	}
+	raw, err := os.ReadFile(playlist)
+	if err != nil || len(raw) == 0 {
+		return 0
+	}
+	return strings.Count(string(raw), "#EXTINF:")
+}
+
 func countNonEmptyHlsSegments(root string) int {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0
+	}
 	n := 0
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info == nil || info.IsDir() {
-			return nil
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
 		}
-		base := filepath.Base(path)
-		if strings.HasPrefix(base, "segment_") && strings.HasSuffix(base, ".ts") && info.Size() > 0 {
-			n++
+		name := entry.Name()
+		if !strings.HasPrefix(name, "segment_") || !strings.HasSuffix(name, ".ts") {
+			continue
 		}
-		return nil
-	})
+		info, err := entry.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+		n++
+	}
 	return n
 }
 

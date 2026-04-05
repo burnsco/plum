@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +29,8 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	envLoaded := dotenv.LoadIntoOSEnv()
 
 	addr := getEnv("PLUM_ADDR", ":8080")
@@ -78,31 +82,31 @@ func main() {
 	}
 
 	if raw, err := json.Marshal(startup); err != nil {
-		log.Printf(`{"component":"server","event":"startup_log_marshal_error","error":%q}`, err.Error())
+		slog.Error("startup log marshal error", "error", err)
 	} else {
-		log.Print(string(raw))
+		slog.Info(string(raw))
 	}
 
 	pipeline := metadata.NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact)
 	pipeline.SetIMDbRatingProvider(&db.IMDbRatingStore{DB: sqlDB})
 	pipeline.SetProviderCache(db.NewMetadataProviderCacheStore(sqlDB))
 
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+
 	hub := ws.NewHub()
 	go hub.Run()
 	playbackRoot := filepath.Join(os.TempDir(), "plum_playback")
-	playbackSessions := transcoder.NewPlaybackSessionManager(playbackRoot, hub)
+	playbackSessions := transcoder.NewPlaybackSessionManager(appCtx, playbackRoot, hub)
 	if err := transcoder.CleanupLegacyTranscodes(os.TempDir()); err != nil {
-		log.Printf("cleanup legacy transcodes: %v", err)
+		slog.Warn("cleanup legacy transcodes", "error", err)
 	}
 	// Remove any session temp dirs left over from a previous (crashed) run.
-	if err := transcoder.CleanupOrphanedSessionDirs(playbackRoot, 0); err != nil {
-		log.Printf("cleanup orphaned session dirs: %v", err)
+	if err := transcoder.CleanupOrphanedSessionDirs(playbackRoot, transcoder.SessionDirCleanupMinAgeAny); err != nil {
+		slog.Warn("cleanup orphaned session dirs", "error", err)
 	}
-
-	appCtx, appCancel := context.WithCancel(context.Background())
-	defer appCancel()
-	db.StartIMDbRatingsSync(appCtx, sqlDB, log.Printf)
-	db.StartSessionCleanup(appCtx, sqlDB, log.Printf)
+	db.StartIMDbRatingsSync(appCtx, sqlDB, func(msg string, args ...any) { slog.Info(fmt.Sprintf(msg, args...)) })
+	db.StartSessionCleanup(appCtx, sqlDB, func(msg string, args ...any) { slog.Info(fmt.Sprintf(msg, args...)) })
 
 	thumbDir := getEnv("PLUM_THUMBNAILS_DIR", "")
 	if thumbDir == "" {
@@ -116,7 +120,7 @@ func main() {
 	srv := newHTTPServer(addr, buildRouter(sqlDB, hub, playbackSessions, pipeline, thumbDir, artDir))
 
 	go func() {
-		log.Printf("plum backend listening on %s", addr)
+		slog.Info("plum backend listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}
@@ -127,11 +131,12 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	appCancel()
+	playbackSessions.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("server shutdown: %v", err)
+		slog.Warn("server shutdown", "error", err)
 	}
 
 	hub.Close()
@@ -218,7 +223,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	}
 	scanJobs.AttachHandler(libHandler)
 	if err := scanJobs.Recover(); err != nil {
-		log.Printf("recover scan jobs: %v", err)
+		slog.Warn("recover scan jobs", "error", err)
 	}
 	searchIndex.QueueAllLibraries(true)
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
@@ -302,15 +307,25 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Patch("/api/playback/sessions/{sessionId}/audio", playbackHandler.UpdateSessionAudio)
 		protected.Delete("/api/playback/sessions/{sessionId}", playbackHandler.CloseSession)
 		protected.Get("/api/playback/sessions/{sessionId}/revisions/{revision}/*", playbackHandler.ServeSessionRevision)
+		protected.Head("/api/playback/sessions/{sessionId}/revisions/{revision}/*", playbackHandler.ServeSessionRevision)
 		protected.Get("/api/stream/{id}", playbackHandler.StreamMedia)
+		protected.Head("/api/stream/{id}", playbackHandler.StreamMedia)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}/sup", playbackHandler.StreamEmbeddedSubtitleSup)
+		protected.Head("/api/media/{id}/subtitles/embedded/{index}/sup", playbackHandler.StreamEmbeddedSubtitleSup)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}/ass", playbackHandler.StreamEmbeddedSubtitleAss)
+		protected.Head("/api/media/{id}/subtitles/embedded/{index}/ass", playbackHandler.StreamEmbeddedSubtitleAss)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}", playbackHandler.StreamEmbeddedSubtitle)
+		protected.Head("/api/media/{id}/subtitles/embedded/{index}", playbackHandler.StreamEmbeddedSubtitle)
 		protected.Get("/api/subtitles/{id}/ass", playbackHandler.StreamSubtitleAss)
+		protected.Head("/api/subtitles/{id}/ass", playbackHandler.StreamSubtitleAss)
 		protected.Get("/api/subtitles/{id}", playbackHandler.StreamSubtitle)
+		protected.Head("/api/subtitles/{id}", playbackHandler.StreamSubtitle)
 		protected.Get("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)
+		protected.Head("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)
 		protected.Get("/api/media/{id}/artwork/{kind}", playbackHandler.ServeArtwork)
+		protected.Head("/api/media/{id}/artwork/{kind}", playbackHandler.ServeArtwork)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster", playbackHandler.ServeShowArtwork)
+		protected.Head("/api/libraries/{id}/shows/{showKey}/artwork/poster", playbackHandler.ServeShowArtwork)
 	})
 
 	r.Get("/ws", httpapi.ServeWebSocket(hub, playbackSessions, allowedOrigins))
@@ -320,9 +335,11 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 0,
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		// Streaming handlers clear the write deadline via httputil.ClearStreamWriteDeadline.
+		WriteTimeout: 30 * time.Second,
 	}
 }

@@ -30,8 +30,7 @@ func (h *MediaStackSettingsHandler) Get(w http.ResponseWriter, r *http.Request) 
 
 func (h *MediaStackSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	var payload db.MediaStackSettings
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 
@@ -64,8 +63,7 @@ func (h *MediaStackSettingsHandler) Put(w http.ResponseWriter, r *http.Request) 
 
 func (h *MediaStackSettingsHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	var payload db.MediaStackSettings
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if h.Arr == nil {

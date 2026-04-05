@@ -1580,6 +1580,24 @@ export type HardwareEncodeFormat = "h264" | "hevc" | "av1";
 
 export const HardwareEncodeFormatSchema = Schema.Literals(["h264", "hevc", "av1"]);
 
+/** FFmpeg `tonemap_opencl` algorithm names (experimental server setting). */
+export type OpenCLToneMapAlgorithm =
+  | "hable"
+  | "reinhard"
+  | "mobius"
+  | "linear"
+  | "gamma"
+  | "clip";
+
+export const OpenCLToneMapAlgorithmSchema = Schema.Literals([
+  "hable",
+  "reinhard",
+  "mobius",
+  "linear",
+  "gamma",
+  "clip",
+]);
+
 export interface TranscodingSettings {
   vaapiEnabled: boolean;
   vaapiDevicePath: string;
@@ -1594,6 +1612,11 @@ export interface TranscodingSettings {
   threads: number;
   keyframeInterval: number;
   maxBitrate: string;
+  /** Experimental: HDR→SDR via FFmpeg `tonemap_opencl` when the source looks HDR. Default off. */
+  openclToneMappingEnabled: boolean;
+  openclToneMapAlgorithm: OpenCLToneMapAlgorithm;
+  /** Highlight desaturation (FFmpeg `desat`, typically 0–1; capped server-side). */
+  openclToneMapDesat: number;
 }
 
 export const VaapiDecodeCodecFlagsSchema = Schema.Struct({
@@ -1628,6 +1651,9 @@ export const TranscodingSettingsSchema = Schema.Struct({
   threads: Schema.Number,
   keyframeInterval: Schema.Number,
   maxBitrate: Schema.String,
+  openclToneMappingEnabled: Schema.Boolean,
+  openclToneMapAlgorithm: OpenCLToneMapAlgorithmSchema,
+  openclToneMapDesat: Schema.Number,
 });
 
 export interface TranscodingSettingsWarning {
