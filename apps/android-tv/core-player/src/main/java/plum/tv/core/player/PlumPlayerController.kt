@@ -1597,13 +1597,21 @@ class PlumPlayerController(
                         hlsSessionId = sid
                         wsManager.sendAttach(sid)
                         if (session.status == "ready") {
-                            val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                            activeStreamUrl = url
                             lastDurationSec = session.durationSeconds
-                            loadAndPlay(url, resumeSec)
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                                activeStreamUrl = url
+                                lastDurationSec = session.durationSeconds
+                                loadAndPlay(url, resumeSec)
+                            }
                             updateStatus("Playing")
                         } else {
-                            updateStatus("Preparing stream…")
+                            lastDurationSec = session.durationSeconds
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                updateStatus("Preparing stream…")
+                            } else {
+                                updateStatus("Playing")
+                            }
                         }
                     }
                     else -> {
@@ -1898,7 +1906,12 @@ class PlumPlayerController(
                             }
                             updateStatus("Playing")
                         } else {
-                            updateStatus("Preparing stream…")
+                            lastDurationSec = session.durationSeconds
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                updateStatus("Preparing stream…")
+                            } else {
+                                updateStatus("Playing")
+                            }
                         }
                     }
                     else -> {

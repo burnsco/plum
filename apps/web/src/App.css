@@ -2830,18 +2830,21 @@
 }
 
 .fullscreen-player--aspect-ratio-16-9 .fullscreen-player__video-frame {
+  height: auto;
   aspect-ratio: 16 / 9;
   width: min(100vw, calc(100vh * 16 / 9));
   max-height: 100%;
 }
 
 .fullscreen-player--aspect-ratio-4-3 .fullscreen-player__video-frame {
+  height: auto;
   aspect-ratio: 4 / 3;
   width: min(100vw, calc(100vh * 4 / 3));
   max-height: 100%;
 }
 
 .fullscreen-player--aspect-ratio-21-9 .fullscreen-player__video-frame {
+  height: auto;
   aspect-ratio: 21 / 9;
   width: min(100vw, calc(100vh * 21 / 9));
   max-height: 100%;
