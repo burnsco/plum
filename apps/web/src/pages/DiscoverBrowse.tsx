@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { useAuthState } from "@/contexts/AuthContext";
 import {
   DISCOVER_CATEGORY_OPTIONS,
+  DISCOVER_ORIGIN_PRESETS,
   discoverBrowseHref,
   discoverCategoryLabel,
   discoverMediaLabel,
+  normalizeDiscoverOriginKey,
 } from "@/lib/discover";
 import { useAddDiscoverTitle, useDiscoverBrowse, useDiscoverGenres } from "@/queries";
 import { DiscoverMessage, mapDiscoverItemToPosterGridItem } from "./Discover";
@@ -44,12 +46,17 @@ export function DiscoverBrowse() {
   const category = parseCategory(searchParams.get("category"));
   const mediaType = parseMediaType(searchParams.get("mediaType"));
   const genreId = parsePositiveInt(searchParams.get("genre"));
+  const originCountry = useMemo(
+    () => normalizeDiscoverOriginKey(searchParams.get("origin")),
+    [searchParams],
+  );
   const addTitle = useAddDiscoverTitle();
   const { data: genres } = useDiscoverGenres();
   const browse = useDiscoverBrowse({
     category,
     mediaType,
     genreId,
+    originCountry: originCountry || undefined,
   });
 
   const items = useMemo(
@@ -106,11 +113,23 @@ export function DiscoverBrowse() {
                   ? `${totalResults.toLocaleString()} titles available`
                   : "Open a category or genre to explore the full catalog."}
               </p>
+              {originCountry ? (
+                <p className="text-sm text-(--plum-muted)">
+                  Production country:{" "}
+                  <span className="font-medium text-(--plum-text)">
+                    {DISCOVER_ORIGIN_PRESETS.find((p) => p.code === originCountry)?.label ??
+                      originCountry}
+                  </span>{" "}
+                  (TMDB origin metadata).
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="outline" size="sm">
-                <Link to="/discover">Back to Discover</Link>
+                <Link to={originCountry ? `/discover?origin=${originCountry}` : "/discover"}>
+                  Back to Discover
+                </Link>
               </Button>
               <Button asChild variant="ghost" size="sm">
                 <Link to="/discover/browse">Clear filters</Link>
@@ -125,7 +144,11 @@ export function DiscoverBrowse() {
               return (
                 <Link
                   key={option.id}
-                  to={discoverBrowseHref({ category: option.id, mediaType: browseMediaType })}
+                  to={discoverBrowseHref({
+                    category: option.id,
+                    mediaType: browseMediaType,
+                    originCountry,
+                  })}
                   className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
                     selected
                       ? "border-(--plum-accent) bg-(--plum-accent) text-black"
@@ -144,7 +167,12 @@ export function DiscoverBrowse() {
               return (
                 <Link
                   key={option}
-                  to={discoverBrowseHref({ category, mediaType: option, genreId: genreId ?? undefined })}
+                  to={discoverBrowseHref({
+                    category,
+                    mediaType: option,
+                    genreId: genreId ?? undefined,
+                    originCountry,
+                  })}
                   className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
                     selected
                       ? "border-(--plum-accent) bg-(--plum-accent) text-black"
@@ -157,12 +185,56 @@ export function DiscoverBrowse() {
             })}
           </div>
 
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+              Production country
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to={discoverBrowseHref({
+                  category,
+                  mediaType: activeMediaType || undefined,
+                  genreId: genreId ?? undefined,
+                })}
+                className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                  originCountry === ""
+                    ? "border-(--plum-accent) bg-(--plum-accent) text-black"
+                    : "border-(--plum-border) bg-(--plum-panel-alt) text-(--plum-text) hover:border-(--plum-accent-soft)"
+                }`}
+              >
+                Any
+              </Link>
+              {DISCOVER_ORIGIN_PRESETS.map((preset) => {
+                const selected = originCountry === preset.code;
+                return (
+                  <Link
+                    key={preset.code}
+                    to={discoverBrowseHref({
+                      category,
+                      mediaType: activeMediaType || undefined,
+                      genreId: genreId ?? undefined,
+                      originCountry: preset.code,
+                    })}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                      selected
+                        ? "border-(--plum-accent) bg-(--plum-accent) text-black"
+                        : "border-(--plum-border) bg-(--plum-panel-alt) text-(--plum-text) hover:border-(--plum-accent-soft)"
+                    }`}
+                  >
+                    {preset.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
           <DiscoverBrowseGenreFilters
             movieGenres={genres?.movie_genres ?? []}
             tvGenres={genres?.tv_genres ?? []}
             category={category}
             activeMediaType={activeMediaType}
             activeGenreId={activeGenre?.id ?? genreId}
+            originCountry={originCountry}
           />
         </div>
       </section>
@@ -198,12 +270,14 @@ function DiscoverBrowseGenreFilters({
   category,
   activeMediaType,
   activeGenreId,
+  originCountry,
 }: {
   movieGenres: DiscoverGenre[];
   tvGenres: DiscoverGenre[];
   category: DiscoverBrowseCategory | "";
   activeMediaType: DiscoverMediaType | "";
   activeGenreId: number | null;
+  originCountry: string;
 }) {
   if (activeMediaType === "movie") {
     return (
@@ -213,6 +287,7 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="movie"
         activeGenreId={activeGenreId}
+        originCountry={originCountry}
       />
     );
   }
@@ -224,6 +299,7 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="tv"
         activeGenreId={activeGenreId}
+        originCountry={originCountry}
       />
     );
   }
@@ -236,6 +312,7 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="movie"
         activeGenreId={activeGenreId}
+        originCountry={originCountry}
       />
       <DiscoverBrowseGenreRow
         title="TV Genres"
@@ -243,6 +320,7 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="tv"
         activeGenreId={activeGenreId}
+        originCountry={originCountry}
       />
     </div>
   );
@@ -254,12 +332,14 @@ function DiscoverBrowseGenreRow({
   category,
   mediaType,
   activeGenreId,
+  originCountry,
 }: {
   title: string;
   genres: DiscoverGenre[];
   category: DiscoverBrowseCategory | "";
   mediaType: DiscoverMediaType;
   activeGenreId: number | null;
+  originCountry: string;
 }) {
   if (genres.length === 0) {
     return null;
@@ -271,7 +351,7 @@ function DiscoverBrowseGenreRow({
       </div>
       <div className="flex flex-wrap gap-2">
         <Link
-          to={discoverBrowseHref({ category, mediaType })}
+          to={discoverBrowseHref({ category, mediaType, originCountry })}
           className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
             activeGenreId == null
               ? "border-(--plum-accent) bg-(--plum-accent) text-black"
@@ -283,7 +363,7 @@ function DiscoverBrowseGenreRow({
         {genres.slice(0, 20).map((genre) => (
           <Link
             key={`${mediaType}-${genre.id}`}
-            to={discoverBrowseHref({ category, mediaType, genreId: genre.id })}
+            to={discoverBrowseHref({ category, mediaType, genreId: genre.id, originCountry })}
             className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
               activeGenreId === genre.id
                 ? "border-(--plum-accent) bg-(--plum-accent) text-black"

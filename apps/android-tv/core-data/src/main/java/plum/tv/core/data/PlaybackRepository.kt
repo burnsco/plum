@@ -21,11 +21,16 @@ class PlaybackRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val okHttpClient: OkHttpClient,
 ) {
-    suspend fun createSession(mediaId: Int, audioIndex: Int? = null): Result<PlaybackSessionJson> = runCatching {
+    suspend fun createSession(
+        mediaId: Int,
+        audioIndex: Int? = null,
+        burnEmbeddedSubtitleStreamIndex: Int? = null,
+    ): Result<PlaybackSessionJson> = runCatching {
         val api = sessionRepository.getPlumApi()
         val payload = CreatePlaybackSessionPayloadJson(
             audioIndex = audioIndex,
             clientCapabilities = androidTvClientCapabilities(),
+            burnEmbeddedSubtitleStreamIndex = burnEmbeddedSubtitleStreamIndex,
         )
         val res = api.createPlaybackSession(mediaId, payload)
         if (!res.isSuccessful) {

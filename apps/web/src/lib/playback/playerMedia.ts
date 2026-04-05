@@ -37,6 +37,10 @@ export type SubtitleTrackOption = TrackMenuOption & {
   supported?: boolean;
   /** PGS-style track: selecting it restarts playback with server burn-in transcode. */
   requiresBurn?: boolean;
+  /** ASS/SSA track: use JASSUB renderer instead of the HTML5 TextTrack API. */
+  assEligible?: boolean;
+  /** Raw ASS/SSA URL served by the /ass endpoint; only set when assEligible is true. */
+  assSrc?: string;
 };
 
 export type AudioTrackOption = TrackMenuOption & {

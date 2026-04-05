@@ -834,12 +834,19 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: ShowEpisodesResponseSchema,
         errorMessage: ({ status, body }) => body || `Show episodes: ${status}`,
       }),
-    getDiscover: () =>
-      jsonRequestEffect({
-        path: "/api/discover",
+    getDiscover: (options?: { readonly originCountry?: string }) => {
+      const params = new URLSearchParams();
+      const oc = options?.originCountry?.trim().toUpperCase();
+      if (oc != null && oc !== "") {
+        params.set("origin_country", oc);
+      }
+      const q = params.size > 0 ? `?${params.toString()}` : "";
+      return jsonRequestEffect({
+        path: `/api/discover${q}`,
         schema: DiscoverResponseSchema,
         errorMessage: ({ status, body }) => body || `Discover: ${status}`,
-      }),
+      });
+    },
     getDiscoverGenres: () =>
       jsonRequestEffect({
         path: "/api/discover/genres",
@@ -851,6 +858,7 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       readonly mediaType?: DiscoverMediaType;
       readonly genreId?: number;
       readonly page?: number;
+      readonly originCountry?: string;
     }) => {
       const params = new URLSearchParams();
       if (options?.category) {
@@ -864,6 +872,10 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       }
       if (options?.page != null) {
         params.set("page", String(options.page));
+      }
+      const oc = options?.originCountry?.trim().toUpperCase();
+      if (oc != null && oc !== "") {
+        params.set("origin_country", oc);
       }
       return jsonRequestEffect({
         path: `/api/discover/browse${params.size > 0 ? `?${params.toString()}` : ""}`,
@@ -1333,13 +1345,14 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       run(effects.getShowDetails(libraryId, showKey)),
     getShowEpisodes: (libraryId: number, showKey: string) =>
       run(effects.getShowEpisodes(libraryId, showKey)),
-    getDiscover: () => run(effects.getDiscover()),
+    getDiscover: (options?: { readonly originCountry?: string }) => run(effects.getDiscover(options)),
     getDiscoverGenres: () => run(effects.getDiscoverGenres()),
     browseDiscover: (options?: {
       readonly category?: DiscoverBrowseCategory;
       readonly mediaType?: DiscoverMediaType;
       readonly genreId?: number;
       readonly page?: number;
+      readonly originCountry?: string;
     }) => run(effects.browseDiscover(options)),
     searchDiscover: (query: string) => run(effects.searchDiscover(query)),
     getDiscoverTitleDetails: (mediaType: DiscoverMediaType, tmdbId: number) =>

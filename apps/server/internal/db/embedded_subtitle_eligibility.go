@@ -38,6 +38,16 @@ func EmbeddedSubtitlePgsBinaryDeliveryEligible(e EmbeddedSubtitle) bool {
 	}
 }
 
+// EmbeddedSubtitleAssDeliveryEligible returns true when the stream can be served as raw ASS for
+// clients that render ASS natively (e.g. JASSUB in web browsers).
+func EmbeddedSubtitleAssDeliveryEligible(e EmbeddedSubtitle) bool {
+	if e.Supported != nil && !*e.Supported {
+		return false
+	}
+	c := strings.ToLower(strings.TrimSpace(e.Codec))
+	return c == "ass" || c == "ssa"
+}
+
 // PlaybackEmbeddedSubtitles returns embedded entries safe for WebVTT APIs and playback JSON.
 func PlaybackEmbeddedSubtitles(in []EmbeddedSubtitle) []EmbeddedSubtitle {
 	if len(in) == 0 {

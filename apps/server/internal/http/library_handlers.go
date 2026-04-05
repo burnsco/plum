@@ -2982,7 +2982,13 @@ func (h *LibraryHandler) GetDiscover(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, metadata.ErrTMDBNotConfigured.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	payload, err := h.Discover.GetDiscover(r.Context())
+	originCountry, err := parseDiscoverOriginCountry(r.URL.Query().Get("origin_country"))
+	if err != nil {
+		http.Error(w, "invalid origin_country", http.StatusBadRequest)
+		return
+	}
+
+	payload, err := h.Discover.GetDiscover(r.Context(), originCountry)
 	if err != nil {
 		status, message := discoverHTTPStatus(err)
 		http.Error(w, message, status)
@@ -3059,6 +3065,22 @@ func parseDiscoverBrowseMediaType(raw string) (metadata.DiscoverMediaType, bool)
 	}
 }
 
+func parseDiscoverOriginCountry(raw string) (string, error) {
+	s := strings.TrimSpace(strings.ToUpper(raw))
+	if s == "" {
+		return "", nil
+	}
+	if len(s) != 2 {
+		return "", errors.New("invalid origin_country")
+	}
+	for i := 0; i < 2; i++ {
+		if s[i] < 'A' || s[i] > 'Z' {
+			return "", errors.New("invalid origin_country")
+		}
+	}
+	return s, nil
+}
+
 func (h *LibraryHandler) BrowseDiscover(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -3101,7 +3123,13 @@ func (h *LibraryHandler) BrowseDiscover(w http.ResponseWriter, r *http.Request) 
 		page = parsedPage
 	}
 
-	payload, err := h.Discover.BrowseDiscover(r.Context(), category, mediaType, genreID, page)
+	originCountry, err := parseDiscoverOriginCountry(r.URL.Query().Get("origin_country"))
+	if err != nil {
+		http.Error(w, "invalid origin_country", http.StatusBadRequest)
+		return
+	}
+
+	payload, err := h.Discover.BrowseDiscover(r.Context(), category, mediaType, genreID, page, originCountry)
 	if err != nil {
 		status, message := discoverHTTPStatus(err)
 		http.Error(w, message, status)

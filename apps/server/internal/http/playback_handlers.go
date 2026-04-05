@@ -243,6 +243,26 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitleSup(w http.ResponseWriter, r *ht
 	}
 }
 
+func (h *PlaybackHandler) StreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	streamIndex, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
+	if !ok {
+		return
+	}
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamEmbeddedSubtitleAss(tw, r, h.DB, id, streamIndex); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			log.Printf("embedded ass stream ended after response started media=%d stream=%d: %v", id, streamIndex, err)
+		}
+	}
+}
+
 func (h *PlaybackHandler) StreamSubtitle(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
 	if !ok {
@@ -255,6 +275,22 @@ func (h *PlaybackHandler) StreamSubtitle(w http.ResponseWriter, r *http.Request)
 			writePlaybackError(w, err)
 		} else {
 			log.Printf("subtitle stream ended after response started subtitle_id=%d: %v", id, err)
+		}
+	}
+}
+
+func (h *PlaybackHandler) StreamSubtitleAss(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamSubtitleAss(tw, r, h.DB, id); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			log.Printf("subtitle ass stream ended after response started subtitle_id=%d: %v", id, err)
 		}
 	}
 }

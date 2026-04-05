@@ -307,9 +307,9 @@ type DiscoverTitleDetails struct {
 }
 
 type DiscoverProvider interface {
-	GetDiscover(ctx context.Context) (*DiscoverResponse, error)
+	GetDiscover(ctx context.Context, originCountry string) (*DiscoverResponse, error)
 	GetDiscoverGenres(ctx context.Context) (*DiscoverGenresResponse, error)
-	BrowseDiscover(ctx context.Context, category DiscoverBrowseCategory, mediaType DiscoverMediaType, genreID int, page int) (*DiscoverBrowseResponse, error)
+	BrowseDiscover(ctx context.Context, category DiscoverBrowseCategory, mediaType DiscoverMediaType, genreID int, page int, originCountry string) (*DiscoverBrowseResponse, error)
 	SearchDiscover(ctx context.Context, query string) (*DiscoverSearchResponse, error)
 	GetDiscoverTitleDetails(ctx context.Context, mediaType DiscoverMediaType, tmdbID int) (*DiscoverTitleDetails, error)
 }

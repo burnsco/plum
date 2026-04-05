@@ -82,6 +82,7 @@ import {
   type RecentlyAddedEntry,
 } from "./api";
 import { recentlyAddedEntryKey } from "@/lib/libraryReadyNotifications";
+import { normalizeDiscoverOriginKey } from "@/lib/discover";
 
 /** Schema-decoded API payloads are deeply readonly; cache entries use mutable view types. */
 function decodeAs<T>(value: unknown): T {
@@ -143,12 +144,13 @@ function buildHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
 }
 
 export const queryKeys = {
-  discover: ["discover"] as const,
+  discover: (originCountry: string) => ["discover", originCountry] as const,
   discoverBrowse: (
     category: DiscoverBrowseCategory | "",
     mediaType: DiscoverMediaType | "",
     genreId: number | null,
-  ) => ["discover-browse", category, mediaType, genreId ?? 0] as const,
+    originCountry: string,
+  ) => ["discover-browse", category, mediaType, genreId ?? 0, originCountry] as const,
   discoverGenres: ["discover-genres"] as const,
   discoverSearch: (query: string) => ["discover-search", query] as const,
   discoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
@@ -191,7 +193,7 @@ export function invalidateLibraryCatalogQueries(queryClient: QueryClient, librar
 
 /** Refetch Discover shelves, search, and title detail queries (e.g. after downloads or library scans). */
 export function invalidateDiscoverRelatedQueries(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.discover });
+  void queryClient.invalidateQueries({ queryKey: ["discover"] });
   void queryClient.invalidateQueries({ queryKey: ["discover-browse"] });
   void queryClient.invalidateQueries({ queryKey: queryKeys.discoverGenres });
   void queryClient.invalidateQueries({ queryKey: ["discover-search"] });
@@ -224,10 +226,15 @@ export function useUnidentifiedLibrarySummaries(): UseQueryResult<
 export function useDiscover(options?: {
   enabled?: boolean;
   refetchInterval?: number | false;
+  originCountry?: string;
 }): UseQueryResult<DiscoverResponse, Error> {
+  const originKey = normalizeDiscoverOriginKey(options?.originCountry);
   return useQuery({
-    queryKey: queryKeys.discover,
-    queryFn: async () => decodeAs<DiscoverResponse>(await getDiscover()),
+    queryKey: queryKeys.discover(originKey),
+    queryFn: async () =>
+      decodeAs<DiscoverResponse>(
+        await getDiscover(originKey ? { originCountry: originKey } : undefined),
+      ),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -252,6 +259,7 @@ export function useDiscoverBrowse(
     category?: DiscoverBrowseCategory | "";
     mediaType?: DiscoverMediaType | "";
     genreId?: number | null;
+    originCountry?: string;
     enabled?: boolean;
     refetchInterval?: number | false;
   },
@@ -259,8 +267,9 @@ export function useDiscoverBrowse(
   const category = options.category ?? "";
   const mediaType = options.mediaType ?? "";
   const genreId = options.genreId ?? null;
+  const originKey = normalizeDiscoverOriginKey(options.originCountry);
   return useInfiniteQuery({
-    queryKey: queryKeys.discoverBrowse(category, mediaType, genreId),
+    queryKey: queryKeys.discoverBrowse(category, mediaType, genreId, originKey),
     queryFn: async ({ pageParam }) =>
       decodeAs<DiscoverBrowseResponse>(
         await browseDiscover({
@@ -268,6 +277,7 @@ export function useDiscoverBrowse(
           mediaType: mediaType === "" ? undefined : mediaType,
           genreId: genreId ?? undefined,
           page: Number(pageParam ?? 1),
+          ...(originKey ? { originCountry: originKey } : {}),
         }),
       ),
     initialPageParam: 1,

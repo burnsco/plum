@@ -202,6 +202,88 @@ func HandleStreamEmbeddedSubtitleSup(w http.ResponseWriter, r *http.Request, dbC
 	return nil
 }
 
+// HandleStreamSubtitleAss serves a raw ASS/SSA sidecar file for clients that render ASS natively
+// (e.g. JASSUB in web browsers). Only ASS and SSA format subtitles are eligible.
+func HandleStreamSubtitleAss(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, id int) error {
+	s, err := GetSubtitleByID(dbConn, id)
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		return ErrNotFound
+	}
+	if s.Format != "ass" && s.Format != "ssa" {
+		return &StatusError{
+			Status:  http.StatusUnprocessableEntity,
+			Message: fmt.Sprintf("subtitle format %q is not ASS/SSA", s.Format),
+		}
+	}
+	w.Header().Set("Content-Type", "text/x-ssa; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
+	http.ServeFile(w, r, s.Path)
+	return nil
+}
+
+// HandleStreamEmbeddedSubtitleAss extracts a raw ASS subtitle stream for clients that render
+// ASS natively (e.g. JASSUB in web browsers). Only ASS/SSA codec streams are eligible.
+func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
+	item, err := GetMediaByID(dbConn, mediaID)
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return ErrNotFound
+	}
+	if !hasEmbeddedSubtitleStream(*item, streamIndex) {
+		return fmt.Errorf("embedded subtitle stream %d not found for media %d: %w", streamIndex, mediaID, ErrNotFound)
+	}
+	stored := findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex)
+	if stored == nil || !EmbeddedSubtitleAssDeliveryEligible(*stored) {
+		codec := "unknown"
+		if stored != nil && strings.TrimSpace(stored.Codec) != "" {
+			codec = stored.Codec
+		}
+		return &StatusError{
+			Status:  http.StatusUnprocessableEntity,
+			Message: fmt.Sprintf("embedded subtitle codec %q cannot be delivered as raw ASS", codec),
+		}
+	}
+	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "text/x-ssa; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+
+	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
+	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeSubtitleDemux...)
+	ffmpegArgs = append(ffmpegArgs,
+		"-i", sourcePath,
+		"-map", fmt.Sprintf("0:%d", streamIndex),
+		"-c", "copy",
+		"-f", "ass",
+		"-",
+	)
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
+	cmd.Stdout = responseWriterForFFmpegStdout(w)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		msg = trimFFmpegStderrProgress(msg)
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		log.Printf("ffmpeg embedded ass stream stderr_tail=%s", msg)
+		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	return nil
+}
+
 func transcodeEmbeddedSubtitleToWebVTT(
 	w http.ResponseWriter,
 	r *http.Request,

@@ -14,8 +14,10 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
 import {
+  embeddedSubtitleAssUrl,
   embeddedSubtitleNeedsWebBurnIn,
   embeddedSubtitleUrl,
+  externalSubtitleAssUrl,
   externalSubtitleUrl,
   mediaStreamUrl,
   resolveBackdropUrl,
@@ -92,6 +94,7 @@ import type {
   TrackMenuOption,
 } from "../lib/playback/playerMedia";
 import { queryKeys, useLibraries } from "../queries";
+import { JassubRenderer } from "./JassubRenderer";
 
 type PlaybackState = {
   currentTime: number;
@@ -308,20 +311,31 @@ function embeddedStreamIndexFromKey(key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function isAssFormat(format: string): boolean {
+  const f = format.trim().toLowerCase();
+  return f === "ass" || f === "ssa";
+}
+
 function buildSubtitleTrackRequests(source: PlaybackTrackSource | null): SubtitleTrackOption[] {
   if (source == null) return [];
   const external =
-    source.subtitles?.map((subtitle, index) => ({
-      key: `ext-${subtitle.id}`,
-      label: subtitle.title || subtitle.language || `Subtitle ${index + 1}`,
-      src: externalSubtitleUrl(BASE_URL, subtitle.id),
-      srcLang: subtitle.language || "und",
-      supported: true,
-    })) ?? [];
+    source.subtitles?.map((subtitle, index) => {
+      const assEligible = isAssFormat(subtitle.format ?? "");
+      return {
+        key: `ext-${subtitle.id}`,
+        label: subtitle.title || subtitle.language || `Subtitle ${index + 1}`,
+        src: externalSubtitleUrl(BASE_URL, subtitle.id),
+        srcLang: subtitle.language || "und",
+        supported: true,
+        assEligible,
+        assSrc: assEligible ? externalSubtitleAssUrl(BASE_URL, subtitle.id) : undefined,
+      };
+    }) ?? [];
   const embedded =
     source.embeddedSubtitles?.map((subtitle, index) => {
       const catalogOk = subtitle.supported !== false;
       const requiresBurn = catalogOk && embeddedSubtitleNeedsWebBurnIn(subtitle);
+      const assEligible = catalogOk && !requiresBurn && (subtitle.assEligible === true || isAssFormat(subtitle.codec ?? ""));
       const labelBase =
         subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`;
       const label = !catalogOk
@@ -337,6 +351,10 @@ function buildSubtitleTrackRequests(source: PlaybackTrackSource | null): Subtitl
         supported: catalogOk,
         disabled: !catalogOk,
         requiresBurn,
+        assEligible,
+        assSrc: assEligible
+          ? embeddedSubtitleAssUrl(BASE_URL, source.mediaId, subtitle.streamIndex)
+          : undefined,
       };
     }) ?? [];
   return [...external, ...embedded];
@@ -390,6 +408,7 @@ export function PlaybackDock() {
     [],
   );
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
+  const [activeAssSource, setActiveAssSource] = useState<string | null>(null);
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
   const [refreshedPlaybackTracks, setRefreshedPlaybackTracks] = useState<PlaybackTrackMetadata | null>(null);
   const [subtitleStatusMessage, setSubtitleStatusMessage] = useState("");
@@ -930,6 +949,13 @@ export function PlaybackDock() {
       if (!track) return;
       if (track.requiresBurn) {
         setPendingSubtitleKey(null);
+        return;
+      }
+      if (track.assEligible && track.assSrc) {
+        // ASS tracks are rendered by JASSUB; no VTT load needed.
+        setActiveAssSource(track.assSrc);
+        setPendingSubtitleKey(null);
+        setSubtitleStatusMessage("");
         return;
       }
       if (videoSourceIsHls && hlsRef.current) {
@@ -1633,6 +1659,18 @@ export function PlaybackDock() {
       return;
     }
 
+    // ASS tracks are rendered by JassubRenderer; skip TextTrack for them.
+    if (selectedSubtitleKey !== "off") {
+      const selectedTrackReq = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+      if (selectedTrackReq?.assEligible) {
+        clearTextTrackCues(manualSubtitleTrackRef.current);
+        if (manualSubtitleTrackRef.current) {
+          manualSubtitleTrackRef.current.mode = "disabled";
+        }
+        return;
+      }
+    }
+
     if (videoSourceIsHls && hlsRef.current && selectedSubtitleKey !== "off") {
       const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, selectedSubtitleKey);
       if (hlsIdx >= 0) {
@@ -1682,6 +1720,7 @@ export function PlaybackDock() {
     loadedSubtitleTracks,
     selectedSubtitleKey,
     subtitleAppearance.position,
+    subtitleTrackRequests,
     videoSourceIsHls,
   ]);
 
@@ -1694,6 +1733,18 @@ export function PlaybackDock() {
       }
     };
   }, [applyManagedSubtitleTrack, subtitleAttachmentVersion, subtitleReadyVersion]);
+
+  // Clear JASSUB renderer when the selected subtitle is no longer an ASS track.
+  useEffect(() => {
+    if (selectedSubtitleKey === "off") {
+      setActiveAssSource(null);
+      return;
+    }
+    const track = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    if (!track?.assEligible) {
+      setActiveAssSource(null);
+    }
+  }, [selectedSubtitleKey, subtitleTrackRequests]);
 
   const syncBrowserAudioTrackSelection = useCallback(() => {
     const browserAudioTracks = getBrowserAudioTracks(videoRef.current);
@@ -2587,6 +2638,7 @@ export function PlaybackDock() {
             handleVideoEnded(event);
           }}
         ></video>
+        <JassubRenderer videoElement={videoRef.current} assSrc={activeAssSource} />
         {showSkipIntroControl && (
           <button
             type="button"

@@ -265,11 +265,11 @@ func (p *Pipeline) GetEpisodePosterCandidates(ctx context.Context, title string,
 	return candidates, nil
 }
 
-func (p *Pipeline) GetDiscover(ctx context.Context) (*DiscoverResponse, error) {
+func (p *Pipeline) GetDiscover(ctx context.Context, originCountry string) (*DiscoverResponse, error) {
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
-	return p.discoverProvider.GetDiscover(ctx)
+	return p.discoverProvider.GetDiscover(ctx, originCountry)
 }
 
 func (p *Pipeline) GetDiscoverGenres(ctx context.Context) (*DiscoverGenresResponse, error) {
@@ -285,11 +285,12 @@ func (p *Pipeline) BrowseDiscover(
 	mediaType DiscoverMediaType,
 	genreID int,
 	page int,
+	originCountry string,
 ) (*DiscoverBrowseResponse, error) {
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
-	return p.discoverProvider.BrowseDiscover(ctx, category, mediaType, genreID, page)
+	return p.discoverProvider.BrowseDiscover(ctx, category, mediaType, genreID, page, originCountry)
 }
 
 func (p *Pipeline) SearchDiscover(ctx context.Context, query string) (*DiscoverSearchResponse, error) {
