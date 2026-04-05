@@ -31,6 +31,43 @@ export const DISCOVER_CATEGORY_OPTIONS: DiscoverCategoryOption[] = [
   { id: "top-rated", label: "Top Rated Picks", defaultMediaType: "movie" },
 ];
 
+/** ISO 3166-1 alpha-2 codes (TMDB `with_origin_country`). UK is `GB`. */
+export const DISCOVER_ORIGIN_PRESETS: ReadonlyArray<{ readonly code: string; readonly label: string }> = [
+  { code: "GB", label: "UK" },
+  { code: "FR", label: "France" },
+  { code: "DE", label: "Germany" },
+  { code: "ES", label: "Spain" },
+  { code: "IT", label: "Italy" },
+  { code: "JP", label: "Japan" },
+  { code: "KR", label: "Korea" },
+  { code: "IN", label: "India" },
+  { code: "BR", label: "Brazil" },
+  { code: "MX", label: "Mexico" },
+  { code: "SE", label: "Sweden" },
+  { code: "NO", label: "Norway" },
+  { code: "DK", label: "Denmark" },
+  { code: "CA", label: "Canada" },
+  { code: "AU", label: "Australia" },
+  { code: "IE", label: "Ireland" },
+];
+
+export function normalizeDiscoverOriginKey(raw: string | undefined | null): string {
+  if (raw == null) {
+    return "";
+  }
+  const s = String(raw).trim().toUpperCase();
+  if (s.length !== 2) {
+    return "";
+  }
+  for (let i = 0; i < 2; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 65 || c > 90) {
+      return "";
+    }
+  }
+  return s;
+}
+
 export function discoverMediaLabel(mediaType: DiscoverMediaType): string {
   return mediaType === "movie" ? "Movie" : "TV";
 }
@@ -85,6 +122,7 @@ export function discoverBrowseHref(options: {
   category?: DiscoverBrowseCategory | "";
   mediaType?: DiscoverMediaType | "";
   genreId?: number | null;
+  originCountry?: string | null;
 }): string {
   const params = new URLSearchParams();
   if (options.category) {
@@ -95,6 +133,10 @@ export function discoverBrowseHref(options: {
   }
   if (options.genreId != null && options.genreId > 0) {
     params.set("genre", String(options.genreId));
+  }
+  const origin = normalizeDiscoverOriginKey(options.originCountry ?? undefined);
+  if (origin) {
+    params.set("origin", origin);
   }
   const query = params.toString();
   return query ? `/discover/browse?${query}` : "/discover/browse";

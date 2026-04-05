@@ -28,6 +28,7 @@
     "clsx": "^2.1.1",
     "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@4f969d1",
     "hls.js": "^1.6.15",
+    "jassub": "^2.4.2",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -157,9 +158,13 @@ fun PlayerRoute(
     }
 
     // Auto-hide controls after inactivity when playing (read StateFlow after delay so isPlaying is not stale).
-    LaunchedEffect(hideTimerKey) {
+    LaunchedEffect(hideTimerKey, trackPicker, subtitleStyleOverlayVisible, upNext) {
         delay(CONTROLS_HIDE_DELAY_MS)
-        if (viewModel.uiState.value.isPlaying) {
+        if (viewModel.uiState.value.isPlaying &&
+            trackPicker == null &&
+            !subtitleStyleOverlayVisible &&
+            upNext == null
+        ) {
             controlsVisible = false
         }
     }
@@ -209,7 +214,9 @@ fun PlayerRoute(
         rootFocusRequester.requestFocus()
     }
 
-    LaunchedEffect(controlsVisible) {
+    // Do not move focus to play/root while a modal overlay owns focus — otherwise D-pad reaches controls under the scrim.
+    LaunchedEffect(controlsVisible, trackPicker, subtitleStyleOverlayVisible, upNext) {
+        if (trackPicker != null || subtitleStyleOverlayVisible || upNext != null) return@LaunchedEffect
         if (controlsVisible) {
             playFocusRequester.requestFocus()
         } else {
@@ -516,7 +523,10 @@ fun PlayerRoute(
                                 PlayerControlButton(
                                     icon = Icons.AutoMirrored.Filled.VolumeUp,
                                     contentDescription = audioContentDescription(ui.audioTrackLabel),
-                                    onClick = { viewModel.openAudioPicker() },
+                                    onClick = {
+                                        viewModel.openAudioPicker()
+                                        showControls()
+                                    },
                                     utility = true,
                                     modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                                 )
@@ -525,7 +535,10 @@ fun PlayerRoute(
                                 PlayerControlButton(
                                     icon = Icons.Filled.Subtitles,
                                     contentDescription = subtitleContentDescription(ui.subtitleTrackLabel),
-                                    onClick = { viewModel.openSubtitlePicker() },
+                                    onClick = {
+                                        viewModel.openSubtitlePicker()
+                                        showControls()
+                                    },
                                     utility = true,
                                     modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                                 )
@@ -566,6 +579,7 @@ fun PlayerRoute(
 
         trackPicker?.let { picker ->
             TrackPickerOverlay(
+                modifier = Modifier.zIndex(5f),
                 picker = picker,
                 onSelect = { viewModel.selectTrackPickerOption(it) },
             )
@@ -712,6 +726,7 @@ private fun UpNextInterstitial(
 private fun TrackPickerOverlay(
     picker: TrackPicker,
     onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val options = picker.options
     val focusRequesters = remember(picker) { List(options.size) { FocusRequester() } }
@@ -723,8 +738,9 @@ private fun TrackPickerOverlay(
 
     Box(
         modifier =
-            Modifier
+            modifier
                 .fillMaxSize()
+                .focusGroup()
                 .background(Color.Black.copy(alpha = 0.75f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -883,6 +899,7 @@ private fun SubtitleStyleOverlay(
         modifier =
             modifier
                 .fillMaxSize()
+                .focusGroup()
                 .background(Color.Black.copy(alpha = 0.75f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -991,7 +1008,23 @@ private fun SubtitleStyleOverlay(
             Spacer(modifier = Modifier.height(10.dp))
             Surface(
                 onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .onPreviewKeyEvent { event ->
+                            if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_UP) {
+                                return@onPreviewKeyEvent false
+                            }
+                            when (event.nativeKeyEvent.keyCode) {
+                                AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                                AndroidKeyEvent.KEYCODE_ENTER,
+                                AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                                    onDismiss()
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
                 colors =
                     ClickableSurfaceDefaults.colors(

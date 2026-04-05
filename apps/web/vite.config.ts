@@ -24,7 +24,11 @@ export default defineConfig({
   // Pre-bundle effect once into .vite/deps to avoid repeated optimize churn in dev.
   optimizeDeps: {
     include: ["effect"],
+    // jassub uses a Web Worker + WASM loaded via its own bundling; exclude from Vite pre-bundling.
+    exclude: ["jassub"],
   },
+  // Treat .wasm files as static assets so ?url imports work correctly.
+  assetsInclude: ["**/*.wasm"],
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

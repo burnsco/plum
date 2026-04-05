@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverBrowseCategory, DiscoverGenre, DiscoverItem, DiscoverResponse } from "@/api";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useAuthState } from "@/contexts/AuthContext";
 import {
   DISCOVER_CATEGORY_OPTIONS,
+  DISCOVER_ORIGIN_PRESETS,
   type DiscoverMediaFilter,
   discoverAcquisitionLabel,
   discoverAcquisitionTone,
@@ -20,6 +21,7 @@ import {
   discoverMediaLabel,
   discoverVisibleItems,
   discoverYear,
+  normalizeDiscoverOriginKey,
 } from "@/lib/discover";
 import { useAddDiscoverTitle, useDiscover, useDiscoverGenres, useDiscoverSearch } from "@/queries";
 
@@ -31,6 +33,21 @@ export function Discover() {
   const { user } = useAuthState();
   const isAdmin = user?.is_admin ?? false;
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const originCountry = useMemo(
+    () => normalizeDiscoverOriginKey(searchParams.get("origin")),
+    [searchParams],
+  );
+  const setOriginCountry = (code: string) => {
+    const normalized = normalizeDiscoverOriginKey(code);
+    const next = new URLSearchParams(searchParams);
+    if (normalized) {
+      next.set("origin", normalized);
+    } else {
+      next.delete("origin");
+    }
+    setSearchParams(next, { replace: true });
+  };
   const [mediaFilter, setMediaFilter] = useState<DiscoverMediaFilter>("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -40,7 +57,7 @@ export function Discover() {
     error: discoverError,
     isLoading: discoverLoading,
     refetch: refetchDiscover,
-  } = useDiscover({ refetchInterval: 15_000 });
+  } = useDiscover({ refetchInterval: 15_000, originCountry: originCountry || undefined });
   const {
     data: genres,
     error: genresError,
@@ -81,11 +98,28 @@ export function Discover() {
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight">Find something worth adding.</h1>
               <p className="max-w-xl text-sm leading-6 text-white/75">
-                Browse wide TMDB-powered shelves, open full category pages, and filter by movies,
-                TV, and genres without leaving Plum.
+                {originCountry ? (
+                  <>
+                    Showing titles whose production country matches{" "}
+                    <span className="font-medium text-white">
+                      {DISCOVER_ORIGIN_PRESETS.find((p) => p.code === originCountry)?.label ??
+                        originCountry}
+                    </span>{" "}
+                    (TMDB origin). Pick a genre below for combinations like UK crime dramas, or open
+                    View all on any shelf.
+                  </>
+                ) : (
+                  <>
+                    Browse wide TMDB-powered shelves, open full category pages, and filter by movies,
+                    TV, genres, and production country without leaving Plum.
+                  </>
+                )}
               </p>
             </div>
-            <DiscoverMediaToggle value={mediaFilter} onChange={setMediaFilter} />
+            <div className="space-y-4">
+              <DiscoverMediaToggle value={mediaFilter} onChange={setMediaFilter} />
+              <DiscoverOriginToggle value={originCountry} onChange={setOriginCountry} />
+            </div>
           </div>
 
           <div className="w-full max-w-xl">
@@ -108,6 +142,7 @@ export function Discover() {
           movieGenres={genres?.movie_genres ?? []}
           tvGenres={genres?.tv_genres ?? []}
           mediaFilter={mediaFilter}
+          originCountry={originCountry}
         />
       ) : null}
 
@@ -155,11 +190,58 @@ export function Discover() {
         <DiscoverShelves
           discover={discover}
           mediaFilter={mediaFilter}
+          originCountry={originCountry}
           isAdmin={isAdmin}
           addTitle={addTitle}
           onOpenSettings={() => navigate("/settings")}
         />
       )}
+    </div>
+  );
+}
+
+function DiscoverOriginToggle({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (code: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+        Production country
+      </div>
+      <div className="flex max-w-full flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+            value === ""
+              ? "border-white/25 bg-white text-slate-950"
+              : "border-white/10 bg-black/25 text-white/80 hover:border-white/20 hover:text-white"
+          }`}
+        >
+          Any
+        </button>
+        {DISCOVER_ORIGIN_PRESETS.map((preset) => {
+          const selected = value === preset.code;
+          return (
+            <button
+              key={preset.code}
+              type="button"
+              onClick={() => onChange(preset.code)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                selected
+                  ? "border-white/25 bg-white text-slate-950"
+                  : "border-white/10 bg-black/25 text-white/80 hover:border-white/20 hover:text-white"
+              }`}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -196,10 +278,12 @@ function DiscoverGenreSection({
   movieGenres,
   tvGenres,
   mediaFilter,
+  originCountry,
 }: {
   movieGenres: DiscoverGenre[];
   tvGenres: DiscoverGenre[];
   mediaFilter: DiscoverMediaFilter;
+  originCountry: string;
 }) {
   if (mediaFilter === "all") {
     if (movieGenres.length === 0 && tvGenres.length === 0) {
@@ -211,13 +295,24 @@ function DiscoverGenreSection({
           <div>
             <h2 className="text-lg font-semibold text-(--plum-text)">Browse by Genre</h2>
             <p className="text-sm text-(--plum-muted)">
-              Jump straight into a bigger movie or TV catalog.
+              Jump straight into a bigger movie or TV catalog
+              {originCountry ? " (your country filter applies)." : "."}
             </p>
           </div>
         </div>
         <div className="space-y-4">
-          <DiscoverGenreRow title="Movie Genres" genres={movieGenres} mediaType="movie" />
-          <DiscoverGenreRow title="TV Genres" genres={tvGenres} mediaType="tv" />
+          <DiscoverGenreRow
+            title="Movie Genres"
+            genres={movieGenres}
+            mediaType="movie"
+            originCountry={originCountry}
+          />
+          <DiscoverGenreRow
+            title="TV Genres"
+            genres={tvGenres}
+            mediaType="tv"
+            originCountry={originCountry}
+          />
         </div>
       </section>
     );
@@ -233,11 +328,12 @@ function DiscoverGenreSection({
         <div>
           <h2 className="text-lg font-semibold text-(--plum-text)">Browse by Genre</h2>
           <p className="text-sm text-(--plum-muted)">
-            Explore {mediaFilter === "movie" ? "movies" : "TV"} by genre.
+            Explore {mediaFilter === "movie" ? "movies" : "TV"} by genre
+            {originCountry ? " (country filter applies)." : "."}
           </p>
         </div>
       </div>
-      <DiscoverGenreChips genres={genres} mediaType={mediaFilter} />
+      <DiscoverGenreChips genres={genres} mediaType={mediaFilter} originCountry={originCountry} />
     </section>
   );
 }
@@ -246,10 +342,12 @@ function DiscoverGenreRow({
   title,
   genres,
   mediaType,
+  originCountry,
 }: {
   title: string;
   genres: DiscoverGenre[];
   mediaType: "movie" | "tv";
+  originCountry: string;
 }) {
   if (genres.length === 0) {
     return null;
@@ -259,7 +357,7 @@ function DiscoverGenreRow({
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
         {title}
       </div>
-      <DiscoverGenreChips genres={genres} mediaType={mediaType} />
+      <DiscoverGenreChips genres={genres} mediaType={mediaType} originCountry={originCountry} />
     </div>
   );
 }
@@ -267,16 +365,18 @@ function DiscoverGenreRow({
 function DiscoverGenreChips({
   genres,
   mediaType,
+  originCountry,
 }: {
   genres: DiscoverGenre[];
   mediaType: "movie" | "tv";
+  originCountry: string;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
       {genres.slice(0, 18).map((genre) => (
         <Link
           key={`${mediaType}-${genre.id}`}
-          to={discoverBrowseHref({ mediaType, genreId: genre.id })}
+          to={discoverBrowseHref({ mediaType, genreId: genre.id, originCountry })}
           className="rounded-full border border-(--plum-border) bg-(--plum-panel-alt) px-3 py-1.5 text-sm text-(--plum-text) transition-colors hover:border-(--plum-accent-soft) hover:text-(--plum-accent)"
         >
           {genre.name}
@@ -289,12 +389,14 @@ function DiscoverGenreChips({
 function DiscoverShelves({
   discover,
   mediaFilter,
+  originCountry,
   isAdmin,
   addTitle,
   onOpenSettings,
 }: {
   discover: DiscoverResponse | undefined;
   mediaFilter: DiscoverMediaFilter;
+  originCountry: string;
   isAdmin: boolean;
   addTitle: ReturnType<typeof useAddDiscoverTitle>;
   onOpenSettings: () => void;
@@ -339,6 +441,7 @@ function DiscoverShelves({
                   to={discoverBrowseHref({
                     category: shelf.id as DiscoverBrowseCategory,
                     mediaType: browseMediaType,
+                    originCountry,
                   })}
                 >
                   View all

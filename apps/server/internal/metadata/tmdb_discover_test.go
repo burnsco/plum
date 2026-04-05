@@ -78,11 +78,11 @@ func TestTMDBClientGetDiscoverMapsShelvesAndUsesCache(t *testing.T) {
 	client.baseURL = server.URL
 	client.SetCache(newMemoryProviderCache())
 
-	first, err := client.GetDiscover(context.Background())
+	first, err := client.GetDiscover(context.Background(), "")
 	if err != nil {
 		t.Fatalf("first get discover: %v", err)
 	}
-	second, err := client.GetDiscover(context.Background())
+	second, err := client.GetDiscover(context.Background(), "")
 	if err != nil {
 		t.Fatalf("second get discover: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestTMDBClientBrowseDiscoverAndGenres(t *testing.T) {
 		t.Fatalf("movie genres = %+v", genres.MovieGenres)
 	}
 
-	browseGenre, err := client.BrowseDiscover(context.Background(), "", DiscoverMediaTypeMovie, 28, 2)
+	browseGenre, err := client.BrowseDiscover(context.Background(), "", DiscoverMediaTypeMovie, 28, 2, "")
 	if err != nil {
 		t.Fatalf("browse genre: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestTMDBClientBrowseDiscoverAndGenres(t *testing.T) {
 		t.Fatalf("browse genre items = %+v", browseGenre.Items)
 	}
 
-	browseTrending, err := client.BrowseDiscover(context.Background(), DiscoverBrowseCategoryTrending, DiscoverMediaTypeTV, 0, 3)
+	browseTrending, err := client.BrowseDiscover(context.Background(), DiscoverBrowseCategoryTrending, DiscoverMediaTypeTV, 0, 3, "")
 	if err != nil {
 		t.Fatalf("browse trending: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestTMDBClientDiscoverSurfacesHTTPFailuresAndMapsDetail404ToNil(t *testing.
 	client := NewTMDBClient("test-key")
 	client.baseURL = server.URL
 
-	if _, err := client.GetDiscover(context.Background()); err == nil {
+	if _, err := client.GetDiscover(context.Background(), ""); err == nil {
 		t.Fatal("expected discover error for unauthorized response")
 	}
 	if _, err := client.SearchDiscover(context.Background(), "matrix"); err == nil {

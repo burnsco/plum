@@ -40,6 +40,7 @@ type PlaybackEmbeddedSubtitleJSON struct {
 	Supported         *bool  `json:"supported,omitempty"`
 	VttEligible       bool   `json:"vttEligible"`
 	PgsBinaryEligible bool   `json:"pgsBinaryEligible"`
+	AssEligible       bool   `json:"assEligible"`
 }
 
 func embeddedSubtitlesForPlaybackJSON(media db.MediaItem) []PlaybackEmbeddedSubtitleJSON {
@@ -56,6 +57,7 @@ func embeddedSubtitlesForPlaybackJSON(media db.MediaItem) []PlaybackEmbeddedSubt
 			Supported:         e.Supported,
 			VttEligible:       db.EmbeddedSubtitleWebVTTDeliveryEligible(e),
 			PgsBinaryEligible: db.EmbeddedSubtitlePgsBinaryDeliveryEligible(e),
+			AssEligible:       db.EmbeddedSubtitleAssDeliveryEligible(e),
 		})
 	}
 	return out

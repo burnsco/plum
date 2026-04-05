@@ -16,6 +16,7 @@ data class ClientPlaybackCapabilitiesJson(
 data class CreatePlaybackSessionPayloadJson(
     @Json(name = "audioIndex") val audioIndex: Int? = null,
     @Json(name = "clientCapabilities") val clientCapabilities: ClientPlaybackCapabilitiesJson? = null,
+    @Json(name = "burnEmbeddedSubtitleStreamIndex") val burnEmbeddedSubtitleStreamIndex: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)

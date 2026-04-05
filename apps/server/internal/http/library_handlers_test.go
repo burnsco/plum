@@ -216,9 +216,9 @@ type seriesDetailsStub struct {
 }
 
 type discoverStub struct {
-	getDiscover            func(context.Context) (*metadata.DiscoverResponse, error)
+	getDiscover            func(context.Context, string) (*metadata.DiscoverResponse, error)
 	getDiscoverGenres      func(context.Context) (*metadata.DiscoverGenresResponse, error)
-	browseDiscover         func(context.Context, metadata.DiscoverBrowseCategory, metadata.DiscoverMediaType, int, int) (*metadata.DiscoverBrowseResponse, error)
+	browseDiscover         func(context.Context, metadata.DiscoverBrowseCategory, metadata.DiscoverMediaType, int, int, string) (*metadata.DiscoverBrowseResponse, error)
 	searchDiscover         func(context.Context, string) (*metadata.DiscoverSearchResponse, error)
 	getDiscoverTitleDetail func(context.Context, metadata.DiscoverMediaType, int) (*metadata.DiscoverTitleDetails, error)
 }
@@ -254,11 +254,11 @@ func (s *seriesDetailsStub) GetSeriesDetails(ctx context.Context, tmdbID int) (*
 	return s.getSeriesDetails(ctx, tmdbID)
 }
 
-func (s *discoverStub) GetDiscover(ctx context.Context) (*metadata.DiscoverResponse, error) {
+func (s *discoverStub) GetDiscover(ctx context.Context, originCountry string) (*metadata.DiscoverResponse, error) {
 	if s.getDiscover == nil {
 		return nil, nil
 	}
-	return s.getDiscover(ctx)
+	return s.getDiscover(ctx, originCountry)
 }
 
 func (s *discoverStub) GetDiscoverGenres(ctx context.Context) (*metadata.DiscoverGenresResponse, error) {
@@ -274,11 +274,12 @@ func (s *discoverStub) BrowseDiscover(
 	mediaType metadata.DiscoverMediaType,
 	genreID int,
 	page int,
+	originCountry string,
 ) (*metadata.DiscoverBrowseResponse, error) {
 	if s.browseDiscover == nil {
 		return nil, nil
 	}
-	return s.browseDiscover(ctx, category, mediaType, genreID, page)
+	return s.browseDiscover(ctx, category, mediaType, genreID, page, originCountry)
 }
 
 func (s *discoverStub) SearchDiscover(ctx context.Context, query string) (*metadata.DiscoverSearchResponse, error) {
@@ -4806,7 +4807,7 @@ func TestGetDiscover_AttachesMovieTVAndAnimeLibraryMatches(t *testing.T) {
 	handler := &LibraryHandler{
 		DB: dbConn,
 		Discover: &discoverStub{
-			getDiscover: func(context.Context) (*metadata.DiscoverResponse, error) {
+			getDiscover: func(context.Context, string) (*metadata.DiscoverResponse, error) {
 				return &metadata.DiscoverResponse{
 					Shelves: []metadata.DiscoverShelf{
 						{
@@ -4856,7 +4857,7 @@ func TestGetDiscover_AttachesMovieTVAndAnimeLibraryMatches(t *testing.T) {
 func TestGetDiscover_ReturnsServiceUnavailableWhenTMDBMissing(t *testing.T) {
 	handler := &LibraryHandler{
 		Discover: &discoverStub{
-			getDiscover: func(context.Context) (*metadata.DiscoverResponse, error) {
+			getDiscover: func(context.Context, string) (*metadata.DiscoverResponse, error) {
 				return nil, metadata.ErrTMDBNotConfigured
 			},
 		},
@@ -5038,7 +5039,7 @@ func TestBrowseDiscover_AttachesLibraryMatches(t *testing.T) {
 	handler := &LibraryHandler{
 		DB: dbConn,
 		Discover: &discoverStub{
-			browseDiscover: func(context.Context, metadata.DiscoverBrowseCategory, metadata.DiscoverMediaType, int, int) (*metadata.DiscoverBrowseResponse, error) {
+			browseDiscover: func(context.Context, metadata.DiscoverBrowseCategory, metadata.DiscoverMediaType, int, int, string) (*metadata.DiscoverBrowseResponse, error) {
 				return &metadata.DiscoverBrowseResponse{
 					Items:        []metadata.DiscoverItem{{MediaType: metadata.DiscoverMediaTypeMovie, TMDBID: 515, Title: "Browse Match"}},
 					Page:         1,
@@ -5149,7 +5150,7 @@ func TestGetDiscover_DoesNotMatchTVShowsWithoutActiveEpisodes(t *testing.T) {
 	handler := &LibraryHandler{
 		DB: dbConn,
 		Discover: &discoverStub{
-			getDiscover: func(context.Context) (*metadata.DiscoverResponse, error) {
+			getDiscover: func(context.Context, string) (*metadata.DiscoverResponse, error) {
 				return &metadata.DiscoverResponse{
 					Shelves: []metadata.DiscoverShelf{
 						{

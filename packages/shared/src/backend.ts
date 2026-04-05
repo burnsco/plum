@@ -29,8 +29,16 @@ export function externalSubtitleUrl(base: string, subtitleId: number): string {
   return buildBackendUrl(base, `/api/subtitles/${subtitleId}`);
 }
 
+export function externalSubtitleAssUrl(base: string, subtitleId: number): string {
+  return buildBackendUrl(base, `/api/subtitles/${subtitleId}/ass`);
+}
+
 export function embeddedSubtitleUrl(base: string, mediaId: number, streamIndex: number): string {
   return buildBackendUrl(base, `/api/media/${mediaId}/subtitles/embedded/${streamIndex}`);
+}
+
+export function embeddedSubtitleAssUrl(base: string, mediaId: number, streamIndex: number): string {
+  return buildBackendUrl(base, `/api/media/${mediaId}/subtitles/embedded/${streamIndex}/ass`);
 }
 
 /**

@@ -51,6 +51,8 @@ export interface EmbeddedSubtitle {
   vttEligible?: boolean;
   /** Playback session: raw PGS stream for clients like Android TV / ExoPlayer. */
   pgsBinaryEligible?: boolean;
+  /** Playback session: raw ASS stream available for clients that render ASS natively (e.g. JASSUB). */
+  assEligible?: boolean;
 }
 
 export const EmbeddedSubtitleSchema = Schema.Struct({
@@ -61,6 +63,7 @@ export const EmbeddedSubtitleSchema = Schema.Struct({
   supported: Schema.optional(Schema.Boolean),
   vttEligible: Schema.optional(Schema.Boolean),
   pgsBinaryEligible: Schema.optional(Schema.Boolean),
+  assEligible: Schema.optional(Schema.Boolean),
 });
 
 export interface EmbeddedAudioTrack {

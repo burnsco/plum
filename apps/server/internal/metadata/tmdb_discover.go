@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -93,11 +94,39 @@ func isTMDBDiscoverHTTPStatus(err error, statusCode int) bool {
 	return errors.As(err, &providerErr) && providerErr.Provider == "tmdb" && providerErr.StatusCode == statusCode
 }
 
-func (c *TMDBClient) GetDiscover(ctx context.Context) (*DiscoverResponse, error) {
+func normalizeDiscoverOrigin(raw string) string {
+	s := strings.TrimSpace(strings.ToUpper(raw))
+	if len(s) != 2 {
+		return ""
+	}
+	for i := 0; i < 2; i++ {
+		if s[i] < 'A' || s[i] > 'Z' {
+			return ""
+		}
+	}
+	return s
+}
+
+func cloneStringMap(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m)+8)
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func (c *TMDBClient) GetDiscover(ctx context.Context, originCountry string) (*DiscoverResponse, error) {
 	if err := c.requireTMDB(); err != nil {
 		return nil, err
 	}
+	origin := normalizeDiscoverOrigin(originCountry)
+	if origin == "" {
+		return c.getDiscoverGlobalHub(ctx)
+	}
+	return c.getDiscoverOriginHub(ctx, origin)
+}
 
+func (c *TMDBClient) getDiscoverGlobalHub(ctx context.Context) (*DiscoverResponse, error) {
 	trending, err := c.fetchDiscoverList(ctx, "/trending/all/day", "", tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
 	if err != nil {
 		return nil, err
@@ -144,6 +173,104 @@ func (c *TMDBClient) GetDiscover(ctx context.Context) (*DiscoverResponse, error)
 	}, nil
 }
 
+func (c *TMDBClient) getDiscoverOriginHub(ctx context.Context, origin string) (*DiscoverResponse, error) {
+	base := map[string]string{"with_origin_country": origin}
+
+	trendingMovies, err := c.fetchDiscoverListWithParams(ctx, "/discover/movie", withDiscoverSort(base, "popularity.desc"), string(DiscoverMediaTypeMovie), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+	trendingTV, err := c.fetchDiscoverListWithParams(ctx, "/discover/tv", withDiscoverSort(base, "popularity.desc"), string(DiscoverMediaTypeTV), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+	trending := interleaveDiscoverItems(trendingMovies, trendingTV, tmdbDiscoverHubLimit)
+
+	popularMovies, err := c.fetchDiscoverListWithParams(ctx, "/discover/movie", withDiscoverSort(base, "popularity.desc"), string(DiscoverMediaTypeMovie), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	nowPlayingParams := cloneStringMap(base)
+	nowPlayingParams["sort_by"] = "primary_release_date.desc"
+	nowPlayingParams["primary_release_date.gte"] = now.AddDate(0, 0, -75).Format("2006-01-02")
+	nowPlayingParams["primary_release_date.lte"] = today
+	nowPlaying, err := c.fetchDiscoverListWithParams(ctx, "/discover/movie", nowPlayingParams, string(DiscoverMediaTypeMovie), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	upcomingParams := cloneStringMap(base)
+	upcomingParams["sort_by"] = "primary_release_date.asc"
+	upcomingParams["primary_release_date.gte"] = today
+	upcoming, err := c.fetchDiscoverListWithParams(ctx, "/discover/movie", upcomingParams, string(DiscoverMediaTypeMovie), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	popularTV, err := c.fetchDiscoverListWithParams(ctx, "/discover/tv", withDiscoverSort(base, "popularity.desc"), string(DiscoverMediaTypeTV), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+	onTheAir, err := c.fetchDiscoverListWithParams(ctx, "/discover/tv", withDiscoverSort(base, "popularity.desc"), string(DiscoverMediaTypeTV), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	topRatedMovieParams := cloneStringMap(base)
+	topRatedMovieParams["sort_by"] = "vote_average.desc"
+	topRatedMovieParams["vote_count.gte"] = "200"
+	topRatedMovies, err := c.fetchDiscoverListWithParams(ctx, "/discover/movie", topRatedMovieParams, string(DiscoverMediaTypeMovie), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+	topRatedTVParams := cloneStringMap(base)
+	topRatedTVParams["sort_by"] = "vote_average.desc"
+	topRatedTVParams["vote_count.gte"] = "200"
+	topRatedTV, err := c.fetchDiscoverListWithParams(ctx, "/discover/tv", topRatedTVParams, string(DiscoverMediaTypeTV), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DiscoverResponse{
+		Shelves: []DiscoverShelf{
+			{ID: "trending", Title: "Trending Now", Items: trending},
+			{ID: "popular-movies", Title: "Popular Movies", Items: popularMovies},
+			{ID: "now-playing", Title: "Now Playing", Items: nowPlaying},
+			{ID: "upcoming", Title: "Upcoming Movies", Items: upcoming},
+			{ID: "popular-tv", Title: "Popular TV", Items: popularTV},
+			{ID: "on-the-air", Title: "On The Air", Items: onTheAir},
+			{ID: "top-rated", Title: "Top Rated Picks", Items: interleaveDiscoverItems(topRatedMovies, topRatedTV, tmdbDiscoverHubLimit)},
+		},
+	}, nil
+}
+
+func withDiscoverSort(base map[string]string, sortBy string) map[string]string {
+	out := cloneStringMap(base)
+	out["sort_by"] = sortBy
+	return out
+}
+
+func (c *TMDBClient) fetchDiscoverListWithParams(
+	ctx context.Context,
+	path string,
+	query map[string]string,
+	fallbackType string,
+	ttl time.Duration,
+	limit int,
+	page int,
+) ([]DiscoverItem, error) {
+	params := cloneStringMap(query)
+	params["page"] = fmt.Sprintf("%d", page)
+	var payload tmdbDiscoverListResponse
+	if err := c.fetchJSON(ctx, c.discoverURL(path, params), ttl, &payload); err != nil {
+		return nil, err
+	}
+	return mapTMDBDiscoverItems(payload.Results, fallbackType, limit), nil
+}
+
 func (c *TMDBClient) GetDiscoverGenres(ctx context.Context) (*DiscoverGenresResponse, error) {
 	if err := c.requireTMDB(); err != nil {
 		return nil, err
@@ -170,6 +297,7 @@ func (c *TMDBClient) BrowseDiscover(
 	mediaType DiscoverMediaType,
 	genreID int,
 	page int,
+	originCountry string,
 ) (*DiscoverBrowseResponse, error) {
 	if err := c.requireTMDB(); err != nil {
 		return nil, err
@@ -178,7 +306,7 @@ func (c *TMDBClient) BrowseDiscover(
 		page = 1
 	}
 
-	path, fallbackType, params, resolvedMediaType := tmdbBrowseRequest(category, mediaType, genreID, page)
+	path, fallbackType, params, resolvedMediaType := tmdbBrowseRequest(category, mediaType, genreID, page, originCountry)
 	var payload tmdbDiscoverListResponse
 	if err := c.fetchJSON(ctx, c.discoverURL(path, params), tmdbDiscoverShelfTTL, &payload); err != nil {
 		return nil, err
@@ -428,46 +556,29 @@ func interleaveDiscoverItems(primary []DiscoverItem, secondary []DiscoverItem, l
 	return out
 }
 
-func tmdbBrowseRequest(
-	category DiscoverBrowseCategory,
-	mediaType DiscoverMediaType,
-	genreID int,
-	page int,
-) (string, string, map[string]string, DiscoverMediaType) {
-	params := map[string]string{
-		"page": fmt.Sprintf("%d", page),
-	}
-	resolvedMediaType := mediaType
-
-	switch category {
-	case DiscoverBrowseCategoryTrending:
-		if resolvedMediaType == DiscoverMediaTypeMovie {
-			return "/trending/movie/day", string(DiscoverMediaTypeMovie), params, DiscoverMediaTypeMovie
-		}
-		if resolvedMediaType == DiscoverMediaTypeTV {
-			return "/trending/tv/day", string(DiscoverMediaTypeTV), params, DiscoverMediaTypeTV
-		}
-		return "/trending/all/day", "", params, ""
-	case DiscoverBrowseCategoryPopularMovies:
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/popular", genreID, params)
-	case DiscoverBrowseCategoryPopularTV:
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/tv/popular", genreID, params)
-	case DiscoverBrowseCategoryNowPlaying:
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/now_playing", genreID, params)
-	case DiscoverBrowseCategoryUpcoming:
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/upcoming", genreID, params)
-	case DiscoverBrowseCategoryOnTheAir:
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/tv/on_the_air", genreID, params)
-	case DiscoverBrowseCategoryTopRated:
-		if resolvedMediaType == DiscoverMediaTypeTV {
-			return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/tv/top_rated", genreID, params)
-		}
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/top_rated", genreID, params)
+func applyTMDBListPathToDiscoverSort(basePath string, filtered map[string]string) {
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	switch basePath {
+	case "/movie/popular", "/tv/popular":
+		filtered["sort_by"] = "popularity.desc"
+	case "/movie/now_playing":
+		filtered["sort_by"] = "primary_release_date.desc"
+		filtered["primary_release_date.gte"] = now.AddDate(0, 0, -75).Format("2006-01-02")
+		filtered["primary_release_date.lte"] = today
+	case "/movie/upcoming":
+		filtered["sort_by"] = "primary_release_date.asc"
+		filtered["primary_release_date.gte"] = today
+	case "/tv/on_the_air":
+		filtered["sort_by"] = "popularity.desc"
+	case "/movie/top_rated":
+		filtered["sort_by"] = "vote_average.desc"
+		filtered["vote_count.gte"] = "200"
+	case "/tv/top_rated":
+		filtered["sort_by"] = "vote_average.desc"
+		filtered["vote_count.gte"] = "200"
 	default:
-		if resolvedMediaType == DiscoverMediaTypeTV {
-			return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/discover/tv", genreID, params)
-		}
-		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/discover/movie", genreID, params)
+		filtered["sort_by"] = "popularity.desc"
 	}
 }
 
@@ -476,17 +587,86 @@ func tmdbMediaBrowseRequest(
 	basePath string,
 	genreID int,
 	params map[string]string,
+	origin string,
 ) (string, string, map[string]string, DiscoverMediaType) {
-	if genreID <= 0 {
+	if genreID > 0 {
+		filtered := cloneStringMap(params)
+		filtered["with_genres"] = fmt.Sprintf("%d", genreID)
+		filtered["sort_by"] = "popularity.desc"
+		if o := normalizeDiscoverOrigin(origin); o != "" {
+			filtered["with_origin_country"] = o
+		}
+		return fmt.Sprintf("/discover/%s", mediaType), string(mediaType), filtered, mediaType
+	}
+	oNorm := normalizeDiscoverOrigin(origin)
+	if oNorm == "" {
 		return basePath, string(mediaType), params, mediaType
 	}
-	filtered := make(map[string]string, len(params)+3)
-	for key, value := range params {
-		filtered[key] = value
+	filtered := cloneStringMap(params)
+	filtered["with_origin_country"] = oNorm
+	if strings.HasPrefix(basePath, "/discover/") {
+		return basePath, string(mediaType), filtered, mediaType
 	}
-	filtered["with_genres"] = fmt.Sprintf("%d", genreID)
-	filtered["sort_by"] = "popularity.desc"
+	applyTMDBListPathToDiscoverSort(basePath, filtered)
 	return fmt.Sprintf("/discover/%s", mediaType), string(mediaType), filtered, mediaType
+}
+
+func tmdbBrowseRequest(
+	category DiscoverBrowseCategory,
+	mediaType DiscoverMediaType,
+	genreID int,
+	page int,
+	origin string,
+) (string, string, map[string]string, DiscoverMediaType) {
+	params := map[string]string{
+		"page": fmt.Sprintf("%d", page),
+	}
+	resolvedMediaType := mediaType
+
+	switch category {
+	case DiscoverBrowseCategoryTrending:
+		if normalizeDiscoverOrigin(origin) != "" {
+			o := normalizeDiscoverOrigin(origin)
+			filtered := cloneStringMap(params)
+			filtered["with_origin_country"] = o
+			filtered["sort_by"] = "popularity.desc"
+			if resolvedMediaType == DiscoverMediaTypeTV {
+				return "/discover/tv", string(DiscoverMediaTypeTV), filtered, DiscoverMediaTypeTV
+			}
+			if resolvedMediaType == DiscoverMediaTypeMovie {
+				return "/discover/movie", string(DiscoverMediaTypeMovie), filtered, DiscoverMediaTypeMovie
+			}
+			// Trending "all" cannot honor country on the mixed trending feed; use movies for stable paging.
+			return "/discover/movie", string(DiscoverMediaTypeMovie), filtered, DiscoverMediaTypeMovie
+		}
+		if resolvedMediaType == DiscoverMediaTypeMovie {
+			return "/trending/movie/day", string(DiscoverMediaTypeMovie), params, DiscoverMediaTypeMovie
+		}
+		if resolvedMediaType == DiscoverMediaTypeTV {
+			return "/trending/tv/day", string(DiscoverMediaTypeTV), params, DiscoverMediaTypeTV
+		}
+		return "/trending/all/day", "", params, ""
+	case DiscoverBrowseCategoryPopularMovies:
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/popular", genreID, params, origin)
+	case DiscoverBrowseCategoryPopularTV:
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/tv/popular", genreID, params, origin)
+	case DiscoverBrowseCategoryNowPlaying:
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/now_playing", genreID, params, origin)
+	case DiscoverBrowseCategoryUpcoming:
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/upcoming", genreID, params, origin)
+	case DiscoverBrowseCategoryOnTheAir:
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/tv/on_the_air", genreID, params, origin)
+	case DiscoverBrowseCategoryTopRated:
+		if resolvedMediaType == DiscoverMediaTypeTV {
+			return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/tv/top_rated", genreID, params, origin)
+		}
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/movie/top_rated", genreID, params, origin)
+	default:
+		if resolvedMediaType == DiscoverMediaTypeTV {
+			return tmdbMediaBrowseRequest(DiscoverMediaTypeTV, "/discover/tv", genreID, params, origin)
+		}
+		return tmdbMediaBrowseRequest(DiscoverMediaTypeMovie, "/discover/movie", genreID, params, origin)
+	}
 }
 
 func (c *TMDBClient) lookupGenre(ctx context.Context, mediaType DiscoverMediaType, genreID int) (*DiscoverGenre, error) {

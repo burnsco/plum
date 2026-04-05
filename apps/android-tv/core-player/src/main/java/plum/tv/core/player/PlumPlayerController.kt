@@ -329,6 +329,13 @@ class PlumPlayerController(
     private var pendingSubtitleRestore: SubtitleRestoreState? = null
 
     /**
+     * Non-null when a bitmap subtitle (DVD, DVB, XSUB) is being burned into the transcode stream.
+     * Persists across HLS stream swaps so [createAndLoadMedia] can pass it to [PlaybackRepository.createSession].
+     */
+    @Volatile
+    private var activeBurnSubtitleStreamIndex: Int? = null
+
+    /**
      * After each new [MediaItem], Exo may auto-select in-band CEA-608/708 from the video stream
      * over Plum WebVTT sideloads or HLS subtitle renditions. Prefer the first non-CEA text track once.
      */
@@ -643,7 +650,9 @@ class PlumPlayerController(
                 canNext = queueIndex >= 0 && queueIndex < episodeQueue.lastIndex,
                 canCycleAudio = serverEmbeddedAudioChoiceCount() > 1 || exoAudioTrackCount() > 1,
                 // Subtitle picker lists Exo text tracks once manifests are loaded (sidecars + embedded).
-                canCycleSubtitles = trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty(),
+                canCycleSubtitles =
+                    trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty() ||
+                        serverBurnInEmbeddedSubtitleTracks().isNotEmpty(),
                 audioTrackLabel = currentAudioTrackLabel(),
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
                 queueIndex = queueIndex,
@@ -723,6 +732,17 @@ class PlumPlayerController(
     private fun trackGroups(trackType: Int): List<Tracks.Group> =
         player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
 
+    /**
+     * Embedded subs that only work in HLS via server burn-in (no WebVTT / binary PGS sideload path).
+     * When these exist without Exo [C.TRACK_TYPE_TEXT] groups, the subtitle button must still appear.
+     */
+    private fun serverBurnInEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> {
+        if (hlsSessionId == null) return emptyList()
+        return embeddedSubtitleTracks.filter { sub ->
+            sub.supported != false && !sub.effectiveVttEligible() && !sub.effectivePgsBinaryEligible()
+        }
+    }
+
     private fun exoAudioTrackCount(): Int =
         trackGroups(C.TRACK_TYPE_AUDIO).sumOf { it.length }
 
@@ -759,6 +779,13 @@ class PlumPlayerController(
     }
 
     private fun currentSubtitleTrackLabel(): String? {
+        val burnIdx = activeBurnSubtitleStreamIndex
+        if (burnIdx != null) {
+            embeddedSubtitleTracks.firstOrNull { it.streamIndex == burnIdx }?.let { sub ->
+                return sub.burnInPickerLabel()
+            }
+            return "Burn-in"
+        }
         if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
         return selectedSubtitleFormat()?.displayLabel() ?: "Off"
     }
@@ -837,11 +864,12 @@ class PlumPlayerController(
         val options = mutableListOf<TrackPickerOption>()
         val textDisabled =
             player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        val burnActive = activeBurnSubtitleStreamIndex != null
         options +=
             TrackPickerOption(
                 id = "off",
                 label = "Off",
-                selected = textDisabled,
+                selected = textDisabled && !burnActive,
                 detail = "Hide subtitles",
             )
         val groups = player.currentTracks.groups
@@ -852,7 +880,7 @@ class PlumPlayerController(
                 val fmt = g.mediaTrackGroup.getFormat(j)
                 val label = fmt.primarySubtitlePickerLabel()
                 val id = "t:$gi:$j"
-                val selected = !textDisabled && g.isTrackSelected(j)
+                val selected = !textDisabled && !burnActive && g.isTrackSelected(j)
                 options +=
                     TrackPickerOption(
                         id = id,
@@ -862,7 +890,33 @@ class PlumPlayerController(
                     )
             }
         }
+        // Bitmap subtitle tracks not reachable via WebVTT or PGS raw binary: offer server burn-in.
+        // Only shown for HLS sessions — direct-play ExoPlayer parses these from the source file natively.
+        for (subtitle in serverBurnInEmbeddedSubtitleTracks()) {
+            val id = "burn:${subtitle.streamIndex}"
+            val selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex
+            options +=
+                TrackPickerOption(
+                    id = id,
+                    label = subtitle.burnInPickerLabel(),
+                    selected = selected,
+                    detail = subtitle.codec?.uppercase(Locale.US),
+                )
+        }
         return options
+    }
+
+    private fun EmbeddedSubtitleJson.burnInPickerLabel(): String {
+        val titlePart = title.trim()
+        val langPart = languageLabel(language)
+        val base =
+            when {
+                titlePart.isNotEmpty() && langPart != null -> "$titlePart · $langPart"
+                titlePart.isNotEmpty() -> titlePart
+                langPart != null -> langPart
+                else -> "Subtitle ${streamIndex + 1}"
+            }
+        return "$base (burn-in)"
     }
 
     /** Server-indexed tracks when in an HLS session with metadata; otherwise flattened Exo audio tracks. */
@@ -1055,9 +1109,28 @@ class PlumPlayerController(
         }
     }
 
-    private fun applySubtitlePickerSelection(id: String) {
+    private suspend fun applySubtitlePickerSelection(id: String) {
         if (id == "off") {
-            disableTextTracks()
+            if (activeBurnSubtitleStreamIndex != null) {
+                // Burn-in was active — reload without it; explicitly disable text tracks after.
+                val resumeSec = player.currentPosition / 1000.0f
+                pendingSubtitleRestore =
+                    SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
+                activeBurnSubtitleStreamIndex = null
+                reloadForBurnSubtitle(resumeSec)
+            } else {
+                disableTextTracks()
+            }
+            return
+        }
+        if (id.startsWith("burn:")) {
+            val streamIndex = id.removePrefix("burn:").toIntOrNull() ?: return
+            val resumeSec = player.currentPosition / 1000.0f
+            // Burn-in bakes the sub into video; disable any ExoPlayer text track after reload.
+            pendingSubtitleRestore =
+                SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
+            activeBurnSubtitleStreamIndex = streamIndex
+            reloadForBurnSubtitle(resumeSec)
             return
         }
         if (!id.startsWith("t:")) return
@@ -1065,7 +1138,85 @@ class PlumPlayerController(
         if (parts.size != 2) return
         val gi = parts[0].toIntOrNull() ?: return
         val j = parts[1].toIntOrNull() ?: return
-        applyTextTrackOverride(gi, j)
+        if (activeBurnSubtitleStreamIndex != null) {
+            // Switching away from burn-in to a regular text track: reload without burn-in, then restore.
+            val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
+            val resumeSec = player.currentPosition / 1000.0f
+            pendingSubtitleRestore =
+                SubtitleRestoreState(
+                    disabled = false,
+                    language = fmt?.language,
+                    label = fmt?.label,
+                    configurationId = fmt?.id?.trim()?.takeIf { it.isNotEmpty() },
+                )
+            activeBurnSubtitleStreamIndex = null
+            reloadForBurnSubtitle(resumeSec)
+        } else {
+            applyTextTrackOverride(gi, j)
+        }
+    }
+
+    /**
+     * Creates a new playback session respecting [activeBurnSubtitleStreamIndex] and reloads at [resumeSec].
+     * Must be called after [activeBurnSubtitleStreamIndex] and [pendingSubtitleRestore] are set.
+     */
+    private suspend fun reloadForBurnSubtitle(resumeSec: Float) {
+        // Detach from the current HLS session before creating a new one.
+        hlsSessionId?.let { sid ->
+            hlsSessionId = null
+            runCatching { wsManager.sendDetach(sid) }
+            withContext(Dispatchers.IO) { runCatching { playbackRepository.closeSession(sid) } }
+        }
+        cancelRevisionReadyPoll()
+        updateStatus("Preparing stream…")
+        val audioIndex = serverAudioIndex.takeIf { it >= 0 }
+        val burnIndex = activeBurnSubtitleStreamIndex
+        withContext(Dispatchers.IO) {
+            playbackRepository.createSession(mediaId, audioIndex = audioIndex, burnEmbeddedSubtitleStreamIndex = burnIndex)
+        }.fold(
+            onSuccess = { session ->
+                replaceTrackMetadataFromSession(session)
+                lastAppliedStreamRevision = session.revision ?: -1
+                when (session.delivery) {
+                    "direct" -> {
+                        hlsSessionId = null
+                        val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                        activeStreamUrl = url
+                        lastDurationSec = session.durationSeconds
+                        loadAndPlay(url, resumeSec)
+                        updateStatus("Playing")
+                    }
+                    "remux", "transcode" -> {
+                        val sid =
+                            session.sessionId ?: run {
+                                updateError("Missing session id")
+                                updateStatus("Error")
+                                return@fold
+                            }
+                        hlsSessionId = sid
+                        wsManager.sendAttach(sid)
+                        if (session.status == "ready") {
+                            val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                            activeStreamUrl = url
+                            lastDurationSec = session.durationSeconds
+                            loadAndPlay(url, resumeSec)
+                            updateStatus("Playing")
+                        } else {
+                            updateStatus("Preparing stream…")
+                        }
+                    }
+                    else -> {
+                        updateError("Unknown delivery: ${session.delivery}")
+                        updateStatus("Error")
+                    }
+                }
+            },
+            onFailure = { e ->
+                activeBurnSubtitleStreamIndex = null
+                updateError(e.message ?: "Failed to change subtitle burn-in")
+                updateStatus("Error")
+            },
+        )
     }
 
     private fun applyExoAudioSelection(groupIndex: Int, trackIndex: Int) {
@@ -1157,7 +1308,6 @@ class PlumPlayerController(
 
     fun openSubtitlePicker() {
         scope.launch(Dispatchers.Main) {
-            if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return@launch
             val options = buildSubtitlePickerOptions()
             if (options.size < 2) return@launch
             _trackPicker.value = TrackPicker.Subtitles(options = options)
@@ -1287,7 +1437,7 @@ class PlumPlayerController(
             runCatching { playbackRepository.warmEmbeddedSubtitleCaches(mediaId) }
         }
         val audioIndex = serverAudioIndex.takeIf { it >= 0 }
-        playbackRepository.createSession(mediaId, audioIndex = audioIndex).fold(
+        playbackRepository.createSession(mediaId, audioIndex = audioIndex, burnEmbeddedSubtitleStreamIndex = activeBurnSubtitleStreamIndex).fold(
             onSuccess = { session ->
                 replaceTrackMetadataFromSession(session)
                 lastAppliedStreamRevision = session.revision ?: -1
@@ -1335,6 +1485,7 @@ class PlumPlayerController(
 
     private suspend fun openMedia(mediaId: Int, resumeSec: Float) {
         pendingSubtitleRestore = null
+        activeBurnSubtitleStreamIndex = null
         updateError(null)
         refreshUiState(statusOverride = "Preparing stream…", errorOverride = null)
         createAndLoadMedia(mediaId, resumeSec)

@@ -456,7 +456,7 @@ func TestGetDiscoverAttachesAcquisitionStates(t *testing.T) {
 		DB:  dbConn,
 		Arr: arr.NewService(),
 		Discover: &discoverStub{
-			getDiscover: func(context.Context) (*metadata.DiscoverResponse, error) {
+			getDiscover: func(context.Context, string) (*metadata.DiscoverResponse, error) {
 				return &metadata.DiscoverResponse{
 					Shelves: []metadata.DiscoverShelf{{
 						ID:    "trending",
