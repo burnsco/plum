@@ -1189,6 +1189,30 @@ class PlumPlayerController(
             }
         }
 
+        // Blu-ray style: many language tracks are HDMV PGS (not WebVTT). HLS manifests only carry our
+        // WebVTT renditions, so sideload raw PGS for every eligible stream (direct + transcode).
+        embeddedSubtitleTracks.forEach { subtitle ->
+            if (subtitle.supported == false) {
+                return@forEach
+            }
+            if (!subtitle.pgsBinaryEligible) {
+                return@forEach
+            }
+            val subtitleUrl =
+                playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}/sup")
+            val builder =
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                    .setId("emps:${subtitle.streamIndex}")
+                    .setMimeType(MimeTypes.APPLICATION_PGS)
+            if (subtitle.language.isNotBlank()) {
+                builder.setLanguage(subtitle.language)
+            }
+            if (subtitle.title.isNotBlank()) {
+                builder.setLabel(subtitle.title)
+            }
+            subtitleConfigurations += builder.build()
+        }
+
         return MediaItem.Builder()
             .setUri(streamUrl)
             .setSubtitleConfigurations(subtitleConfigurations)

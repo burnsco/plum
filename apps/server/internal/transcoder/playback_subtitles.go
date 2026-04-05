@@ -33,12 +33,13 @@ func burnStreamJSON(p *int) *int {
 // PlaybackEmbeddedSubtitleJSON is the playback-session shape for embedded subtitle tracks
 // (full list, including bitmap-only streams clients may burn in via transcode).
 type PlaybackEmbeddedSubtitleJSON struct {
-	StreamIndex int    `json:"streamIndex"`
-	Language    string `json:"language"`
-	Title       string `json:"title"`
-	Codec       string `json:"codec,omitempty"`
-	Supported   *bool  `json:"supported,omitempty"`
-	VttEligible bool   `json:"vttEligible"`
+	StreamIndex       int    `json:"streamIndex"`
+	Language          string `json:"language"`
+	Title             string `json:"title"`
+	Codec             string `json:"codec,omitempty"`
+	Supported         *bool  `json:"supported,omitempty"`
+	VttEligible       bool   `json:"vttEligible"`
+	PgsBinaryEligible bool   `json:"pgsBinaryEligible"`
 }
 
 func embeddedSubtitlesForPlaybackJSON(media db.MediaItem) []PlaybackEmbeddedSubtitleJSON {
@@ -48,12 +49,13 @@ func embeddedSubtitlesForPlaybackJSON(media db.MediaItem) []PlaybackEmbeddedSubt
 	out := make([]PlaybackEmbeddedSubtitleJSON, 0, len(media.EmbeddedSubtitles))
 	for _, e := range media.EmbeddedSubtitles {
 		out = append(out, PlaybackEmbeddedSubtitleJSON{
-			StreamIndex: e.StreamIndex,
-			Language:    e.Language,
-			Title:       e.Title,
-			Codec:       e.Codec,
-			Supported:   e.Supported,
-			VttEligible: db.EmbeddedSubtitleWebVTTDeliveryEligible(e),
+			StreamIndex:       e.StreamIndex,
+			Language:          e.Language,
+			Title:             e.Title,
+			Codec:             e.Codec,
+			Supported:         e.Supported,
+			VttEligible:       db.EmbeddedSubtitleWebVTTDeliveryEligible(e),
+			PgsBinaryEligible: db.EmbeddedSubtitlePgsBinaryDeliveryEligible(e),
 		})
 	}
 	return out

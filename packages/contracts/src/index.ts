@@ -49,6 +49,8 @@ export interface EmbeddedSubtitle {
   supported?: boolean;
   /** Playback session only: false for bitmap subs that need server-side burn-in. */
   vttEligible?: boolean;
+  /** Playback session: raw PGS stream for clients like Android TV / ExoPlayer. */
+  pgsBinaryEligible?: boolean;
 }
 
 export const EmbeddedSubtitleSchema = Schema.Struct({
@@ -58,6 +60,7 @@ export const EmbeddedSubtitleSchema = Schema.Struct({
   codec: Schema.optional(Schema.String),
   supported: Schema.optional(Schema.Boolean),
   vttEligible: Schema.optional(Schema.Boolean),
+  pgsBinaryEligible: Schema.optional(Schema.Boolean),
 });
 
 export interface EmbeddedAudioTrack {

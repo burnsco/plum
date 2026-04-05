@@ -430,7 +430,8 @@ fun PlayerRoute(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp, vertical = 28.dp),
+                    .padding(horizontal = 40.dp)
+                    .padding(bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 TimelineSeekRow(
@@ -566,7 +567,6 @@ fun PlayerRoute(
         trackPicker?.let { picker ->
             TrackPickerOverlay(
                 picker = picker,
-                onDismiss = { viewModel.dismissTrackPicker() },
                 onSelect = { viewModel.selectTrackPickerOption(it) },
             )
         }
@@ -711,10 +711,8 @@ private fun UpNextInterstitial(
 @Composable
 private fun TrackPickerOverlay(
     picker: TrackPicker,
-    onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
 ) {
-    val palette = PlumTheme.palette
     val options = picker.options
     val focusRequesters = remember(picker) { List(options.size) { FocusRequester() } }
 
@@ -760,43 +758,7 @@ private fun TrackPickerOverlay(
                     TrackPickerRow(
                         option = opt,
                         modifier = Modifier.focusRequester(focusRequesters[index]),
-                        onClick = { onSelect(opt.id) },
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Surface(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
-                colors =
-                    ClickableSurfaceDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.08f),
-                        contentColor = Color.White.copy(alpha = 0.85f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.16f),
-                        focusedContentColor = Color.White,
-                        pressedContainerColor = Color.White.copy(alpha = 0.16f),
-                        pressedContentColor = Color.White,
-                    ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                border =
-                    ClickableSurfaceDefaults.border(
-                        border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(10.dp)),
-                        focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
-                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
-                    ),
-                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 9.dp, horizontal = 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "Cancel",
-                        style = PlumTheme.typography.labelMedium,
+                        onActivate = { onSelect(opt.id) },
                     )
                 }
             }
@@ -807,14 +769,30 @@ private fun TrackPickerOverlay(
 @Composable
 private fun TrackPickerRow(
     option: TrackPickerOption,
-    onClick: () -> Unit,
+    onActivate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = PlumTheme.palette
     val shape = RoundedCornerShape(10.dp)
     Surface(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        onClick = onActivate,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .onPreviewKeyEvent { event ->
+                    if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_UP) {
+                        return@onPreviewKeyEvent false
+                    }
+                    when (event.nativeKeyEvent.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                        AndroidKeyEvent.KEYCODE_ENTER,
+                        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                            onActivate()
+                            true
+                        }
+                        else -> false
+                    }
+                },
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(

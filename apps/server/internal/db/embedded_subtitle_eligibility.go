@@ -23,6 +23,21 @@ func EmbeddedSubtitleWebVTTDeliveryEligible(e EmbeddedSubtitle) bool {
 	return !EmbeddedSubtitleCodecLikelyBitmap(e.Codec)
 }
 
+// EmbeddedSubtitlePgsBinaryDeliveryEligible is true when the stream can be demuxed to raw HDMV PGS
+// (.sup) for clients that decode APPLICATION_PGS (e.g. Media3 on Android TV — same idea as Jellyfin pgssub).
+func EmbeddedSubtitlePgsBinaryDeliveryEligible(e EmbeddedSubtitle) bool {
+	if e.Supported != nil && !*e.Supported {
+		return false
+	}
+	c := strings.ToLower(strings.TrimSpace(e.Codec))
+	switch c {
+	case "hdmv_pgs_subtitle", "pgssub", "pgs":
+		return true
+	default:
+		return false
+	}
+}
+
 // PlaybackEmbeddedSubtitles returns embedded entries safe for WebVTT APIs and playback JSON.
 func PlaybackEmbeddedSubtitles(in []EmbeddedSubtitle) []EmbeddedSubtitle {
 	if len(in) == 0 {

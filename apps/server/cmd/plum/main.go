@@ -303,6 +303,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		protected.Delete("/api/playback/sessions/{sessionId}", playbackHandler.CloseSession)
 		protected.Get("/api/playback/sessions/{sessionId}/revisions/{revision}/*", playbackHandler.ServeSessionRevision)
 		protected.Get("/api/stream/{id}", playbackHandler.StreamMedia)
+		protected.Get("/api/media/{id}/subtitles/embedded/{index}/sup", playbackHandler.StreamEmbeddedSubtitleSup)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}", playbackHandler.StreamEmbeddedSubtitle)
 		protected.Get("/api/subtitles/{id}", playbackHandler.StreamSubtitle)
 		protected.Get("/api/media/{id}/thumbnail", playbackHandler.ServeThumbnail)

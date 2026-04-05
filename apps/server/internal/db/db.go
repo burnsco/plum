@@ -3261,7 +3261,8 @@ func isSupportedEmbeddedSubtitleCodec(codec string) bool {
 	switch strings.ToLower(strings.TrimSpace(codec)) {
 	case "ass", "ssa", "subrip", "srt", "webvtt", "text", "mov_text", "ttml", "tx3g",
 		"hdmv_text_subtitle", // Blu-ray TextST; ffmpeg can mux to WebVTT
-		"eia_608", "eia_708": // ATSC closed captions
+		"eia_608", "eia_708", // ATSC closed captions
+		"hdmv_pgs_subtitle", "pgssub", "pgs": // bitmap; WebVTT ineligible but Exo/Media3 can render raw PGS
 		return true
 	default:
 		return false

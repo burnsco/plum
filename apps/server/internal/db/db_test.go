@@ -434,6 +434,117 @@ func TestHandleStreamEmbeddedSubtitle_ReturnsClientErrorForUnsupportedCodec(t *t
 	}
 }
 
+func TestHandleStreamEmbeddedSubtitleSup_RejectsNonPgsCodec(t *testing.T) {
+	dbConn := newTestDB(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "Episode sup.mkv")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV sup1", "tv", root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Sup Reject - S01E01", sourcePath, 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
+		mediaID, 3, "en", "English", "subrip", 1); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d/sup", mediaID, 3), nil)
+	err := HandleStreamEmbeddedSubtitleSup(rec, req, dbConn, mediaID, 3)
+	if err == nil {
+		t.Fatal("expected error for non-PGS codec")
+	}
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("expected StatusError 422, got %v", err)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty body, got %q", rec.Body.String())
+	}
+}
+
+func TestHandleStreamEmbeddedSubtitleSup_ServesWithShim(t *testing.T) {
+	dbConn := newTestDB(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "Episode sup2.mkv")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	ffmpegDir := t.TempDir()
+	ffmpegPath := filepath.Join(ffmpegDir, "ffmpeg")
+	ffmpegScript := "#!/bin/sh\n" +
+		"case \" $* \" in\n" +
+		"  *\" -f sup \"*) last=\"\"; for a in \"$@\"; do last=\"$a\"; done; case \"$last\" in -) printf 'PGSOUT' ;; esac ;;\n" +
+		"  *) last=\"\"; for a in \"$@\"; do last=\"$a\"; done; case \"$last\" in -) printf 'WEBVTT' ;; *) printf 'x' >\"$last\" ;; esac ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(ffmpegPath, []byte(ffmpegScript), 0o755); err != nil {
+		t.Fatalf("write ffmpeg shim: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", ffmpegDir+string(os.PathListSeparator)+originalPath); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("PATH", originalPath)
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV sup2", "tv", root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Sup OK - S01E01", sourcePath, 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
+		mediaID, 5, "en", "English PGS", "hdmv_pgs_subtitle", 1); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d/sup", mediaID, 5), nil)
+	if err := HandleStreamEmbeddedSubtitleSup(rec, req, dbConn, mediaID, 5); err != nil {
+		t.Fatalf("HandleStreamEmbeddedSubtitleSup: %v", err)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/pgs" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if rec.Body.String() != "PGSOUT" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
 func TestHandleStreamEmbeddedSubtitle_ServesConvertedVTT(t *testing.T) {
 	dbConn := newTestDB(t)
 	root := t.TempDir()

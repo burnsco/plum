@@ -140,6 +140,66 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	return nil
 }
 
+// HandleStreamEmbeddedSubtitleSup demuxes one Blu-ray / HDMV PGS stream to raw PG (Blu-ray .sup)
+// for clients that decode MimeTypes.APPLICATION_PGS (Media3 ExoPlayer on Android TV; Jellyfin "pgssub").
+func HandleStreamEmbeddedSubtitleSup(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
+	item, err := GetMediaByID(dbConn, mediaID)
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return ErrNotFound
+	}
+	if !hasEmbeddedSubtitleStream(*item, streamIndex) {
+		return fmt.Errorf("embedded subtitle stream %d not found for media %d: %w", streamIndex, mediaID, ErrNotFound)
+	}
+	stored := findEmbeddedSubtitleStream(item.EmbeddedSubtitles, streamIndex)
+	if stored == nil || !EmbeddedSubtitlePgsBinaryDeliveryEligible(*stored) {
+		codec := "unknown"
+		if stored != nil && strings.TrimSpace(stored.Codec) != "" {
+			codec = stored.Codec
+		}
+		return &StatusError{
+			Status:  http.StatusUnprocessableEntity,
+			Message: fmt.Sprintf("embedded subtitle codec %q cannot be delivered as raw PGS", codec),
+		}
+	}
+	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/pgs")
+	w.Header().Set("Cache-Control", "no-store")
+
+	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
+	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeSubtitleDemux...)
+	ffmpegArgs = append(ffmpegArgs,
+		"-i", sourcePath,
+		"-map", fmt.Sprintf("0:%d", streamIndex),
+		"-c", "copy",
+		"-f", "sup",
+		"-",
+	)
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
+	cmd.Stdout = responseWriterForFFmpegStdout(w)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		msg = trimFFmpegStderrProgress(msg)
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		log.Printf("ffmpeg embedded pgs stream stderr_tail=%s", msg)
+		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	return nil
+}
+
 func transcodeEmbeddedSubtitleToWebVTT(
 	w http.ResponseWriter,
 	r *http.Request,

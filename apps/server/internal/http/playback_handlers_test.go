@@ -361,7 +361,7 @@ func TestRefreshPlaybackTracksReturnsOnDemandMetadata(t *testing.T) {
 	if len(payload.EmbeddedSubtitles) != 1 {
 		t.Fatalf("embedded subtitles = %#v", payload.EmbeddedSubtitles)
 	}
-	if payload.EmbeddedSubtitles[0].Codec != "hdmv_pgs_subtitle" || payload.EmbeddedSubtitles[0].Supported {
+	if payload.EmbeddedSubtitles[0].Codec != "hdmv_pgs_subtitle" || !payload.EmbeddedSubtitles[0].Supported {
 		t.Fatalf("embedded subtitles = %#v", payload.EmbeddedSubtitles)
 	}
 }

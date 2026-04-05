@@ -223,6 +223,26 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitle(w http.ResponseWriter, r *http.
 	}
 }
 
+func (h *PlaybackHandler) StreamEmbeddedSubtitleSup(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	streamIndex, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
+	if !ok {
+		return
+	}
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamEmbeddedSubtitleSup(tw, r, h.DB, id, streamIndex); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			log.Printf("embedded pgs stream ended after response started media=%d stream=%d: %v", id, streamIndex, err)
+		}
+	}
+}
+
 func (h *PlaybackHandler) StreamSubtitle(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
 	if !ok {

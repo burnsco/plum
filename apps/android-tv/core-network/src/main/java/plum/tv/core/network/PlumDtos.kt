@@ -17,10 +17,12 @@ data class EmbeddedSubtitleJson(
     @Json(name = "language") val language: String = "",
     @Json(name = "title") val title: String = "",
     @Json(name = "codec") val codec: String? = null,
-    /** When false, server returns 422 for this stream (e.g. PGS); must not be merged into ExoPlayer. */
+    /** When false, server rejects WebVTT extract; PGS may still sideload via pgsBinaryEligible and /sup. */
     @Json(name = "supported") val supported: Boolean? = null,
     /** Playback session: false for bitmap subs; omit on older servers → treat as eligible. */
     @Json(name = "vttEligible") val vttEligible: Boolean = true,
+    /** Playback session: raw PGS demux for Media3 (Jellyfin-style); default false when omitted. */
+    @Json(name = "pgsBinaryEligible") val pgsBinaryEligible: Boolean = false,
 )
 
 @JsonClass(generateAdapter = true)
