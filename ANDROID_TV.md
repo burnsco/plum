@@ -66,10 +66,10 @@ You do **not** need Android Studio. Install only the command-line tools.
 
 ## Project Setup
 
-1. Navigate to the Android TV app directory:
+1. From the repository root, go to the Android TV app directory:
 
    ```bash
-   cd apps/plum/apps/android-tv
+   cd apps/android-tv
    ```
 
 2. Copy the example properties file and set your SDK path:
@@ -102,6 +102,42 @@ The built APK will be at:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+From the repository root you can run `bun run android:assemble`, which invokes `./scripts/android-tv.sh :app:assembleDebug`.
+
+### Release APK (“final” build for sideloading)
+
+For a smaller, minified build suitable to copy to a USB stick or archive:
+
+```bash
+./gradlew assembleRelease
+```
+
+Output:
+
+```
+app/build/outputs/apk/release/app-release.apk
+```
+
+Release builds use **R8** (code shrinking). If you add a release keystore in `local.properties` (`plumTv.releaseStoreFile`, passwords, and key alias), that keystore is used; otherwise the release APK is signed with the **debug** keystore so you can still install it with `adb` without extra setup.
+
+Equivalent from repo root:
+
+```bash
+bash ./scripts/android-tv.sh :app:assembleRelease
+```
+
+---
+
+## Copying the APK to a USB drive
+
+Use this when you want to carry the built APK to another machine (for example a laptop next to the TV) without relying on the network.
+
+1. Format the drive as **FAT32** or **exFAT** so the TV and any computer can read it reliably.
+2. Copy `app-release.apk` (or `app-debug.apk`) to the USB drive. Keeping the name short (e.g. `plum-tv.apk`) avoids path issues on some systems.
+3. **Eject/unmount** the drive safely before unplugging it.
+
+The APK on the USB stick is only for **transport**. Installation with **USB debugging** still happens from a computer running `adb`, using the path to the APK on that computer (see below)—either on the mounted USB volume or after you copy the file to disk.
+
 ---
 
 ## Installing on a Device
@@ -113,13 +149,52 @@ app/build/outputs/apk/debug/app-debug.apk
 3. Go back to **Settings → Device Preferences → Developer options**.
 4. Enable **USB debugging** (for a USB connection) or **Network debugging** (for Wi-Fi/LAN).
 
-### Connect via USB
+### Connect via USB (USB debugging)
+
+Use a **data-capable** USB cable and, if your TV has multiple USB ports, the one that supports **device/data** mode (some ports are power-only).
+
+1. Connect the TV to your computer with the USB cable.
+2. On the computer:
 
 ```bash
 adb devices
 ```
 
-You should see your device listed. If prompted on the TV, allow the connection.
+You should see your device listed. If prompted on the TV, choose **Allow USB debugging** and optionally **Always allow from this computer**.
+
+If the device shows as `unauthorized`, accept the dialog on the TV or revoke USB debugging authorizations in Developer options and reconnect.
+
+### Install the APK with `adb` (including when the APK is on a USB stick)
+
+With **USB debugging** enabled and the TV showing as `device` in `adb devices`, install from the computer that runs `adb`. Point `adb install` at the APK file on **that** machine—for example:
+
+- APK still in the project tree after a local build:
+
+```bash
+adb install -r apps/android-tv/app/build/outputs/apk/release/app-release.apk
+```
+
+(run from the **repository root**, adjusting the path if you built only under `apps/android-tv`)
+
+- APK on a USB drive **mounted on the same computer** (Linux example):
+
+```bash
+adb install -r /media/YOU/USBSTICK/plum-tv.apk
+```
+
+Use `-r` for upgrades/reinstalls. First-time install:
+
+```bash
+adb install /path/to/app-release.apk
+```
+
+Debug build path (if you used `assembleDebug`):
+
+```bash
+adb install -r apps/android-tv/app/build/outputs/apk/debug/app-debug.apk
+```
+
+You do **not** need the USB stick plugged into the TV for this flow: the stick is for moving the file to the PC that has `adb` and the USB cable to the TV.
 
 ### Connect over the network (no USB cable)
 
@@ -129,20 +204,11 @@ Find your TV's IP address at **Settings → Network & Internet → [your network
 adb connect <TV_IP_ADDRESS>:5555
 ```
 
-### Install the APK
+Then run the same `adb install` commands as above (paths are on your computer, not on the TV).
 
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
+From the repo root, `make deploy-tv` builds the release APK, runs `adb connect` to the default desk TV (**192.168.2.11:5555**), installs, and launches. Override the address with `make deploy-tv PLUM_TV_ADB=192.168.x.x:5555`. The underlying script is `scripts/android-tv-deploy-desk.sh`; to target every connected device instead, run `bash ./scripts/android-tv-deploy.sh` with no `ANDROID_SERIAL`.
 
-For subsequent installs (reinstall/upgrade):
-
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-From the repo root, you can also run `make deploy-tv` to build the APK, reinstall it on a connected TV, and launch the app.
-If you want the LR TV we just paired, use `make deploy-tv-lr` instead.
+For the living-room TV (default **192.168.2.20:5555**, same TCP `adb connect` flow), use `make deploy-tv-lr` or `PLUM_TV_ADB_LR=… make deploy-tv-lr` if its IP differs.
 
 ---
 

@@ -9,6 +9,7 @@ apps/web/*.local
 apps/web/.vite/
 
 # Android TV
+ANDROID_TV_LOCAL.md
 apps/android-tv/.gradle/
 apps/android-tv/**/build/
 apps/android-tv/local.properties

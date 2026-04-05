@@ -432,20 +432,32 @@ export function parseVttCueBlocks(body: string): ParsedVttCueBlock[] {
   return cues;
 }
 
+function subtitleLabelMatchesHint(trackLabel: string, hint: string): boolean {
+  const a = trackLabel.trim().toLowerCase();
+  const b = hint.trim().toLowerCase();
+  if (!b) return true;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
 export function getPreferredSubtitleKey(
   subtitleTracks: SubtitleTrackOption[],
   preferredLanguage: string,
   subtitlesEnabled: boolean,
+  subtitleLabelHint?: string,
 ): string {
   if (!subtitlesEnabled || !preferredLanguage) return "off";
-  return (
-    subtitleTracks.find(
-      (track) =>
-        track.supported !== false &&
-        (languageMatchesPreference(track.srcLang, preferredLanguage) ||
-          languageMatchesPreference(track.label, preferredLanguage)),
-    )?.key ?? "off"
-  );
+  const hint = subtitleLabelHint?.trim() ?? "";
+  const langMatch = (track: SubtitleTrackOption) =>
+    track.supported !== false &&
+    (languageMatchesPreference(track.srcLang, preferredLanguage) ||
+      languageMatchesPreference(track.label, preferredLanguage));
+  if (hint) {
+    const withHint = subtitleTracks.find(
+      (track) => langMatch(track) && subtitleLabelMatchesHint(track.label, hint),
+    );
+    if (withHint) return withHint.key;
+  }
+  return subtitleTracks.find((track) => langMatch(track))?.key ?? "off";
 }
 
 export function getPreferredAudioKey(

@@ -1,4 +1,5 @@
-import type { IntroSkipMode, Library } from "../api";
+import type { IntroSkipMode, Library, MediaItem } from "../api";
+import { getShowKey } from "./showGrouping";
 
 export type SubtitleSize = "small" | "medium" | "large";
 export type SubtitlePosition = "top" | "bottom";
@@ -18,7 +19,45 @@ export type ResolvedLibraryPlaybackPreferences = {
 
 export const subtitleAppearanceStorageKey = "plum:subtitle-appearance";
 export const videoAutoplayStorageKey = "plum:video-autoplay-next";
+export const videoAspectModeStorageKey = "plum:video-aspect-mode";
 export const playerWebDefaultsStorageKey = "plum:player-web-defaults";
+/** Per-series (library id + show key) audio/subtitle picks for TV/anime episodes. */
+export const showTrackDefaultsStorageKey = "plum:player-show-track-defaults";
+
+/** Must match Android [plum.tv.core.data.VideoAspectRatioMode.storageValue]. */
+export type VideoAspectMode =
+  | "auto"
+  | "zoom"
+  | "stretch"
+  | "ratio-16-9"
+  | "ratio-4-3"
+  | "ratio-21-9";
+
+export const defaultVideoAspectMode: VideoAspectMode = "auto";
+
+export const videoAspectModeOptions: Array<{ value: VideoAspectMode; label: string }> = [
+  { value: "auto", label: "Auto (stream)" },
+  { value: "zoom", label: "Zoom (crop to fill)" },
+  { value: "stretch", label: "Stretch to screen" },
+  { value: "ratio-16-9", label: "16:9 frame" },
+  { value: "ratio-4-3", label: "4:3 frame" },
+  { value: "ratio-21-9", label: "21:9 frame" },
+];
+
+export function formatDetectedVideoAspectLabel(width: number, height: number): string | null {
+  if (width <= 0 || height <= 0) return null;
+  const dar = width / height;
+  if (!Number.isFinite(dar) || dar <= 0) return null;
+  const rounded = Math.round(dar * 100) / 100;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+  return `${text}:1`;
+}
+
+function normalizeVideoAspectMode(raw: string | undefined | null): VideoAspectMode {
+  if (!raw || typeof raw !== "string") return defaultVideoAspectMode;
+  const found = videoAspectModeOptions.find((o) => o.value === raw.trim());
+  return found ? found.value : defaultVideoAspectMode;
+}
 
 const PLAYER_LOCAL_SETTINGS_EVENT = "plum-player-local-settings-changed";
 
@@ -33,6 +72,11 @@ export type PlayerWebDefaults = {
   defaultAudioLanguage: string;
   /** Overrides library preferred subtitle language for automatic track selection unless {@link PLAYER_WEB_TRACK_LANGUAGE_NONE}. */
   defaultSubtitleLanguage: string;
+  /**
+   * When non-empty, disambiguates multiple subtitle tracks with the same language (saved from the last
+   * manual in-player subtitle choice). Cleared when changing subtitle language from Settings.
+   */
+  defaultSubtitleLabelHint: string;
   /** Limit the in-player subtitle menu to tracks that look English (eng, SDH, etc.). */
   subtitleMenuEnglishOnly: boolean;
 };
@@ -40,10 +84,125 @@ export type PlayerWebDefaults = {
 const defaultPlayerWebDefaults: PlayerWebDefaults = {
   defaultAudioLanguage: "",
   defaultSubtitleLanguage: "",
+  defaultSubtitleLabelHint: "",
   subtitleMenuEnglishOnly: false,
 };
 
+export type PlayerLocalSettingsSnapshot = {
+  subtitleAppearance: SubtitleAppearance;
+  webDefaults: PlayerWebDefaults;
+  videoAutoplayEnabled: boolean;
+  videoAspectMode: VideoAspectMode;
+  /** Bumps when {@link showTrackDefaultsStorageKey} changes so players re-resolve per-show track prefs. */
+  showTrackDefaultsRevision: number;
+};
+
+let cachedPlayerLocalSettingsSnapshot: PlayerLocalSettingsSnapshot | null = null;
+
+let showTrackDefaultsRevision = 0;
+
+export function getShowTrackDefaultsRevision(): number {
+  return showTrackDefaultsRevision;
+}
+
+/** Optional fields: omitted keys inherit from global {@link PlayerWebDefaults} when resolving. */
+export type ShowTrackDefaultsRecord = {
+  defaultAudioLanguage?: string;
+  defaultSubtitleLanguage?: string;
+  defaultSubtitleLabelHint?: string;
+};
+
+type ShowTrackDefaultsMap = Record<string, ShowTrackDefaultsRecord>;
+
+function readShowTrackDefaultsMap(): ShowTrackDefaultsMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(showTrackDefaultsStorageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as ShowTrackDefaultsMap;
+  } catch {
+    return {};
+  }
+}
+
+function writeShowTrackDefaultsMap(map: ShowTrackDefaultsMap) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(showTrackDefaultsStorageKey, JSON.stringify(map));
+  showTrackDefaultsRevision += 1;
+  bumpPlayerLocalSettings();
+}
+
+/**
+ * Merges track-default fields for a TV/anime series (all seasons/episodes share one entry per
+ * library + {@link getShowKey}).
+ */
+export function mergeShowTrackDefaultsForEpisode(
+  item: MediaItem | null | undefined,
+  patch: ShowTrackDefaultsRecord,
+): void {
+  if (!item || (item.type !== "tv" && item.type !== "anime")) return;
+  const lib = item.library_id;
+  if (lib == null || lib <= 0) return;
+  const showKey = getShowKey(item);
+  const composite = `${lib}:${showKey}`;
+  const map = readShowTrackDefaultsMap();
+  const prev = map[composite] ?? {};
+  map[composite] = { ...prev, ...patch };
+  writeShowTrackDefaultsMap(map);
+}
+
+export type WebTrackDefaultsSlice = Pick<
+  PlayerWebDefaults,
+  "defaultAudioLanguage" | "defaultSubtitleLanguage" | "defaultSubtitleLabelHint"
+>;
+
+/** Merges global web defaults with per-show overrides for the active episode, if any. */
+export function resolveEffectiveWebTrackDefaults(
+  item: MediaItem | null | undefined,
+  globalWeb: PlayerWebDefaults,
+): WebTrackDefaultsSlice {
+  const base: WebTrackDefaultsSlice = {
+    defaultAudioLanguage: globalWeb.defaultAudioLanguage,
+    defaultSubtitleLanguage: globalWeb.defaultSubtitleLanguage,
+    defaultSubtitleLabelHint: globalWeb.defaultSubtitleLabelHint,
+  };
+  if (!item || (item.type !== "tv" && item.type !== "anime")) return base;
+  const lib = item.library_id;
+  if (lib == null || lib <= 0) return base;
+  const rec = readShowTrackDefaultsMap()[`${lib}:${getShowKey(item)}`];
+  if (!rec) return base;
+  return {
+    defaultAudioLanguage:
+      rec.defaultAudioLanguage !== undefined ? rec.defaultAudioLanguage : base.defaultAudioLanguage,
+    defaultSubtitleLanguage:
+      rec.defaultSubtitleLanguage !== undefined ? rec.defaultSubtitleLanguage : base.defaultSubtitleLanguage,
+    defaultSubtitleLabelHint:
+      rec.defaultSubtitleLabelHint !== undefined ? rec.defaultSubtitleLabelHint : base.defaultSubtitleLabelHint,
+  };
+}
+
+function playerLocalSettingsSnapshotsContentEqual(
+  a: PlayerLocalSettingsSnapshot,
+  b: PlayerLocalSettingsSnapshot,
+): boolean {
+  return (
+    a.videoAutoplayEnabled === b.videoAutoplayEnabled &&
+    a.videoAspectMode === b.videoAspectMode &&
+    a.subtitleAppearance.size === b.subtitleAppearance.size &&
+    a.subtitleAppearance.position === b.subtitleAppearance.position &&
+    a.subtitleAppearance.color === b.subtitleAppearance.color &&
+    a.webDefaults.defaultAudioLanguage === b.webDefaults.defaultAudioLanguage &&
+    a.webDefaults.defaultSubtitleLanguage === b.webDefaults.defaultSubtitleLanguage &&
+    a.webDefaults.defaultSubtitleLabelHint === b.webDefaults.defaultSubtitleLabelHint &&
+    a.webDefaults.subtitleMenuEnglishOnly === b.webDefaults.subtitleMenuEnglishOnly &&
+    a.showTrackDefaultsRevision === b.showTrackDefaultsRevision
+  );
+}
+
 function bumpPlayerLocalSettings() {
+  cachedPlayerLocalSettingsSnapshot = null;
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(PLAYER_LOCAL_SETTINGS_EVENT));
 }
@@ -55,11 +214,18 @@ export function subscribePlayerLocalSettings(onStoreChange: () => void): () => v
   const handler = () => onStoreChange();
   window.addEventListener(PLAYER_LOCAL_SETTINGS_EVENT, handler);
   const onStorage = (event: StorageEvent) => {
+    if (event.key === showTrackDefaultsStorageKey) {
+      showTrackDefaultsRevision += 1;
+    }
     if (
+      event.key == null ||
       event.key === subtitleAppearanceStorageKey ||
       event.key === videoAutoplayStorageKey ||
-      event.key === playerWebDefaultsStorageKey
+      event.key === videoAspectModeStorageKey ||
+      event.key === playerWebDefaultsStorageKey ||
+      event.key === showTrackDefaultsStorageKey
     ) {
+      cachedPlayerLocalSettingsSnapshot = null;
       onStoreChange();
     }
   };
@@ -69,12 +235,6 @@ export function subscribePlayerLocalSettings(onStoreChange: () => void): () => v
     window.removeEventListener("storage", onStorage);
   };
 }
-
-export type PlayerLocalSettingsSnapshot = {
-  subtitleAppearance: SubtitleAppearance;
-  webDefaults: PlayerWebDefaults;
-  videoAutoplayEnabled: boolean;
-};
 
 export function readStoredPlayerWebDefaults(): PlayerWebDefaults {
   if (typeof window === "undefined") {
@@ -89,6 +249,8 @@ export function readStoredPlayerWebDefaults(): PlayerWebDefaults {
         typeof parsed.defaultAudioLanguage === "string" ? parsed.defaultAudioLanguage : "",
       defaultSubtitleLanguage:
         typeof parsed.defaultSubtitleLanguage === "string" ? parsed.defaultSubtitleLanguage : "",
+      defaultSubtitleLabelHint:
+        typeof parsed.defaultSubtitleLabelHint === "string" ? parsed.defaultSubtitleLabelHint : "",
       subtitleMenuEnglishOnly: parsed.subtitleMenuEnglishOnly === true,
     };
   } catch {
@@ -289,12 +451,38 @@ export function writeStoredVideoAutoplayEnabled(enabled: boolean) {
   bumpPlayerLocalSettings();
 }
 
+export function readStoredVideoAspectMode(): VideoAspectMode {
+  if (typeof window === "undefined") return defaultVideoAspectMode;
+  try {
+    const raw = window.localStorage.getItem(videoAspectModeStorageKey);
+    return normalizeVideoAspectMode(raw);
+  } catch {
+    return defaultVideoAspectMode;
+  }
+}
+
+export function writeStoredVideoAspectMode(mode: VideoAspectMode) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(videoAspectModeStorageKey, mode);
+  bumpPlayerLocalSettings();
+}
+
 export function getPlayerLocalSettingsSnapshot(): PlayerLocalSettingsSnapshot {
-  return {
+  const next: PlayerLocalSettingsSnapshot = {
     subtitleAppearance: readStoredSubtitleAppearance(),
     webDefaults: readStoredPlayerWebDefaults(),
     videoAutoplayEnabled: readStoredVideoAutoplayEnabled(),
+    videoAspectMode: readStoredVideoAspectMode(),
+    showTrackDefaultsRevision: getShowTrackDefaultsRevision(),
   };
+  if (
+    cachedPlayerLocalSettingsSnapshot != null &&
+    playerLocalSettingsSnapshotsContentEqual(cachedPlayerLocalSettingsSnapshot, next)
+  ) {
+    return cachedPlayerLocalSettingsSnapshot;
+  }
+  cachedPlayerLocalSettingsSnapshot = next;
+  return next;
 }
 
 export function subtitleFontSizeValue(size: SubtitleSize): string {

@@ -499,6 +499,7 @@ function PlaybackWebDefaultsSection() {
                   raw === PLAYER_WEB_TRACK_LANGUAGE_NONE
                     ? PLAYER_WEB_TRACK_LANGUAGE_NONE
                     : normalizeLanguagePreference(raw),
+                defaultSubtitleLabelHint: "",
               };
               setWebDefaults(next);
               writeStoredPlayerWebDefaults(next);

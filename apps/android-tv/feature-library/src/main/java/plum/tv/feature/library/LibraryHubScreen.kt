@@ -1,7 +1,7 @@
 package plum.tv.feature.library
 
 import androidx.compose.runtime.Composable
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 
 /**
  * Side-rail destination for a category (TV, Movies, Anime): choose a library of that type, then open its shelf.

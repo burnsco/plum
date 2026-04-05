@@ -3,6 +3,10 @@ SHELL := /usr/bin/bash
 # Variables
 DOCKER_COMPOSE ?= docker compose
 BUN ?= bun
+# Default desk TV (TCP adb). Override: make deploy-tv PLUM_TV_ADB=192.168.1.5:5555
+PLUM_TV_ADB ?= 192.168.2.11:5555
+# Living-room TV (TCP adb). Override: make deploy-tv-lr PLUM_TV_ADB_LR=192.168.2.x:5555
+PLUM_TV_ADB_LR ?= 192.168.2.20:5555
 
 # Colors
 BLUE := \033[1;34m
@@ -44,11 +48,11 @@ help:
 	@echo ""
 	@echo "$(GREEN)Android TV:$(NC)"
 	@echo "  make android-tv-build - 🔨 Build the Android TV debug APK"
-	@echo "  make deploy-tv   - 📺 Build release APK, install, and launch (all connected devices)"
+	@echo "  make deploy-tv   - 📺 Build release APK, adb connect desk TV, install, launch (PLUM_TV_ADB)"
 	@echo "  make deploy-tv-install - 📺 Same as deploy-tv but do not launch the app"
 	@echo "  make deploy-tv-reinstall - 📺 Same, after adb uninstall (signature mismatch / fresh install)"
-	@echo "  make deploy-tv-reinstall-install - 📺 Reinstall on all devices, no launch"
-	@echo "  make deploy-tv-lr - 📺 Build release APK, install, and launch the LR TV"
+	@echo "  make deploy-tv-reinstall-install - 📺 Reinstall desk TV, no launch"
+	@echo "  make deploy-tv-lr - 📺 Build release APK, adb connect LR TV, install, launch (PLUM_TV_ADB_LR)"
 	@echo "  make deploy-tv-lr-install - 📺 LR TV install only, no launch"
 	@echo "  make deploy-tv-lr-reinstall - 📺 Same as deploy-tv-lr with uninstall first"
 	@echo "  make deploy-tv-lr-reinstall-install - 📺 LR reinstall, no launch"
@@ -123,28 +127,28 @@ android-tv-build:
 	./scripts/android-tv.sh :app:assembleDebug
 
 deploy-tv:
-	bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB="$(PLUM_TV_ADB)" bash ./scripts/android-tv-deploy-desk.sh
 
 deploy-tv-reinstall:
-	PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB="$(PLUM_TV_ADB)" PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy-desk.sh
 
 deploy-tv-install:
-	PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB="$(PLUM_TV_ADB)" PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-desk.sh
 
 deploy-tv-reinstall-install:
-	PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB="$(PLUM_TV_ADB)" PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-desk.sh
 
 deploy-tv-lr:
-	ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" bash ./scripts/android-tv-deploy-lr.sh
 
 deploy-tv-lr-reinstall:
-	PLUM_TV_REINSTALL=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy-lr.sh
 
 deploy-tv-lr-install:
-	PLUM_TV_NO_LAUNCH=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-lr.sh
 
 deploy-tv-lr-reinstall-install:
-	PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 ANDROID_SERIAL=adb-MV2219DT0491-9pAD73._adb-tls-connect._tcp bash ./scripts/android-tv-deploy.sh
+	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-lr.sh
 
 clean:
 	$(DOCKER_COMPOSE) down -v

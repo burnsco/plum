@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.PlayerSubtitlePreferences
+import plum.tv.core.data.VideoAspectRatioMode
 import plum.tv.core.data.SubtitleAppearance
 import plum.tv.core.data.PlaybackRepository
 import plum.tv.core.data.PlumWebSocketManager
@@ -65,6 +66,7 @@ class PlayerViewModel @Inject constructor(
             browseRepository = browseRepository,
             playbackRepository = playbackRepository,
             wsManager = wsManager,
+            playerSubtitlePreferences = playerSubtitlePreferences,
             scope = viewModelScope,
             applicationScope = applicationScope,
             mediaId = mediaId,
@@ -84,6 +86,9 @@ class PlayerViewModel @Inject constructor(
     val status: StateFlow<String> = controller.status
 
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSubtitlePreferences.appearance
+
+    val videoAspectRatioMode: StateFlow<VideoAspectRatioMode> =
+        playerSubtitlePreferences.videoAspectRatioMode
 
     private val _subtitleStyleOverlayVisible = MutableStateFlow(false)
     val subtitleStyleOverlayVisible: StateFlow<Boolean> = _subtitleStyleOverlayVisible.asStateFlow()
@@ -166,6 +171,12 @@ class PlayerViewModel @Inject constructor(
     fun setSubtitleAppearance(value: SubtitleAppearance) {
         viewModelScope.launch {
             playerSubtitlePreferences.setAppearance(value)
+        }
+    }
+
+    fun setVideoAspectRatioMode(mode: VideoAspectRatioMode) {
+        viewModelScope.launch {
+            playerSubtitlePreferences.setVideoAspectRatioMode(mode)
         }
     }
 

@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -93,6 +94,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.R as Media3UiR
 import coil3.compose.AsyncImage
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
@@ -102,6 +104,7 @@ import java.util.Date
 import android.graphics.Color as AndroidGraphicsColor
 import kotlinx.coroutines.delay
 import plum.tv.core.data.SubtitleAppearance
+import plum.tv.core.data.VideoAspectRatioMode
 import plum.tv.core.data.SubtitlePosition
 import plum.tv.core.data.SubtitleSize
 import plum.tv.core.player.TrackPicker
@@ -128,6 +131,8 @@ fun PlayerRoute(
     val upNext by viewModel.upNext.collectAsState()
     val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
     val subtitleStyleOverlayVisible by viewModel.subtitleStyleOverlayVisible.collectAsState()
+    val videoAspectRatioMode by viewModel.videoAspectRatioMode.collectAsState()
+    var aspectRatioOverlayVisible by remember { mutableStateOf(false) }
     val rootFocusRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
     val seekBarFocusRequester = remember { FocusRequester() }
@@ -160,12 +165,13 @@ fun PlayerRoute(
     }
 
     // Auto-hide controls after inactivity when playing (read StateFlow after delay so isPlaying is not stale).
-    LaunchedEffect(hideTimerKey, trackPicker, subtitleStyleOverlayVisible, upNext) {
+    LaunchedEffect(hideTimerKey, trackPicker, subtitleStyleOverlayVisible, upNext, aspectRatioOverlayVisible) {
         delay(CONTROLS_HIDE_DELAY_MS)
         if (viewModel.uiState.value.isPlaying &&
             trackPicker == null &&
             !subtitleStyleOverlayVisible &&
-            upNext == null
+            upNext == null &&
+            !aspectRatioOverlayVisible
         ) {
             controlsVisible = false
         }
@@ -192,19 +198,24 @@ fun PlayerRoute(
         }
     }
 
-    BackHandler(trackPicker != null) {
+    BackHandler(trackPicker != null && !aspectRatioOverlayVisible) {
         viewModel.dismissTrackPicker()
     }
 
-    BackHandler(trackPicker == null && upNext != null) {
+    BackHandler(trackPicker == null && upNext != null && !aspectRatioOverlayVisible) {
         viewModel.dismissUpNext()
     }
 
-    BackHandler(trackPicker == null && subtitleStyleOverlayVisible) {
+    BackHandler(trackPicker == null && subtitleStyleOverlayVisible && !aspectRatioOverlayVisible) {
         viewModel.dismissSubtitleStyleSettings()
     }
 
-    BackHandler(trackPicker == null && upNext == null && !subtitleStyleOverlayVisible) {
+    BackHandler(
+        trackPicker == null &&
+            upNext == null &&
+            !subtitleStyleOverlayVisible &&
+            !aspectRatioOverlayVisible,
+    ) {
         if (controlsVisible) {
             onClose()
         } else {
@@ -212,17 +223,33 @@ fun PlayerRoute(
         }
     }
 
+    BackHandler(aspectRatioOverlayVisible) {
+        aspectRatioOverlayVisible = false
+    }
+
     LaunchedEffect(Unit) {
         rootFocusRequester.requestFocus()
     }
 
     // Do not move focus to play/root while a modal overlay owns focus — otherwise D-pad reaches controls under the scrim.
-    LaunchedEffect(controlsVisible, trackPicker, subtitleStyleOverlayVisible, upNext) {
-        if (trackPicker != null || subtitleStyleOverlayVisible || upNext != null) return@LaunchedEffect
+    LaunchedEffect(controlsVisible, trackPicker, subtitleStyleOverlayVisible, upNext, aspectRatioOverlayVisible) {
+        if (trackPicker != null ||
+            subtitleStyleOverlayVisible ||
+            upNext != null ||
+            aspectRatioOverlayVisible
+        ) {
+            return@LaunchedEffect
+        }
         if (controlsVisible) {
             playFocusRequester.requestFocus()
         } else {
             rootFocusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(trackPicker, subtitleStyleOverlayVisible, upNext) {
+        if (trackPicker != null || subtitleStyleOverlayVisible || upNext != null) {
+            aspectRatioOverlayVisible = false
         }
     }
 
@@ -256,12 +283,28 @@ fun PlayerRoute(
         hadSubtitleStyleOverlay = subtitleStyleOverlayVisible
     }
 
+    var hadAspectRatioOverlay by remember { mutableStateOf(false) }
+    LaunchedEffect(aspectRatioOverlayVisible) {
+        if (aspectRatioOverlayVisible) {
+            withFrameNanos { }
+        } else if (hadAspectRatioOverlay) {
+            withFrameNanos { }
+            if (controlsVisible) {
+                playFocusRequester.requestFocus()
+            } else {
+                rootFocusRequester.requestFocus()
+            }
+        }
+        hadAspectRatioOverlay = aspectRatioOverlayVisible
+    }
+
     val keepAwake =
         ui.isPlaying ||
             ui.isBuffering ||
             upNext != null ||
             trackPicker != null ||
-            subtitleStyleOverlayVisible
+            subtitleStyleOverlayVisible ||
+            aspectRatioOverlayVisible
     DisposableEffect(keepAwake) {
         val window = (context as ComponentActivity).window
         if (keepAwake) {
@@ -336,6 +379,7 @@ fun PlayerRoute(
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     player = viewModel.player
                     applyPlumSubtitleAppearance(viewModel.subtitleAppearance.value)
+                    applyVideoAspectToPlayerView(this, viewModel.videoAspectRatioMode.value)
                 }
             },
             update = { view ->
@@ -346,6 +390,7 @@ fun PlayerRoute(
                 view.isFocusableInTouchMode = false
                 view.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 view.applyPlumSubtitleAppearance(subtitleAppearance)
+                applyVideoAspectToPlayerView(view, videoAspectRatioMode)
             },
         )
 
@@ -453,17 +498,31 @@ fun PlayerRoute(
                     onSeekStep = { viewModel.seekTimelineBySteps(it) },
                 )
 
-                // Buttons row: utility-left | center controls | utility-right
+                // Buttons row: display (left) | transport (center) | tracks & exit (right)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Left spacer (keeps center controls truly centered)
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Center: playback controls
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.Start,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PlayerControlButton(
+                            icon = Icons.Filled.AspectRatio,
+                            contentDescription = "Aspect ratio",
+                            onClick = {
+                                viewModel.dismissTrackPicker()
+                                aspectRatioOverlayVisible = true
+                                showControls()
+                            },
+                            utility = true,
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                        )
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (ui.canPrev) {
@@ -514,13 +573,12 @@ fun PlayerRoute(
                         }
                     }
 
-                    // Right: utility buttons
                     Row(
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (ui.canCycleAudio) {
                                 PlayerControlButton(
                                     icon = Icons.AutoMirrored.Filled.VolumeUp,
@@ -584,6 +642,18 @@ fun PlayerRoute(
                 modifier = Modifier.zIndex(5f),
                 picker = picker,
                 onSelect = { viewModel.selectTrackPickerOption(it) },
+            )
+        }
+
+        if (aspectRatioOverlayVisible) {
+            VideoAspectRatioPickerOverlay(
+                modifier = Modifier.zIndex(6f),
+                current = videoAspectRatioMode,
+                detectedLabel = ui.detectedVideoAspectLabel,
+                onSelect = { mode ->
+                    viewModel.setVideoAspectRatioMode(mode)
+                    aspectRatioOverlayVisible = false
+                },
             )
         }
 
@@ -717,6 +787,127 @@ private fun UpNextInterstitial(
                         text = "OK · Play now",
                         style = PlumTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun applyVideoAspectToPlayerView(
+    playerView: PlayerView,
+    mode: VideoAspectRatioMode,
+) {
+    val contentFrame =
+        playerView.findViewById<AspectRatioFrameLayout>(Media3UiR.id.exo_content_frame)
+            ?: return
+    when (mode) {
+        VideoAspectRatioMode.AUTO -> {
+            contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            contentFrame.setAspectRatio(0f)
+        }
+        VideoAspectRatioMode.ZOOM -> {
+            contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            contentFrame.setAspectRatio(0f)
+        }
+        VideoAspectRatioMode.STRETCH -> {
+            contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+            contentFrame.setAspectRatio(0f)
+        }
+        VideoAspectRatioMode.RATIO_16_9 -> {
+            contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            contentFrame.setAspectRatio(16f / 9f)
+        }
+        VideoAspectRatioMode.RATIO_4_3 -> {
+            contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            contentFrame.setAspectRatio(4f / 3f)
+        }
+        VideoAspectRatioMode.RATIO_21_9 -> {
+            contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            contentFrame.setAspectRatio(21f / 9f)
+        }
+    }
+}
+
+@Composable
+private fun VideoAspectRatioPickerOverlay(
+    current: VideoAspectRatioMode,
+    detectedLabel: String?,
+    onSelect: (VideoAspectRatioMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val options =
+        remember(current, detectedLabel) {
+            VideoAspectRatioMode.entries.map { mode ->
+                val label =
+                    when (mode) {
+                        VideoAspectRatioMode.AUTO -> "Auto (stream)"
+                        VideoAspectRatioMode.ZOOM -> "Zoom (crop to fill)"
+                        VideoAspectRatioMode.STRETCH -> "Stretch to screen"
+                        VideoAspectRatioMode.RATIO_16_9 -> "16:9 frame"
+                        VideoAspectRatioMode.RATIO_4_3 -> "4:3 frame"
+                        VideoAspectRatioMode.RATIO_21_9 -> "21:9 frame"
+                    }
+                val detail =
+                    if (mode == VideoAspectRatioMode.AUTO && !detectedLabel.isNullOrBlank()) {
+                        "Detected $detectedLabel"
+                    } else {
+                        null
+                    }
+                TrackPickerOption(
+                    id = mode.storageValue,
+                    label = label,
+                    selected = mode == current,
+                    detail = detail,
+                )
+            }
+        }
+    val focusRequesters = remember(options) { List(options.size) { FocusRequester() } }
+
+    LaunchedEffect(options) {
+        val idx = options.indexOfFirst { it.selected }.let { if (it < 0) 0 else it }
+        focusRequesters.getOrNull(idx)?.requestFocus()
+    }
+
+    Box(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .focusGroup()
+                .background(Color.Black.copy(alpha = 0.75f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val panelShape = RoundedCornerShape(16.dp)
+        Column(
+            modifier =
+                Modifier
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(0.82f)
+                    .fillMaxHeight(0.82f)
+                    .clip(panelShape)
+                    .background(PlumTheme.palette.panel)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            Text(
+                text = "Aspect ratio",
+                style = PlumTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier =
+                    Modifier
+                        .weight(1f, fill = true)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+            ) {
+                options.forEachIndexed { index, opt ->
+                    TrackPickerRow(
+                        option = opt,
+                        modifier = Modifier.focusRequester(focusRequesters[index]),
+                        onActivate = { onSelect(VideoAspectRatioMode.fromStorage(opt.id)) },
                     )
                 }
             }

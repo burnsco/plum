@@ -30,6 +30,7 @@ import {
   Minimize2,
   Pause,
   Play,
+  Ratio,
   Repeat,
   Rewind,
   SkipBack,
@@ -58,14 +59,22 @@ import {
   languageMatchesPreference,
   normalizeLanguagePreference,
   PLAYER_WEB_TRACK_LANGUAGE_NONE,
+  mergeShowTrackDefaultsForEpisode,
+  readStoredPlayerWebDefaults,
+  resolveEffectiveWebTrackDefaults,
   resolveLibraryPlaybackPreferences,
   subscribePlayerLocalSettings,
   subtitleFontSizeValue,
   subtitlePositionOptions,
   subtitleSizeOptions,
+  formatDetectedVideoAspectLabel,
+  videoAspectModeOptions,
+  writeStoredPlayerWebDefaults,
   writeStoredSubtitleAppearance,
   writeStoredVideoAutoplayEnabled,
+  writeStoredVideoAspectMode,
   type SubtitleAppearance,
+  type VideoAspectMode,
 } from "../lib/playbackPreferences";
 import {
   applyCueLineSetting,
@@ -407,6 +416,10 @@ export function PlaybackDock() {
     },
     [],
   );
+  const videoAspectMode = playerLocalSettings.videoAspectMode;
+  const setVideoAspectMode = useCallback((value: VideoAspectMode) => {
+    writeStoredVideoAspectMode(value);
+  }, []);
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [activeAssSource, setActiveAssSource] = useState<string | null>(null);
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
@@ -419,7 +432,9 @@ export function PlaybackDock() {
   const [subtitleReadyVersion, setSubtitleReadyVersion] = useState(0);
   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+  const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
+  const [detectedVideoAspectLabel, setDetectedVideoAspectLabel] = useState<string | null>(null);
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
   const [upNextTarget, setUpNextTarget] = useState<MediaItem | null>(null);
   const [upNextSecondsLeft, setUpNextSecondsLeft] = useState(UPNEXT_COUNTDOWN_SECONDS);
@@ -430,6 +445,8 @@ export function PlaybackDock() {
   const subtitleBtnRef = useRef<HTMLButtonElement | null>(null);
   const audioMenuRef = useRef<HTMLDivElement | null>(null);
   const audioBtnRef = useRef<HTMLButtonElement | null>(null);
+  const aspectMenuRef = useRef<HTMLDivElement | null>(null);
+  const aspectBtnRef = useRef<HTMLButtonElement | null>(null);
   const playerSettingsMenuRef = useRef<HTMLDivElement | null>(null);
   const playerSettingsBtnRef = useRef<HTMLButtonElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -660,6 +677,22 @@ export function PlaybackDock() {
   );
 
   useEffect(() => {
+    setDetectedVideoAspectLabel(null);
+  }, [activeItemId]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!isVideo || !el) return;
+    const onResize = () => {
+      setDetectedVideoAspectLabel(
+        formatDetectedVideoAspectLabel(el.videoWidth, el.videoHeight),
+      );
+    };
+    el.addEventListener("resize", onResize);
+    return () => el.removeEventListener("resize", onResize);
+  }, [isVideo, activeItemId, videoAttachmentVersion]);
+
+  useEffect(() => {
     setIsVideoLoading(isVideo && activeItemId != null);
   }, [activeItemId, isVideo]);
   const activeLibrary = useMemo(
@@ -674,48 +707,60 @@ export function PlaybackDock() {
     [activeItem, activeLibrary],
   );
 
+  const effectiveWebTrackDefaults = useMemo(
+    () =>
+      resolveEffectiveWebTrackDefaults(activeItem ?? null, playerLocalSettings.webDefaults),
+    [activeItem, playerLocalSettings.webDefaults],
+  );
+
   const clientSubtitleAutoPickDisabled = useMemo(() => {
-    return (
-      playerLocalSettings.webDefaults.defaultSubtitleLanguage.trim() ===
-      PLAYER_WEB_TRACK_LANGUAGE_NONE
-    );
-  }, [playerLocalSettings.webDefaults.defaultSubtitleLanguage]);
+    return effectiveWebTrackDefaults.defaultSubtitleLanguage.trim() === PLAYER_WEB_TRACK_LANGUAGE_NONE;
+  }, [effectiveWebTrackDefaults.defaultSubtitleLanguage]);
 
   const clientAudioAutoPickDisabled = useMemo(() => {
-    return (
-      playerLocalSettings.webDefaults.defaultAudioLanguage.trim() ===
-      PLAYER_WEB_TRACK_LANGUAGE_NONE
-    );
-  }, [playerLocalSettings.webDefaults.defaultAudioLanguage]);
+    return effectiveWebTrackDefaults.defaultAudioLanguage.trim() === PLAYER_WEB_TRACK_LANGUAGE_NONE;
+  }, [effectiveWebTrackDefaults.defaultAudioLanguage]);
 
   const effectivePreferredSubtitleLanguage = useMemo(() => {
     if (clientSubtitleAutoPickDisabled) {
       return "";
     }
-    const fromClient = playerLocalSettings.webDefaults.defaultSubtitleLanguage.trim();
+    const fromClient = effectiveWebTrackDefaults.defaultSubtitleLanguage.trim();
     if (fromClient !== "") {
-      return normalizeLanguagePreference(playerLocalSettings.webDefaults.defaultSubtitleLanguage);
+      return normalizeLanguagePreference(effectiveWebTrackDefaults.defaultSubtitleLanguage);
     }
     return libraryPlaybackPreferences.preferredSubtitleLanguage;
   }, [
     clientSubtitleAutoPickDisabled,
+    effectiveWebTrackDefaults.defaultSubtitleLanguage,
     libraryPlaybackPreferences.preferredSubtitleLanguage,
-    playerLocalSettings.webDefaults.defaultSubtitleLanguage,
   ]);
 
   const effectivePreferredAudioLanguage = useMemo(() => {
     if (clientAudioAutoPickDisabled) {
       return "";
     }
-    const fromClient = playerLocalSettings.webDefaults.defaultAudioLanguage.trim();
+    const fromClient = effectiveWebTrackDefaults.defaultAudioLanguage.trim();
     if (fromClient !== "") {
-      return normalizeLanguagePreference(playerLocalSettings.webDefaults.defaultAudioLanguage);
+      return normalizeLanguagePreference(effectiveWebTrackDefaults.defaultAudioLanguage);
     }
     return libraryPlaybackPreferences.preferredAudioLanguage;
   }, [
     clientAudioAutoPickDisabled,
+    effectiveWebTrackDefaults.defaultAudioLanguage,
     libraryPlaybackPreferences.preferredAudioLanguage,
-    playerLocalSettings.webDefaults.defaultAudioLanguage,
+  ]);
+
+  /** Only used when the client overrides subtitle language (not “follow library”). */
+  const effectiveSubtitleLabelHint = useMemo(() => {
+    if (clientSubtitleAutoPickDisabled) return "";
+    const sub = effectiveWebTrackDefaults.defaultSubtitleLanguage.trim();
+    if (sub === "" || sub === PLAYER_WEB_TRACK_LANGUAGE_NONE) return "";
+    return effectiveWebTrackDefaults.defaultSubtitleLabelHint.trim();
+  }, [
+    clientSubtitleAutoPickDisabled,
+    effectiveWebTrackDefaults.defaultSubtitleLabelHint,
+    effectiveWebTrackDefaults.defaultSubtitleLanguage,
   ]);
 
   const introEndSec = useMemo(() => {
@@ -1444,6 +1489,9 @@ export function PlaybackDock() {
       setAudioTrackVersion((value) => value + 1);
       markSubtitleReady();
       setIsVideoLoading(false);
+      setDetectedVideoAspectLabel(
+        formatDetectedVideoAspectLabel(element.videoWidth, element.videoHeight),
+      );
     },
     [
       activeItem,
@@ -1581,6 +1629,7 @@ export function PlaybackDock() {
         subtitleTrackOptions,
         effectivePreferredSubtitleLanguage,
         libraryPlaybackPreferences.subtitlesEnabledByDefault && !clientSubtitleAutoPickDisabled,
+        effectiveSubtitleLabelHint,
       );
     const preferredAudioKey = getPreferredAudioKey(
       audioTracks,
@@ -1605,6 +1654,7 @@ export function PlaybackDock() {
     clientSubtitleAutoPickDisabled,
     effectivePreferredAudioLanguage,
     effectivePreferredSubtitleLanguage,
+    effectiveSubtitleLabelHint,
     libraryPlaybackPreferences.subtitlesEnabledByDefault,
     resolveQueuedSubtitleKey,
     hasSupportedSubtitleTracks,
@@ -1858,6 +1908,7 @@ export function PlaybackDock() {
       return nextOpen;
     });
     setAudioMenuOpen(false);
+    setAspectMenuOpen(false);
     setPlayerSettingsOpen(false);
   }, [hasSupportedSubtitleTracks, refreshActivePlaybackTracks]);
 
@@ -1867,6 +1918,35 @@ export function PlaybackDock() {
       if (key !== "off" && (track == null || track.supported === false)) {
         setSubtitleStatusMessage("This subtitle track is unavailable.");
         return;
+      }
+      {
+        const stored = readStoredPlayerWebDefaults();
+        if (key === "off") {
+          writeStoredPlayerWebDefaults({
+            ...stored,
+            defaultSubtitleLanguage: PLAYER_WEB_TRACK_LANGUAGE_NONE,
+            defaultSubtitleLabelHint: "",
+          });
+          mergeShowTrackDefaultsForEpisode(activeItem ?? null, {
+            defaultSubtitleLanguage: PLAYER_WEB_TRACK_LANGUAGE_NONE,
+            defaultSubtitleLabelHint: "",
+          });
+        } else if (track) {
+          const langRaw = track.srcLang.trim();
+          const langNorm =
+            (langRaw !== "" ? normalizeLanguagePreference(langRaw) : "") ||
+            normalizeLanguagePreference(track.label) ||
+            "und";
+          writeStoredPlayerWebDefaults({
+            ...stored,
+            defaultSubtitleLanguage: langNorm,
+            defaultSubtitleLabelHint: track.label.trim(),
+          });
+          mergeShowTrackDefaultsForEpisode(activeItem ?? null, {
+            defaultSubtitleLanguage: langNorm,
+            defaultSubtitleLabelHint: track.label.trim(),
+          });
+        }
       }
       rememberQueuedSubtitlePreference(key);
       setSubtitleStatusMessage("");
@@ -1927,7 +2007,7 @@ export function PlaybackDock() {
       setSelectedSubtitleKey(key);
     },
     [
-      activeItem?.id,
+      activeItem,
       burnEmbeddedSubtitleStreamIndex,
       captureSubtitleResumePosition,
       changeEmbeddedSubtitleBurn,
@@ -1965,9 +2045,19 @@ export function PlaybackDock() {
       manualAudioSelectionRef.current = activeItem?.id ?? null;
       requestedAudioTrackRef.current =
         activeItem != null ? { mediaId: activeItem.id, key } : null;
+      const picked = audioTracks.find((candidate) => candidate.key === key);
+      if (picked) {
+        const langNorm =
+          normalizeLanguagePreference(picked.language) ||
+          normalizeLanguagePreference(picked.label) ||
+          "";
+        const stored = readStoredPlayerWebDefaults();
+        writeStoredPlayerWebDefaults({ ...stored, defaultAudioLanguage: langNorm });
+        mergeShowTrackDefaultsForEpisode(activeItem ?? null, { defaultAudioLanguage: langNorm });
+      }
       setSelectedAudioKey((current) => (current === key ? current : key));
     },
-    [activeItem],
+    [activeItem, audioTracks],
   );
 
   useEffect(() => {
@@ -2128,24 +2218,27 @@ export function PlaybackDock() {
 
   /* ── Close track menus on outside click ── */
   useEffect(() => {
-    if (!subtitleMenuOpen && !audioMenuOpen && !playerSettingsOpen) return;
+    if (!subtitleMenuOpen && !audioMenuOpen && !aspectMenuOpen && !playerSettingsOpen) return;
     const onClick = (e: MouseEvent) => {
       if (
         subtitleMenuRef.current?.contains(e.target as Node) ||
         subtitleBtnRef.current?.contains(e.target as Node) ||
         audioMenuRef.current?.contains(e.target as Node) ||
         audioBtnRef.current?.contains(e.target as Node) ||
+        aspectMenuRef.current?.contains(e.target as Node) ||
+        aspectBtnRef.current?.contains(e.target as Node) ||
         playerSettingsMenuRef.current?.contains(e.target as Node) ||
         playerSettingsBtnRef.current?.contains(e.target as Node)
       )
         return;
       setSubtitleMenuOpen(false);
       setAudioMenuOpen(false);
+      setAspectMenuOpen(false);
       setPlayerSettingsOpen(false);
     };
     document.addEventListener("pointerdown", onClick);
     return () => document.removeEventListener("pointerdown", onClick);
-  }, [audioMenuOpen, playerSettingsOpen, subtitleMenuOpen]);
+  }, [aspectMenuOpen, audioMenuOpen, playerSettingsOpen, subtitleMenuOpen]);
 
   const syncBrowserFullscreenState = useCallback(() => {
     setBrowserFullscreenActive(document.fullscreenElement === playerRootRef.current);
@@ -2435,6 +2528,18 @@ export function PlaybackDock() {
   );
   const seekTimeLabelSec = seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime;
 
+  const aspectTrackMenuOptions = useMemo(
+    () =>
+      videoAspectModeOptions.map((opt) => ({
+        key: opt.value,
+        label:
+          opt.value === "auto" && detectedVideoAspectLabel != null
+            ? `Auto (${detectedVideoAspectLabel})`
+            : opt.label,
+      })),
+    [detectedVideoAspectLabel],
+  );
+
   if (!activeItem || !isDockOpen || !activeMode) {
     return null;
   }
@@ -2555,7 +2660,9 @@ export function PlaybackDock() {
         ref={(node) => {
           playerRootRef.current = node;
         }}
-        className={`fullscreen-player${controlsVisible ? "" : " fullscreen-player--hidden"}`}
+        className={`fullscreen-player fullscreen-player--aspect-${videoAspectMode}${
+          controlsVisible ? "" : " fullscreen-player--hidden"
+        }`}
         aria-label="Video player"
         aria-busy={showPlayerLoadingOverlay}
         role="button"
@@ -2579,74 +2686,78 @@ export function PlaybackDock() {
           }
         }}
       >
-        <video
-          key={activeItem.id}
-          ref={setVideoRef}
-          className="fullscreen-player__video"
-          style={videoSubtitleStyle}
-          crossOrigin="use-credentials"
-          autoPlay
-          playsInline
-          onLoadStart={() => {
-            if (!videoPlaybackStartedRef.current) {
-              setIsVideoLoading(true);
-            }
-          }}
-          onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-          onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}
-          onTimeUpdate={(event) => {
-            if (event.currentTarget.currentTime > 1) {
-              initialBufferGapHandledRef.current = true;
-            }
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-            persistInitialPlaybackProgress(event.currentTarget);
-            processIntroSkip(event.currentTarget);
-          }}
-          onPlay={(event) => {
-            if (event.currentTarget.currentTime > 1) {
-              initialBufferGapHandledRef.current = true;
-            }
-            setIsVideoLoading(false);
-            setHlsStatusMessage("");
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-            persistInitialPlaybackProgress(event.currentTarget);
-            processIntroSkip(event.currentTarget);
-          }}
-          onPlaying={() => {
-            kickstartVideoPlaybackRef.current = false;
-            videoPlaybackStartedRef.current = true;
-            setIsVideoLoading(false);
-          }}
-          onPause={(event) => {
-            syncPlaybackState(event.currentTarget);
-            const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-            void persistPlaybackProgress({ force: true, snapshot });
-          }}
-          onWaiting={(event) => {
-            if (
-              !event.currentTarget.ended &&
-              !videoPlaybackStartedRef.current
-            ) {
-              setIsVideoLoading(true);
-            }
-          }}
-          onSeeked={(event) => {
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-          }}
-          onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
-          onError={() => {
-            setIsVideoLoading(false);
-            setHlsStatusMessage("Stream error: browser media element failed to load playback");
-          }}
-          onEnded={(event) => {
-            setIsVideoLoading(false);
-            handleVideoEnded(event);
-          }}
-        ></video>
-        <JassubRenderer videoElement={videoRef.current} assSrc={activeAssSource} />
+        <div className="fullscreen-player__video-stage">
+          <div className="fullscreen-player__video-frame">
+            <video
+              key={activeItem.id}
+              ref={setVideoRef}
+              className="fullscreen-player__video"
+              style={videoSubtitleStyle}
+              crossOrigin="use-credentials"
+              autoPlay
+              playsInline
+              onLoadStart={() => {
+                if (!videoPlaybackStartedRef.current) {
+                  setIsVideoLoading(true);
+                }
+              }}
+              onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
+              onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}
+              onTimeUpdate={(event) => {
+                if (event.currentTarget.currentTime > 1) {
+                  initialBufferGapHandledRef.current = true;
+                }
+                syncPlaybackState(event.currentTarget);
+                syncVideoProgressSnapshot(event.currentTarget);
+                persistInitialPlaybackProgress(event.currentTarget);
+                processIntroSkip(event.currentTarget);
+              }}
+              onPlay={(event) => {
+                if (event.currentTarget.currentTime > 1) {
+                  initialBufferGapHandledRef.current = true;
+                }
+                setIsVideoLoading(false);
+                setHlsStatusMessage("");
+                syncPlaybackState(event.currentTarget);
+                syncVideoProgressSnapshot(event.currentTarget);
+                persistInitialPlaybackProgress(event.currentTarget);
+                processIntroSkip(event.currentTarget);
+              }}
+              onPlaying={() => {
+                kickstartVideoPlaybackRef.current = false;
+                videoPlaybackStartedRef.current = true;
+                setIsVideoLoading(false);
+              }}
+              onPause={(event) => {
+                syncPlaybackState(event.currentTarget);
+                const snapshot = captureVideoProgressSnapshot(event.currentTarget);
+                void persistPlaybackProgress({ force: true, snapshot });
+              }}
+              onWaiting={(event) => {
+                if (
+                  !event.currentTarget.ended &&
+                  !videoPlaybackStartedRef.current
+                ) {
+                  setIsVideoLoading(true);
+                }
+              }}
+              onSeeked={(event) => {
+                syncPlaybackState(event.currentTarget);
+                syncVideoProgressSnapshot(event.currentTarget);
+              }}
+              onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
+              onError={() => {
+                setIsVideoLoading(false);
+                setHlsStatusMessage("Stream error: browser media element failed to load playback");
+              }}
+              onEnded={(event) => {
+                setIsVideoLoading(false);
+                handleVideoEnded(event);
+              }}
+            ></video>
+          </div>
+          <JassubRenderer videoElement={videoRef.current} assSrc={activeAssSource} />
+        </div>
         {showSkipIntroControl && (
           <button
             type="button"
@@ -2780,6 +2891,40 @@ export function PlaybackDock() {
             {/* Right: subtitles + settings + volume + fullscreen + exit */}
             <div className="fullscreen-player__controls-right">
               {isVideo && (
+                <div className="fullscreen-player__aspect-wrap">
+                  <button
+                    ref={aspectBtnRef}
+                    type="button"
+                    className={`fullscreen-player__ctrl-btn${videoAspectMode !== "auto" ? " is-active" : ""}`}
+                    aria-label="Aspect ratio"
+                    title="Aspect ratio"
+                    onClick={() => {
+                      setAspectMenuOpen((value) => !value);
+                      setSubtitleMenuOpen(false);
+                      setAudioMenuOpen(false);
+                      setPlayerSettingsOpen(false);
+                      resetHideTimer();
+                    }}
+                  >
+                    <Ratio className="size-[1.125rem]" strokeWidth={2.25} />
+                  </button>
+                  {aspectMenuOpen && (
+                    <TrackMenu
+                      menuRef={aspectMenuRef}
+                      options={aspectTrackMenuOptions}
+                      selectedKey={videoAspectMode}
+                      ariaLabel="Select aspect ratio"
+                      onSelect={(key) => {
+                        setVideoAspectMode(key as VideoAspectMode);
+                        setAspectMenuOpen(false);
+                        resetHideTimer();
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {isVideo && (
                 <div className="fullscreen-player__subtitle-wrap">
                   <button
                     ref={subtitleBtnRef}
@@ -2818,6 +2963,7 @@ export function PlaybackDock() {
                     onClick={() => {
                       setAudioMenuOpen((value) => !value);
                       setSubtitleMenuOpen(false);
+                      setAspectMenuOpen(false);
                       setPlayerSettingsOpen(false);
                     }}
                   >
@@ -2850,6 +2996,7 @@ export function PlaybackDock() {
                       setPlayerSettingsOpen((value) => !value);
                       setSubtitleMenuOpen(false);
                       setAudioMenuOpen(false);
+                      setAspectMenuOpen(false);
                     }}
                   >
                     <Settings className="size-[1.125rem]" strokeWidth={2.25} />
