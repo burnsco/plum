@@ -38,6 +38,7 @@ tmp/
 *.swp
 *.swo
 .codex
+.plans
 
 # Docker
 .dockerignore

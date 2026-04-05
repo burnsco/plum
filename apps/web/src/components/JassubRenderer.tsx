@@ -16,7 +16,9 @@ interface JassubRendererProps {
  */
 export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
   useEffect(() => {
-    if (!videoElement || !assSrc) return;
+    const video = videoElement;
+    if (!video || !assSrc) return;
+    const videoEl: HTMLVideoElement = video;
 
     let instance: JassubInstance | null = null;
     let aborted = false;
@@ -47,7 +49,7 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
         if (aborted) return;
 
         instance = new JASSUB({
-          video: videoElement,
+          video: videoEl,
           subContent,
           workerUrl,
           wasmUrl,

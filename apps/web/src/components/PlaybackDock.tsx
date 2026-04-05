@@ -2087,6 +2087,13 @@ export function PlaybackDock() {
       hls.subtitleTrack = -1;
       return;
     }
+    const selectedReq = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    if (selectedReq?.assEligible && selectedReq.assSrc) {
+      // ASS is rendered by JASSUB; the same logical track may still appear as HLS WebVTT.
+      hls.subtitleTrack = -1;
+      hls.subtitleDisplay = false;
+      return;
+    }
     const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
     if (idx >= 0) {
       hls.subtitleTrack = idx;
@@ -2098,6 +2105,7 @@ export function PlaybackDock() {
     burnEmbeddedSubtitleStreamIndex,
     selectedSubtitleKey,
     subtitleReadyVersion,
+    subtitleTrackRequests,
     videoAttachmentVersion,
     videoSourceIsHls,
   ]);

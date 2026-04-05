@@ -650,7 +650,9 @@ class PlumPlayerController(
                 canNext = queueIndex >= 0 && queueIndex < episodeQueue.lastIndex,
                 canCycleAudio = serverEmbeddedAudioChoiceCount() > 1 || exoAudioTrackCount() > 1,
                 // Subtitle picker lists Exo text tracks once manifests are loaded (sidecars + embedded).
-                canCycleSubtitles = trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty(),
+                canCycleSubtitles =
+                    trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty() ||
+                        serverBurnInEmbeddedSubtitleTracks().isNotEmpty(),
                 audioTrackLabel = currentAudioTrackLabel(),
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
                 queueIndex = queueIndex,
@@ -730,6 +732,17 @@ class PlumPlayerController(
     private fun trackGroups(trackType: Int): List<Tracks.Group> =
         player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
 
+    /**
+     * Embedded subs that only work in HLS via server burn-in (no WebVTT / binary PGS sideload path).
+     * When these exist without Exo [C.TRACK_TYPE_TEXT] groups, the subtitle button must still appear.
+     */
+    private fun serverBurnInEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> {
+        if (hlsSessionId == null) return emptyList()
+        return embeddedSubtitleTracks.filter { sub ->
+            sub.supported != false && !sub.effectiveVttEligible() && !sub.effectivePgsBinaryEligible()
+        }
+    }
+
     private fun exoAudioTrackCount(): Int =
         trackGroups(C.TRACK_TYPE_AUDIO).sumOf { it.length }
 
@@ -766,6 +779,13 @@ class PlumPlayerController(
     }
 
     private fun currentSubtitleTrackLabel(): String? {
+        val burnIdx = activeBurnSubtitleStreamIndex
+        if (burnIdx != null) {
+            embeddedSubtitleTracks.firstOrNull { it.streamIndex == burnIdx }?.let { sub ->
+                return sub.burnInPickerLabel()
+            }
+            return "Burn-in"
+        }
         if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
         return selectedSubtitleFormat()?.displayLabel() ?: "Off"
     }
@@ -872,20 +892,16 @@ class PlumPlayerController(
         }
         // Bitmap subtitle tracks not reachable via WebVTT or PGS raw binary: offer server burn-in.
         // Only shown for HLS sessions — direct-play ExoPlayer parses these from the source file natively.
-        if (hlsSessionId != null) {
-            embeddedSubtitleTracks
-                .filter { sub -> sub.supported != false && !sub.effectiveVttEligible() && !sub.effectivePgsBinaryEligible() }
-                .forEach { subtitle ->
-                    val id = "burn:${subtitle.streamIndex}"
-                    val selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex
-                    options +=
-                        TrackPickerOption(
-                            id = id,
-                            label = subtitle.burnInPickerLabel(),
-                            selected = selected,
-                            detail = subtitle.codec?.uppercase(Locale.US),
-                        )
-                }
+        for (subtitle in serverBurnInEmbeddedSubtitleTracks()) {
+            val id = "burn:${subtitle.streamIndex}"
+            val selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex
+            options +=
+                TrackPickerOption(
+                    id = id,
+                    label = subtitle.burnInPickerLabel(),
+                    selected = selected,
+                    detail = subtitle.codec?.uppercase(Locale.US),
+                )
         }
         return options
     }
@@ -1292,7 +1308,6 @@ class PlumPlayerController(
 
     fun openSubtitlePicker() {
         scope.launch(Dispatchers.Main) {
-            if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return@launch
             val options = buildSubtitlePickerOptions()
             if (options.size < 2) return@launch
             _trackPicker.value = TrackPicker.Subtitles(options = options)
