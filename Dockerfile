@@ -21,7 +21,6 @@ FROM oven/bun:alpine AS dev-frontend
 WORKDIR /app
 COPY package.json bun.lock* ./
 COPY apps/web/package.json apps/web/
-COPY apps/desktop/package.json apps/desktop/
 COPY apps/server/package.json apps/server/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/shared/package.json packages/shared/

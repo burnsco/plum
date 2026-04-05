@@ -2701,6 +2701,96 @@
   border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* ── Resume prompt overlay ── */
+
+.playback-resume-prompt {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.playback-resume-prompt__scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    rgba(0, 0, 0, 0.65) 0%,
+    rgba(0, 0, 0, 0.88) 100%
+  );
+}
+
+.playback-resume-prompt__content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 2rem 2.25rem 2.25rem;
+  max-width: min(28rem, 90vw);
+}
+
+.playback-resume-prompt__eyebrow {
+  margin: 0 0 1.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.playback-resume-prompt__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.playback-resume-prompt__resume {
+  padding: 0.75rem 1.75rem;
+  min-width: 14rem;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  color: #0a0814;
+  background: linear-gradient(135deg, #f472b6, #c084fc);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  transition:
+    transform 0.18s ease,
+    filter 0.18s ease;
+}
+
+.playback-resume-prompt__resume:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.playback-resume-prompt__restart {
+  padding: 0.65rem 1.35rem;
+  min-width: 14rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(20, 18, 32, 0.55);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.playback-resume-prompt__restart:hover {
+  background: rgba(40, 36, 58, 0.75);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
 .fullscreen-player--hidden {
   cursor: none;
 }

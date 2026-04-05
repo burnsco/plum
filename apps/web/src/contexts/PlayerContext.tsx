@@ -233,16 +233,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     activeMode === "video" ? (activeItem?.id ?? null) : null;
   videoSessionRef.current = videoSession;
 
-  // Keep the previous stream URL while the server prepares a new revision (audio/subtitle
-  // restarts). Clearing the URL here detached the <video> and destroyed HLS — matching
-  // Jellyfin/Android behavior of continuing playback until the new playlist is ready.
-  const videoSourceUrl =
+  // Only expose the stream URL once the server reports "ready" (all initial segments on disk).
+  // During "starting" we keep the *previous* ready URL so HLS.js continues playing the old
+  // revision instead of loading a partial manifest and stalling at the transcode live-edge —
+  // matching Android TV / ExoPlayer behavior.
+  const lastReadyVideoUrlRef = useRef("");
+  const lastReadyVideoItemRef = useRef<number | null>(null);
+
+  const activeItemId_ = activeItem?.id ?? null;
+  if (activeItemId_ !== lastReadyVideoItemRef.current) {
+    lastReadyVideoUrlRef.current = "";
+    lastReadyVideoItemRef.current = activeItemId_;
+  }
+
+  const readyUrl =
     activeMode === "video" &&
     videoSession &&
     videoSession.streamUrl &&
-    (videoSession.status === "ready" || videoSession.status === "starting")
+    videoSession.status === "ready"
       ? videoSession.streamUrl
       : "";
+  if (readyUrl) {
+    lastReadyVideoUrlRef.current = readyUrl;
+  }
+
+  const videoSourceUrl = readyUrl || lastReadyVideoUrlRef.current;
   const playbackDurationSeconds =
     activeMode === "video"
       ? (videoSession?.durationSeconds && videoSession.durationSeconds > 0

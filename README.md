@@ -21,7 +21,7 @@ The media server landscape is dominated by a few big names, but each comes with 
 - **High-Performance Streaming:** Server-driven HLS transcoding flow for seamless playback across devices.
 - **Real-time Synchronization:** Stay updated with instant library changes and playback progress via WebSockets.
 - **User Management:** Secure authentication and multi-user support built-in.
-- **Monorepo Architecture:** A unified codebase for Server, Web, and Desktop clients.
+- **Monorepo Architecture:** A unified codebase for server, web, and Android TV clients.
 
 ## Tech Stack
 
@@ -31,13 +31,11 @@ Plum is built with modern, efficient technologies:
 - **Frontend:** [React](https://reactjs.org/) + [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/)
 - **Runtime:** [Bun](https://bun.sh/) (Fast JavaScript/TypeScript toolchain)
 - **Database:** [SQLite](https://sqlite.org/) (Zero-config, high-performance local storage)
-- **Desktop:** [Electron](https://www.electronjs.org/) (Cross-platform desktop client)
 
 ## Repository Layout
 
 - `apps/server`: The core Go backend service.
 - `apps/web`: The React-based web interface.
-- `apps/desktop`: The cross-platform desktop application.
 - `apps/android-tv`: The Android TV client.
 - `packages/contracts`: Shared TypeScript types and API definitions.
 - `packages/shared`: Common utilities used across the monorepo.

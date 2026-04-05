@@ -383,6 +383,7 @@ export function PlaybackDock() {
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
   const [upNextTarget, setUpNextTarget] = useState<MediaItem | null>(null);
   const [upNextSecondsLeft, setUpNextSecondsLeft] = useState(UPNEXT_COUNTDOWN_SECONDS);
+  const [resumePrompt, setResumePrompt] = useState<{ seconds: number; mediaId: number } | null>(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [pendingSubtitleKey, setPendingSubtitleKey] = useState<string | null>(null);
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null);
@@ -503,6 +504,31 @@ export function PlaybackDock() {
     playNextInQueue();
   }, [clearUpNextTimer, playNextInQueue]);
 
+  const handleResumeFromProgress = useCallback(() => {
+    const prompt = resumePrompt;
+    if (!prompt) return;
+    const element = videoRef.current;
+    if (element) {
+      const maxTime = element.duration && Number.isFinite(element.duration) ? element.duration - 1 : Infinity;
+      element.currentTime = Math.max(0, Math.min(prompt.seconds, maxTime));
+      void element.play().catch(() => {});
+    }
+    resumeAppliedRef.current = prompt.mediaId;
+    setResumePrompt(null);
+  }, [resumePrompt]);
+
+  const handleStartFromBeginning = useCallback(() => {
+    const prompt = resumePrompt;
+    if (!prompt) return;
+    const element = videoRef.current;
+    if (element) {
+      element.currentTime = 0;
+      void element.play().catch(() => {});
+    }
+    resumeAppliedRef.current = prompt.mediaId;
+    setResumePrompt(null);
+  }, [resumePrompt]);
+
   useEffect(() => {
     if (!upNextTarget) {
       clearUpNextTimer();
@@ -533,6 +559,7 @@ export function PlaybackDock() {
   useEffect(() => {
     if (activeMode !== "video" || !isDockOpen) {
       dismissUpNext();
+      setResumePrompt(null);
     }
   }, [activeMode, isDockOpen, dismissUpNext]);
 
@@ -1244,16 +1271,30 @@ export function PlaybackDock() {
           kickstartVideoPlaybackRef.current = false;
         }
       } else {
-        suppressVideoAutoplayOnCanPlayRef.current = false;
-        applyResumePosition(element);
-        void element.play().catch(() => {});
+        const resumeAt = activeItem?.progress_seconds ?? 0;
+        const hasResumableProgress =
+          activeItem != null &&
+          !activeItem.completed &&
+          Number.isFinite(resumeAt) &&
+          resumeAt > 0 &&
+          resumeAppliedRef.current !== activeItem.id;
+        if (hasResumableProgress) {
+          element.pause();
+          suppressVideoAutoplayOnCanPlayRef.current = true;
+          kickstartVideoPlaybackRef.current = false;
+          setResumePrompt({ seconds: resumeAt, mediaId: activeItem.id });
+        } else {
+          suppressVideoAutoplayOnCanPlayRef.current = false;
+          applyResumePosition(element);
+          void element.play().catch(() => {});
+        }
       }
       syncPlaybackState(element);
       setAudioTrackVersion((value) => value + 1);
       markSubtitleReady();
       setIsVideoLoading(false);
     },
-    [applyResumePosition, markSubtitleReady, syncPlaybackState],
+    [activeItem, applyResumePosition, markSubtitleReady, syncPlaybackState],
   );
 
   const handleVideoCanPlay = useCallback(
@@ -1299,6 +1340,7 @@ export function PlaybackDock() {
     setSubtitleReadyVersion(0);
     initialProgressPersistedRef.current = null;
     resumeAppliedRef.current = null;
+    setResumePrompt(null);
     defaultTrackSelectionAppliedRef.current = null;
     manualSubtitleSelectionRef.current = null;
     manualAudioSelectionRef.current = null;
@@ -2285,6 +2327,38 @@ export function PlaybackDock() {
       </div>
     ) : null;
 
+  const resumePromptOverlay =
+    resumePrompt != null ? (
+      <div
+        className="playback-resume-prompt"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Resume playback"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="playback-resume-prompt__scrim" />
+        <div className="playback-resume-prompt__content">
+          <p className="playback-resume-prompt__eyebrow">Resume playback</p>
+          <div className="playback-resume-prompt__actions">
+            <button
+              type="button"
+              className="playback-resume-prompt__resume"
+              onClick={handleResumeFromProgress}
+            >
+              Resume from {formatClock(resumePrompt.seconds)}
+            </button>
+            <button
+              type="button"
+              className="playback-resume-prompt__restart"
+              onClick={handleStartFromBeginning}
+            >
+              Start from beginning
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
   /* ── Full-viewport in-app video (then use Fullscreen API for OS-level full screen) ── */
   if (isWindowPlayer) {
     const seasonEpisode = getSeasonEpisodeLabel(activeItem);
@@ -2671,6 +2745,7 @@ export function PlaybackDock() {
             </div>
           </div>
         </div>
+        {resumePromptOverlay}
         {upNextOverlay}
       </section>
     );

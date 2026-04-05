@@ -8,10 +8,6 @@ apps/web/dist-ssr/
 apps/web/*.local
 apps/web/.vite/
 
-# Desktop
-apps/desktop/node_modules/
-apps/desktop/dist/
-
 # Android TV
 apps/android-tv/.gradle/
 apps/android-tv/**/build/

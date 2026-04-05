@@ -19,15 +19,14 @@ Plum is a lightweight, experimental media server and player suite inspired by pl
 
 Long term maintainability is a core priority. If you add new functionality, first check if there are shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided.
 
-Any logic or utilities that are (or should be) common between the web app and the desktop Electron app should live in `@plum/shared` and be consumed from there by both `apps/web` and `apps/desktop` to keep behavior in sync.
+Shared TypeScript utilities that multiple clients need should live in `@plum/shared` and be consumed from there rather than duplicated.
 
 ## Package Roles
 
 - `apps/server`: Go backend server. Manages media library, transcoding, and SQLite database.
 - `apps/web`: React/Vite UI. Modern media player frontend.
-- `apps/desktop`: Electron wrapper for the web app, providing a native desktop experience.
 - `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for API and WebSocket protocol.
-- `packages/shared`: Shared runtime utilities consumed by both web and desktop.
+- `packages/shared`: Shared runtime utilities consumed by the web app (and other TypeScript clients as needed).
 - `apps/android-tv`: Kotlin Android TV app (Gradle). Not part of `bun lint` / `bun typecheck`; build with Gradle when working on TV.
 
 ### Android TV development
