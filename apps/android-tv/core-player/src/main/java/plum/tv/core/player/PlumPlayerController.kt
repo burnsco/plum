@@ -14,6 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.HttpDataSource
@@ -43,8 +44,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.PlayerSubtitlePreferences
 import plum.tv.core.data.PlaybackRepository
 import plum.tv.core.data.PlumWebSocketManager
+import plum.tv.core.data.TrackLanguagePreference
 import plum.tv.core.network.EmbeddedAudioTrackJson
 import plum.tv.core.network.EmbeddedSubtitleJson
 import plum.tv.core.network.LibraryBrowseItemJson
@@ -52,9 +55,26 @@ import plum.tv.core.network.PlaybackSessionJson
 import plum.tv.core.network.PlaybackSessionUpdateEventJson
 import plum.tv.core.network.SubtitleJson
 import plum.tv.core.network.ShowEpisodesResponseJson
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+private fun formatDetectedVideoAspectLabel(videoSize: VideoSize): String? {
+    val w = videoSize.width
+    val h = videoSize.height
+    if (w <= 0 || h <= 0) return null
+    val dar = (w * videoSize.pixelWidthHeightRatio) / h.toFloat()
+    if (!dar.isFinite() || dar <= 0f) return null
+    val rounded = (dar * 100f).roundToInt() / 100f
+    val text =
+        if (rounded == rounded.toInt().toFloat()) {
+            rounded.toInt().toString()
+        } else {
+            String.format(Locale.US, "%.2f", rounded)
+        }
+    return "$text:1"
+}
 
 data class PlayerQueueItem(
     val mediaId: Int,
@@ -100,6 +120,8 @@ data class PlayerUiState(
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
     val showSkipIntro: Boolean = false,
+    /** Display aspect ratio detected from the video stream (e.g. `1.85:1`), for UI hints when mode is auto. */
+    val detectedVideoAspectLabel: String? = null,
 ) {
     val progressFraction: Float
         get() = if (durationMs > 0) (positionMs.coerceAtMost(durationMs).toDouble() / durationMs).toFloat() else 0f
@@ -217,6 +239,7 @@ class PlumPlayerController(
     private val playbackRepository: PlaybackRepository,
     private val browseRepository: BrowseRepository,
     private val wsManager: PlumWebSocketManager,
+    private val playerSubtitlePreferences: PlayerSubtitlePreferences,
     private val scope: CoroutineScope,
     private val applicationScope: CoroutineScope,
     private var mediaId: Int,
@@ -385,6 +408,12 @@ class PlumPlayerController(
     @Volatile
     private var preferNonCea608TextAfterLoad: Boolean = false
 
+    @Volatile
+    private var appliedStoredSubtitlePreferenceForMedia: Boolean = false
+
+    @Volatile
+    private var appliedStoredExoAudioPreferenceForMedia: Boolean = false
+
     /**
      * After [pauseWhenBackgrounded] runs [Player.stop], we must [Player.prepare] on return so the
      * same ExoPlayer instance works again. Avoids calling [prepare] on cold start (never stopped).
@@ -402,6 +431,9 @@ class PlumPlayerController(
 
     @Volatile
     private var fetchedStandaloneSubtitle: String? = null
+
+    @Volatile
+    private var cachedVideoAspectLabel: String? = null
 
     init {
         // Register the listener synchronously. The constructor is always invoked on the main thread
@@ -434,12 +466,19 @@ class PlumPlayerController(
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    cachedVideoAspectLabel = null
+                    refreshUiState()
+                }
+
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    cachedVideoAspectLabel = formatDetectedVideoAspectLabel(videoSize)
                     refreshUiState()
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
                     restorePendingSubtitlesIfNeeded()
                     preferNonCea608TextTrackOnceIfNeeded()
+                    applyStoredManualTrackPreferencesAfterTrackLoad()
                     refreshUiState()
                 }
 
@@ -588,7 +627,7 @@ class PlumPlayerController(
         val timeline = player.currentTimeline
         if (timeline.isEmpty) return false
         val window = Timeline.Window()
-        timeline.getWindow(player.currentWindowIndex, window)
+        timeline.getWindow(player.currentMediaItemIndex, window)
         return window.isDynamic
     }
 
@@ -712,6 +751,7 @@ class PlumPlayerController(
                 queueIndex = queueIndex,
                 queueSize = episodeQueue.size,
                 showSkipIntro = showSkipIntro,
+                detectedVideoAspectLabel = cachedVideoAspectLabel,
             )
     }
 
@@ -1109,6 +1149,275 @@ class PlumPlayerController(
         preferNonCea608TextAfterLoad = false
     }
 
+    private fun showTrackCompositeKey(): String? {
+        val lid = libraryId ?: return null
+        if (lid <= 0) return null
+        val sk = showKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return "$lid:$sk"
+    }
+
+    private fun effectiveManualTrackLanguagePreferences(): PlayerSubtitlePreferences.ManualTrackLanguagePreferences {
+        val g = playerSubtitlePreferences.manualTrackLanguages.value
+        val ck = showTrackCompositeKey() ?: return g
+        val o = playerSubtitlePreferences.showTrackLanguageOverrides.value[ck] ?: return g
+        return PlayerSubtitlePreferences.ManualTrackLanguagePreferences(
+            defaultAudioLanguage = o.defaultAudioLanguage ?: g.defaultAudioLanguage,
+            defaultSubtitleLanguage = o.defaultSubtitleLanguage ?: g.defaultSubtitleLanguage,
+            defaultSubtitleLabelHint = o.defaultSubtitleLabelHint ?: g.defaultSubtitleLabelHint,
+        )
+    }
+
+    /**
+     * If the user saved a preferred embedded audio language, switch the transcode session **before**
+     * the first [loadAndPlay] so startup never briefly plays the server default track.
+     */
+    private suspend fun tryInitialServerAudioPreferenceAlign(firstResumeSec: Float): Boolean {
+        val sid = hlsSessionId ?: return false
+        val distinct = embeddedAudioTracks.distinctBy { it.streamIndex }
+        if (distinct.size < 2) return false
+        val want =
+            TrackLanguagePreference.normalize(
+                effectiveManualTrackLanguagePreferences().defaultAudioLanguage,
+            )
+        if (want.isEmpty()) return false
+        val target =
+            distinct.firstOrNull { t ->
+                TrackLanguagePreference.matchesLanguage(t.language, want) ||
+                    TrackLanguagePreference.matchesLanguage(t.title, want)
+            }?.streamIndex
+                ?: return false
+        if (target == serverAudioIndex) return false
+
+        cancelRevisionReadyPoll()
+        val result =
+            withContext(Dispatchers.IO) {
+                playbackRepository.updateSessionAudio(sid, target)
+            }
+        val updated = result.getOrNull() ?: return false
+        mergeTrackMetadataFromSession(updated)
+        when (updated.status) {
+            "error" -> {
+                updateError(updated.error ?: "Audio preference failed")
+                return false
+            }
+            "ready" -> {
+                lastAppliedStreamRevision = updated.revision ?: -1
+                val url = playbackRepository.absoluteStreamUrl(updated.streamUrl)
+                activeStreamUrl = url
+                lastDurationSec = updated.durationSeconds
+                loadAndPlay(url, firstResumeSec)
+                return true
+            }
+            else -> {
+                val rev = updated.revision
+                val relUrl = updated.streamUrl
+                if (relUrl.isBlank() || rev == null) return false
+                val absUrl = playbackRepository.absoluteStreamUrl(relUrl)
+                val deadline = SystemClock.elapsedRealtime() + 3 * 60_000L
+                while (SystemClock.elapsedRealtime() < deadline) {
+                    if (playbackRepository.hlsMasterPlaylistLooksReady(absUrl)) {
+                        lastAppliedStreamRevision = rev
+                        activeStreamUrl = absUrl
+                        lastDurationSec = updated.durationSeconds
+                        loadAndPlay(absUrl, firstResumeSec)
+                        return true
+                    }
+                    delay(250L)
+                }
+                return false
+            }
+        }
+    }
+
+    private fun applyStoredManualTrackPreferencesAfterTrackLoad() {
+        maybeApplyStoredExoAudioPreferenceForMedia()
+        maybeApplyStoredSubtitlePreferenceForMedia()
+    }
+
+    private fun maybeApplyStoredExoAudioPreferenceForMedia() {
+        if (appliedStoredExoAudioPreferenceForMedia) return
+        if (hlsSessionId != null) return
+        val want =
+            TrackLanguagePreference.normalize(
+                effectiveManualTrackLanguagePreferences().defaultAudioLanguage,
+            )
+        if (want.isEmpty()) return
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_AUDIO || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                if (TrackLanguagePreference.matchesLanguage(fmt.language, want) ||
+                    TrackLanguagePreference.matchesLanguage(fmt.label, want)
+                ) {
+                    applyExoAudioSelection(gi, j)
+                    appliedStoredExoAudioPreferenceForMedia = true
+                    return
+                }
+            }
+        }
+        if (player.playbackState == Player.STATE_READY && groups.isNotEmpty()) {
+            appliedStoredExoAudioPreferenceForMedia = true
+        }
+    }
+
+    private fun maybeApplyStoredSubtitlePreferenceForMedia() {
+        if (appliedStoredSubtitlePreferenceForMedia) return
+        val prefs = effectiveManualTrackLanguagePreferences()
+        val subLangRaw = prefs.defaultSubtitleLanguage
+        when {
+            subLangRaw == TrackLanguagePreference.NONE -> {
+                if (activeBurnSubtitleStreamIndex != null && hlsSessionId != null) {
+                    appliedStoredSubtitlePreferenceForMedia = true
+                    scope.launch(Dispatchers.Main) {
+                        val resumeSec = player.currentPosition / 1000.0f
+                        pendingSubtitleRestore =
+                            SubtitleRestoreState(
+                                disabled = true,
+                                language = null,
+                                label = null,
+                                configurationId = null,
+                            )
+                        activeBurnSubtitleStreamIndex = null
+                        reloadForBurnSubtitle(resumeSec)
+                    }
+                    return
+                }
+                if (trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty()) {
+                    disableTextTracks()
+                }
+                appliedStoredSubtitlePreferenceForMedia = true
+            }
+            subLangRaw.isNotEmpty() -> {
+                val subLang = TrackLanguagePreference.normalize(subLangRaw)
+                val hint = prefs.defaultSubtitleLabelHint
+                if (trySelectStoredTextSubtitle(subLang, hint)) {
+                    appliedStoredSubtitlePreferenceForMedia = true
+                    return
+                }
+                val burnIdx = findStoredBurnSubtitleStreamIndex(subLang, hint)
+                if (burnIdx != null && hlsSessionId != null && burnIdx != activeBurnSubtitleStreamIndex) {
+                    appliedStoredSubtitlePreferenceForMedia = true
+                    scope.launch(Dispatchers.Main) {
+                        val resumeSec = player.currentPosition / 1000.0f
+                        pendingSubtitleRestore =
+                            SubtitleRestoreState(
+                                disabled = true,
+                                language = null,
+                                label = null,
+                                configurationId = null,
+                            )
+                        activeBurnSubtitleStreamIndex = burnIdx
+                        reloadForBurnSubtitle(resumeSec)
+                    }
+                    return
+                }
+                if (player.playbackState == Player.STATE_READY && player.currentTracks.groups.isNotEmpty()) {
+                    appliedStoredSubtitlePreferenceForMedia = true
+                }
+            }
+        }
+    }
+
+    private fun trySelectStoredTextSubtitle(subLang: String, labelHint: String): Boolean {
+        if (subLang.isEmpty()) return false
+        val groups = player.currentTracks.groups
+        val hint = labelHint.trim()
+        if (hint.isNotEmpty()) {
+            for (gi in groups.indices) {
+                val g = groups[gi]
+                if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+                for (j in 0 until g.length) {
+                    val fmt = g.mediaTrackGroup.getFormat(j)
+                    if (fmt.isCea608ClosedCaptionTrack()) continue
+                    val langOk =
+                        TrackLanguagePreference.matchesLanguage(fmt.language, subLang) ||
+                            TrackLanguagePreference.matchesLanguage(fmt.label, subLang)
+                    if (langOk &&
+                        TrackLanguagePreference.subtitleLabelMatchesHint(
+                            fmt.label?.trim().orEmpty().ifEmpty { fmt.language?.trim().orEmpty() },
+                            hint,
+                        )
+                    ) {
+                        applyTextTrackOverride(gi, j)
+                        return true
+                    }
+                }
+            }
+        }
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                if (fmt.isCea608ClosedCaptionTrack()) continue
+                if (TrackLanguagePreference.matchesLanguage(fmt.language, subLang) ||
+                    TrackLanguagePreference.matchesLanguage(fmt.label, subLang)
+                ) {
+                    applyTextTrackOverride(gi, j)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun findStoredBurnSubtitleStreamIndex(subLang: String, labelHint: String): Int? {
+        val candidates = serverBurnInEmbeddedSubtitleTracks()
+        if (candidates.isEmpty()) return null
+        val hint = labelHint.trim()
+        val langMatches =
+            candidates.filter {
+                TrackLanguagePreference.matchesLanguage(it.language, subLang) ||
+                    TrackLanguagePreference.matchesLanguage(it.title, subLang)
+            }
+        if (langMatches.isEmpty()) return null
+        if (hint.isEmpty()) return langMatches.first().streamIndex
+        val withHint =
+            langMatches.firstOrNull {
+                TrackLanguagePreference.subtitleLabelMatchesHint(it.title.trim().ifEmpty { it.language }, hint)
+            }
+        return (withHint ?: langMatches.first()).streamIndex
+    }
+
+    private fun persistManualSubtitlePreference(trackId: SubtitlePickerTrackId) {
+        applicationScope.launch {
+            val langHint =
+                when (trackId) {
+                    SubtitlePickerTrackId.Off ->
+                        TrackLanguagePreference.NONE to ""
+                    is SubtitlePickerTrackId.BurnIn -> {
+                        val sub = embeddedSubtitleTracks.firstOrNull { it.streamIndex == trackId.streamIndex }
+                        val lang =
+                            TrackLanguagePreference.normalize(sub?.language).ifEmpty {
+                                TrackLanguagePreference.normalize(sub?.title)
+                            }.ifEmpty { "und" }
+                        lang to sub?.title?.trim().orEmpty()
+                    }
+                    is SubtitlePickerTrackId.TextTrack -> {
+                        val fmt =
+                            player.currentTracks.groups.getOrNull(trackId.groupIndex)?.mediaTrackGroup?.getFormat(
+                                trackId.trackIndex,
+                            )
+                        val lang =
+                            TrackLanguagePreference.normalize(fmt?.language).ifEmpty {
+                                TrackLanguagePreference.normalize(fmt?.label)
+                            }.ifEmpty { "und" }
+                        lang to fmt?.label?.trim().orEmpty()
+                    }
+                }
+            playerSubtitlePreferences.setDefaultSubtitlePreference(langHint.first, langHint.second)
+            showTrackCompositeKey()?.let { ck ->
+                playerSubtitlePreferences.mergeShowTrackLanguageOverride(
+                    ck,
+                    defaultSubtitleLanguage = langHint.first,
+                    defaultSubtitleLabelHint = langHint.second,
+                )
+            }
+        }
+    }
+
     private fun captureSubtitleRestoreState(): SubtitleRestoreState? {
         if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
         val params = player.trackSelectionParameters
@@ -1229,6 +1538,9 @@ class PlumPlayerController(
             if (burnReloadLockHeld) {
                 burnSubtitleReloadMutex.unlock()
             }
+            if (!needsBurnReload || burnReloadLockHeld) {
+                persistManualSubtitlePreference(trackId)
+            }
         }
     }
 
@@ -1285,13 +1597,21 @@ class PlumPlayerController(
                         hlsSessionId = sid
                         wsManager.sendAttach(sid)
                         if (session.status == "ready") {
-                            val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                            activeStreamUrl = url
                             lastDurationSec = session.durationSeconds
-                            loadAndPlay(url, resumeSec)
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                                activeStreamUrl = url
+                                lastDurationSec = session.durationSeconds
+                                loadAndPlay(url, resumeSec)
+                            }
                             updateStatus("Playing")
                         } else {
-                            updateStatus("Preparing stream…")
+                            lastDurationSec = session.durationSeconds
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                updateStatus("Preparing stream…")
+                            } else {
+                                updateStatus("Playing")
+                            }
                         }
                     }
                     else -> {
@@ -1425,6 +1745,20 @@ class PlumPlayerController(
                     when {
                         id.startsWith("s:") -> {
                             val stream = id.removePrefix("s:").toIntOrNull() ?: return@launch
+                            val meta = embeddedAudioTracks.firstOrNull { it.streamIndex == stream }
+                            applicationScope.launch {
+                                val lang =
+                                    TrackLanguagePreference.normalize(meta?.language).ifEmpty {
+                                        TrackLanguagePreference.normalize(meta?.title)
+                                    }
+                                playerSubtitlePreferences.setDefaultAudioLanguage(lang)
+                                showTrackCompositeKey()?.let { ck ->
+                                    playerSubtitlePreferences.mergeShowTrackLanguageOverride(
+                                        ck,
+                                        defaultAudioLanguage = lang,
+                                    )
+                                }
+                            }
                             applyServerAudioStream(stream)
                         }
                         id.startsWith("a:") -> {
@@ -1433,6 +1767,20 @@ class PlumPlayerController(
                             val gi = rest[0].toIntOrNull() ?: return@launch
                             val j = rest[1].toIntOrNull() ?: return@launch
                             applyExoAudioSelection(gi, j)
+                            val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
+                            applicationScope.launch {
+                                val lang =
+                                    TrackLanguagePreference.normalize(fmt?.language).ifEmpty {
+                                        TrackLanguagePreference.normalize(fmt?.label)
+                                    }
+                                playerSubtitlePreferences.setDefaultAudioLanguage(lang)
+                                showTrackCompositeKey()?.let { ck ->
+                                    playerSubtitlePreferences.mergeShowTrackLanguageOverride(
+                                        ck,
+                                        defaultAudioLanguage = lang,
+                                    )
+                                }
+                            }
                         }
                     }
                     refreshUiState()
@@ -1549,13 +1897,21 @@ class PlumPlayerController(
                         hlsSessionId = sid
                         wsManager.sendAttach(sid)
                         if (session.status == "ready") {
-                            val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                            activeStreamUrl = url
                             lastDurationSec = session.durationSeconds
-                            loadAndPlay(url, resumeSec)
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                                activeStreamUrl = url
+                                lastDurationSec = session.durationSeconds
+                                loadAndPlay(url, resumeSec)
+                            }
                             updateStatus("Playing")
                         } else {
-                            updateStatus("Preparing stream…")
+                            lastDurationSec = session.durationSeconds
+                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                                updateStatus("Preparing stream…")
+                            } else {
+                                updateStatus("Playing")
+                            }
                         }
                     }
                     else -> {
@@ -1575,6 +1931,8 @@ class PlumPlayerController(
     private suspend fun openMedia(mediaId: Int, resumeSec: Float) {
         pendingSubtitleRestore = null
         activeBurnSubtitleStreamIndex = null
+        appliedStoredSubtitlePreferenceForMedia = false
+        appliedStoredExoAudioPreferenceForMedia = false
         updateError(null)
         refreshUiState(statusOverride = "Preparing stream…", errorOverride = null)
         createAndLoadMedia(mediaId, resumeSec)

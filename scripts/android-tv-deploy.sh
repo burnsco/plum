@@ -2,6 +2,10 @@
 # Install release Plum TV APK on connected ADB device(s); optionally launch the app.
 # Use JAVA_HOME=Android Studio JBR and ANDROID_HOME=SDK (see apps/android-tv/AGENT_DEPLOY.md).
 #
+# PLUM_TV_ADB_CONNECT — if set, runs `adb connect` first (classic TCP, e.g. 192.168.2.11:5555).
+#   Used by android-tv-deploy-desk.sh / android-tv-deploy-lr.sh so TVs do not need USB or wireless
+#   pairing ports.
+#
 # ANDROID_SERIAL — if set, uninstall/install/(launch) only this device. Use when several TVs are
 #   connected or when a stale mDNS entry (e.g. adb-…. _adb-tls-connect._tcp) breaks Gradle’s
 #   installDebug (ddmlib “device not found”).
@@ -53,6 +57,21 @@ adb_bin() {
 
 ADB="$(adb_bin)"
 echo "android-tv-deploy: using adb: $ADB"
+if [[ -n "${PLUM_TV_ADB_CONNECT:-}" ]]; then
+  echo "android-tv-deploy: adb connect ${PLUM_TV_ADB_CONNECT}…"
+  set +e
+  connect_out="$("$ADB" connect "${PLUM_TV_ADB_CONNECT}" 2>&1)"
+  connect_ec=$?
+  set -e
+  printf '%s\n' "$connect_out"
+  if [[ $connect_ec -ne 0 ]] || echo "$connect_out" | grep -qiE 'failed to connect|cannot connect|unable to connect'; then
+    echo "android-tv-deploy: adb connect did not succeed for ${PLUM_TV_ADB_CONNECT}." >&2
+    echo "android-tv-deploy: \"No route to host\" usually means wrong IP, device offline, or not on your LAN. Check with ping, or fix PLUM_TV_ADB." >&2
+    echo "android-tv-deploy: TCP devices already in adb:" >&2
+    "$ADB" devices | awk 'NR>1 && $2=="device" && $1 ~ /:[0-9]+$/ {print "  " $1}' >&2 || true
+    exit 1
+  fi
+fi
 "$ADB" devices -l
 
 device_serials() {
@@ -67,7 +86,11 @@ if [[ -z "${ANDROID_SERIAL:-}" ]]; then
   fi
 elif ! device_serials | grep -qxF "$ANDROID_SERIAL"; then
   echo "android-tv-deploy: ANDROID_SERIAL=${ANDROID_SERIAL} is not connected (no row in state 'device')." >&2
-  echo "android-tv-deploy: Run adb devices -l, re-enable wireless debugging or USB on the TV, then retry." >&2
+  if [[ -n "${PLUM_TV_ADB_CONNECT:-}" ]]; then
+    echo "android-tv-deploy: If you overrode PLUM_TV_ADB, try the IP shown under \"List of devices\" for your TV (e.g. 192.168.x.x:5555), or drop PLUM_TV_ADB to use the repo default." >&2
+  else
+    echo "android-tv-deploy: Run adb devices -l, adb connect <ip>:5555, USB, or wireless debugging on the TV, then retry." >&2
+  fi
   exit 1
 fi
 
@@ -85,7 +108,7 @@ if [[ "${PLUM_TV_REINSTALL:-}" == "1" ]]; then
 fi
 
 echo "android-tv-deploy: assembleRelease (Gradle)…"
-bash "${ROOT}/scripts/android-tv.sh" :app:assembleRelease
+bash "${ROOT}/scripts/android-tv.sh" ':app:assembleRelease'
 
 APK_TO_INSTALL=""
 if [[ -f "$APK_RELEASE" ]]; then

@@ -8,10 +8,10 @@ Use this when automating **compile → install on a physical TV (or emulator) �
 |------|---------|
 | Debug APK only | `bun run android:assemble` |
 | Install debug on connected device | `bun run android:install` |
-| Install + launch Plum TV | `bun run android:deploy` |
-| Install + launch Plum TV LR | `bun run deploy-tv-lr` |
+| Install + launch Plum TV (desk TV, TCP `adb connect`) | `bun run android:deploy` |
+| Install + launch Plum TV LR (TCP, default `192.168.2.20:5555`) | `bun run deploy-tv-lr` |
 
-`android:deploy` runs [`scripts/android-tv-deploy.sh`](../../scripts/android-tv-deploy.sh): `assembleDebug`, then `adb install -r` and starts the app via `adb` (avoids Gradle `installDebug` when multiple or stale ADB transports break ddmlib).
+`android:deploy` runs [`scripts/android-tv-deploy-desk.sh`](../../scripts/android-tv-deploy-desk.sh) → [`android-tv-deploy.sh`](../../scripts/android-tv-deploy.sh): `adb connect` to the default desk TV, `assembleRelease`, `adb install -r`, then starts the app (avoids Gradle `installDebug` when multiple or stale ADB transports break ddmlib).
 
 ## JDK (use Android Studio’s JBR)
 
