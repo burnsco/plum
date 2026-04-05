@@ -54,6 +54,9 @@ const defaultTranscodingSettings = {
   threads: 0,
   keyframeInterval: 48,
   maxBitrate: "0",
+  openclToneMappingEnabled: false,
+  openclToneMapAlgorithm: "hable",
+  openclToneMapDesat: 0.5,
 } satisfies api.TranscodingSettings;
 
 const defaultSetupStatus = {

@@ -125,6 +125,43 @@ private const val PROGRESS_HEARTBEAT_MS = 10_000L
 private const val PROGRESS_DUPLICATE_WINDOW_MS = 3_000L
 private const val INTRO_SKIP_LEADING_SLACK_SEC = 0.35
 private const val INTRO_SKIP_TRAILING_SLACK_SEC = 0.35
+private const val BURN_IN_PICKER_LABEL_MAX_BASE = 80
+
+/** Picker / WebSocket track id for subtitle rows (off, Exo text group, or server burn-in stream index). */
+private sealed class SubtitlePickerTrackId {
+    data object Off : SubtitlePickerTrackId()
+
+    data class TextTrack(val groupIndex: Int, val trackIndex: Int) : SubtitlePickerTrackId()
+
+    data class BurnIn(val streamIndex: Int) : SubtitlePickerTrackId()
+
+    fun toWireId(): String =
+        when (this) {
+            is Off -> "off"
+            is TextTrack -> "t:$groupIndex:$trackIndex"
+            is BurnIn -> "burn:$streamIndex"
+        }
+
+    companion object {
+        fun parse(raw: String): SubtitlePickerTrackId? =
+            when {
+                raw == "off" -> Off
+                raw.startsWith("burn:") ->
+                    raw.removePrefix("burn:").toIntOrNull()?.let { BurnIn(it) }
+                raw.startsWith("t:") -> {
+                    val parts = raw.removePrefix("t:").split(":")
+                    if (parts.size != 2) {
+                        null
+                    } else {
+                        val gi = parts[0].toIntOrNull()
+                        val j = parts[1].toIntOrNull()
+                        if (gi == null || j == null) null else TextTrack(gi, j)
+                    }
+                }
+                else -> null
+            }
+    }
+}
 
 /** Mirrors server `EmbeddedSubtitleCodecLikelyBitmap` when JSON omits `vttEligible`. */
 private fun String.isBitmapEmbeddedSubtitleCodec(): Boolean =
@@ -334,6 +371,12 @@ class PlumPlayerController(
      */
     @Volatile
     private var activeBurnSubtitleStreamIndex: Int? = null
+
+    /**
+     * Held for the whole [reloadForBurnSubtitle] call so a second burn-related selection cannot
+     * start while the first is still detaching / recreating the session ([tryLock] = ignore extra taps).
+     */
+    private val burnSubtitleReloadMutex = Mutex()
 
     /**
      * After each new [MediaItem], Exo may auto-select in-band CEA-608/708 from the video stream
@@ -867,7 +910,7 @@ class PlumPlayerController(
         val burnActive = activeBurnSubtitleStreamIndex != null
         options +=
             TrackPickerOption(
-                id = "off",
+                id = SubtitlePickerTrackId.Off.toWireId(),
                 label = "Off",
                 selected = textDisabled && !burnActive,
                 detail = "Hide subtitles",
@@ -879,7 +922,7 @@ class PlumPlayerController(
             for (j in 0 until g.length) {
                 val fmt = g.mediaTrackGroup.getFormat(j)
                 val label = fmt.primarySubtitlePickerLabel()
-                val id = "t:$gi:$j"
+                val id = SubtitlePickerTrackId.TextTrack(gi, j).toWireId()
                 val selected = !textDisabled && !burnActive && g.isTrackSelected(j)
                 options +=
                     TrackPickerOption(
@@ -893,7 +936,7 @@ class PlumPlayerController(
         // Bitmap subtitle tracks not reachable via WebVTT or PGS raw binary: offer server burn-in.
         // Only shown for HLS sessions — direct-play ExoPlayer parses these from the source file natively.
         for (subtitle in serverBurnInEmbeddedSubtitleTracks()) {
-            val id = "burn:${subtitle.streamIndex}"
+            val id = SubtitlePickerTrackId.BurnIn(subtitle.streamIndex).toWireId()
             val selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex
             options +=
                 TrackPickerOption(
@@ -916,7 +959,13 @@ class PlumPlayerController(
                 langPart != null -> langPart
                 else -> "Subtitle ${streamIndex + 1}"
             }
-        return "$base (burn-in)"
+        val truncated =
+            if (base.length <= BURN_IN_PICKER_LABEL_MAX_BASE) {
+                base
+            } else {
+                base.take(BURN_IN_PICKER_LABEL_MAX_BASE - 1) + "…"
+            }
+        return "$truncated (burn-in)"
     }
 
     /** Server-indexed tracks when in an HLS session with metadata; otherwise flattened Exo audio tracks. */
@@ -1110,49 +1159,77 @@ class PlumPlayerController(
     }
 
     private suspend fun applySubtitlePickerSelection(id: String) {
-        if (id == "off") {
-            if (activeBurnSubtitleStreamIndex != null) {
-                // Burn-in was active — reload without it; explicitly disable text tracks after.
-                val resumeSec = player.currentPosition / 1000.0f
-                pendingSubtitleRestore =
-                    SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
-                activeBurnSubtitleStreamIndex = null
-                reloadForBurnSubtitle(resumeSec)
-            } else {
-                disableTextTracks()
+        val trackId = SubtitlePickerTrackId.parse(id) ?: return
+        val needsBurnReload =
+            when (trackId) {
+                SubtitlePickerTrackId.Off -> activeBurnSubtitleStreamIndex != null
+                is SubtitlePickerTrackId.BurnIn -> true
+                is SubtitlePickerTrackId.TextTrack -> activeBurnSubtitleStreamIndex != null
             }
+        val burnReloadLockHeld = needsBurnReload && burnSubtitleReloadMutex.tryLock()
+        if (needsBurnReload && !burnReloadLockHeld) {
             return
         }
-        if (id.startsWith("burn:")) {
-            val streamIndex = id.removePrefix("burn:").toIntOrNull() ?: return
-            val resumeSec = player.currentPosition / 1000.0f
-            // Burn-in bakes the sub into video; disable any ExoPlayer text track after reload.
-            pendingSubtitleRestore =
-                SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
-            activeBurnSubtitleStreamIndex = streamIndex
-            reloadForBurnSubtitle(resumeSec)
-            return
+        try {
+            when (trackId) {
+                SubtitlePickerTrackId.Off -> {
+                    if (activeBurnSubtitleStreamIndex != null) {
+                        // Burn-in was active — reload without it; explicitly disable text tracks after.
+                        val resumeSec = player.currentPosition / 1000.0f
+                        pendingSubtitleRestore =
+                            SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
+                        activeBurnSubtitleStreamIndex = null
+                        reloadForBurnSubtitle(resumeSec)
+                    } else {
+                        disableTextTracks()
+                    }
+                }
+                is SubtitlePickerTrackId.BurnIn -> {
+                    val streamIndex = trackId.streamIndex
+                    val resumeSec = player.currentPosition / 1000.0f
+                    // Burn-in bakes the sub into video; disable any ExoPlayer text track after reload.
+                    pendingSubtitleRestore =
+                        SubtitleRestoreState(disabled = true, language = null, label = null, configurationId = null)
+                    activeBurnSubtitleStreamIndex = streamIndex
+                    reloadForBurnSubtitle(resumeSec)
+                }
+                is SubtitlePickerTrackId.TextTrack -> {
+                    val gi = trackId.groupIndex
+                    val j = trackId.trackIndex
+                    if (activeBurnSubtitleStreamIndex != null) {
+                        // Switching away from burn-in to a regular text track: reload without burn-in, then restore.
+                        val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
+                        val resumeSec = player.currentPosition / 1000.0f
+                        pendingSubtitleRestore =
+                            SubtitleRestoreState(
+                                disabled = false,
+                                language = fmt?.language,
+                                label = fmt?.label,
+                                configurationId = fmt?.id?.trim()?.takeIf { it.isNotEmpty() },
+                            )
+                        activeBurnSubtitleStreamIndex = null
+                        reloadForBurnSubtitle(resumeSec)
+                    } else {
+                        applyTextTrackOverride(gi, j)
+                    }
+                }
+            }
+        } finally {
+            if (burnReloadLockHeld) {
+                burnSubtitleReloadMutex.unlock()
+            }
         }
-        if (!id.startsWith("t:")) return
-        val parts = id.removePrefix("t:").split(":")
-        if (parts.size != 2) return
-        val gi = parts[0].toIntOrNull() ?: return
-        val j = parts[1].toIntOrNull() ?: return
-        if (activeBurnSubtitleStreamIndex != null) {
-            // Switching away from burn-in to a regular text track: reload without burn-in, then restore.
-            val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
-            val resumeSec = player.currentPosition / 1000.0f
-            pendingSubtitleRestore =
-                SubtitleRestoreState(
-                    disabled = false,
-                    language = fmt?.language,
-                    label = fmt?.label,
-                    configurationId = fmt?.id?.trim()?.takeIf { it.isNotEmpty() },
-                )
+    }
+
+    /** If the new session omits the burn stream (e.g. server rejected it), clear stale UI state. */
+    private fun validateBurnSubtitleStreamAfterReload() {
+        val burnIdx = activeBurnSubtitleStreamIndex ?: return
+        val stillPresent =
+            embeddedSubtitleTracks.any { sub ->
+                sub.streamIndex == burnIdx && sub.supported != false
+            }
+        if (!stillPresent) {
             activeBurnSubtitleStreamIndex = null
-            reloadForBurnSubtitle(resumeSec)
-        } else {
-            applyTextTrackOverride(gi, j)
         }
     }
 
@@ -1176,6 +1253,7 @@ class PlumPlayerController(
         }.fold(
             onSuccess = { session ->
                 replaceTrackMetadataFromSession(session)
+                validateBurnSubtitleStreamAfterReload()
                 lastAppliedStreamRevision = session.revision ?: -1
                 when (session.delivery) {
                     "direct" -> {

@@ -14,8 +14,11 @@ import (
 )
 
 type videoStreamInfo struct {
-	CodecName string
-	PixelFmt  string
+	CodecName      string
+	PixelFmt       string
+	ColorPrimaries string
+	ColorTransfer  string
+	ColorSpace     string
 }
 
 type transcodePlan struct {
@@ -75,6 +78,15 @@ func GetSettingsWarnings(settings db.TranscodingSettings) []db.TranscodingSettin
 		}
 	}
 
+	if settings.OpenCLToneMappingEnabled {
+		if !ffmpegCommandContains(context.Background(), "-filters", "tonemap_opencl") {
+			warnings = append(warnings, db.TranscodingSettingsWarning{
+				Code:    "opencl_tonemap_unavailable",
+				Message: "FFmpeg does not list the tonemap_opencl filter; OpenCL tone mapping will not apply.",
+			})
+		}
+	}
+
 	return warnings
 }
 
@@ -85,7 +97,7 @@ func buildTranscodePlans(itemPath, outPath string, settings db.TranscodingSettin
 	if hardwarePlan, ok := buildHardwarePlan(itemPath, outPath, settings, stream, audioIndex); ok {
 		plans = append(plans, hardwarePlan)
 	}
-	plans = append(plans, buildSoftwarePlan(itemPath, outPath, settings, audioIndex))
+	plans = append(plans, buildSoftwarePlan(itemPath, outPath, settings, stream, audioIndex))
 	return plans
 }
 
@@ -96,7 +108,7 @@ func buildHLSPlans(itemPath, outDir string, settings db.TranscodingSettings, str
 	if hardwarePlan, ok := buildHardwareHLSPlan(itemPath, outDir, settings, stream, audioIndex); ok {
 		plans = append(plans, hardwarePlan)
 	}
-	plans = append(plans, buildSoftwareHLSPlan(itemPath, outDir, settings, audioIndex))
+	plans = append(plans, buildSoftwareHLSPlan(itemPath, outDir, settings, stream, audioIndex))
 	return plans
 }
 
@@ -121,10 +133,16 @@ func buildHardwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 			"-hwaccel_output_format", "vaapi",
 		)
 		args = appendFFmpegInput(args, itemPath)
-		args = append(args, "-vf", "scale_vaapi=format="+uploadFormat)
+		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, true)
+		args = append(args, "-vf", prefix+"scale_vaapi=format="+uploadFormat)
 	} else {
 		args = appendFFmpegInput(args, itemPath)
-		args = append(args, "-vf", "format="+uploadFormat+",hwupload")
+		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, false)
+		if prefix != "" {
+			args = append(args, "-vf", prefix+"format="+uploadFormat+",hwupload")
+		} else {
+			args = append(args, "-vf", "format="+uploadFormat+",hwupload")
+		}
 	}
 
 	// Always map the first video stream.
@@ -162,10 +180,13 @@ func buildHardwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 	}, true
 }
 
-func buildSoftwarePlan(itemPath, outPath string, settings db.TranscodingSettings, audioIndex int) transcodePlan {
+func buildSoftwarePlan(itemPath, outPath string, settings db.TranscodingSettings, stream videoStreamInfo, audioIndex int) transcodePlan {
 	settings = db.NormalizeTranscodingSettings(settings)
 
 	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	if vf := softwareOpenCLTonemapVF(settings, stream); vf != "" {
+		args = append(args, "-vf", vf)
+	}
 	args = append(args, "-map", "0:v:0")
 
 	if audioIndex >= 0 {
@@ -231,10 +252,16 @@ func buildHardwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 			"-hwaccel_output_format", "vaapi",
 		)
 		args = appendFFmpegInput(args, itemPath)
-		args = append(args, "-vf", "scale_vaapi=format="+uploadFormat)
+		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, true)
+		args = append(args, "-vf", prefix+"scale_vaapi=format="+uploadFormat)
 	} else {
 		args = appendFFmpegInput(args, itemPath)
-		args = append(args, "-vf", "format="+uploadFormat+",hwupload")
+		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, false)
+		if prefix != "" {
+			args = append(args, "-vf", prefix+"format="+uploadFormat+",hwupload")
+		} else {
+			args = append(args, "-vf", "format="+uploadFormat+",hwupload")
+		}
 	}
 
 	args = append(args, "-map", "0:v:0")
@@ -261,8 +288,11 @@ func buildHardwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 	}, true
 }
 
-func buildSoftwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettings, audioIndex int) transcodePlan {
+func buildSoftwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettings, stream videoStreamInfo, audioIndex int) transcodePlan {
 	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	if vf := softwareOpenCLTonemapVF(settings, stream); vf != "" {
+		args = append(args, "-vf", vf)
+	}
 	args = append(args, "-map", "0:v:0")
 	if audioIndex >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", audioIndex))

@@ -17,14 +17,17 @@ import (
 var ffprobeCommandContext = exec.CommandContext
 
 type playbackStreamProbe struct {
-	Index     int
-	CodecType string
-	CodecName string
-	PixelFmt  string
-	Width     int
-	Height    int
-	Channels  int
-	BitRate   int64
+	Index          int
+	CodecType      string
+	CodecName      string
+	PixelFmt       string
+	ColorPrimaries string
+	ColorTransfer  string
+	ColorSpace     string
+	Width          int
+	Height         int
+	Channels       int
+	BitRate        int64
 }
 
 type playbackSourceProbe struct {
@@ -75,7 +78,7 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 	args := []string{"-v", "error"}
 	args = append(args, ffopts.InputProbeBeforeI...)
 	args = append(args,
-		"-show_entries", "format=format_name,bit_rate,duration:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,bit_rate",
+		"-show_entries", "format=format_name,bit_rate,duration:stream=index,codec_type,codec_name,pix_fmt,color_space,color_primaries,color_transfer,width,height,channels,bit_rate",
 		"-of", "json",
 		path,
 	)
@@ -92,14 +95,17 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 			Duration   string `json:"duration"`
 		} `json:"format"`
 		Streams []struct {
-			Index     int    `json:"index"`
-			CodecType string `json:"codec_type"`
-			CodecName string `json:"codec_name"`
-			PixelFmt  string `json:"pix_fmt"`
-			Width     int    `json:"width"`
-			Height    int    `json:"height"`
-			Channels  int    `json:"channels"`
-			BitRate   string `json:"bit_rate"`
+			Index          int    `json:"index"`
+			CodecType      string `json:"codec_type"`
+			CodecName      string `json:"codec_name"`
+			PixelFmt       string `json:"pix_fmt"`
+			ColorSpace     string `json:"color_space"`
+			ColorPrimaries string `json:"color_primaries"`
+			ColorTransfer  string `json:"color_transfer"`
+			Width          int    `json:"width"`
+			Height         int    `json:"height"`
+			Channels       int    `json:"channels"`
+			BitRate        string `json:"bit_rate"`
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(out, &payload); err != nil {
@@ -116,14 +122,17 @@ func probePlaybackSource(ctx context.Context, path string) (playbackSourceProbe,
 
 	for _, stream := range payload.Streams {
 		result.Streams = append(result.Streams, playbackStreamProbe{
-			Index:     stream.Index,
-			CodecType: strings.ToLower(strings.TrimSpace(stream.CodecType)),
-			CodecName: normalizeCodecName(stream.CodecName),
-			PixelFmt:  strings.TrimSpace(stream.PixelFmt),
-			Width:     stream.Width,
-			Height:    stream.Height,
-			Channels:  stream.Channels,
-			BitRate:   parseBitRate(stream.BitRate),
+			Index:          stream.Index,
+			CodecType:      strings.ToLower(strings.TrimSpace(stream.CodecType)),
+			CodecName:      normalizeCodecName(stream.CodecName),
+			PixelFmt:       strings.TrimSpace(stream.PixelFmt),
+			ColorPrimaries: strings.TrimSpace(stream.ColorPrimaries),
+			ColorTransfer:  strings.TrimSpace(stream.ColorTransfer),
+			ColorSpace:     strings.TrimSpace(stream.ColorSpace),
+			Width:          stream.Width,
+			Height:         stream.Height,
+			Channels:       stream.Channels,
+			BitRate:        parseBitRate(stream.BitRate),
 		})
 	}
 
@@ -237,8 +246,11 @@ func (p playbackSourceProbe) videoStreamInfo() videoStreamInfo {
 		return videoStreamInfo{}
 	}
 	return videoStreamInfo{
-		CodecName: stream.CodecName,
-		PixelFmt:  stream.PixelFmt,
+		CodecName:      stream.CodecName,
+		PixelFmt:       stream.PixelFmt,
+		ColorPrimaries: stream.ColorPrimaries,
+		ColorTransfer:  stream.ColorTransfer,
+		ColorSpace:     stream.ColorSpace,
 	}
 }
 

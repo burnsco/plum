@@ -28,7 +28,7 @@ func buildPlaybackHLSPlans(
 	if decision.BurnEmbeddedSubtitleStreamIdx >= 0 {
 		variants := buildAdaptiveVariants(probe, settings)
 		// Subtitle overlay is CPU filtergraph-only today; skip VAAPI attempts.
-		return []transcodePlan{buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, decision, variants)}
+		return []transcodePlan{buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, probe, decision, variants)}
 	}
 	switch decision.Delivery {
 	case "remux":
@@ -40,7 +40,7 @@ func buildPlaybackHLSPlans(
 		if hardwarePlan, ok := buildHardwareAdaptiveHLSPlan(itemPath, outDir, settings, stream, decision, variants); ok {
 			plans = append(plans, hardwarePlan)
 		}
-		plans = append(plans, buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, decision, variants))
+		plans = append(plans, buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, probe, decision, variants))
 		return plans
 	}
 }
@@ -77,6 +77,7 @@ func buildSoftwareAdaptiveHLSPlan(
 	itemPath string,
 	outDir string,
 	settings db.TranscodingSettings,
+	probe playbackSourceProbe,
 	decision playbackDecision,
 	variants []adaptiveVariant,
 ) transcodePlan {
@@ -91,6 +92,20 @@ func buildSoftwareAdaptiveHLSPlan(
 			fmt.Sprintf("[0:v:0][0:%d]overlay=eof_action=pass:repeatlast=0[vburn]", st),
 		)
 		videoSrc = "[vburn]"
+	}
+	if useOpenCLTonemapFromProbe(settings, probe, decision.BurnEmbeddedSubtitleStreamIdx >= 0) {
+		streamInfo := probe.videoStreamInfo()
+		swf := swPixelFormatForOpenCLUpload(streamInfo)
+		filterParts = append(
+			filterParts,
+			fmt.Sprintf(
+				"%sformat=%s,hwupload=derive_device=opencl,%s,hwdownload,format=nv12[vtonemap]",
+				videoSrc,
+				swf,
+				openCLTonemapFilterParams(settings),
+			),
+		)
+		videoSrc = "[vtonemap]"
 	}
 	splitTargets := make([]string, 0, len(variants))
 	for index := range variants {
@@ -178,13 +193,25 @@ func buildHardwareAdaptiveHLSPlan(
 			"-hwaccel_output_format", "vaapi",
 		)
 		args = appendFFmpegInput(args, itemPath)
-		filterParts = append(filterParts, fmt.Sprintf("[0:v:0]split=%d%s", len(variants), strings.Join(splitTargets, "")))
-	} else {
-		args = appendFFmpegInput(args, itemPath)
+		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, true)
 		filterParts = append(
 			filterParts,
-			fmt.Sprintf("[0:v:0]format=%s,hwupload,split=%d%s", uploadFormat, len(variants), strings.Join(splitTargets, "")),
+			fmt.Sprintf("[0:v:0]%ssplit=%d%s", prefix, len(variants), strings.Join(splitTargets, "")),
 		)
+	} else {
+		args = appendFFmpegInput(args, itemPath)
+		tonemapPrefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, false)
+		if tonemapPrefix != "" {
+			filterParts = append(
+				filterParts,
+				fmt.Sprintf("[0:v:0]%ssplit=%d%s", tonemapPrefix, len(variants), strings.Join(splitTargets, "")),
+			)
+		} else {
+			filterParts = append(
+				filterParts,
+				fmt.Sprintf("[0:v:0]format=%s,hwupload,split=%d%s", uploadFormat, len(variants), strings.Join(splitTargets, "")),
+			)
+		}
 	}
 
 	for index, variant := range variants {

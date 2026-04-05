@@ -266,7 +266,8 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 		"-",
 	)
 	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
-	cmd.Stdout = responseWriterForFFmpegStdout(w)
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -280,6 +281,9 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 		}
 		log.Printf("ffmpeg embedded ass stream stderr_tail=%s", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	if _, werr := w.Write(stdoutBuf.Bytes()); werr != nil {
+		return werr
 	}
 	return nil
 }

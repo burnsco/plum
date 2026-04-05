@@ -3,13 +3,13 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { DiscoverBrowseCategory, DiscoverGenre, DiscoverMediaType } from "@/api";
 import { Button } from "@/components/ui/button";
 import { useAuthState } from "@/contexts/AuthContext";
+import { DiscoverOriginProvider, useDiscoverOrigin } from "@/contexts/DiscoverOriginContext";
 import {
   DISCOVER_CATEGORY_OPTIONS,
   DISCOVER_ORIGIN_PRESETS,
   discoverBrowseHref,
   discoverCategoryLabel,
   discoverMediaLabel,
-  normalizeDiscoverOriginKey,
 } from "@/lib/discover";
 import { useAddDiscoverTitle, useDiscoverBrowse, useDiscoverGenres } from "@/queries";
 import { DiscoverMessage, mapDiscoverItemToPosterGridItem } from "./Discover";
@@ -39,17 +39,22 @@ function parsePositiveInt(value: string | null): number | null {
 }
 
 export function DiscoverBrowse() {
+  return (
+    <DiscoverOriginProvider>
+      <DiscoverBrowseContent />
+    </DiscoverOriginProvider>
+  );
+}
+
+function DiscoverBrowseContent() {
   const { user } = useAuthState();
   const isAdmin = user?.is_admin ?? false;
   const navigate = useNavigate();
+  const { originCountry } = useDiscoverOrigin();
   const [searchParams] = useSearchParams();
   const category = parseCategory(searchParams.get("category"));
   const mediaType = parseMediaType(searchParams.get("mediaType"));
   const genreId = parsePositiveInt(searchParams.get("genre"));
-  const originCountry = useMemo(
-    () => normalizeDiscoverOriginKey(searchParams.get("origin")),
-    [searchParams],
-  );
   const addTitle = useAddDiscoverTitle();
   const { data: genres } = useDiscoverGenres();
   const browse = useDiscoverBrowse({
@@ -234,7 +239,6 @@ export function DiscoverBrowse() {
             category={category}
             activeMediaType={activeMediaType}
             activeGenreId={activeGenre?.id ?? genreId}
-            originCountry={originCountry}
           />
         </div>
       </section>
@@ -270,14 +274,12 @@ function DiscoverBrowseGenreFilters({
   category,
   activeMediaType,
   activeGenreId,
-  originCountry,
 }: {
   movieGenres: DiscoverGenre[];
   tvGenres: DiscoverGenre[];
   category: DiscoverBrowseCategory | "";
   activeMediaType: DiscoverMediaType | "";
   activeGenreId: number | null;
-  originCountry: string;
 }) {
   if (activeMediaType === "movie") {
     return (
@@ -287,7 +289,6 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="movie"
         activeGenreId={activeGenreId}
-        originCountry={originCountry}
       />
     );
   }
@@ -299,7 +300,6 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="tv"
         activeGenreId={activeGenreId}
-        originCountry={originCountry}
       />
     );
   }
@@ -312,7 +312,6 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="movie"
         activeGenreId={activeGenreId}
-        originCountry={originCountry}
       />
       <DiscoverBrowseGenreRow
         title="TV Genres"
@@ -320,7 +319,6 @@ function DiscoverBrowseGenreFilters({
         category={category}
         mediaType="tv"
         activeGenreId={activeGenreId}
-        originCountry={originCountry}
       />
     </div>
   );
@@ -332,15 +330,14 @@ function DiscoverBrowseGenreRow({
   category,
   mediaType,
   activeGenreId,
-  originCountry,
 }: {
   title: string;
   genres: DiscoverGenre[];
   category: DiscoverBrowseCategory | "";
   mediaType: DiscoverMediaType;
   activeGenreId: number | null;
-  originCountry: string;
 }) {
+  const { originCountry } = useDiscoverOrigin();
   if (genres.length === 0) {
     return null;
   }

@@ -27,6 +27,66 @@ func TestBuildTranscodePlans_SoftwareOnlyWhenHardwareDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildTranscodePlans_OpenCLTonemapOffByDefault(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	stream := videoStreamInfo{
+		CodecName:     "hevc",
+		PixelFmt:      "yuv420p10le",
+		ColorTransfer: "smpte2084",
+	}
+
+	plans := buildTranscodePlans("/media/hdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+
+	for _, plan := range plans {
+		if containsFilter(plan.Args, "tonemap_opencl") {
+			t.Fatalf("did not expect tonemap_opencl in default settings: mode=%s args=%v", plan.Mode, plan.Args)
+		}
+	}
+}
+
+func TestBuildTranscodePlans_OpenCLTonemapInsertsWhenEnabledAndHDR(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	settings.OpenCLToneMappingEnabled = true
+	settings.OpenCLToneMapAlgorithm = "hable"
+	settings.OpenCLToneMapDesat = 0.5
+	stream := videoStreamInfo{
+		CodecName:     "hevc",
+		PixelFmt:      "yuv420p10le",
+		ColorTransfer: "smpte2084",
+	}
+
+	plans := buildTranscodePlans("/media/hdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+	if len(plans) < 1 {
+		t.Fatalf("plan count = %d", len(plans))
+	}
+	hw := plans[0]
+	if hw.Mode != "hardware" {
+		t.Fatalf("mode = %q", hw.Mode)
+	}
+	if !containsFilter(hw.Args, "tonemap_opencl=tonemap=hable") {
+		t.Fatalf("expected OpenCL tonemap in hardware vf: %v", hw.Args)
+	}
+}
+
+func TestBuildTranscodePlans_OpenCLTonemapSkippedForSDR(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = true
+	settings.HardwareEncodingEnabled = true
+	settings.OpenCLToneMappingEnabled = true
+	stream := videoStreamInfo{CodecName: "h264", PixelFmt: "yuv420p", ColorTransfer: "bt709"}
+
+	plans := buildTranscodePlans("/media/sdr.mkv", "/tmp/out.mp4", settings, stream, -1)
+	for _, plan := range plans {
+		if containsFilter(plan.Args, "tonemap_opencl") {
+			t.Fatalf("did not expect tonemap for SDR stream: mode=%s", plan.Mode)
+		}
+	}
+}
+
 func TestBuildTranscodePlans_UsesVAAPIDecodeForEnabledCodec(t *testing.T) {
 	settings := db.DefaultTranscodingSettings()
 	settings.VAAPIEnabled = true

@@ -51,6 +51,7 @@ export const DISCOVER_ORIGIN_PRESETS: ReadonlyArray<{ readonly code: string; rea
   { code: "IE", label: "Ireland" },
 ];
 
+/** ISO 3166-1 alpha-2 only; mirrors Go parseDiscoverOriginCountry + normalizeDiscoverOrigin. */
 export function normalizeDiscoverOriginKey(raw: string | undefined | null): string {
   if (raw == null) {
     return "";

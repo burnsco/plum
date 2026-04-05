@@ -3065,6 +3065,8 @@ func parseDiscoverBrowseMediaType(raw string) (metadata.DiscoverMediaType, bool)
 	}
 }
 
+// parseDiscoverOriginCountry validates TMDB ISO 3166-1 alpha-2 origin filters. Rules must stay in
+// sync with metadata.normalizeDiscoverOrigin and web normalizeDiscoverOriginKey (apps/web/src/lib/discover.ts).
 func parseDiscoverOriginCountry(raw string) (string, error) {
 	s := strings.TrimSpace(strings.ToUpper(raw))
 	if s == "" {

@@ -6,6 +6,7 @@ import type {
   MetadataArtworkSettings as MetadataArtworkSettingsShape,
   MediaStackServiceValidationResult,
   MediaStackSettings as MediaStackSettingsShape,
+  OpenCLToneMapAlgorithm,
   TranscodingSettings as TranscodingSettingsShape,
   MetadataArtworkProviderStatus,
   TranscodingSettingsWarning,
@@ -61,6 +62,43 @@ const decodeCodecOptions: Array<{
     description: "Allow VAAPI decode for 10-bit HEVC video.",
   },
   { key: "vp910bit", label: "VP9 10-bit", description: "Allow VAAPI decode for 10-bit VP9 video." },
+];
+
+const openclTonemapAlgorithmOptions: Array<{
+  value: OpenCLToneMapAlgorithm;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "hable",
+    label: "Hable",
+    description: "Filmic curve; a common default for HDR fiction and games.",
+  },
+  {
+    value: "reinhard",
+    label: "Reinhard",
+    description: "Smooth rolloff; can look softer on very bright highlights.",
+  },
+  {
+    value: "mobius",
+    label: "Mobius",
+    description: "Preserves highlights with a gentle knee.",
+  },
+  {
+    value: "linear",
+    label: "Linear",
+    description: "Simple linear stretch; can clip or look harsh on strong HDR.",
+  },
+  {
+    value: "gamma",
+    label: "Gamma",
+    description: "Power-law compression; fast but less perceptually tuned.",
+  },
+  {
+    value: "clip",
+    label: "Clip",
+    description: "Hard clip to SDR range; mostly useful as a baseline comparison.",
+  },
 ];
 
 const encodeFormatOptions: Array<{
@@ -1650,6 +1688,88 @@ export function Settings() {
                   onChange={(checked) => setField("allowSoftwareFallback", checked)}
                   description="When hardware transcoding fails, retry with software-safe FFmpeg settings."
                 />
+              </div>
+            </div>
+
+            <div className="rounded-(--radius-lg) border border-amber-500/25 bg-amber-500/[0.06] p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-medium text-(--plum-text)">
+                    Experimental: OpenCL tone mapping
+                  </h3>
+                  <p className="mt-1 text-sm text-(--plum-muted)">
+                    When enabled, Plum may insert FFmpeg{" "}
+                    <code className="rounded bg-black/30 px-1 py-0.5 text-xs">tonemap_opencl</code> for
+                    sources that look HDR (PQ / HLG transfer, or 10-bit BT.2020). Requires OpenCL-capable
+                    drivers and a matching FFmpeg build. Does not apply when burning in PGS subtitles.
+                  </p>
+                </div>
+                <Toggle
+                  label="Enable OpenCL tone map"
+                  checked={form.openclToneMappingEnabled}
+                  onChange={(checked) => setField("openclToneMappingEnabled", checked)}
+                />
+              </div>
+
+              <div
+                className={`mt-5 space-y-5 ${form.openclToneMappingEnabled ? "" : "pointer-events-none opacity-50"}`}
+              >
+                <div>
+                  <label
+                    className="mb-2 block text-sm font-medium text-(--plum-text)"
+                    htmlFor="opencl-tonemap-algorithm"
+                  >
+                    Tonemap curve
+                  </label>
+                  <select
+                    id="opencl-tonemap-algorithm"
+                    value={form.openclToneMapAlgorithm}
+                    onChange={(event) =>
+                      setField("openclToneMapAlgorithm", event.target.value as OpenCLToneMapAlgorithm)
+                    }
+                    className="flex h-9 w-full rounded-(--radius-md) border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
+                  >
+                    {openclTonemapAlgorithmOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-(--plum-muted)">
+                    {
+                      openclTonemapAlgorithmOptions.find((o) => o.value === form.openclToneMapAlgorithm)
+                        ?.description
+                    }
+                  </p>
+                </div>
+
+                <div>
+                  <label
+                    className="mb-2 block text-sm font-medium text-(--plum-text)"
+                    htmlFor="opencl-tonemap-desat"
+                  >
+                    Highlight desaturation
+                  </label>
+                  <Input
+                    id="opencl-tonemap-desat"
+                    type="number"
+                    min={0}
+                    max={4}
+                    step={0.05}
+                    value={form.openclToneMapDesat}
+                    onChange={(event) => {
+                      const n = Number.parseFloat(event.target.value);
+                      if (Number.isFinite(n)) {
+                        setField("openclToneMapDesat", n);
+                      }
+                    }}
+                  />
+                  <p className="mt-2 text-xs text-(--plum-muted)">
+                    Passed to FFmpeg as{" "}
+                    <code className="rounded bg-black/30 px-1 py-0.5 text-xs">desat</code> (0–4). Try
+                    around 0.5 unless you want a more saturated HDR look.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
