@@ -150,6 +150,74 @@ export function resolvedVideoDuration(
   return Number.isFinite(elementDuration) && elementDuration > 0 ? elementDuration : 0;
 }
 
+/** Plum transcode/remux HLS uses growing `EVENT` playlists; direct file streams are full seekable range. */
+export type PlumVideoDelivery = "direct" | "remux" | "transcode";
+
+/** Avoid seeking exactly to the reported end; some pipelines stall instead of ending cleanly. */
+const SEEK_END_EPSILON_SEC = 0.05;
+
+function mediaSeekableEndSeconds(video: HTMLMediaElement): number {
+  try {
+    if (video.seekable.length <= 0) return 0;
+    const end = video.seekable.end(video.seekable.length - 1);
+    return Number.isFinite(end) && end > 0 ? end : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Latest time (seconds) it is safe to seek to. For remux/transcode HLS, uses the minimum of catalog
+ * duration, `video.duration`, and the seekable range end so we never jump past encoded segments.
+ * For direct play, uses the longer of catalog vs media so short browser metadata does not shrink range.
+ */
+export function seekUpperBoundSeconds(
+  video: HTMLMediaElement,
+  authoritativeSeconds: number,
+  itemDurationSeconds: number,
+  delivery: PlumVideoDelivery,
+): number {
+  const catalog = resolvedVideoDuration(authoritativeSeconds, itemDurationSeconds, 0);
+  const elDur =
+    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+  const seekableEnd = mediaSeekableEndSeconds(video);
+
+  if (delivery === "remux" || delivery === "transcode") {
+    const parts: number[] = [];
+    if (catalog > 0) parts.push(catalog);
+    if (elDur > 0) parts.push(elDur);
+    if (seekableEnd > 0) parts.push(seekableEnd);
+    if (parts.length === 0) return 0;
+    return Math.min(...parts);
+  }
+
+  const fromMedia = Math.max(elDur, seekableEnd);
+  if (catalog > 0 && fromMedia > 0) {
+    return Math.max(catalog, fromMedia);
+  }
+  if (catalog > 0) return catalog;
+  if (fromMedia > 0) return fromMedia;
+  return 0;
+}
+
+export function clampVideoSeekSeconds(
+  video: HTMLMediaElement,
+  targetSeconds: number,
+  authoritativeSeconds: number,
+  itemDurationSeconds: number,
+  delivery: PlumVideoDelivery,
+): number {
+  const upper = seekUpperBoundSeconds(
+    video,
+    authoritativeSeconds,
+    itemDurationSeconds,
+    delivery,
+  );
+  const t = Math.max(0, targetSeconds);
+  if (upper <= 0 || !Number.isFinite(upper)) return t;
+  return Math.min(t, Math.max(0, upper - SEEK_END_EPSILON_SEC));
+}
+
 export function nudgeVideoIntoBufferedRange(video: HTMLVideoElement | null): boolean {
   if (!video || video.buffered.length === 0) {
     return false;

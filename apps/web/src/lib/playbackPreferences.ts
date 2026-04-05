@@ -18,6 +18,101 @@ export type ResolvedLibraryPlaybackPreferences = {
 
 export const subtitleAppearanceStorageKey = "plum:subtitle-appearance";
 export const videoAutoplayStorageKey = "plum:video-autoplay-next";
+export const playerWebDefaultsStorageKey = "plum:player-web-defaults";
+
+const PLAYER_LOCAL_SETTINGS_EVENT = "plum-player-local-settings-changed";
+
+/**
+ * Stored in `defaultSubtitleLanguage` / `defaultAudioLanguage` when the user disables automatic
+ * language-based track selection. See `PlayerWebDefaults` for all modes.
+ */
+export const PLAYER_WEB_TRACK_LANGUAGE_NONE = "__none__";
+
+export type PlayerWebDefaults = {
+  /** Overrides library preferred audio for automatic track selection unless {@link PLAYER_WEB_TRACK_LANGUAGE_NONE}. */
+  defaultAudioLanguage: string;
+  /** Overrides library preferred subtitle language for automatic track selection unless {@link PLAYER_WEB_TRACK_LANGUAGE_NONE}. */
+  defaultSubtitleLanguage: string;
+  /** Limit the in-player subtitle menu to tracks that look English (eng, SDH, etc.). */
+  subtitleMenuEnglishOnly: boolean;
+};
+
+const defaultPlayerWebDefaults: PlayerWebDefaults = {
+  defaultAudioLanguage: "",
+  defaultSubtitleLanguage: "",
+  subtitleMenuEnglishOnly: false,
+};
+
+function bumpPlayerLocalSettings() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(PLAYER_LOCAL_SETTINGS_EVENT));
+}
+
+export function subscribePlayerLocalSettings(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const handler = () => onStoreChange();
+  window.addEventListener(PLAYER_LOCAL_SETTINGS_EVENT, handler);
+  const onStorage = (event: StorageEvent) => {
+    if (
+      event.key === subtitleAppearanceStorageKey ||
+      event.key === videoAutoplayStorageKey ||
+      event.key === playerWebDefaultsStorageKey
+    ) {
+      onStoreChange();
+    }
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(PLAYER_LOCAL_SETTINGS_EVENT, handler);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export type PlayerLocalSettingsSnapshot = {
+  subtitleAppearance: SubtitleAppearance;
+  webDefaults: PlayerWebDefaults;
+  videoAutoplayEnabled: boolean;
+};
+
+export function readStoredPlayerWebDefaults(): PlayerWebDefaults {
+  if (typeof window === "undefined") {
+    return { ...defaultPlayerWebDefaults };
+  }
+  try {
+    const raw = window.localStorage.getItem(playerWebDefaultsStorageKey);
+    if (!raw) return { ...defaultPlayerWebDefaults };
+    const parsed = JSON.parse(raw) as Partial<PlayerWebDefaults>;
+    return {
+      defaultAudioLanguage:
+        typeof parsed.defaultAudioLanguage === "string" ? parsed.defaultAudioLanguage : "",
+      defaultSubtitleLanguage:
+        typeof parsed.defaultSubtitleLanguage === "string" ? parsed.defaultSubtitleLanguage : "",
+      subtitleMenuEnglishOnly: parsed.subtitleMenuEnglishOnly === true,
+    };
+  } catch {
+    return { ...defaultPlayerWebDefaults };
+  }
+}
+
+export function writeStoredPlayerWebDefaults(preferences: PlayerWebDefaults) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(playerWebDefaultsStorageKey, JSON.stringify(preferences));
+  bumpPlayerLocalSettings();
+}
+
+/** Heuristic: treat as English subtitles for the “English only” player menu filter. */
+export function isEnglishSubtitleTrackForMenu(track: { srcLang: string; label: string }): boolean {
+  const langNorm = normalizeLanguagePreference(track.srcLang);
+  if (langNorm === "en") return true;
+  const label = track.label.toLowerCase();
+  const rawLang = track.srcLang.trim().toLowerCase();
+  const blob = `${label} ${rawLang}`;
+  if (/\b(en|eng|english)\b/i.test(blob)) return true;
+  if ((langNorm === "" || rawLang === "und") && /^\s*sdh\s*$/i.test(track.label.trim())) return true;
+  return false;
+}
 
 export const defaultSubtitleAppearance: SubtitleAppearance = {
   size: "medium",
@@ -178,6 +273,7 @@ export function readStoredSubtitleAppearance(): SubtitleAppearance {
 export function writeStoredSubtitleAppearance(preferences: SubtitleAppearance) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(subtitleAppearanceStorageKey, JSON.stringify(preferences));
+  bumpPlayerLocalSettings();
 }
 
 export function readStoredVideoAutoplayEnabled(): boolean {
@@ -190,6 +286,15 @@ export function readStoredVideoAutoplayEnabled(): boolean {
 export function writeStoredVideoAutoplayEnabled(enabled: boolean) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(videoAutoplayStorageKey, String(enabled));
+  bumpPlayerLocalSettings();
+}
+
+export function getPlayerLocalSettingsSnapshot(): PlayerLocalSettingsSnapshot {
+  return {
+    subtitleAppearance: readStoredSubtitleAppearance(),
+    webDefaults: readStoredPlayerWebDefaults(),
+    videoAutoplayEnabled: readStoredVideoAutoplayEnabled(),
+  };
 }
 
 export function subtitleFontSizeValue(size: SubtitleSize): string {

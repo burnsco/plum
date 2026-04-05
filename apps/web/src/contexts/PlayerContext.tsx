@@ -29,7 +29,10 @@ import {
   preferredInitialAudioIndex,
   shuffleQueue,
 } from "../lib/playback/playerQueue";
-import { detectClientPlaybackCapabilities } from "../lib/playback/playerMedia";
+import {
+  clampVideoSeekSeconds,
+  detectClientPlaybackCapabilities,
+} from "../lib/playback/playerMedia";
 import { sortMusicTracks } from "../lib/musicGrouping";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
 import { useLibraries } from "../queries";
@@ -165,6 +168,8 @@ type PlayerContextValue = {
   muted: boolean;
   videoSourceUrl: string;
   playbackDurationSeconds: number;
+  /** Active video session delivery; null when not playing video. */
+  videoDelivery: ApiPlaybackSession["delivery"] | null;
   videoAudioIndex: number;
   playMedia: (item: MediaItem) => void;
   playMovie: (item: MediaItem) => void;
@@ -212,6 +217,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const mutedRef = useRef(false);
   const activeVideoItemIdRef = useRef<number | null>(null);
   const videoSessionRef = useRef<VideoSessionState | null>(null);
+  const playbackSessionRef = useRef<PlaybackSession | null>(null);
   const mediaElementsRef = useRef<
     Record<MediaElementSlot, HTMLMediaElement | null>
   >({
@@ -232,6 +238,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   activeVideoItemIdRef.current =
     activeMode === "video" ? (activeItem?.id ?? null) : null;
   videoSessionRef.current = videoSession;
+  playbackSessionRef.current = playbackSession;
 
   // Only expose the stream URL once the server reports "ready" (all initial segments on disk).
   // During "starting" we keep the *previous* ready URL so HLS.js continues playing the old
@@ -264,6 +271,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ? videoSession.durationSeconds
           : Math.max(activeItem?.duration ?? 0, 0))
       : 0;
+  const videoDelivery =
+    activeMode === "video" && videoSession != null ? videoSession.delivery : null;
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
   const burnEmbeddedSubtitleStreamIndex =
     activeMode === "video"
@@ -825,7 +834,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     (seconds: number) => {
       const active = getActiveMediaElement();
       if (!active) return;
-      active.currentTime = Math.max(0, seconds);
+      if (active instanceof HTMLVideoElement) {
+        const session = videoSessionRef.current;
+        const queue = playbackSessionRef.current?.queue;
+        const idx = playbackSessionRef.current?.queueIndex ?? 0;
+        const item = queue?.[idx];
+        const delivery = session?.delivery ?? "direct";
+        active.currentTime = clampVideoSeekSeconds(
+          active,
+          seconds,
+          session?.durationSeconds ?? 0,
+          item?.duration ?? 0,
+          delivery,
+        );
+        return;
+      }
+      const t = Math.max(0, seconds);
+      if (Number.isFinite(active.duration) && active.duration > 0) {
+        active.currentTime = Math.min(t, Math.max(0, active.duration - 0.01));
+      } else {
+        active.currentTime = t;
+      }
     },
     [getActiveMediaElement],
   );
@@ -944,6 +973,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       muted,
       videoSourceUrl,
       playbackDurationSeconds,
+      videoDelivery,
       videoAudioIndex,
       burnEmbeddedSubtitleStreamIndex,
       playMedia,
@@ -982,6 +1012,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       muted,
       videoSourceUrl,
       playbackDurationSeconds,
+      videoDelivery,
       videoAudioIndex,
       burnEmbeddedSubtitleStreamIndex,
       playMedia,

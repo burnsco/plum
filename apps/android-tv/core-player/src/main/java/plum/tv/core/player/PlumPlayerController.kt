@@ -11,6 +11,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -124,6 +125,42 @@ private const val PROGRESS_HEARTBEAT_MS = 10_000L
 private const val PROGRESS_DUPLICATE_WINDOW_MS = 3_000L
 private const val INTRO_SKIP_LEADING_SLACK_SEC = 0.35
 private const val INTRO_SKIP_TRAILING_SLACK_SEC = 0.35
+
+/** Mirrors server `EmbeddedSubtitleCodecLikelyBitmap` when JSON omits `vttEligible`. */
+private fun String.isBitmapEmbeddedSubtitleCodec(): Boolean =
+    when (this) {
+        "hdmv_pgs_subtitle",
+        "pgssub",
+        "pgs",
+        "dvd_subtitle",
+        "dvdsub",
+        "dvb_subtitle",
+        "xsub",
+        "dvb_teletext",
+        -> true
+        else -> false
+    }
+
+private fun EmbeddedSubtitleJson.effectiveVttEligible(): Boolean {
+    vttEligible?.let {
+        return it
+    }
+    val c = codec?.trim()?.lowercase(Locale.US).orEmpty()
+    return if (c.isEmpty()) {
+        true
+    } else {
+        !c.isBitmapEmbeddedSubtitleCodec()
+    }
+}
+
+/** True PGS only; excludes DVD/DVB bitmap subs handled differently from binary PGS sideloading. */
+private fun EmbeddedSubtitleJson.effectivePgsBinaryEligible(): Boolean {
+    pgsBinaryEligible?.let {
+        return it
+    }
+    val c = codec?.trim()?.lowercase(Locale.US).orEmpty()
+    return c == "hdmv_pgs_subtitle" || c == "pgssub" || c == "pgs"
+}
 
 /**
  * Core playback controller used by the TV app.
@@ -479,6 +516,32 @@ class PlumPlayerController(
         }
     }
 
+    /**
+     * Plum transcode/remux HLS uses ffmpeg `EVENT` playlists that grow until encode completes.
+     * [resolvedDurationMs] uses max(exo, server) so the scrubber can show full runtime once the
+     * manifest is wrong/short — but that same upper bound must not be used for seeks while the
+     * timeline is still dynamic, or Exo jumps past encoded segments (frozen video, clock still runs).
+     */
+    private fun isGrowingTranscodeHlsTimeline(): Boolean {
+        if (hlsSessionId == null) return false
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return false
+        val window = Timeline.Window()
+        timeline.getWindow(player.currentWindowIndex, window)
+        return window.isDynamic
+    }
+
+    /** Upper bound for user-initiated seeks (FF/rewind, D-pad steps, intro skip). */
+    private fun seekUpperBoundMs(): Long {
+        val exoMs = player.duration
+        val exoValid = exoMs > 0 && exoMs != C.TIME_UNSET
+        if (isGrowingTranscodeHlsTimeline() && exoValid) {
+            val serverMs = (lastDurationSec * 1000.0).toLong().coerceAtLeast(0L)
+            return minOf(exoMs, serverMs).coerceAtLeast(0L)
+        }
+        return resolvedDurationMs()
+    }
+
     private fun currentDurationMs(): Long = resolvedDurationMs()
 
     private fun normalizeIntroSkipMode(raw: String?): String =
@@ -504,7 +567,7 @@ class PlumPlayerController(
         if (effectiveIntroSkipMode() == "off") return
         val end = introEndSec ?: return
         scope.launch(Dispatchers.Main) {
-            val targetMs = (end * 1000.0).toLong().coerceIn(0L, resolvedDurationMs())
+            val targetMs = (end * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
             if (targetMs > player.currentPosition) {
                 player.seekTo(targetMs)
             }
@@ -523,7 +586,7 @@ class PlumPlayerController(
         if (posSec >= end - INTRO_SKIP_TRAILING_SLACK_SEC) return
         introAutoSkipConsumed = true
         scope.launch(Dispatchers.Main) {
-            val targetMs = (end * 1000.0).toLong().coerceIn(0L, resolvedDurationMs())
+            val targetMs = (end * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
             if (targetMs > player.currentPosition) {
                 player.seekTo(targetMs)
             }
@@ -1169,7 +1232,7 @@ class PlumPlayerController(
                     )
                     return@forEach
                 }
-                if (!subtitle.vttEligible) {
+                if (!subtitle.effectiveVttEligible()) {
                     return@forEach
                 }
                 val subtitleUrl =
@@ -1195,7 +1258,7 @@ class PlumPlayerController(
             if (subtitle.supported == false) {
                 return@forEach
             }
-            if (!subtitle.pgsBinaryEligible) {
+            if (!subtitle.effectivePgsBinaryEligible()) {
                 return@forEach
             }
             val subtitleUrl =
@@ -1522,8 +1585,8 @@ class PlumPlayerController(
 
     fun seekBy(deltaMs: Long) {
         scope.launch(Dispatchers.Main) {
-            val duration = currentDurationMs()
-            val next = (player.currentPosition + deltaMs).coerceIn(0L, duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
+            val upper = seekUpperBoundMs().takeIf { it > 0 } ?: Long.MAX_VALUE
+            val next = (player.currentPosition + deltaMs).coerceIn(0L, upper)
             player.seekTo(next)
             refreshUiState()
         }

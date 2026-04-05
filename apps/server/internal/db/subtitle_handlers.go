@@ -173,7 +173,9 @@ func HandleStreamEmbeddedSubtitleSup(w http.ResponseWriter, r *http.Request, dbC
 	w.Header().Set("Cache-Control", "no-store")
 
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
-	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeSubtitleDemux...)
+	// Heavy Matroska probe: PGS streams after the first often fail with the light probe used for
+	// temp demux (see ffopts.InputProbeSubtitleDemux). ExoPlayer then sees an empty/broken PGS track.
+	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeEmbeddedExtract...)
 	ffmpegArgs = append(ffmpegArgs,
 		"-i", sourcePath,
 		"-map", fmt.Sprintf("0:%d", streamIndex),
