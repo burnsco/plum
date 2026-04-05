@@ -65,6 +65,10 @@ if [[ -z "${ANDROID_SERIAL:-}" ]]; then
   if [[ "${n:-0}" -gt 1 ]]; then
     echo "android-tv-deploy: note: multiple devices connected; set ANDROID_SERIAL to target one and avoid stale mDNS duplicates." >&2
   fi
+elif ! device_serials | grep -qxF "$ANDROID_SERIAL"; then
+  echo "android-tv-deploy: ANDROID_SERIAL=${ANDROID_SERIAL} is not connected (no row in state 'device')." >&2
+  echo "android-tv-deploy: Run adb devices -l, re-enable wireless debugging or USB on the TV, then retry." >&2
+  exit 1
 fi
 
 if [[ "${PLUM_TV_REINSTALL:-}" == "1" ]]; then

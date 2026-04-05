@@ -110,6 +110,12 @@ func TestSoftwarePlan_IncludesCRFAndQualityFlags(t *testing.T) {
 	if !containsArgPair(sw.Args, "-b:a", "192k") {
 		t.Fatalf("missing -b:a 192k in args: %v", sw.Args)
 	}
+	if !containsArgPair(sw.Args, "-aac_coder", "fast") {
+		t.Fatalf("missing fast AAC coder in args: %v", sw.Args)
+	}
+	if !containsArgPair(sw.Args, "-ar", "48000") {
+		t.Fatalf("missing -ar 48000 in args: %v", sw.Args)
+	}
 
 	// Stereo downmix should be present (default channels = 2).
 	if !containsArgPair(sw.Args, "-ac", "2") {
@@ -147,6 +153,12 @@ func TestHardwarePlan_IncludesQualityFlags(t *testing.T) {
 	if !containsArgPair(hw.Args, "-b:a", "192k") {
 		t.Fatalf("missing -b:a 192k in hardware args: %v", hw.Args)
 	}
+	if !containsArgPair(hw.Args, "-aac_coder", "fast") {
+		t.Fatalf("missing fast AAC coder in hardware args: %v", hw.Args)
+	}
+	if !containsArgPair(hw.Args, "-ar", "48000") {
+		t.Fatalf("missing -ar 48000 in hardware args: %v", hw.Args)
+	}
 	if !containsArgPair(hw.Args, "-ac", "2") {
 		t.Fatalf("missing -ac 2 in hardware args: %v", hw.Args)
 	}
@@ -175,6 +187,9 @@ func TestSoftwarePlan_CustomSettings(t *testing.T) {
 	}
 	if !containsArgPair(sw.Args, "-b:a", "320k") {
 		t.Fatalf("expected 320k audio bitrate: %v", sw.Args)
+	}
+	if !containsArgPair(sw.Args, "-ar", "48000") {
+		t.Fatalf("expected -ar 48000 for transcoded AAC: %v", sw.Args)
 	}
 	// audioChannels = 0 means passthrough, no -ac flag.
 	if containsArgs(sw.Args, "-ac") {

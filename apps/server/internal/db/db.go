@@ -3154,7 +3154,9 @@ type VideoProbeResult struct {
 }
 
 func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, error) {
-	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// Large UHD remuxes: ffprobe may need to read InputProbeBeforeI (128 MiB) from slow disks/NAS;
+	// a short timeout yields empty embedded subtitle metadata so clients only see in-band CEA-608.
+	probeCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	args := []string{"-v", "error"}
 	args = append(args, ffopts.InputProbeBeforeI...)

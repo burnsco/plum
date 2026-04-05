@@ -63,13 +63,7 @@ func buildRemuxHLSPlan(
 	if decision.AudioCopy {
 		args = append(args, "-c:a", "copy")
 	} else {
-		args = append(args,
-			"-c:a", "aac",
-			"-b:a", settings.AudioBitrate,
-		)
-		if settings.AudioChannels > 0 {
-			args = append(args, "-ac", strconv.Itoa(settings.AudioChannels))
-		}
+		args = appendTranscodedStreamingAACArgs(args, settings, -1)
 	}
 
 	args = appendSingleVariantHLSOutputArgs(args, outDir)
@@ -140,13 +134,7 @@ func buildSoftwareAdaptiveHLSPlan(
 			args = append(args, fmt.Sprintf("-c:a:%d", index), "copy")
 			continue
 		}
-		args = append(args,
-			fmt.Sprintf("-c:a:%d", index), "aac",
-			fmt.Sprintf("-b:a:%d", index), settings.AudioBitrate,
-		)
-		if settings.AudioChannels > 0 {
-			args = append(args, fmt.Sprintf("-ac:%d", index), strconv.Itoa(settings.AudioChannels))
-		}
+		args = appendTranscodedStreamingAACArgs(args, settings, index)
 	}
 
 	args = appendAdaptiveHLSOutputArgs(args, outDir, variants)
@@ -232,13 +220,7 @@ func buildHardwareAdaptiveHLSPlan(
 			args = append(args, fmt.Sprintf("-c:a:%d", index), "copy")
 			continue
 		}
-		args = append(args,
-			fmt.Sprintf("-c:a:%d", index), "aac",
-			fmt.Sprintf("-b:a:%d", index), settings.AudioBitrate,
-		)
-		if settings.AudioChannels > 0 {
-			args = append(args, fmt.Sprintf("-ac:%d", index), strconv.Itoa(settings.AudioChannels))
-		}
+		args = appendTranscodedStreamingAACArgs(args, settings, index)
 	}
 
 	args = appendAdaptiveHLSOutputArgs(args, outDir, variants)

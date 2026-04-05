@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import androidx.annotation.OptIn
 import android.net.Uri
+import android.os.Looper
 import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -17,6 +18,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.text.TextOutput
@@ -25,6 +27,7 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.TsExtractor
 import java.util.ArrayList
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
@@ -256,8 +260,14 @@ class PlumPlayerController(
             setConstantBitrateSeekingAlwaysEnabled(true)
         }
 
+    private val trackSelector =
+        DefaultTrackSelector(appContext).apply {
+            parameters = buildUponParameters().setTunnelingEnabled(false).build()
+        }
+
     val player: ExoPlayer =
         ExoPlayer.Builder(appContext, renderersFactory)
+            .setTrackSelector(trackSelector)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, mediaExtractorsFactory))
             .build()
 
@@ -269,6 +279,9 @@ class PlumPlayerController(
     private var revisionReadyPollJob: Job? = null
     private val progressPersistMutex = Mutex()
 
+    /** Prevents double [close] and use-after-[androidx.media3.exoplayer.ExoPlayer.release]. */
+    private val controllerClosed = AtomicBoolean(false)
+
     @Volatile
     private var lastPersistedProgress: ProgressPersistSnapshot? = null
 
@@ -277,6 +290,13 @@ class PlumPlayerController(
 
     @Volatile
     private var pendingSubtitleRestore: SubtitleRestoreState? = null
+
+    /**
+     * After each new [MediaItem], Exo may auto-select in-band CEA-608/708 from the video stream
+     * over Plum WebVTT sideloads or HLS subtitle renditions. Prefer the first non-CEA text track once.
+     */
+    @Volatile
+    private var preferNonCea608TextAfterLoad: Boolean = false
 
     /** Filled when movie playback has no episode queue but we can resolve title from the API. */
     @Volatile
@@ -321,6 +341,7 @@ class PlumPlayerController(
 
                 override fun onTracksChanged(tracks: Tracks) {
                     restorePendingSubtitlesIfNeeded()
+                    preferNonCea608TextTrackOnceIfNeeded()
                     refreshUiState()
                 }
 
@@ -854,6 +875,63 @@ class PlumPlayerController(
         player.trackSelectionParameters = b.build()
     }
 
+    private fun Format.isCea608ClosedCaptionTrack(): Boolean {
+        val m = sampleMimeType ?: return false
+        return m == MimeTypes.APPLICATION_CEA608 ||
+            m == MimeTypes.APPLICATION_CEA708 ||
+            m == MimeTypes.APPLICATION_MP4CEA608
+    }
+
+    private fun isCea608TextTrackSelected(groups: List<Tracks.Group>): Boolean {
+        for (g in groups) {
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                if (g.isTrackSelected(j) && g.mediaTrackGroup.getFormat(j).isCea608ClosedCaptionTrack()) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun findFirstNonCea608TextTrackIndex(groups: List<Tracks.Group>): Pair<Int, Int>? {
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                if (!fmt.isCea608ClosedCaptionTrack()) {
+                    return gi to j
+                }
+            }
+        }
+        return null
+    }
+
+    private fun preferNonCea608TextTrackOnceIfNeeded() {
+        if (!preferNonCea608TextAfterLoad) return
+        if (player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
+            preferNonCea608TextAfterLoad = false
+            return
+        }
+        val groups = player.currentTracks.groups
+        val textTrackPresent = groups.any { it.type == C.TRACK_TYPE_TEXT && it.length > 0 }
+        if (!textTrackPresent) {
+            preferNonCea608TextAfterLoad = false
+            return
+        }
+        if (!isCea608TextTrackSelected(groups)) {
+            preferNonCea608TextAfterLoad = false
+            return
+        }
+        val idx = findFirstNonCea608TextTrackIndex(groups) ?: run {
+            preferNonCea608TextAfterLoad = false
+            return
+        }
+        applyTextTrackOverride(idx.first, idx.second)
+        preferNonCea608TextAfterLoad = false
+    }
+
     private fun captureSubtitleRestoreState(): SubtitleRestoreState? {
         if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
         val params = player.trackSelectionParameters
@@ -1091,6 +1169,9 @@ class PlumPlayerController(
                     )
                     return@forEach
                 }
+                if (!subtitle.vttEligible) {
+                    return@forEach
+                }
                 val subtitleUrl =
                     playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
                 val builder =
@@ -1274,6 +1355,7 @@ class PlumPlayerController(
             val hadMedia = player.mediaItemCount > 0
             val wasPlaying = player.isPlaying || player.playWhenReady
             val pos = player.currentPosition
+            preferNonCea608TextAfterLoad = true
             player.setMediaItem(mediaItem)
             player.prepare()
             if (hadMedia) {
@@ -1319,6 +1401,7 @@ class PlumPlayerController(
     private suspend fun loadAndPlay(url: String, resumeSec: Float) {
         val mediaItem = buildMediaItem(url)
         withContext(Dispatchers.Main) {
+            preferNonCea608TextAfterLoad = true
             player.setMediaItem(mediaItem)
             player.prepare()
             if (resumeSec > 0f) {
@@ -1329,14 +1412,12 @@ class PlumPlayerController(
         refreshUiState()
     }
 
-    private suspend fun persistProgressAsync(
+    private suspend fun persistProgressFromValues(
+        targetMediaId: Int,
+        posMs: Long,
+        durMs: Long,
         completed: Boolean,
-        mediaIdOverride: Int? = null,
     ) {
-        val targetMediaId = mediaIdOverride ?: mediaId
-        val (posMs, durMs) =
-            withContext(Dispatchers.Main) { player.currentPosition to resolvedDurationMs() }
-
         val durSec = durMs / 1000.0
         if (durSec <= 0.0) return
 
@@ -1375,6 +1456,16 @@ class PlumPlayerController(
         }
     }
 
+    private suspend fun persistProgressAsync(
+        completed: Boolean,
+        mediaIdOverride: Int? = null,
+    ) {
+        val targetMediaId = mediaIdOverride ?: mediaId
+        val (posMs, durMs) =
+            withContext(Dispatchers.Main) { player.currentPosition to resolvedDurationMs() }
+        persistProgressFromValues(targetMediaId, posMs, durMs, completed)
+    }
+
     fun togglePlayPause() {
         scope.launch(Dispatchers.Main) {
             if (player.isPlaying) {
@@ -1389,14 +1480,18 @@ class PlumPlayerController(
     /**
      * Called when the activity is no longer visible (Home, recents, another app). Stops audio/video
      * and tears down transient UI so returning to the app does not surprise the user.
+     *
+     * Releases the video surface so hardware decoders are not left reserved for Plum when the user
+     * switches to live TV or another full-screen video app on the same device.
      */
     fun pauseWhenBackgrounded() {
         scope.launch(Dispatchers.Main) {
+            if (controllerClosed.get()) return@launch
             clearUpNextCountdown()
             dismissTrackPicker()
-            if (player.isPlaying) {
-                player.pause()
-            }
+            player.pause()
+            player.playWhenReady = false
+            runCatching { player.clearVideoSurface() }
             refreshUiState()
         }
     }
@@ -1449,36 +1544,55 @@ class PlumPlayerController(
     }
 
     /**
-     * Cleanup that persists progress + closes playback session, then releases ExoPlayer.
-     *
-     * Uses the application scope so shutdown work can finish even if the ViewModel is already
-     * being torn down.
+     * Reads position/duration/state then [androidx.media3.exoplayer.ExoPlayer.release]. Call only
+     * on the main thread unless using the [runBlocking] fallback below.
+     */
+    private fun snapshotForCloseAndRelease(): Triple<Long, Long, Int> {
+        val posMs = player.currentPosition
+        val durMs = resolvedDurationMs()
+        val state = player.playbackState
+        player.release()
+        return Triple(posMs, durMs, state)
+    }
+
+    /**
+     * Cleanup that snapshots playback, releases ExoPlayer immediately (frees decoders/audio for
+     * other apps), then persists progress + closes the server session in the background.
      */
     fun close() {
+        if (!controllerClosed.compareAndSet(false, true)) return
+
         progressJob?.cancel()
         wsCollectJob?.cancel()
         queueLoadJob?.cancel()
+        revisionReadyPollJob?.cancel()
         clearUpNextCountdown()
+        dismissTrackPicker()
 
         hlsSessionId?.let { wsManager.sendDetach(it) }
         val sid = hlsSessionId
         val closingMediaId = mediaId
 
+        val (posMs, durMs, state) =
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                snapshotForCloseAndRelease()
+            } else {
+                runBlocking(Dispatchers.Main) { snapshotForCloseAndRelease() }
+            }
+
         applicationScope.launch(Dispatchers.Default) {
             try {
                 withTimeoutOrNull(5_000) {
-                    val (_, durMs, state) =
-                        withContext(Dispatchers.Main) {
-                            Triple(player.currentPosition, resolvedDurationMs(), player.playbackState)
-                        }
-
                     val durSec = durMs / 1000.0
-
                     if (durSec > 0) {
                         val ended = state == Player.STATE_ENDED
-
                         try {
-                            persistProgressAsync(completed = ended, mediaIdOverride = closingMediaId)
+                            persistProgressFromValues(
+                                closingMediaId,
+                                posMs,
+                                durMs,
+                                completed = ended,
+                            )
                         } catch (_: Throwable) {
                         }
                         withContext(Dispatchers.IO) {
@@ -1486,8 +1600,7 @@ class PlumPlayerController(
                         }
                     }
                 }
-            } finally {
-                withContext(Dispatchers.Main) { player.release() }
+            } catch (_: Throwable) {
             }
         }
     }

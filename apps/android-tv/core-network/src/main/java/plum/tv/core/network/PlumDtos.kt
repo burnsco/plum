@@ -19,6 +19,8 @@ data class EmbeddedSubtitleJson(
     @Json(name = "codec") val codec: String? = null,
     /** When false, server returns 422 for this stream (e.g. PGS); must not be merged into ExoPlayer. */
     @Json(name = "supported") val supported: Boolean? = null,
+    /** Playback session: false for bitmap subs; omit on older servers → treat as eligible. */
+    @Json(name = "vttEligible") val vttEligible: Boolean = true,
 )
 
 @JsonClass(generateAdapter = true)

@@ -137,16 +137,8 @@ func buildHardwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 		args = append(args, "-map", "0:a:0?")
 	}
 
-	args = append(args,
-		"-c:v", encoder,
-		"-c:a", "aac",
-		"-b:a", settings.AudioBitrate,
-	)
-
-	// Stereo downmix (0 = passthrough).
-	if settings.AudioChannels > 0 {
-		args = append(args, "-ac", strconv.Itoa(settings.AudioChannels))
-	}
+	args = append(args, "-c:v", encoder)
+	args = appendTranscodedStreamingAACArgs(args, settings, -1)
 
 	// Keyframe interval for fast seeking.
 	g := strconv.Itoa(settings.KeyframeInterval)
@@ -188,14 +180,8 @@ func buildSoftwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 		"-preset", "veryfast",
 		"-pix_fmt", "yuv420p",
 		"-profile:v", "high",
-		"-c:a", "aac",
-		"-b:a", settings.AudioBitrate,
 	)
-
-	// Stereo downmix (0 = passthrough).
-	if settings.AudioChannels > 0 {
-		args = append(args, "-ac", strconv.Itoa(settings.AudioChannels))
-	}
+	args = appendTranscodedStreamingAACArgs(args, settings, -1)
 
 	// Thread control (0 = auto).
 	if settings.Threads > 0 {
@@ -258,14 +244,8 @@ func buildHardwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 		args = append(args, "-map", "0:a:0?")
 	}
 
-	args = append(args,
-		"-c:v", encoder,
-		"-c:a", "aac",
-		"-b:a", settings.AudioBitrate,
-	)
-	if settings.AudioChannels > 0 {
-		args = append(args, "-ac", strconv.Itoa(settings.AudioChannels))
-	}
+	args = append(args, "-c:v", encoder)
+	args = appendTranscodedStreamingAACArgs(args, settings, -1)
 	g := strconv.Itoa(settings.KeyframeInterval)
 	args = append(args, "-g", g, "-keyint_min", g)
 	if settings.MaxBitrate != "" {
@@ -296,12 +276,8 @@ func buildSoftwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 		"-crf", strconv.Itoa(settings.CRF),
 		"-pix_fmt", "yuv420p",
 		"-profile:v", "high",
-		"-c:a", "aac",
-		"-b:a", settings.AudioBitrate,
 	)
-	if settings.AudioChannels > 0 {
-		args = append(args, "-ac", strconv.Itoa(settings.AudioChannels))
-	}
+	args = appendTranscodedStreamingAACArgs(args, settings, -1)
 	if settings.Threads > 0 {
 		args = append(args, "-threads", strconv.Itoa(settings.Threads))
 	}
