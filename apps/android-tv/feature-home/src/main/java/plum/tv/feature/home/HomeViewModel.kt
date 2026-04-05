@@ -14,6 +14,7 @@ import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.data.SessionPreferences
 import plum.tv.core.network.ContinueWatchingEntryJson
 import plum.tv.core.network.HomeDashboardJson
+import plum.tv.core.network.MediaItemJson
 import plum.tv.core.network.RecentlyAddedEntryJson
 
 sealed interface HomeUiState {
@@ -100,8 +101,12 @@ class HomeViewModel @Inject constructor(
                 addAll(recentlyAddedAnimeShows)
             }
         return HomeUiState.Ready(
-            continueWatching = continueWatching,
+            continueWatching = continueWatching.filterNot { it.media.isMissingFromLibrary() },
             recentlyAdded = mergedRecentlyAdded,
         )
     }
 }
+
+/** Matches server/dashboard rules: soft-removed files must not appear in Continue watching. */
+private fun MediaItemJson.isMissingFromLibrary(): Boolean =
+    missing == true || !missingSince.isNullOrBlank()

@@ -111,6 +111,37 @@ func TestGetHomeDashboardForUser_PrefersActiveEpisodeOverNextUp(t *testing.T) {
 	}
 }
 
+func TestGetHomeDashboardForUser_ExcludesMissingMoviesFromContinueWatching(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	userID := getSingleUserID(t, dbConn)
+	movieLibraryID := getLibraryID(t, dbConn, LibraryTypeMovie)
+
+	stillThereID := insertMovieForDashboardTest(t, dbConn, movieLibraryID, "Kept", "/movies/Kept.mkv")
+	goneID := insertMovieMarkedMissingForDashboardTest(t, dbConn, movieLibraryID, "Gone", "/movies/Gone.mkv")
+
+	if err := UpsertPlaybackProgress(dbConn, userID, stillThereID, 600, 7200, false); err != nil {
+		t.Fatalf("partial kept movie: %v", err)
+	}
+	if err := UpsertPlaybackProgress(dbConn, userID, goneID, 600, 7200, false); err != nil {
+		t.Fatalf("partial missing movie: %v", err)
+	}
+	setPlaybackTimestamp(t, dbConn, userID, stillThereID, "2026-03-19T10:00:00Z")
+	setPlaybackTimestamp(t, dbConn, userID, goneID, "2026-03-20T10:00:00Z")
+
+	dashboard, err := GetHomeDashboardForUser(dbConn, userID)
+	if err != nil {
+		t.Fatalf("get home dashboard: %v", err)
+	}
+	if len(dashboard.ContinueWatching) != 1 {
+		t.Fatalf("expected one continue-watching entry, got %+v", dashboard.ContinueWatching)
+	}
+	if dashboard.ContinueWatching[0].Kind != "movie" || dashboard.ContinueWatching[0].Media.ID != stillThereID {
+		t.Fatalf("expected only present movie, got %+v", dashboard.ContinueWatching[0])
+	}
+}
+
 func TestGetHomeDashboardForUser_DropsShowWhenNoNextEpisodeExists(t *testing.T) {
 	dbConn := newTestDB(t)
 	t.Cleanup(func() { _ = dbConn.Close() })

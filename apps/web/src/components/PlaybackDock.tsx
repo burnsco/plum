@@ -411,6 +411,8 @@ export function PlaybackDock() {
   const mediaRecoveryAttemptsRef = useRef(0);
   const networkRecoveryAttemptsRef = useRef(0);
   const initialBufferGapHandledRef = useRef(false);
+  /** After the first `playing` event, brief `waiting` / `loadstart` must not show the full-screen loading overlay. */
+  const videoPlaybackStartedRef = useRef(false);
   const manualSubtitleTrackRef = useRef<TextTrack | null>(null);
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
   const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -671,6 +673,7 @@ export function PlaybackDock() {
       mediaRecoveryAttemptsRef.current = 0;
       networkRecoveryAttemptsRef.current = 0;
       initialBufferGapHandledRef.current = false;
+      videoPlaybackStartedRef.current = false;
       setSubtitleReadyVersion(0);
     }
     if (!videoSourceUrl || !previousUrl || !sourceChanged) return;
@@ -1311,6 +1314,7 @@ export function PlaybackDock() {
     mediaRecoveryAttemptsRef.current = 0;
     networkRecoveryAttemptsRef.current = 0;
     initialBufferGapHandledRef.current = false;
+    videoPlaybackStartedRef.current = false;
     setSubtitleMenuOpen(false);
     setAudioMenuOpen(false);
     setPlayerSettingsOpen(false);
@@ -1771,6 +1775,9 @@ export function PlaybackDock() {
     const hls = new Hls({
       enableWorker: true,
       backBufferLength: 90,
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
+      startFragPrefetch: true,
       startPosition: seekToAfterReloadRef.current !== null ? seekToAfterReloadRef.current : -1,
       xhrSetup: (xhr) => {
         xhr.withCredentials = true;
@@ -2322,7 +2329,11 @@ export function PlaybackDock() {
           crossOrigin="use-credentials"
           autoPlay
           playsInline
-          onLoadStart={() => setIsVideoLoading(true)}
+          onLoadStart={() => {
+            if (!videoPlaybackStartedRef.current) {
+              setIsVideoLoading(true);
+            }
+          }}
           onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
           onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}
           onTimeUpdate={(event) => {
@@ -2347,6 +2358,7 @@ export function PlaybackDock() {
           }}
           onPlaying={() => {
             kickstartVideoPlaybackRef.current = false;
+            videoPlaybackStartedRef.current = true;
             setIsVideoLoading(false);
           }}
           onPause={(event) => {
@@ -2355,7 +2367,10 @@ export function PlaybackDock() {
             void persistPlaybackProgress({ force: true, snapshot });
           }}
           onWaiting={(event) => {
-            if (!event.currentTarget.ended) {
+            if (
+              !event.currentTarget.ended &&
+              !videoPlaybackStartedRef.current
+            ) {
               setIsVideoLoading(true);
             }
           }}

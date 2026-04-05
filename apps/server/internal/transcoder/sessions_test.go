@@ -2,6 +2,7 @@ package transcoder
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,6 +58,54 @@ func TestRunRevisionFallsBackToSoftwareBeforeReady(t *testing.T) {
 	session.mu.Unlock()
 	if activeRevision != 1 {
 		t.Fatalf("activeRevision = %d, want 1", activeRevision)
+	}
+}
+
+func TestRevisionReadyRequiresBufferedSegments(t *testing.T) {
+	dir := t.TempDir()
+	if revisionReady(dir, 3600) {
+		t.Fatal("expected false for missing playlist")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.m3u8"), []byte("#EXTM3U\n"), 0o644); err != nil {
+		t.Fatalf("write playlist: %v", err)
+	}
+	if revisionReady(dir, 3600) {
+		t.Fatal("expected false with playlist but no segments")
+	}
+	for i := range 3 {
+		name := fmt.Sprintf("segment_%05d.ts", i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatalf("write segment: %v", err)
+		}
+	}
+	if revisionReady(dir, 3600) {
+		t.Fatal("expected false with only three segments for long content")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment_00003.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write segment: %v", err)
+	}
+	if !revisionReady(dir, 3600) {
+		t.Fatal("expected true once four segments exist")
+	}
+}
+
+func TestRevisionReadyShortMediaUsesFewerSegments(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.m3u8"), []byte("#EXTM3U\n"), 0o644); err != nil {
+		t.Fatalf("write playlist: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment_00000.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write segment: %v", err)
+	}
+	// ~3s total → ceil(3/2)=2 segments required; one is not enough.
+	if revisionReady(dir, 3) {
+		t.Fatal("expected false with one segment when two are required")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment_00001.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write segment: %v", err)
+	}
+	if !revisionReady(dir, 3) {
+		t.Fatal("expected true for short media once required segments exist")
 	}
 }
 
@@ -603,9 +652,12 @@ if [ -n "$master_playlist_name" ]; then
   out_dir="$(dirname "$(dirname "$resolved_playlist_path")")"
   printf '#EXTM3U\n' > "$out_dir/$master_playlist_name"
 fi
-segment_path="${resolved_segment_template//%05d/00000}"
-mkdir -p "$(dirname "$segment_path")"
-printf 'segment' > "$segment_path"
+for i in 0 1 2 3; do
+  num=$(printf '%05d' "$i")
+  segment_path="${resolved_segment_template//%05d/$num}"
+  mkdir -p "$(dirname "$segment_path")"
+  printf 'segment' > "$segment_path"
+done
 exit "$exit_code"
 `
 

@@ -184,7 +184,8 @@ FROM playback_progress pp
 JOIN media_global g ON g.id = pp.media_id AND g.kind = 'movie'
 JOIN movies m ON g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
-WHERE pp.user_id = ? AND pp.completed = 0 AND pp.progress_percent > 0`
+WHERE pp.user_id = ? AND pp.completed = 0 AND pp.progress_percent > 0
+  AND COALESCE(m.missing_since, '') = ''`
 	rows, err := db.Query(q, userID, userID)
 	if err != nil {
 		return nil, err
@@ -258,7 +259,7 @@ FROM playback_progress pp
 JOIN media_global g ON g.id = pp.media_id AND g.kind = 'tv'
 JOIN tv_episodes m ON g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
-WHERE pp.user_id = ?`
+WHERE pp.user_id = ? AND COALESCE(m.missing_since, '') = ''`
 	if err := collectDistinctShowKeys(db, tvQ, userID, userID, LibraryTypeTV, seen, &keys); err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ FROM playback_progress pp
 JOIN media_global g ON g.id = pp.media_id AND g.kind = 'anime'
 JOIN anime_episodes m ON g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
-WHERE pp.user_id = ?`
+WHERE pp.user_id = ? AND COALESCE(m.missing_since, '') = ''`
 	if err := collectDistinctShowKeys(db, animeQ, userID, userID, LibraryTypeAnime, seen, &keys); err != nil {
 		return nil, err
 	}
@@ -801,7 +802,7 @@ func buildContinueWatching(items []MediaItem) []ContinueWatchingEntry {
 			continue
 		}
 		if item.Type == LibraryTypeMovie {
-			if item.Completed || item.ProgressPercent <= 0 {
+			if item.Missing || item.Completed || item.ProgressPercent <= 0 {
 				continue
 			}
 			entry := ContinueWatchingEntry{
@@ -919,6 +920,13 @@ func buildRecentlyAddedMovieEntries(items []MediaItem) []RecentlyAddedEntry {
 }
 
 func continueWatchingEntryForShow(showKey string, episodes []MediaItem) (ContinueWatchingEntry, bool) {
+	present := make([]MediaItem, 0, len(episodes))
+	for i := range episodes {
+		if !episodes[i].Missing {
+			present = append(present, episodes[i])
+		}
+	}
+	episodes = present
 	if len(episodes) == 0 {
 		return ContinueWatchingEntry{}, false
 	}

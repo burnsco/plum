@@ -374,9 +374,7 @@ export function useScanLibrary(): UseMutationResult<
     mutationFn: ({ libraryId, identify, subpath }) =>
       scanLibraryById(libraryId, { identify, subpath }),
     onSuccess: (_, { libraryId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
+      invalidateLibraryCatalogQueries(queryClient, libraryId);
     },
   });
 }

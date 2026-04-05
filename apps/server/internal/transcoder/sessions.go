@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -703,7 +703,7 @@ func (m *PlaybackSessionManager) runRevision(
 					)
 					break loop
 				}
-				if !ready && revisionReady(revision.dir) {
+				if !ready && revisionReady(revision.dir, float64(durationSeconds)) {
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
@@ -717,7 +717,7 @@ func (m *PlaybackSessionManager) runRevision(
 				)
 				return
 			case <-ticker.C:
-				if !ready && revisionReady(revision.dir) {
+				if !ready && revisionReady(revision.dir, float64(durationSeconds)) {
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
@@ -849,28 +849,51 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 	m.hub.Broadcast(payload)
 }
 
-func revisionReady(dir string) bool {
+// revisionReady reports whether enough HLS media is on disk for the client to start without
+// immediately stalling at the transcode live edge (previously we required only one segment).
+func revisionReady(dir string, durationSeconds float64) bool {
 	playlistPath := filepath.Join(dir, "index.m3u8")
 	playlistInfo, err := os.Stat(playlistPath)
 	if err != nil || playlistInfo.Size() == 0 {
 		return false
 	}
 
-	ready := false
-	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	segmentRoot := dir
+	if st, statErr := os.Stat(filepath.Join(dir, "variant_0")); statErr == nil && st.IsDir() {
+		segmentRoot = filepath.Join(dir, "variant_0")
+	}
+	segCount := countNonEmptyHlsSegments(segmentRoot)
+	if segCount < 1 {
+		return false
+	}
+
+	minSegments := 4
+	if durationSeconds > 0 {
+		needed := int(math.Ceil(durationSeconds / float64(hlsSegmentDurationSeconds)))
+		if needed < 1 {
+			needed = 1
 		}
-		if info == nil || info.IsDir() {
+		if needed < minSegments {
+			minSegments = needed
+		}
+	}
+
+	return segCount >= minSegments
+}
+
+func countNonEmptyHlsSegments(root string) int {
+	n := 0
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info == nil || info.IsDir() {
 			return nil
 		}
-		if strings.HasPrefix(filepath.Base(path), "segment_") && filepath.Ext(path) == ".ts" && info.Size() > 0 {
-			ready = true
-			return io.EOF
+		base := filepath.Base(path)
+		if strings.HasPrefix(base, "segment_") && strings.HasSuffix(base, ".ts") && info.Size() > 0 {
+			n++
 		}
 		return nil
 	})
-	return ready || walkErr == io.EOF
+	return n
 }
 
 func waitForPlaybackFile(ctx context.Context, target string) error {

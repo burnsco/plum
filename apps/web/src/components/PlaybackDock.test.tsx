@@ -275,6 +275,25 @@ describe("PlaybackDock audio track selection", () => {
     });
   });
 
+  it("does not show the preparing overlay when waiting after playback has started", async () => {
+    const { container } = renderDock();
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    expect(video).toBeTruthy();
+    if (!video) {
+      throw new Error("Expected a video element");
+    }
+
+    fireEvent.canPlay(video);
+    await waitFor(() => {
+      expect(screen.queryByRole("status", { name: "Preparing playback..." })).toBeNull();
+    });
+
+    fireEvent.playing(video);
+    fireEvent.waiting(video);
+
+    expect(screen.queryByRole("status", { name: "Preparing playback..." })).toBeNull();
+  });
+
   it("persists initial playback progress before the periodic interval elapses", async () => {
     const { container } = renderDock();
     const video = container.querySelector("video") as HTMLVideoElement | null;
