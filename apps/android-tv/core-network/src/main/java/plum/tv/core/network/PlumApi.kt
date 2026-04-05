@@ -145,4 +145,7 @@ interface PlumApi {
 
     @GET("/api/downloads")
     suspend fun downloads(): Response<DownloadsResponseJson>
+
+    @POST("/api/downloads/remove")
+    suspend fun removeDownload(@Body body: RemoveDownloadPayloadJson): Response<Unit>
 }

@@ -67,8 +67,8 @@ describe("LibraryActivityCenter", () => {
 
     const statusCard = await screen.findByTestId("library-activity-status-3");
     expect(within(statusCard).getByText("Identifying")).toBeVisible();
-    expect(within(statusCard).getByText("Identified 8 so far")).toBeVisible();
-    expect(within(statusCard).queryByText("Shows/Example/episode01.mkv")).not.toBeInTheDocument();
+    expect(within(statusCard).getByText("Identified 8 items so far")).toBeVisible();
+    expect(within(statusCard).queryByText(/Shows\/Example\/episode01/)).not.toBeInTheDocument();
   });
 
   it("shows the active badge and popup details", async () => {
@@ -141,7 +141,7 @@ describe("LibraryActivityCenter", () => {
     expect(screen.queryByText("Now")).not.toBeInTheDocument();
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("TV");
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("Importing");
-    expect(screen.getByText("Shows/Example/episode01.mkv")).toBeVisible();
+    expect(screen.getByText(/Importing: Shows\/Example\/episode01\.mkv/)).toBeVisible();
   });
 
   it("shows the empty state when nothing is active", async () => {
@@ -169,7 +169,7 @@ describe("LibraryActivityCenter", () => {
     ).toBeVisible();
   });
 
-  it("shows queued identify as waiting work", async () => {
+  it("shows queued identify in the activity list", async () => {
     mockUseLibraries.mockReturnValue({
       data: [
         { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
@@ -210,8 +210,9 @@ describe("LibraryActivityCenter", () => {
       screen.getByRole("button", { name: /Server activity/i }),
     );
 
-    expect(await screen.findByText("Nothing is happening right now.")).toBeVisible();
-    expect(screen.queryByTestId("library-activity-status-2")).not.toBeInTheDocument();
+    const statusCard = await screen.findByTestId("library-activity-status-2");
+    expect(within(statusCard).getByText("Identify queued")).toBeVisible();
+    expect(within(statusCard).getByText(/Metadata matching will start/i)).toBeVisible();
   });
 
   it("updates from identifying to failed without stale activity labels", async () => {
@@ -286,7 +287,7 @@ describe("LibraryActivityCenter", () => {
     expect(screen.queryByText("Identifying")).not.toBeInTheDocument();
   });
 
-  it("shows queued enrichment as waiting work", async () => {
+  it("shows queued enrichment in the activity list", async () => {
     mockUseLibraries.mockReturnValue({
       data: [{ id: 5, name: "Anime", type: "anime", path: "/anime", user_id: 1 }],
     } as unknown as ReturnType<typeof useLibraries>);
@@ -323,7 +324,8 @@ describe("LibraryActivityCenter", () => {
 
     fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
 
-    expect(await screen.findByText("Nothing is happening right now.")).toBeVisible();
-    expect(screen.queryByTestId("library-activity-status-5")).not.toBeInTheDocument();
+    const statusCard = await screen.findByTestId("library-activity-status-5");
+    expect(within(statusCard).getByText("Analyze queued")).toBeVisible();
+    expect(within(statusCard).getByText(/Analysis will run after import/i)).toBeVisible();
   });
 });

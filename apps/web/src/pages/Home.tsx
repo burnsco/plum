@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Captions, ExternalLink, Image, RefreshCw, ScanSearch } from "lucide-react";
 import { toast } from "sonner";
 import type { Library, MediaItem } from "../api";
@@ -21,6 +21,7 @@ import { getPreferredMovieRating } from "../lib/ratings";
 import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
 import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
+import { mediaItemNeedsIdentificationAttention } from "@/lib/unidentifiedMedia";
 import {
   useConfirmShow,
   useLibraryMedia,
@@ -141,6 +142,8 @@ function getShowGroupRating(group: ShowGroup) {
 
 export function Home() {
   const { libraryId: libraryIdParam } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const unidentifiedOnly = searchParams.get("unidentified") === "1";
   const navigate = useNavigate();
   const { playMovie, playMusicCollection, playShowGroup } = usePlayer();
   const { getLibraryPhase } = useIdentifyQueue();
@@ -158,6 +161,13 @@ export function Home() {
     return libraries[0]?.id ?? null;
   }, [libraryIdParam, libraries]);
   const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
+
+  useEffect(() => {
+    if (selectedLib?.type !== "music" || !unidentifiedOnly) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("unidentified");
+    setSearchParams(next, { replace: true });
+  }, [selectedLib?.type, unidentifiedOnly, searchParams, setSearchParams]);
   const selectedLibraryScanStatus = getLibraryScanStatus(selectedLibraryId);
   const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
     selectedLibraryScanStatus?.identifyPhase,
@@ -542,12 +552,36 @@ export function Home() {
     selectedLibraryId,
   ]);
 
-  const selectedLibraryCards =
-    selectedLib == null || selectedLib.type === "music"
-      ? []
-      : isTVOrAnime(selectedLib)
-        ? showCardState
-        : movieCardState;
+  const selectedLibraryCards = useMemo(() => {
+    const raw =
+      selectedLib == null || selectedLib.type === "music"
+        ? []
+        : isTVOrAnime(selectedLib)
+          ? showCardState
+          : movieCardState;
+    if (!unidentifiedOnly || selectedLib == null || selectedLib.type === "music") {
+      return raw;
+    }
+    if (isTVOrAnime(selectedLib)) {
+      return raw.filter((card) => {
+        const g = showGroups.find((gr) => gr.showKey === card.key);
+        return g?.episodes.some((ep) => mediaItemNeedsIdentificationAttention(ep)) ?? false;
+      });
+    }
+    return raw.filter((card) => {
+      const mid = Number.parseInt(card.key, 10);
+      if (!Number.isFinite(mid)) return false;
+      const item = selectedItems.find((m) => m.id === mid);
+      return item != null && mediaItemNeedsIdentificationAttention(item);
+    });
+  }, [
+    unidentifiedOnly,
+    selectedLib,
+    showCardState,
+    movieCardState,
+    showGroups,
+    selectedItems,
+  ]);
 
   return (
     <>
@@ -608,12 +642,62 @@ export function Home() {
                 <p className="text-sm text-(--plum-muted)">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
                 <p className="text-sm text-(--plum-muted)">No media in this library yet.</p>
+              ) : unidentifiedOnly && selectedLibraryCards.length === 0 ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-(--plum-muted)">
+                    No unidentified items in the loaded page yet.
+                    {hasNextPage
+                      ? " Load more pages to find additional titles, or clear the filter to browse everything."
+                      : " If you already fixed matches, counts refresh after the next library scan or identify."}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      className="text-sm font-medium text-(--plum-accent) hover:underline"
+                      onClick={() => {
+                        const next = new URLSearchParams(searchParams);
+                        next.delete("unidentified");
+                        setSearchParams(next, { replace: true });
+                      }}
+                    >
+                      Show entire library
+                    </button>
+                    {hasNextPage ? (
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-(--plum-text) underline decoration-(--plum-border) underline-offset-2 hover:text-(--plum-accent)"
+                        disabled={selectedFetchingNextPage}
+                        onClick={() => loadMoreLibraryItems()}
+                      >
+                        {selectedFetchingNextPage ? "Loading…" : "Load more"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               ) : selectedLib.type !== "music" ? (
                 <>
-                  <div className="flex items-center justify-between gap-4 mb-4">
-                    <h2 className="text-base font-semibold text-(--plum-text) truncate">
-                      {selectedLib.name}
-                    </h2>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+                    <div className="min-w-0">
+                      <h2 className="text-base font-semibold text-(--plum-text) truncate">
+                        {selectedLib.name}
+                      </h2>
+                      {unidentifiedOnly ? (
+                        <p className="mt-1 text-xs text-(--plum-text-2)">
+                          Showing titles that still need identification.
+                          <button
+                            type="button"
+                            className="ml-2 text-(--plum-accent) hover:underline"
+                            onClick={() => {
+                              const next = new URLSearchParams(searchParams);
+                              next.delete("unidentified");
+                              setSearchParams(next, { replace: true });
+                            }}
+                          >
+                            Show all
+                          </button>
+                        </p>
+                      ) : null}
+                    </div>
                     <LibraryViewControls
                       cardWidth={cardWidth}
                       onCardWidthChange={setCardWidth}

@@ -11,8 +11,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
+import plum.tv.core.data.PlayerSubtitlePreferences
+import plum.tv.core.data.SubtitleAppearance
 import plum.tv.core.data.PlaybackRepository
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.data.di.ApplicationScope
@@ -29,6 +34,7 @@ class PlayerViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
     private val playbackRepository: PlaybackRepository,
     private val wsManager: PlumWebSocketManager,
+    private val playerSubtitlePreferences: PlayerSubtitlePreferences,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -76,6 +82,11 @@ class PlayerViewModel @Inject constructor(
     val upNext: StateFlow<UpNextOverlayState?> = controller.upNext
     val error: StateFlow<String?> = controller.error
     val status: StateFlow<String> = controller.status
+
+    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSubtitlePreferences.appearance
+
+    private val _subtitleStyleOverlayVisible = MutableStateFlow(false)
+    val subtitleStyleOverlayVisible: StateFlow<Boolean> = _subtitleStyleOverlayVisible.asStateFlow()
 
     fun togglePlayPause() {
         controller.togglePlayPause()
@@ -138,6 +149,20 @@ class PlayerViewModel @Inject constructor(
 
     fun selectTrackPickerOption(id: String) {
         controller.selectTrackPickerOption(id)
+    }
+
+    fun openSubtitleStyleSettings() {
+        _subtitleStyleOverlayVisible.value = true
+    }
+
+    fun dismissSubtitleStyleSettings() {
+        _subtitleStyleOverlayVisible.value = false
+    }
+
+    fun setSubtitleAppearance(value: SubtitleAppearance) {
+        viewModelScope.launch {
+            playerSubtitlePreferences.setAppearance(value)
+        }
     }
 
     override fun onCleared() {

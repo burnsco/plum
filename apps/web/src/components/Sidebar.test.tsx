@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 
 vi.mock("@/queries", () => ({
   useLibraries: vi.fn(),
+  useUnidentifiedLibrarySummaries: vi.fn(() => ({ data: { libraries: [] } })),
   useRefreshLibraryPlaybackTracks: () => ({
     mutateAsync: vi.fn().mockResolvedValue({ accepted: true, libraryId: 1 }),
     isPending: false,
@@ -39,7 +40,7 @@ function renderSidebar() {
 }
 
 describe("Sidebar", () => {
-  it("shows queued identify separately from active identify", () => {
+  it("does not show per-library activity dots; links stay clean", () => {
     const queuedStatus: LibraryScanStatus = {
       libraryId: 2,
       phase: "completed",
@@ -107,12 +108,10 @@ describe("Sidebar", () => {
 
     renderSidebar();
 
-    expect(
-      within(screen.getByRole("link", { name: /Movies/i })).getByTestId("library-identifying-2"),
-    ).toBeVisible();
-    expect(
-      within(screen.getByRole("link", { name: /Anime/i })).getByTestId("library-identifying-3"),
-    ).toBeVisible();
+    expect(screen.queryByTestId("library-identifying-2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("library-identifying-3")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Movies/i })).toBeVisible();
+    expect(screen.getByRole("link", { name: /Anime/i })).toBeVisible();
     expect(screen.getByRole("link", { name: /Downloads/i })).toBeInTheDocument();
     expect(screen.queryByText("Queued for identify")).not.toBeInTheDocument();
     expect(screen.queryByText("Identifying")).not.toBeInTheDocument();

@@ -12,6 +12,7 @@ import {
   browseDiscover,
   confirmShow,
   getDownloads,
+  removeDownload,
   getDiscover,
   getDiscoverGenres,
   getDiscoverTitleDetails,
@@ -19,9 +20,11 @@ import {
   getMoviePosterCandidates,
   getMetadataArtworkSettings,
   getMediaStackSettings,
+  getServerEnvSettings,
   getShowDetails,
   getShowEpisodes,
   getShowPosterCandidates,
+  getUnidentifiedLibrarySummaries,
   fetchLibraryMedia,
   fetchSeriesByTmdbId,
   getHomeDashboard,
@@ -55,6 +58,8 @@ import {
   type MediaItem,
   type PosterCandidatesResponse,
   type ScanLibraryResult,
+  type ServerEnvSettingsResponse,
+  type ServerEnvSettingsUpdate,
   resetMoviePosterSelection,
   resetShowPosterSelection,
   setMoviePosterSelection,
@@ -66,10 +71,12 @@ import {
   type ShowEpisodesResponse,
   type TranscodingSettings,
   type TranscodingSettingsResponse,
+  type UnidentifiedLibrariesResponse,
   type UpdateLibraryPlaybackPreferencesPayload,
   updateLibraryPlaybackPreferences,
   updateMetadataArtworkSettings,
   updateMediaStackSettings,
+  updateServerEnvSettings,
   updateTranscodingSettings,
   validateMediaStackSettings,
   type RecentlyAddedEntry,
@@ -149,6 +156,7 @@ export const queryKeys = {
   downloads: ["downloads"] as const,
   home: ["home"] as const,
   libraries: ["libraries"] as const,
+  unidentifiedSummary: ["libraries", "unidentified-summary"] as const,
   library: (id: number, pageSize?: number) =>
     pageSize == null ? (["library", id] as const) : (["library", id, pageSize] as const),
   movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
@@ -156,6 +164,7 @@ export const queryKeys = {
     ["movie-poster-candidates", libraryId, mediaId] as const,
   metadataArtworkSettings: ["metadata-artwork-settings"] as const,
   mediaStackSettings: ["media-stack-settings"] as const,
+  serverEnvSettings: ["server-env-settings"] as const,
   search: (query: string, libraryId: number | null, type: string, genre: string) =>
     ["search", query, libraryId ?? 0, type, genre] as const,
   series: (tmdbId: number) => ["series", tmdbId] as const,
@@ -174,6 +183,7 @@ export const queryKeys = {
 export function invalidateLibraryCatalogQueries(queryClient: QueryClient, libraryId: number): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
   void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
   void queryClient.invalidateQueries({ queryKey: queryKeys.home });
   void queryClient.invalidateQueries({ queryKey: ["show-details", libraryId] });
   void queryClient.invalidateQueries({ queryKey: ["movie-details", libraryId] });
@@ -196,6 +206,17 @@ export function useLibraries(): UseQueryResult<Library[], Error> {
   return useQuery({
     queryKey: queryKeys.libraries,
     queryFn: async () => decodeAs<Library[]>(await listLibraries()),
+    staleTime: LIBRARIES_STALE_MS,
+  });
+}
+
+export function useUnidentifiedLibrarySummaries(): UseQueryResult<
+  UnidentifiedLibrariesResponse,
+  Error
+> {
+  return useQuery({
+    queryKey: queryKeys.unidentifiedSummary,
+    queryFn: async () => decodeAs<UnidentifiedLibrariesResponse>(await getUnidentifiedLibrarySummaries()),
     staleTime: LIBRARIES_STALE_MS,
   });
 }
@@ -300,6 +321,19 @@ export function useDownloads(options?: {
   });
 }
 
+export function useRemoveDownload(): UseMutationResult<void, Error, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }) => {
+      await removeDownload({ id });
+    },
+    onSuccess: () => {
+      invalidateDiscoverRelatedQueries(queryClient);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.downloads });
+    },
+  });
+}
+
 export function useHomeDashboard(options?: {
   enabled?: boolean;
 }): UseQueryResult<HomeDashboard, Error> {
@@ -342,6 +376,7 @@ export function useScanLibrary(): UseMutationResult<
     onSuccess: (_, { libraryId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
     },
   });
 }
@@ -357,6 +392,7 @@ export function useIdentifyLibrary(): UseMutationResult<
     onSuccess: (_, { libraryId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
     },
   });
 }
@@ -509,6 +545,7 @@ export function useRefreshShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
@@ -562,6 +599,7 @@ export function useConfirmShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
@@ -598,6 +636,17 @@ export function useMediaStackSettings(options?: {
     queryFn: async () => decodeAs<MediaStackSettings>(await getMediaStackSettings()),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
+  });
+}
+
+export function useServerEnvSettings(options?: {
+  enabled?: boolean;
+}): UseQueryResult<ServerEnvSettingsResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.serverEnvSettings,
+    queryFn: async () => decodeAs<ServerEnvSettingsResponse>(await getServerEnvSettings()),
+    enabled: options?.enabled ?? true,
+    staleTime: 15_000,
   });
 }
 
@@ -655,6 +704,23 @@ export function useValidateMediaStackSettings(): UseMutationResult<
   return useMutation({
     mutationFn: async (settings) =>
       decodeAs<MediaStackValidationResult>(await validateMediaStackSettings(settings)),
+  });
+}
+
+export function useUpdateServerEnvSettings(): UseMutationResult<
+  ServerEnvSettingsResponse,
+  Error,
+  ServerEnvSettingsUpdate
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload) =>
+      decodeAs<ServerEnvSettingsResponse>(await updateServerEnvSettings(payload)),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.serverEnvSettings, data);
+      invalidateDiscoverRelatedQueries(queryClient);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataArtworkSettings });
+    },
   });
 }
 

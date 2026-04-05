@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { HorizontalScrollRail } from "@/components/ui/page";
 import { useAuthActions, useAuthState } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { useLibraries } from "@/queries";
+import { useLibraries, useUnidentifiedLibrarySummaries } from "@/queries";
 import { Search, Settings, User } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -40,17 +40,22 @@ export function TopBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { data: libraries = [] } = useLibraries();
+  const { data: unidentifiedData } = useUnidentifiedLibrarySummaries();
+  const unidentifiedEntries = unidentifiedData?.libraries ?? [];
   const activeQuery =
     location.pathname === "/search" ? (new URLSearchParams(location.search).get("q") ?? "") : "";
   const [searchValue, setSearchValue] = useState(activeQuery);
   const activeLibraryId = location.pathname.startsWith("/library/")
     ? Number.parseInt(location.pathname.split("/")[2] ?? "", 10)
     : null;
+  const unidentifiedOnlyMobile =
+    new URLSearchParams(location.search).get("unidentified") === "1";
   const isHomeRoute = location.pathname === "/";
   const isDiscoverRoute =
     location.pathname === "/discover" || location.pathname.startsWith("/discover/");
   const isDownloadsRoute =
     location.pathname === "/downloads" || location.pathname.startsWith("/downloads/");
+  const isSettingsRoute = location.pathname === "/settings";
 
   useEffect(() => {
     if (location.pathname === "/search") {
@@ -85,8 +90,16 @@ export function TopBar() {
 
           <div className="flex items-center gap-2 md:hidden">
             <LibraryActivityCenter />
-            <Link to="/settings">
-              <Button variant="icon" size="icon" aria-label="Settings">
+            <Link to="/settings" aria-current={isSettingsRoute ? "page" : undefined}>
+              <Button
+                variant="icon"
+                size="icon"
+                aria-label="Settings"
+                className={cn(
+                  isSettingsRoute &&
+                    "border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.1)] text-(--plum-text) hover:border-[rgba(255,255,255,0.22)] hover:bg-[rgba(255,255,255,0.14)] hover:text-(--plum-text)",
+                )}
+              >
                 <Settings className="size-5" />
               </Button>
             </Link>
@@ -140,10 +153,28 @@ export function TopBar() {
           <MobileNavLink to="/downloads" active={isDownloadsRoute}>
             Downloads
           </MobileNavLink>
-          {libraries.map((library) => {
+          {unidentifiedEntries.map((entry) => {
             const active =
-              activeLibraryId === library.id ||
-              location.pathname.startsWith(`/library/${library.id}/`);
+              activeLibraryId === entry.library_id &&
+              unidentifiedOnlyMobile &&
+              !location.pathname.includes("/movie/") &&
+              !location.pathname.includes("/show/");
+            return (
+              <MobileNavLink
+                key={`unidentified-${entry.library_id}`}
+                to={`/library/${entry.library_id}?unidentified=1`}
+                active={active}
+              >
+                {entry.name} ({entry.count})
+              </MobileNavLink>
+            );
+          })}
+          {libraries.map((library) => {
+            const isLibraryRoot = location.pathname === `/library/${library.id}`;
+            const isLibrarySubroute = location.pathname.startsWith(`/library/${library.id}/`);
+            const active =
+              isLibrarySubroute ||
+              (activeLibraryId === library.id && !(isLibraryRoot && unidentifiedOnlyMobile));
             return (
               <MobileNavLink key={library.id} to={`/library/${library.id}`} active={active}>
                 {library.name}
@@ -155,8 +186,16 @@ export function TopBar() {
         <div className="hidden items-center gap-2 md:flex">
           <LibraryActivityCenter />
 
-          <Link to="/settings">
-            <Button variant="icon" size="icon" aria-label="Settings">
+          <Link to="/settings" aria-current={isSettingsRoute ? "page" : undefined}>
+            <Button
+              variant="icon"
+              size="icon"
+              aria-label="Settings"
+              className={cn(
+                isSettingsRoute &&
+                  "border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.1)] text-(--plum-text) hover:border-[rgba(255,255,255,0.22)] hover:bg-[rgba(255,255,255,0.14)] hover:text-(--plum-text)",
+              )}
+            >
               <Settings className="size-5" />
             </Button>
           </Link>

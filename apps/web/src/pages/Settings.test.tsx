@@ -31,6 +31,14 @@ import {
 import { useAuthState } from "@/contexts/AuthContext";
 import { Settings } from "./Settings";
 
+function openMediaStackTab() {
+  fireEvent.click(screen.getByRole("button", { name: "Media stack" }));
+}
+
+function openArrProfilesTab() {
+  fireEvent.click(screen.getByRole("button", { name: "Arr profiles" }));
+}
+
 describe("Settings media stack", () => {
   const validateMediaStack = vi.fn();
   const saveMediaStack = vi.fn();
@@ -170,6 +178,7 @@ describe("Settings media stack", () => {
     });
 
     render(<Settings />);
+    openMediaStackTab();
 
     const radarrInput = screen.getAllByLabelText("Base URL", { selector: "input" })[0];
     expect(radarrInput).toHaveValue("http://radarr.test");
@@ -178,7 +187,7 @@ describe("Settings media stack", () => {
     await waitFor(() => expect(validateMediaStack).toHaveBeenCalled());
 
     fireEvent.change(radarrInput, { target: { value: "http://radarr.internal" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Save settings" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() =>
       expect(saveMediaStack).toHaveBeenCalledWith(
@@ -222,11 +231,12 @@ describe("Settings media stack", () => {
     });
 
     render(<Settings />);
+    openMediaStackTab();
 
     fireEvent.click(screen.getByRole("button", { name: "Validate & load defaults" }));
 
     await waitFor(() => expect(validateMediaStack).toHaveBeenCalled());
-    const mediaStackSaveButton = screen.getAllByRole("button", { name: "Save settings" })[0]!;
+    const mediaStackSaveButton = screen.getByRole("button", { name: "Save settings" });
     expect(mediaStackSaveButton).toBeEnabled();
 
     fireEvent.click(mediaStackSaveButton);
@@ -304,11 +314,12 @@ describe("Settings media stack", () => {
     } as never);
 
     render(<Settings />);
+    openMediaStackTab();
 
     fireEvent.click(screen.getByRole("button", { name: "Validate & load defaults" }));
     await waitFor(() => expect(validateMediaStack).toHaveBeenCalled());
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Save settings" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() =>
       expect(saveMediaStack).toHaveBeenCalledWith(
@@ -343,6 +354,7 @@ describe("Settings media stack", () => {
     });
 
     render(<Settings />);
+    openMediaStackTab();
 
     fireEvent.click(screen.getByRole("button", { name: "Validate & load defaults" }));
     await waitFor(() => expect(validateMediaStack).toHaveBeenCalled());
@@ -352,8 +364,65 @@ describe("Settings media stack", () => {
     });
     expect(qualityProfileSelects[0]).toHaveValue("8");
     expect(qualityProfileSelects[1]).toHaveValue("4");
-    expect(screen.getAllByRole("button", { name: "Save settings" })[0]).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeDisabled();
     expect(saveMediaStack).not.toHaveBeenCalled();
+  });
+
+  it("Arr profiles tab refresh loads lists without marking the form dirty", async () => {
+    validateMediaStack.mockResolvedValue({
+      radarr: {
+        configured: true,
+        reachable: true,
+        rootFolders: [{ path: "/storage/media/movies" }],
+        qualityProfiles: [
+          { id: 8, name: "HD Bluray + WEB" },
+          { id: 19, name: "UHD Bluray + Web" },
+        ],
+      },
+      sonarrTv: {
+        configured: true,
+        reachable: true,
+        rootFolders: [{ path: "/storage/media/tv" }],
+        qualityProfiles: [
+          { id: 4, name: "HD-1080p" },
+          { id: 28, name: "WEB-2160p" },
+        ],
+      },
+    });
+    vi.mocked(useMediaStackSettings).mockReturnValue({
+      data: {
+        radarr: {
+          baseUrl: "http://radarr.test",
+          apiKey: "radarr-key",
+          qualityProfileId: 8,
+          rootFolderPath: "/storage/media/movies",
+          searchOnAdd: true,
+        },
+        sonarrTv: {
+          baseUrl: "http://sonarr.test",
+          apiKey: "sonarr-key",
+          qualityProfileId: 4,
+          rootFolderPath: "/storage/media/tv",
+          searchOnAdd: true,
+        },
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    render(<Settings />);
+    openArrProfilesTab();
+
+    await waitFor(() => expect(validateMediaStack).toHaveBeenCalled());
+
+    expect(
+      await screen.findByText("Quality profile lists refreshed from Radarr and Sonarr TV."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "UHD Bluray + Web" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "WEB-2160p" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Default movie quality profile (Radarr)")).toHaveValue("8");
+    expect(screen.getByLabelText("Default TV quality profile (Sonarr)")).toHaveValue("4");
+    expect(screen.getByRole("button", { name: "Save profile defaults" })).toBeDisabled();
   });
 
   it("shows a warning when validation cannot reach the configured services", async () => {
@@ -375,6 +444,7 @@ describe("Settings media stack", () => {
     });
 
     render(<Settings />);
+    openMediaStackTab();
 
     fireEvent.click(screen.getByRole("button", { name: "Validate & load defaults" }));
 

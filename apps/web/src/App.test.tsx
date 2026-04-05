@@ -206,6 +206,7 @@ function mockDefaultAppApis() {
     accepted: true,
     libraryId: 1,
   });
+  vi.spyOn(api, "getUnidentifiedLibrarySummaries").mockResolvedValue({ libraries: [] });
 }
 
 describe("App library and player wiring", () => {
@@ -944,8 +945,8 @@ describe("App library and player wiring", () => {
         await flushMicrotasks();
       });
 
-      expect(screen.getByTestId("library-identifying-1")).toBeTruthy();
-      expect(within(screen.getByRole("link", { name: /TV/i })).getByText("Identifying")).toBeVisible();
+      expect(screen.queryByTestId("library-identifying-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("library-activity-badge")).toHaveTextContent("1");
       const softRevealCard = screen.getByRole("link", { name: /Missing Show/i });
       expect(within(softRevealCard.closest(".show-card")!).getByText("Searching…")).toBeVisible();
       expect(screen.queryByText("Couldn't match automatically")).not.toBeInTheDocument();

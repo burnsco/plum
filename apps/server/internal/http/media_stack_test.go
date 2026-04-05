@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +25,8 @@ func TestMediaStackSettingsHandlerPutPersistsSettings(t *testing.T) {
 		t.Fatalf("init db: %v", err)
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
+
+	t.Setenv("PLUM_DOTENV_PATH", filepath.Join(t.TempDir(), ".env"))
 
 	handler := &MediaStackSettingsHandler{DB: dbConn, Arr: arr.NewService()}
 	payload := db.MediaStackSettings{
@@ -61,6 +66,19 @@ func TestMediaStackSettingsHandlerPutPersistsSettings(t *testing.T) {
 	}
 	if saved.Radarr.BaseURL != "http://radarr.test" || saved.SonarrTV.BaseURL != "http://sonarr.test" {
 		t.Fatalf("saved settings = %+v", saved)
+	}
+
+	envPath := os.Getenv("PLUM_DOTENV_PATH")
+	envRaw, rerr := os.ReadFile(envPath)
+	if rerr != nil {
+		t.Fatalf("read synced .env: %v", rerr)
+	}
+	s := string(envRaw)
+	if !strings.Contains(s, "PLUM_RADARR_BASE_URL=http://radarr.test") {
+		t.Fatalf("expected radarr url in .env, got:\n%s", s)
+	}
+	if !strings.Contains(s, "PLUM_SONARR_TV_BASE_URL=http://sonarr.test") {
+		t.Fatalf("expected sonarr url in .env, got:\n%s", s)
 	}
 }
 
@@ -480,5 +498,59 @@ func TestGetDiscoverAttachesAcquisitionStates(t *testing.T) {
 	}
 	if items[3].Acquisition == nil || items[3].Acquisition.State != metadata.DiscoverAcquisitionStateNotAdded || !items[3].Acquisition.CanAdd {
 		t.Fatalf("not added acquisition = %+v", items[3].Acquisition)
+	}
+}
+
+func TestRemoveDownloadCallsUpstreamQueueDelete(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	var deletePath string
+	radarrServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v3/queue/") {
+			deletePath = r.URL.Path
+			if r.URL.Query().Get("removeFromClient") != "false" {
+				t.Fatalf("expected removeFromClient=false, got %q", r.URL.RawQuery)
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer radarrServer.Close()
+
+	if _, err := db.SaveMediaStackSettings(dbConn, db.MediaStackSettings{
+		Radarr: db.MediaStackServiceSettings{
+			BaseURL:          radarrServer.URL,
+			APIKey:           "radarr-key",
+			QualityProfileID: 8,
+			RootFolderPath:   "/storage/media/movies",
+			SearchOnAdd:      true,
+		},
+		SonarrTV: db.MediaStackServiceSettings{},
+	}); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn, Arr: arr.NewService()}
+	body, err := json.Marshal(map[string]string{"id": "radarr:42"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/downloads/remove", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUser(req.Context(), &db.User{ID: 1, IsAdmin: true}))
+	rec := httptest.NewRecorder()
+
+	handler.RemoveDownload(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if deletePath != "/api/v3/queue/42" {
+		t.Fatalf("delete path = %q", deletePath)
 	}
 }

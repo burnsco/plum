@@ -1,5 +1,6 @@
 package plum.tv.feature.discover
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -250,6 +251,9 @@ class DownloadsViewModel @Inject constructor(
     private val _state = MutableStateFlow<DownloadsUiState>(DownloadsUiState.Loading)
     val state: StateFlow<DownloadsUiState> = _state.asStateFlow()
 
+    private val _removingDownloadId = MutableStateFlow<String?>(null)
+    val removingDownloadId: StateFlow<String?> = _removingDownloadId.asStateFlow()
+
     init {
         startPolling()
     }
@@ -258,6 +262,26 @@ class DownloadsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = DownloadsUiState.Loading
             fetchOnce()
+        }
+    }
+
+    fun removeFromQueue(id: String) {
+        viewModelScope.launch {
+            _removingDownloadId.value = id
+            try {
+                val result = repository.removeDownload(id)
+                if (result.isSuccess) {
+                    fetchOnce()
+                } else {
+                    Log.w(
+                        "DownloadsViewModel",
+                        "remove download failed",
+                        result.exceptionOrNull(),
+                    )
+                }
+            } finally {
+                _removingDownloadId.value = null
+            }
         }
     }
 

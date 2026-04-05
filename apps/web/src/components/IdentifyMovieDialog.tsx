@@ -1,4 +1,6 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { identifyMovie, searchMovies, type MovieSearchResult } from "../api";
+import { queryKeys } from "@/queries";
 import { IdentifySearchDialog } from "./IdentifySearchDialog";
 
 export interface IdentifyMovieDialogProps {
@@ -18,6 +20,7 @@ export function IdentifyMovieDialog({
   movieTitle,
   onSuccess,
 }: IdentifyMovieDialogProps) {
+  const queryClient = useQueryClient();
   async function handleChoose(result: MovieSearchResult) {
     const response = await identifyMovie(libraryId, {
       mediaId,
@@ -28,6 +31,7 @@ export function IdentifyMovieDialog({
     if (response.updated <= 0) {
       throw new Error("Identify failed");
     }
+    void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
     onSuccess();
     onOpenChange(false);
   }

@@ -116,6 +116,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
           .then((result) => {
             void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
             void queryClient.invalidateQueries({ queryKey: queryKeys.home });
             resolve(result);
           })

@@ -69,84 +69,85 @@ export function MovieDetail() {
     embeddedSubtitles: details.embeddedSubtitles,
     embeddedAudioTracks: details.embeddedAudioTracks,
   };
-  const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path, "w200", BASE_URL);
-  const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w500", BASE_URL);
+  const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path, "w342", BASE_URL);
+  const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w1280", BASE_URL);
   const runtime = formatRuntime(details.runtime);
   const year = details.release_date?.split("-")[0] ?? "";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <nav className="show-detail-nav">
-        <Link to={`/library/${libraryId}`} className="link-button">
-          ← Back to library
-        </Link>
-      </nav>
+      <div className="detail-hero">
+        {backdropUrl ? <img className="detail-hero-bg" src={backdropUrl} alt="" /> : null}
+        <div className="detail-hero-scrim" />
+        <div className="detail-hero-inner">
+          <nav className="show-detail-nav">
+            <Link to={`/library/${libraryId}`} className="link-button">
+              ← Back to library
+            </Link>
+          </nav>
 
-      {backdropUrl ? (
-        <div className="show-detail-backdrop">
-          <img src={backdropUrl} alt="" />
-        </div>
-      ) : null}
-
-      <section className="show-detail-header">
-        {posterUrl ? (
-          <div
-            className="show-detail-poster"
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setPosterPickerOpen(true);
-            }}
-          >
-            <img src={posterUrl} alt="" />
-          </div>
-        ) : null}
-
-        <div className="show-detail-meta space-y-4">
-          <div className="space-y-2">
-            <h1 className="show-detail-title">{details.title}</h1>
-            <div className="flex flex-wrap gap-2 text-sm text-(--plum-muted)">
-              {year ? <span>{year}</span> : null}
-              {runtime ? <span>{runtime}</span> : null}
-            </div>
-            {(details.imdb_rating ?? 0) > 0 || (details.vote_average ?? 0) > 0 ? (
-              <div className="flex flex-wrap items-center gap-3">
-                <RatingBadge label="IMDb" value={details.imdb_rating} size="md" />
-                <RatingBadge label="TMDb" value={details.vote_average} size="md" />
+          <div className="detail-hero-body">
+            {posterUrl ? (
+              <div
+                className="detail-hero-poster"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPosterPickerOpen(true);
+                }}
+              >
+                <img src={posterUrl} alt="" />
               </div>
             ) : null}
-          </div>
 
-          {details.overview ? (
-            <p className="show-detail-overview">{details.overview}</p>
-          ) : null}
+            <div className="detail-hero-meta">
+              <h1 className="detail-hero-title">{details.title}</h1>
 
-          {details.genres.length ? (
-            <div className="flex flex-wrap gap-2">
-              {details.genres.map((genre) => (
-                <span
-                  key={genre}
-                  className="rounded-full border border-(--plum-border) px-3 py-1 text-xs uppercase tracking-[0.12em] text-(--plum-muted)"
+              {(year || runtime) ? (
+                <p className="detail-hero-chips">
+                  {[year, runtime].filter(Boolean).join(" · ")}
+                </p>
+              ) : null}
+
+              {(details.imdb_rating ?? 0) > 0 || (details.vote_average ?? 0) > 0 ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <RatingBadge label="IMDb" value={details.imdb_rating} size="md" />
+                  <RatingBadge label="TMDb" value={details.vote_average} size="md" />
+                </div>
+              ) : null}
+
+              {details.overview ? (
+                <p className="detail-hero-overview">{details.overview}</p>
+              ) : null}
+
+              {details.genres.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {details.genres.map((genre) => (
+                    <span
+                      key={genre}
+                      className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-[0.12em] text-white/60"
+                    >
+                      {genre}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-3">
+                <button type="button" className="play-button" onClick={() => playMovie(movie)}>
+                  Play
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-white/20 px-4 py-2 text-sm text-white/75 transition-colors hover:bg-white/10"
+                  onClick={() => setPosterPickerOpen(true)}
                 >
-                  {genre}
-                </span>
-              ))}
+                  Change poster…
+                </button>
+              </div>
             </div>
-          ) : null}
-
-          <div className="flex flex-wrap gap-3">
-            <button type="button" className="play-button" onClick={() => playMovie(movie)}>
-              Play
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-(--plum-border) px-4 py-2 text-sm text-(--plum-text) transition-colors hover:bg-(--plum-panel)"
-              onClick={() => setPosterPickerOpen(true)}
-            >
-              Change poster…
-            </button>
           </div>
         </div>
-      </section>
+      </div>
 
       <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
         <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
@@ -158,9 +159,10 @@ export function MovieDetail() {
               const headshot = resolveCastProfileUrl(undefined, member.profile_path, "w185", BASE_URL);
               const initial = member.name.trim().charAt(0).toUpperCase() || "?";
               return (
-                <div
+                <Link
                   key={`${member.name}-${member.character ?? ""}`}
-                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3"
+                  to={`/search?q=${encodeURIComponent(member.name)}`}
+                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3 transition-colors hover:border-(--plum-accent)/50 hover:bg-(--plum-panel)"
                 >
                   {headshot ? (
                     <img
@@ -182,7 +184,7 @@ export function MovieDetail() {
                       <div className="text-xs text-(--plum-muted)">{member.character}</div>
                     ) : null}
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

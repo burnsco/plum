@@ -1065,6 +1065,58 @@ func TestListIdentifiableByLibrary_MovieOmitsIdentifiedWithoutImdb(t *testing.T)
 	}
 }
 
+func TestCountTrackedUnidentifiedByLibrary_MusicReturnsZero(t *testing.T) {
+	db := newTestDB(t)
+	musicLibID := createLibraryForTest(t, db, LibraryTypeMusic, "/music-unidentified-count")
+	n, err := CountTrackedUnidentifiedByLibrary(db, musicLibID)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 for music library, got %d", n)
+	}
+}
+
+func TestCountTrackedUnidentifiedByLibrary_UnmatchedMovie(t *testing.T) {
+	db := newTestDB(t)
+	movieLibID := getLibraryID(t, db, "movie")
+	path := "/movies/unmatched-count.mkv"
+	_, err := db.Exec(
+		`INSERT INTO movies (library_id, title, path, duration, match_status, tmdb_id, poster_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		movieLibID, "Unmatched Count", path, 100, MatchStatusUnmatched, 0, "",
+	)
+	if err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	n, err := CountTrackedUnidentifiedByLibrary(db, movieLibID)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n < 1 {
+		t.Fatalf("expected at least 1 unmatched movie, got %d", n)
+	}
+}
+
+func TestCountTrackedUnidentifiedByLibrary_SkipsMissingMovies(t *testing.T) {
+	db := newTestDB(t)
+	movieLibID := getLibraryID(t, db, "movie")
+	path := "/movies/missing-unmatched.mkv"
+	_, err := db.Exec(
+		`INSERT INTO movies (library_id, title, path, duration, match_status, tmdb_id, poster_path, missing_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		movieLibID, "Gone", path, 100, MatchStatusUnmatched, 0, "", "2026-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	n, err := CountTrackedUnidentifiedByLibrary(db, movieLibID)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("missing files are hidden from library browse; unidentified count should ignore them, got %d", n)
+	}
+}
+
 func TestHandleScanLibrary_SkipsMovieExtrasAndSamples(t *testing.T) {
 	db := newTestDB(t)
 	movieLibID := getLibraryID(t, db, "movie")

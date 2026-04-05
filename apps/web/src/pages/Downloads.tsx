@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
-import { ArrowDownCircle, Clock3, Download, RefreshCw, ServerCog } from "lucide-react";
+import { ArrowDownCircle, Clock3, Download, RefreshCw, ServerCog, XCircle } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAuthState } from "@/contexts/AuthContext";
-import { useDownloads } from "@/queries";
+import { useDownloads, useRemoveDownload } from "@/queries";
 import type { DownloadItem } from "@/api";
 
 function formatBytes(value: number | undefined): string {
@@ -51,7 +52,15 @@ function ProgressCell({ progress }: { progress: number }) {
   );
 }
 
-function DownloadRow({ item }: { item: DownloadItem }) {
+function DownloadRow({
+  item,
+  onClear,
+  clearing,
+}: {
+  item: DownloadItem;
+  onClear: () => void;
+  clearing: boolean;
+}) {
   return (
     <>
       <tr className="group border-b border-(--plum-border) transition-colors hover:bg-[rgba(181,123,255,0.04)]">
@@ -94,11 +103,27 @@ function DownloadRow({ item }: { item: DownloadItem }) {
             {formatEta(item.eta_seconds)}
           </span>
         </td>
+
+        {/* Clear (remove from Radarr/Sonarr queue) */}
+        <td className="whitespace-nowrap py-3 pr-4 pl-2 text-right">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={clearing}
+            onClick={onClear}
+            className="h-8 gap-1 text-(--plum-muted) hover:text-(--plum-text)"
+            title="Remove this entry from the Radarr or Sonarr queue (e.g. stuck after the torrent is gone)"
+          >
+            <XCircle className="size-3.5" />
+            Clear
+          </Button>
+        </td>
       </tr>
       {item.error_message ? (
         <tr className="border-b border-(--plum-border)">
           <td
-            colSpan={6}
+            colSpan={7}
             className="border-l-2 border-amber-500/60 bg-amber-500/6 py-2 pl-4 pr-4 text-xs text-amber-200"
           >
             {item.error_message}
@@ -113,6 +138,7 @@ export function Downloads() {
   const { user } = useAuthState();
   const isAdmin = user?.is_admin ?? false;
   const { data, error, isLoading, refetch } = useDownloads({ refetchInterval: 5_000 });
+  const removeDownloadMutation = useRemoveDownload();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -207,11 +233,28 @@ export function Downloads() {
                 <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
                   ETA
                 </th>
+                <th className="py-2.5 pr-4 pl-2 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-(--plum-muted)">
+                  <span className="sr-only">Clear from queue</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {data.items.map((item) => (
-                <DownloadRow key={item.id} item={item} />
+                <DownloadRow
+                  key={item.id}
+                  item={item}
+                  clearing={removeDownloadMutation.isPending && removeDownloadMutation.variables?.id === item.id}
+                  onClear={() => {
+                    removeDownloadMutation.mutate(
+                      { id: item.id },
+                      {
+                        onError: (e) => {
+                          toast.error(e.message || "Could not clear download");
+                        },
+                      },
+                    );
+                  }}
+                />
               ))}
             </tbody>
           </table>

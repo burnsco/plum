@@ -22,6 +22,7 @@ import type {
     DownloadItem,
     DownloadsResponse,
     EmbeddedAudioTrack,
+    RemoveDownloadPayload,
     EmbeddedSubtitle,
     EpisodeMetadataArtworkFetchers,
     HardwareEncodeFormat,
@@ -46,6 +47,8 @@ import type {
     MediaStackSettings,
     MediaStackValidationResult,
     MetadataArtworkProvider,
+    ServerEnvSettingsResponse,
+    ServerEnvSettingsUpdate,
     MetadataArtworkProviderStatus,
     MetadataArtworkSettings,
     MetadataArtworkSettingsResponse,
@@ -76,6 +79,8 @@ import type {
     TranscodingSettings,
     TranscodingSettingsResponse,
     TranscodingSettingsWarning,
+    UnidentifiedLibrariesResponse,
+    UnidentifiedLibrarySummary,
     UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload,
     UpdatePlaybackSessionAudioPayload,
@@ -95,6 +100,7 @@ import {
     DiscoverSearchResponseSchema,
     DiscoverTitleDetailsSchema,
     DownloadsResponseSchema,
+    RemoveDownloadPayloadSchema,
     HomeDashboardSchema,
     IdentifyResultSchema,
     LibraryMediaPageSchema,
@@ -105,6 +111,8 @@ import {
     MediaStackSettingsSchema,
     MediaStackValidationResultSchema,
     MetadataArtworkSettingsResponseSchema,
+    ServerEnvSettingsResponseSchema,
+    ServerEnvSettingsUpdateSchema,
     MetadataArtworkSettingsSchema,
     MovieDetailsSchema,
     MovieIdentifyPayloadSchema,
@@ -127,6 +135,7 @@ import {
     ShowEpisodesResponseSchema,
     TranscodingSettingsResponseSchema,
     TranscodingSettingsSchema,
+    UnidentifiedLibrariesResponseSchema,
     UpdateLibraryPlaybackPreferencesPayloadSchema,
     UpdateMediaProgressPayloadSchema,
     UpdatePlaybackSessionAudioPayloadSchema,
@@ -151,7 +160,9 @@ export type {
     DiscoverTitleDetails,
     DiscoverTitleVideo,
     DownloadItem,
-    DownloadsResponse, EmbeddedAudioTrack,
+    DownloadsResponse,
+    RemoveDownloadPayload,
+    EmbeddedAudioTrack,
     EmbeddedSubtitle, EpisodeMetadataArtworkFetchers, HardwareEncodeFormat,
     HomeDashboard,
     IdentifyResult,
@@ -171,6 +182,8 @@ export type {
     MediaStackServiceValidationResult,
     MediaStackSettings,
     MediaStackValidationResult, MetadataArtworkProvider,
+    ServerEnvSettingsResponse,
+    ServerEnvSettingsUpdate,
     MetadataArtworkProviderStatus,
     MetadataArtworkSettings,
     MetadataArtworkSettingsResponse, MovieDetails, MovieIdentifyPayload,
@@ -186,7 +199,10 @@ export type {
     Subtitle,
     TranscodingSettings,
     TranscodingSettingsResponse,
-    TranscodingSettingsWarning, UpdateLibraryPlaybackPreferencesPayload,
+    TranscodingSettingsWarning,
+    UnidentifiedLibrariesResponse,
+    UnidentifiedLibrarySummary,
+    UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload, UpdatePlaybackSessionAudioPayload, User,
     VaapiDecodeCodec
 };
@@ -679,6 +695,13 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: Schema.Array(LibrarySchema),
         errorMessage: ({ status, body }) => `Libraries: ${status}${body ? ` ${body}` : ""}`,
       }),
+    getUnidentifiedLibrarySummaries: () =>
+      jsonRequestEffect({
+        path: "/api/libraries/unidentified-summary",
+        schema: UnidentifiedLibrariesResponseSchema,
+        errorMessage: ({ status, body }) =>
+          `Unidentified summary: ${status}${body ? ` ${body}` : ""}`,
+      }),
     updateLibraryPlaybackPreferences: (
       id: number,
       payload: UpdateLibraryPlaybackPreferencesPayload,
@@ -886,6 +909,23 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: DownloadsResponseSchema,
         errorMessage: ({ status, body }) => body || `Downloads: ${status}`,
       }),
+    removeDownload: (payload: RemoveDownloadPayload) =>
+      decodeSchemaEffect(
+        RemoveDownloadPayloadSchema,
+        payload,
+        "POST",
+        "/api/downloads/remove",
+        "Invalid remove download payload.",
+      ).pipe(
+        Effect.flatMap((validated) =>
+          voidRequestEffect({
+            method: "POST",
+            path: "/api/downloads/remove",
+            body: validated,
+            errorMessage: ({ status, body }) => body || `Remove download: ${status}`,
+          }),
+        ),
+      ),
     fetchLibraryMedia: (id: number, options?: { readonly offset?: number; readonly limit?: number }) =>
       jsonRequestEffect({
         path: buildPath(
@@ -1085,6 +1125,30 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
+    getServerEnvSettings: () =>
+      jsonRequestEffect({
+        path: "/api/settings/server-env",
+        schema: ServerEnvSettingsResponseSchema,
+        errorMessage: ({ status, body }) => body || `Server environment settings: ${status}`,
+      }),
+    updateServerEnvSettings: (payload: ServerEnvSettingsUpdate) =>
+      decodeSchemaEffect(
+        ServerEnvSettingsUpdateSchema,
+        payload,
+        "PUT",
+        "/api/settings/server-env",
+        "Invalid server environment update payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "PUT",
+            path: "/api/settings/server-env",
+            schema: ServerEnvSettingsResponseSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Save server environment: ${status}`,
+          }),
+        ),
+      ),
     getMoviePosterCandidates: (libraryId: number, mediaId: number) =>
       jsonRequestEffect({
         path: `/api/libraries/${libraryId}/movies/${mediaId}/artwork/poster/candidates`,
@@ -1240,6 +1304,7 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     getMe: () => run(effects.getMe()),
     createLibrary: (payload: CreateLibraryPayload) => run(effects.createLibrary(payload)),
     listLibraries: () => run(effects.listLibraries()),
+    getUnidentifiedLibrarySummaries: () => run(effects.getUnidentifiedLibrarySummaries()),
     updateLibraryPlaybackPreferences: (
       id: number,
       payload: UpdateLibraryPlaybackPreferencesPayload,
@@ -1282,6 +1347,7 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     addDiscoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
       run(effects.addDiscoverTitle(mediaType, tmdbId)),
     getDownloads: () => run(effects.getDownloads()),
+    removeDownload: (payload: RemoveDownloadPayload) => run(effects.removeDownload(payload)),
     fetchLibraryMedia: (id: number, options?: { readonly offset?: number; readonly limit?: number }) =>
       run(effects.fetchLibraryMedia(id, options)),
     getHomeDashboard: () => run(effects.getHomeDashboard()),
@@ -1308,6 +1374,9 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       run(effects.validateMediaStackSettings(payload)),
     updateMetadataArtworkSettings: (payload: MetadataArtworkSettings) =>
       run(effects.updateMetadataArtworkSettings(payload)),
+    getServerEnvSettings: () => run(effects.getServerEnvSettings()),
+    updateServerEnvSettings: (payload: ServerEnvSettingsUpdate) =>
+      run(effects.updateServerEnvSettings(payload)),
     getMoviePosterCandidates: (libraryId: number, mediaId: number) =>
       run(effects.getMoviePosterCandidates(libraryId, mediaId)),
     setMoviePosterSelection: (

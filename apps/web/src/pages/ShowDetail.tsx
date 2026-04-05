@@ -4,7 +4,7 @@ import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { RatingBadge } from "../components/RatingBadge";
 import { usePlayer } from "../contexts/PlayerContext";
-import { formatRemainingTime, shouldShowProgress } from "../lib/progress";
+import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
 import { useShowDetails, useShowEpisodes } from "../queries";
 
@@ -45,6 +45,37 @@ export function ShowDetail() {
     }
     return out;
   }, [episodesData]);
+
+  /** Episodes sorted ascending by season then episode number. */
+  const sortedEpisodes = useMemo(
+    () =>
+      episodes.toSorted((a, b) => {
+        const s = (a.season ?? 0) - (b.season ?? 0);
+        return s !== 0 ? s : (a.episode ?? 0) - (b.episode ?? 0);
+      }),
+    [episodes],
+  );
+
+  /**
+   * The episode to resume:
+   * 1. In-progress episode (has progress, not completed) – most recently watched first.
+   * 2. The episode right after the most-recently-watched completed episode.
+   */
+  const resumeEpisode = useMemo<MediaItem | null>(() => {
+    if (sortedEpisodes.length === 0) return null;
+    const inProgress = sortedEpisodes
+      .filter((ep) => shouldShowProgress(ep))
+      .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
+    if (inProgress) return inProgress;
+    const lastWatched = sortedEpisodes
+      .filter((ep) => ep.last_watched_at)
+      .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
+    if (lastWatched) {
+      const idx = sortedEpisodes.findIndex((ep) => ep.id === lastWatched.id);
+      if (idx >= 0 && idx + 1 < sortedEpisodes.length) return sortedEpisodes[idx + 1];
+    }
+    return null;
+  }, [sortedEpisodes]);
 
   /** Episodes grouped by season number, with seasons sorted ascending. */
   const episodesBySeason = useMemo(() => {
@@ -123,118 +154,112 @@ export function ShowDetail() {
   }
 
   const posterUrl = details?.poster_path
-    ? resolvePosterUrl(details.poster_url, details.poster_path, "w200", BASE_URL)
+    ? resolvePosterUrl(details.poster_url, details.poster_path, "w342", BASE_URL)
     : episodes[0]
       ? resolvePosterUrl(
           episodes[0].show_poster_url ?? episodes[0].poster_url,
           episodes[0].show_poster_path ?? episodes[0].poster_path,
-          "w200",
+          "w342",
           BASE_URL,
         )
       : "";
   const backdropUrl = details?.backdrop_path
-    ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w500", BASE_URL)
+    ? resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w1280", BASE_URL)
     : episodes[0]
-      ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path, "w500", BASE_URL)
+      ? resolveBackdropUrl(episodes[0].backdrop_url, episodes[0].backdrop_path, "w1280", BASE_URL)
       : "";
 
   return (
     <div className="show-detail">
-      <nav className="show-detail-nav">
-        <Link to={libraryId ? `/library/${libraryId}` : "/"} className="link-button">
-          ← Back to library
-        </Link>
-      </nav>
-      {backdropUrl && (
-        <div className="show-detail-backdrop">
-          <img src={backdropUrl} alt="" />
-        </div>
-      )}
-      <div className="show-detail-header">
-        {posterUrl && (
-          <div
-            className="show-detail-poster"
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setPosterPickerOpen(true);
-            }}
-          >
-            <img src={posterUrl} alt="" />
-          </div>
-        )}
-        <div className="show-detail-meta">
-          <h1 className="show-detail-title">{showTitle}</h1>
-          {showImdbRating || showTmdbRating ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <RatingBadge label="IMDb" value={showImdbRating} size="md" />
-              <RatingBadge label="TMDb" value={showTmdbRating} size="md" />
-            </div>
-          ) : null}
-          {details?.first_air_date && <p className="show-detail-date">{details.first_air_date}</p>}
-          {details?.overview && (
-            <p className="show-detail-overview">{details.overview}</p>
-          )}
-          {details?.genres.length ? (
-            <div className="flex flex-wrap gap-2">
-              {details.genres.map((genre) => (
-                <span
-                  key={genre}
-                  className="rounded-full border border-(--plum-border) px-3 py-1 text-xs uppercase tracking-[0.12em] text-(--plum-muted)"
+      <div className="detail-hero">
+        {backdropUrl ? <img className="detail-hero-bg" src={backdropUrl} alt="" /> : null}
+        <div className="detail-hero-scrim" />
+        <div className="detail-hero-inner">
+          <nav className="show-detail-nav">
+            <Link to={libraryId ? `/library/${libraryId}` : "/"} className="link-button">
+              ← Back to library
+            </Link>
+          </nav>
+
+          <div className="detail-hero-body">
+            {posterUrl ? (
+              <div
+                className="detail-hero-poster"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPosterPickerOpen(true);
+                }}
+              >
+                <img src={posterUrl} alt="" />
+              </div>
+            ) : null}
+
+            <div className="detail-hero-meta">
+              <h1 className="detail-hero-title">{showTitle}</h1>
+
+              {details?.first_air_date ? (
+                <p className="detail-hero-chips">{details.first_air_date.split("-")[0]}</p>
+              ) : null}
+
+              {showImdbRating || showTmdbRating ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <RatingBadge label="IMDb" value={showImdbRating} size="md" />
+                  <RatingBadge label="TMDb" value={showTmdbRating} size="md" />
+                </div>
+              ) : null}
+
+              {details?.overview ? (
+                <p className="detail-hero-overview">{details.overview}</p>
+              ) : null}
+
+              {details?.genres.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {details.genres.map((genre) => (
+                    <span
+                      key={genre}
+                      className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-[0.12em] text-white/60"
+                    >
+                      {genre}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="detail-hero-actions">
+                <button
+                  type="button"
+                  className="play-button detail-hero-play"
+                  onClick={() => playShowGroup(sortedEpisodes, sortedEpisodes[0])}
                 >
-                  {genre}
-                </span>
-              ))}
+                  ▶ Play
+                </button>
+                {resumeEpisode && (
+                  <button
+                    type="button"
+                    className="detail-hero-resume"
+                    onClick={() => playShowGroup(sortedEpisodes, resumeEpisode)}
+                  >
+                    Resume
+                    <span className="detail-hero-resume-label">
+                      {formatEpisodeLabel(resumeEpisode)}
+                      {shouldShowProgress(resumeEpisode) && resumeEpisode.remaining_seconds
+                        ? ` · ${formatRemainingTime(resumeEpisode.remaining_seconds)}`
+                        : ""}
+                    </span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="detail-hero-ghost-button"
+                  onClick={() => setPosterPickerOpen(true)}
+                >
+                  Change poster…
+                </button>
+              </div>
             </div>
-          ) : null}
-          <div>
-            <button
-              type="button"
-              className="rounded-md border border-(--plum-border) px-4 py-2 text-sm text-(--plum-text) transition-colors hover:bg-(--plum-panel)"
-              onClick={() => setPosterPickerOpen(true)}
-            >
-              Change poster…
-            </button>
           </div>
         </div>
       </div>
-      {details?.cast.length ? (
-        <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
-          <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {details.cast.map((member) => {
-              const headshot = resolveCastProfileUrl(undefined, member.profile_path, "w185", BASE_URL);
-              const initial = member.name.trim().charAt(0).toUpperCase() || "?";
-              return (
-                <div
-                  key={`${member.name}-${member.character ?? ""}`}
-                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3"
-                >
-                  {headshot ? (
-                    <img
-                      src={headshot}
-                      alt=""
-                      className="h-[4.5rem] w-12 shrink-0 rounded-md object-cover object-top"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-[4.5rem] w-12 shrink-0 items-center justify-center rounded-md bg-(--plum-border) text-sm font-semibold text-(--plum-muted)"
-                      aria-hidden
-                    >
-                      {initial}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
-                    {member.character ? (
-                      <div className="text-xs text-(--plum-muted)">{member.character}</div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
       {episodes.length === 0 ? (
         <p className="auth-muted">No episodes found for this show.</p>
       ) : (
@@ -335,6 +360,45 @@ export function ShowDetail() {
           </section>
         </div>
       )}
+      {details?.cast.length ? (
+        <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
+          <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {details.cast.map((member) => {
+              const headshot = resolveCastProfileUrl(undefined, member.profile_path, "w185", BASE_URL);
+              const initial = member.name.trim().charAt(0).toUpperCase() || "?";
+              return (
+                <Link
+                  key={`${member.name}-${member.character ?? ""}`}
+                  to={`/search?q=${encodeURIComponent(member.name)}`}
+                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3 transition-colors hover:border-(--plum-accent)/50 hover:bg-(--plum-panel)"
+                >
+                  {headshot ? (
+                    <img
+                      src={headshot}
+                      alt=""
+                      className="h-[4.5rem] w-12 shrink-0 rounded-md object-cover object-top"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-[4.5rem] w-12 shrink-0 items-center justify-center rounded-md bg-(--plum-border) text-sm font-semibold text-(--plum-muted)"
+                      aria-hidden
+                    >
+                      {initial}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
+                    {member.character ? (
+                      <div className="text-xs text-(--plum-muted)">{member.character}</div>
+                    ) : null}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
       <PosterPickerDialog
         open={posterPickerOpen}
         onOpenChange={setPosterPickerOpen}

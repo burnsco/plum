@@ -8,6 +8,7 @@ import plum.tv.core.network.DiscoverResponseJson
 import plum.tv.core.network.DiscoverSearchResponseJson
 import plum.tv.core.network.DiscoverTitleDetailsJson
 import plum.tv.core.network.DownloadsResponseJson
+import plum.tv.core.network.RemoveDownloadPayloadJson
 
 @Singleton
 class DiscoverRepository @Inject constructor(
@@ -72,5 +73,12 @@ class DiscoverRepository @Inject constructor(
             error(res.errorBody()?.string() ?: "Downloads: HTTP ${res.code()}")
         }
         res.body() ?: error("Empty downloads response")
+    }
+
+    suspend fun removeDownload(id: String): Result<Unit> = runCatching {
+        val res = sessionRepository.getPlumApi().removeDownload(RemoveDownloadPayloadJson(id = id))
+        if (!res.isSuccessful) {
+            error(res.errorBody()?.string() ?: "Remove download: HTTP ${res.code()}")
+        }
     }
 }

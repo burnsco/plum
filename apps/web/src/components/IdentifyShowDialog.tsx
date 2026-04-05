@@ -1,5 +1,7 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useIdentifyQueue } from "../contexts/IdentifyQueueContext";
 import { identifyShow, searchSeries, type SeriesSearchResult } from "../api";
+import { queryKeys } from "@/queries";
 import { IdentifySearchDialog } from "./IdentifySearchDialog";
 
 export interface IdentifyShowDialogProps {
@@ -19,6 +21,7 @@ export function IdentifyShowDialog({
   showTitle,
   onSuccess,
 }: IdentifyShowDialogProps) {
+  const queryClient = useQueryClient();
   const { queueLibraryIdentify } = useIdentifyQueue();
 
   async function handleChoose(result: SeriesSearchResult) {
@@ -34,6 +37,7 @@ export function IdentifyShowDialog({
       prioritize: true,
       resetState: true,
     });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
     onSuccess();
     onOpenChange(false);
   }

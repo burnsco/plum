@@ -4,7 +4,7 @@ import { type Library, type LibraryScanActivityEntry, type LibraryScanStatus } f
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
-import { getEnrichmentPhase } from "@/lib/libraryActivity";
+import { getEnrichmentPhase, isLibraryScanProcessing } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
 import { useLibraries } from "@/queries";
@@ -27,19 +27,27 @@ function hasFreshActivityDetail(entry?: LibraryScanActivityEntry | null) {
   return getActivityAgeMs(entry) <= STALE_ACTIVITY_DETAIL_MS;
 }
 
-function isLiveStatus(status: LibraryScanStatus) {
-  return (
-    status.phase === "scanning" ||
-    getEnrichmentPhase(status) === "running" ||
-    status.identifyPhase === "identifying"
-  );
+function activityPhaseLabel(phase: LibraryScanActivityEntry["phase"]): string {
+  switch (phase) {
+    case "discovery":
+      return "Importing";
+    case "enrichment":
+      return "Analyzing media";
+    case "identify":
+      return "Identifying";
+    default:
+      return "";
+  }
 }
 
-function getStatusSortOrder(status: LibraryScanStatus) {
-  if (status.phase === "scanning") return 0;
-  if (getEnrichmentPhase(status) === "running") return 1;
-  if (status.identifyPhase === "identifying") return 2;
-  return 6;
+function pickDisplayActivityEntry(status: LibraryScanStatus): LibraryScanActivityEntry | undefined {
+  const act = status.activity;
+  if (!act) return undefined;
+  if (act.current && hasFreshActivityDetail(act.current)) return act.current;
+  for (const entry of act.recent) {
+    if (hasFreshActivityDetail(entry)) return entry;
+  }
+  return undefined;
 }
 
 function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
@@ -51,32 +59,84 @@ function formatActivityPath(entry?: LibraryScanActivityEntry | null) {
   return basePath || "Library root";
 }
 
-function getNowSummary(status: LibraryScanStatus) {
-  const currentActivity = status.activity?.current;
+function getStatusSortOrder(status: LibraryScanStatus) {
+  if (status.phase === "scanning") return 0;
+  if (getEnrichmentPhase(status) === "running") return 1;
+  if (status.identifyPhase === "identifying") return 2;
+  if (status.phase === "queued") return 3;
+  if (getEnrichmentPhase(status) === "queued") return 4;
+  if (status.identifyPhase === "queued") return 5;
+  return 6;
+}
+
+function getNowSummary(status: LibraryScanStatus): { label: string; details: string[] } {
   const enrichmentPhase = getEnrichmentPhase(status);
+  const displayEntry = pickDisplayActivityEntry(status);
+  const entryLine =
+    displayEntry != null
+      ? `${activityPhaseLabel(displayEntry.phase)}: ${formatActivityPath(displayEntry)}`
+      : null;
+
   if (status.identifyPhase === "identifying") {
-    return {
-      label: "Identifying",
-      detail:
-        (hasFreshActivityDetail(currentActivity) ? formatActivityPath(currentActivity) : "") ||
-        (status.identified > 0 ? `Identified ${status.identified} so far` : ""),
-    };
+    const details: string[] = [];
+    if (entryLine) details.push(entryLine);
+    if (status.identified > 0) {
+      details.push(
+        `Identified ${status.identified} item${status.identified === 1 ? "" : "s"} so far`,
+      );
+    } else if (status.unmatched > 0) {
+      details.push(
+        `${status.unmatched} item${status.unmatched === 1 ? "" : "s"} still need metadata`,
+      );
+    }
+    return { label: "Identifying", details };
   }
+
   if (enrichmentPhase === "running") {
-    return {
-      label: "Analyzing media",
-      detail: hasFreshActivityDetail(currentActivity) ? formatActivityPath(currentActivity) : "",
-    };
+    const details: string[] = [];
+    if (entryLine) details.push(entryLine);
+    if (status.processed > 0) {
+      details.push(`Processed ${status.processed} item${status.processed === 1 ? "" : "s"}`);
+    }
+    return { label: "Analyzing media", details };
   }
+
   if (status.phase === "scanning") {
-    return {
-      label: "Importing",
-      detail:
-        (hasFreshActivityDetail(currentActivity) ? formatActivityPath(currentActivity) : "") ||
-        `Processed ${status.processed}`,
-    };
+    const details: string[] = [];
+    if (entryLine) details.push(entryLine);
+    if (status.estimatedItems > 0) {
+      details.push(`Progress: ${status.processed} / ~${status.estimatedItems} items`);
+    } else {
+      details.push(`Processed ${status.processed} item${status.processed === 1 ? "" : "s"}`);
+    }
+    return { label: "Importing", details };
   }
-  return { label: "Done", detail: "" };
+
+  if (status.phase === "queued") {
+    const details = ["Waiting for the scanner to start this import."];
+    if (status.queuePosition > 0) {
+      details.push(`Queue position: ${status.queuePosition}`);
+    }
+    return { label: "Import queued", details };
+  }
+
+  if (enrichmentPhase === "queued") {
+    const details = ["Analysis will run after import completes."];
+    if (status.processed > 0) {
+      details.push(`${status.processed} items ready for analysis`);
+    }
+    return { label: "Analyze queued", details };
+  }
+
+  if (status.identifyPhase === "queued") {
+    const details = ["Metadata matching will start when analysis is ready."];
+    if (status.processed > 0) {
+      details.push(`${status.processed} items in this library`);
+    }
+    return { label: "Identify queued", details };
+  }
+
+  return { label: "Idle", details: [] };
 }
 
 function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
@@ -92,8 +152,10 @@ function ActivityStatusCard({ library, status }: ActivityLibraryStatus) {
           <div className="truncate text-sm font-semibold text-(--plum-text)">
             {getLibraryTabLabel(library)}
           </div>
-          {summary.detail ? (
-            <div className="mt-1 text-xs text-(--plum-muted)">{summary.detail}</div>
+          {summary.details.length > 0 ? (
+            <p className="mt-1.5 whitespace-pre-line text-xs text-(--plum-muted)">
+              {summary.details.join("\n")}
+            </p>
           ) : null}
         </div>
         <span className="rounded-full bg-(--plum-accent-soft) px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-(--plum-accent)">
@@ -115,7 +177,7 @@ export function LibraryActivityCenter() {
 
   const nowStatuses = useMemo(() => {
     return activityScanStatuses
-      .filter(isLiveStatus)
+      .filter(isLibraryScanProcessing)
       .map((status) => {
         const library = libraryById.get(status.libraryId);
         return library ? { library, status } : null;
@@ -135,12 +197,15 @@ export function LibraryActivityCenter() {
           const library = libraryById.get(activity.libraryId);
           return library ? { activity, library } : null;
         })
-        .filter((value): value is { activity: (typeof recentLibraryActivities)[number]; library: Library } => value != null),
+        .filter(
+          (value): value is { activity: (typeof recentLibraryActivities)[number]; library: Library } =>
+            value != null,
+        ),
     [libraryById, recentLibraryActivities],
   );
 
   const activeCount = nowStatuses.length;
-  const hasUpdates = activeCount > 0 || recentItems.length > 0;
+  const hasRecentOnly = activeCount === 0 && recentItems.length > 0;
 
   return (
     <DropdownMenu>
@@ -153,9 +218,11 @@ export function LibraryActivityCenter() {
           }
           className={cn(
             "relative transition-all duration-500",
-            hasUpdates &&
+            activeCount > 0 &&
               "bg-(--plum-accent-soft) text-(--plum-accent) hover:bg-(--plum-accent-soft)/80 hover:text-(--plum-accent)",
-            activeCount > 0 && "animate-pulse shadow-[0_0_15px_var(--plum-accent-glow)] ring-1 ring-(--plum-accent-soft)",
+            activeCount > 0 &&
+              "animate-pulse shadow-[0_0_15px_var(--plum-accent-glow)] ring-1 ring-(--plum-accent-soft)",
+            hasRecentOnly && "text-(--plum-text-2) hover:text-(--plum-text)",
           )}
           data-testid="library-activity-trigger"
         >

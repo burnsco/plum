@@ -554,6 +554,28 @@ export const LibrarySchema = Schema.Struct({
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
 });
 
+export interface UnidentifiedLibrarySummary {
+  library_id: number;
+  name: string;
+  type: LibraryType;
+  count: number;
+}
+
+export const UnidentifiedLibrarySummarySchema = Schema.Struct({
+  library_id: Schema.Number,
+  name: Schema.String,
+  type: LibraryTypeSchema,
+  count: Schema.Number,
+});
+
+export interface UnidentifiedLibrariesResponse {
+  libraries: UnidentifiedLibrarySummary[];
+}
+
+export const UnidentifiedLibrariesResponseSchema = Schema.Struct({
+  libraries: Schema.Array(UnidentifiedLibrarySummarySchema),
+});
+
 export interface UpdateLibraryPlaybackPreferencesPayload {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
@@ -1352,6 +1374,73 @@ export const MediaStackValidationResultSchema = Schema.Struct({
   sonarrTv: MediaStackServiceValidationResultSchema,
 });
 
+export interface ServerEnvSecretsPresent {
+  tmdb_api_key: boolean;
+  tvdb_api_key: boolean;
+  omdb_api_key: boolean;
+  fanart_api_key: boolean;
+}
+
+export const ServerEnvSecretsPresentSchema = Schema.Struct({
+  tmdb_api_key: Schema.Boolean,
+  tvdb_api_key: Schema.Boolean,
+  omdb_api_key: Schema.Boolean,
+  fanart_api_key: Schema.Boolean,
+});
+
+export interface ServerEnvSettingsResponse {
+  env_file_path: string;
+  env_file_existed: boolean;
+  env_file_writable: boolean;
+  plum_addr: string;
+  plum_database_url: string;
+  musicbrainz_contact_url: string;
+  secrets_present: ServerEnvSecretsPresent;
+  restart_recommended: boolean;
+  help: string;
+}
+
+export const ServerEnvSettingsResponseSchema = Schema.Struct({
+  env_file_path: Schema.String,
+  env_file_existed: Schema.Boolean,
+  env_file_writable: Schema.Boolean,
+  plum_addr: Schema.String,
+  plum_database_url: Schema.String,
+  musicbrainz_contact_url: Schema.String,
+  secrets_present: ServerEnvSecretsPresentSchema,
+  restart_recommended: Schema.Boolean,
+  help: Schema.String,
+});
+
+/** Partial body for PUT /api/settings/server-env. Omit a field to leave it unchanged; use *_clear to remove API keys. */
+export interface ServerEnvSettingsUpdate {
+  plum_addr?: string;
+  plum_database_url?: string;
+  musicbrainz_contact_url?: string;
+  tmdb_api_key?: string;
+  tvdb_api_key?: string;
+  omdb_api_key?: string;
+  fanart_api_key?: string;
+  tmdb_api_key_clear?: boolean;
+  tvdb_api_key_clear?: boolean;
+  omdb_api_key_clear?: boolean;
+  fanart_api_key_clear?: boolean;
+}
+
+export const ServerEnvSettingsUpdateSchema = Schema.Struct({
+  plum_addr: Schema.optional(Schema.String),
+  plum_database_url: Schema.optional(Schema.String),
+  musicbrainz_contact_url: Schema.optional(Schema.String),
+  tmdb_api_key: Schema.optional(Schema.String),
+  tvdb_api_key: Schema.optional(Schema.String),
+  omdb_api_key: Schema.optional(Schema.String),
+  fanart_api_key: Schema.optional(Schema.String),
+  tmdb_api_key_clear: Schema.optional(Schema.Boolean),
+  tvdb_api_key_clear: Schema.optional(Schema.Boolean),
+  omdb_api_key_clear: Schema.optional(Schema.Boolean),
+  fanart_api_key_clear: Schema.optional(Schema.Boolean),
+});
+
 export interface DownloadItem {
   id: string;
   title: string;
@@ -1384,6 +1473,15 @@ export interface DownloadsResponse {
 export const DownloadsResponseSchema = Schema.Struct({
   configured: Schema.Boolean,
   items: Schema.Array(DownloadItemSchema),
+});
+
+/** Body for POST /api/downloads/remove — removes the queue entry in Radarr or Sonarr (same id as list items). */
+export interface RemoveDownloadPayload {
+  id: string;
+}
+
+export const RemoveDownloadPayloadSchema = Schema.Struct({
+  id: Schema.String,
 });
 
 export interface ShowActionResult {

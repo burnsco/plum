@@ -50,6 +50,16 @@ func NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact string
 	return p
 }
 
+// ReconfigureKeys rebuilds provider clients from API keys and reapplies cache and IMDb rating wiring.
+// Safe for concurrent reads only in the sense that replacement is atomic for pointer fields; avoid
+// calling during heavy metadata work on untrusted networks.
+func (p *Pipeline) ReconfigureKeys(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact string) {
+	next := NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact)
+	next.SetIMDbRatingProvider(p.imdbRatings)
+	next.SetProviderCache(p.providerCache)
+	*p = *next
+}
+
 func (p *Pipeline) SetIMDbRatingProvider(provider IMDbRatingProvider) {
 	p.imdbRatings = provider
 }

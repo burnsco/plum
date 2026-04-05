@@ -1,12 +1,18 @@
 import { buildBackendUrl } from "./backend"
 
-export function tmdbPosterUrl(path: string | undefined, size: 'w200' | 'w500' | 'original' = 'w200'): string {
+export function tmdbPosterUrl(
+  path: string | undefined,
+  size: 'w200' | 'w342' | 'w500' | 'original' = 'w200',
+): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
   return `https://image.tmdb.org/t/p/${size}${path}`
 }
 
-export function tmdbBackdropUrl(path: string | undefined, size: 'w300' | 'w500' | 'w780' | 'original' = 'w500'): string {
+export function tmdbBackdropUrl(
+  path: string | undefined,
+  size: 'w300' | 'w500' | 'w780' | 'w1280' | 'original' = 'w500',
+): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
   return `https://image.tmdb.org/t/p/${size}${path}`
@@ -15,7 +21,7 @@ export function tmdbBackdropUrl(path: string | undefined, size: 'w300' | 'w500' 
 export function resolvePosterUrl(
   posterUrl: string | undefined,
   posterPath: string | undefined,
-  size: 'w200' | 'w500' | 'original' = 'w200',
+  size: 'w200' | 'w342' | 'w500' | 'original' = 'w200',
   backendBaseUrl = '',
 ): string {
   if (posterUrl) {
@@ -29,7 +35,7 @@ export function resolvePosterUrl(
 export function resolveBackdropUrl(
   backdropUrl: string | undefined,
   backdropPath: string | undefined,
-  size: 'w300' | 'w500' | 'w780' | 'original' = 'w500',
+  size: 'w300' | 'w500' | 'w780' | 'w1280' | 'original' = 'w500',
   backendBaseUrl = '',
 ): string {
   if (backdropUrl) {

@@ -667,6 +667,22 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(libs)
 }
 
+func (h *LibraryHandler) ListUnidentifiedLibrarySummaries(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	summaries, err := db.ListUnidentifiedLibrarySummariesForUser(h.DB, u.ID)
+	if err != nil {
+		log.Printf("list unidentified library summaries: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"libraries": summaries})
+}
+
 func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {

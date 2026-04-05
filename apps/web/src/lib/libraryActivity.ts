@@ -1,9 +1,24 @@
+import type { LibraryScanStatus } from "@/api";
+
 export type LibraryActivity =
   | "importing"
   | "analyze-queued"
   | "analyzing"
   | "identify-queued"
   | "identifying";
+
+/** True while a library has work in flight (queued or running) for scan, analysis, or identify. */
+export function isLibraryScanProcessing(status: LibraryScanStatus): boolean {
+  const enrichmentPhase = getEnrichmentPhase(status);
+  return (
+    status.phase === "queued" ||
+    status.phase === "scanning" ||
+    enrichmentPhase === "queued" ||
+    enrichmentPhase === "running" ||
+    status.identifyPhase === "queued" ||
+    status.identifyPhase === "identifying"
+  );
+}
 
 export function getEnrichmentPhase(options: {
   enrichmentPhase?: string;

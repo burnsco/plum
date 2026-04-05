@@ -254,3 +254,47 @@ func (h *LibraryHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }
+
+type removeDownloadRequest struct {
+	ID string `json:"id"`
+}
+
+func (h *LibraryHandler) RemoveDownload(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if h.Arr == nil {
+		mediaStackServiceUnavailable(w, "media stack unavailable")
+		return
+	}
+	var body removeDownloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	settings, err := db.GetEffectiveMediaStackSettings(h.DB)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := h.Arr.RemoveQueueItem(r.Context(), settings, body.ID); err != nil {
+		msg := err.Error()
+		switch msg {
+		case "invalid download id", "unknown download source":
+			http.Error(w, msg, http.StatusBadRequest)
+		case "radarr is not configured", "sonarr-tv is not configured":
+			mediaStackServiceUnavailable(w, msg)
+		default:
+			mediaStackUpstreamError(w, err)
+		}
+		return
+	}
+	h.Arr.Invalidate()
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -810,6 +810,7 @@ fun DownloadsRoute(
         }
         is DownloadsUiState.Ready -> {
             val refreshFocus = remember { FocusRequester() }
+            val removingId by viewModel.removingDownloadId.collectAsState()
             LaunchedTvFocusTo(focusRequester = refreshFocus)
             Column(
                 modifier = Modifier
@@ -854,7 +855,11 @@ fun DownloadsRoute(
                             contentPadding = PaddingValues(bottom = 24.dp),
                         ) {
                             items(s.items, key = { it.id }) { item ->
-                                DownloadRow(item)
+                                DownloadRow(
+                                    item = item,
+                                    clearing = removingId == item.id,
+                                    onClear = { viewModel.removeFromQueue(item.id) },
+                                )
                             }
                         }
                 }
@@ -864,7 +869,11 @@ fun DownloadsRoute(
 }
 
 @Composable
-private fun DownloadRow(item: DownloadItemJson) {
+private fun DownloadRow(
+    item: DownloadItemJson,
+    clearing: Boolean,
+    onClear: () -> Unit,
+) {
     val palette = PlumTheme.palette
     val progress = item.progress?.coerceIn(0.0, 100.0) ?: 0.0
     PlumPanel {
@@ -881,11 +890,22 @@ private fun DownloadRow(item: DownloadItemJson) {
                     Text(item.title, style = PlumTheme.typography.titleSmall, color = palette.text)
                     Text(item.statusText, style = PlumTheme.typography.bodySmall, color = palette.muted)
                 }
-                Text(
-                    "${progress.toInt()}%",
-                    style = PlumTheme.typography.labelLarge,
-                    color = palette.textSecondary,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlumActionButton(
+                        label = "Clear",
+                        onClick = onClear,
+                        enabled = !clearing,
+                        variant = PlumButtonVariant.Secondary,
+                    )
+                    Text(
+                        "${progress.toInt()}%",
+                        style = PlumTheme.typography.labelLarge,
+                        color = palette.textSecondary,
+                    )
+                }
             }
             Box(
                 modifier = Modifier

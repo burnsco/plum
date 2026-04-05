@@ -12,7 +12,7 @@ import {
   startLibraryScan,
   type LibraryScanStatus,
 } from "../api";
-import { getEnrichmentPhase } from "../lib/libraryActivity";
+import { getEnrichmentPhase, isLibraryScanProcessing } from "../lib/libraryActivity";
 import {
   invalidateDiscoverRelatedQueries,
   invalidateLibraryCatalogQueries,
@@ -25,20 +25,8 @@ const SCAN_POLL_INTERVAL_MS = 2_000;
 const JUST_FINISHED_TTL_MS = 5 * 60 * 1000;
 const JUST_FINISHED_MAX_ITEMS = 5;
 
-function isActiveScan(phase?: string) {
-  return phase === "queued" || phase === "scanning";
-}
-
 function isLibraryProcessing(status?: LibraryScanStatus) {
-  const enrichmentPhase = getEnrichmentPhase(status ?? {});
-  return (
-    status != null &&
-    (isActiveScan(status.phase) ||
-      enrichmentPhase === "queued" ||
-      enrichmentPhase === "running" ||
-      status.identifyPhase === "queued" ||
-      status.identifyPhase === "identifying")
-  );
+  return status != null && isLibraryScanProcessing(status);
 }
 
 function hasActivityDetails(status?: LibraryScanStatus) {

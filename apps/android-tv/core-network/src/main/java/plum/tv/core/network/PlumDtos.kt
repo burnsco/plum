@@ -361,6 +361,11 @@ data class DownloadsResponseJson(
 )
 
 @JsonClass(generateAdapter = true)
+data class RemoveDownloadPayloadJson(
+    @Json(name = "id") val id: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class SearchFacetValueJson(
     @Json(name = "value") val value: String,
     @Json(name = "label") val label: String,

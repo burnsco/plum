@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   HardwareEncodeFormat,
   IntroSkipMode,
@@ -32,7 +32,8 @@ import {
 } from "@/queries";
 import { createQuickConnectCode } from "@/api";
 import { cn } from "@/lib/utils";
-import { Cpu, Image, Link2, MonitorPlay, Volume2 } from "lucide-react";
+import { Cpu, Image, Link2, ListTree, MonitorPlay, Server, Volume2 } from "lucide-react";
+import { ServerEnvSettingsTab } from "@/pages/ServerEnvSettingsTab";
 
 const decodeCodecOptions: Array<{
   key: VaapiDecodeCodec;
@@ -194,6 +195,38 @@ function applyMediaStackValidationDefaults(
   return { next, changed };
 }
 
+function summarizeMediaStackProfileListRefresh(result: {
+  radarr: MediaStackServiceValidationResult;
+  sonarrTv: MediaStackServiceValidationResult;
+}): { message: string; tone: "success" | "warning" } {
+  const statuses = [
+    { label: "Radarr", validation: result.radarr },
+    { label: "Sonarr TV", validation: result.sonarrTv },
+  ];
+  const reachable = statuses.filter((entry) => entry.validation.reachable);
+  const unreachable = statuses.filter(
+    (entry) => entry.validation.configured && !entry.validation.reachable,
+  );
+
+  if (reachable.length === 0) {
+    return {
+      message:
+        "Could not load quality profiles. Check the connection details on the Media stack tab.",
+      tone: "warning",
+    };
+  }
+  if (unreachable.length > 0) {
+    return {
+      message: `Loaded profiles for ${reachable.map((e) => e.label).join(" and ")}. ${unreachable.map((e) => `${e.label} is unreachable`).join(" and ")}.`,
+      tone: "warning",
+    };
+  }
+  return {
+    message: "Quality profile lists refreshed from Radarr and Sonarr TV.",
+    tone: "success",
+  };
+}
+
 function summarizeMediaStackValidation(result: {
   radarr: MediaStackServiceValidationResult;
   sonarrTv: MediaStackServiceValidationResult;
@@ -264,7 +297,45 @@ function libraryPreferencesEqual(
   );
 }
 
-type SettingsTab = "playback" | "media-stack" | "metadata" | "transcoding";
+function libraryTypeLabel(type: Library["type"]): string {
+  switch (type) {
+    case "movie":
+      return "Movie";
+    case "tv":
+      return "TV";
+    case "anime":
+      return "Anime";
+    case "music":
+      return "Music";
+    default:
+      return type;
+  }
+}
+
+/** True when the library name is just the type (e.g. "Movies" + movie) so we skip a duplicate subtitle. */
+function libraryNameRedundantWithType(name: string, type: Library["type"]): boolean {
+  const n = name.trim().toLowerCase();
+  switch (type) {
+    case "movie":
+      return n === "movie" || n === "movies";
+    case "tv":
+      return n === "tv" || n === "tvs" || n === "television";
+    case "anime":
+      return n === "anime";
+    case "music":
+      return n === "music";
+    default:
+      return false;
+  }
+}
+
+type SettingsTab =
+  | "playback"
+  | "server-env"
+  | "media-stack"
+  | "arr-profiles"
+  | "metadata"
+  | "transcoding";
 
 export function Settings() {
   const { user } = useAuthState();
@@ -305,6 +376,38 @@ export function Settings() {
   const [quickConnect, setQuickConnect] = useState<{ code: string; expiresAt: string } | null>(null);
   const [quickConnectBusy, setQuickConnectBusy] = useState(false);
   const [quickConnectErr, setQuickConnectErr] = useState<string | null>(null);
+  const arrProfilesAutoRefreshPendingRef = useRef(false);
+
+  useEffect(() => {
+    if (activeTab === "arr-profiles") {
+      arrProfilesAutoRefreshPendingRef.current = true;
+    } else {
+      arrProfilesAutoRefreshPendingRef.current = false;
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "arr-profiles" || !isAdmin) return;
+    if (!arrProfilesAutoRefreshPendingRef.current) return;
+    if (!mediaStackForm || validateMediaStack.isPending) return;
+    arrProfilesAutoRefreshPendingRef.current = false;
+    setMediaStackSaveMessage(null);
+    setMediaStackSaveTone("success");
+    void validateMediaStack
+      .mutateAsync(mediaStackForm)
+      .then((result) => {
+        setMediaStackValidation(result);
+        const feedback = summarizeMediaStackProfileListRefresh(result);
+        setMediaStackSaveMessage(feedback.message);
+        setMediaStackSaveTone(feedback.tone);
+      })
+      .catch((error) => {
+        setMediaStackSaveMessage(
+          error instanceof Error ? error.message : "Failed to validate media stack settings.",
+        );
+        setMediaStackSaveTone("error");
+      });
+  }, [activeTab, isAdmin, mediaStackForm, validateMediaStack]);
 
   useEffect(() => {
     if (!settingsQuery.data || dirty) return;
@@ -321,6 +424,12 @@ export function Settings() {
     if (!mediaStackQuery.data || mediaStackDirty) return;
     setMediaStackForm(cloneMediaStackSettings(mediaStackQuery.data));
   }, [mediaStackDirty, mediaStackQuery.data]);
+
+  useEffect(() => {
+    if (!isAdmin && activeTab !== "playback") {
+      setActiveTab("playback");
+    }
+  }, [isAdmin, activeTab]);
 
   useEffect(() => {
     if (!librariesQuery.data) return;
@@ -519,19 +628,25 @@ export function Settings() {
     setMediaStackSaveTone("success");
   }
 
-  async function handleValidateMediaStack() {
+  async function handleValidateMediaStack(options: { applyDefaults: boolean }) {
     if (!mediaStackForm) return;
     setMediaStackSaveMessage(null);
     setMediaStackSaveTone("success");
     try {
       const result = await validateMediaStack.mutateAsync(mediaStackForm);
       setMediaStackValidation(result);
-      const { next, changed } = applyMediaStackValidationDefaults(mediaStackForm, result);
-      const feedback = summarizeMediaStackValidation(result);
-      setMediaStackForm(next);
-      setMediaStackDirty((current) => current || changed);
-      setMediaStackSaveMessage(feedback.message);
-      setMediaStackSaveTone(feedback.tone);
+      if (options.applyDefaults) {
+        const { next, changed } = applyMediaStackValidationDefaults(mediaStackForm, result);
+        const feedback = summarizeMediaStackValidation(result);
+        setMediaStackForm(next);
+        setMediaStackDirty((current) => current || changed);
+        setMediaStackSaveMessage(feedback.message);
+        setMediaStackSaveTone(feedback.tone);
+      } else {
+        const feedback = summarizeMediaStackProfileListRefresh(result);
+        setMediaStackSaveMessage(feedback.message);
+        setMediaStackSaveTone(feedback.tone);
+      }
     } catch (error) {
       setMediaStackSaveMessage(
         error instanceof Error ? error.message : "Failed to validate media stack settings.",
@@ -568,7 +683,7 @@ export function Settings() {
   // ── Tab: Playback ──────────────────────────────────────────────────────────
 
   const playbackTabContent = (
-    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
       <div className="flex flex-col gap-2">
         <h2 className="text-xl font-semibold text-(--plum-text)">Playback defaults</h2>
         <p className="max-w-2xl text-sm text-(--plum-muted)">
@@ -596,18 +711,21 @@ export function Settings() {
             const isDirty = !libraryPreferencesEqual(current, saved);
             const message = librarySaveMessages[library.id];
             const supportsPlaybackPreferences = library.type !== "music";
+            const hideTypeSubtitle = libraryNameRedundantWithType(library.name, library.type);
 
             return (
               <article
                 key={library.id}
-                className="rounded-md border border-(--plum-border) bg-(--plum-panel-alt)/60 p-5"
+                className="rounded-md border border-(--plum-border) bg-(--plum-panel-alt)/60 p-4"
               >
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h3 className="text-base font-medium text-(--plum-text)">{library.name}</h3>
-                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-(--plum-muted)">
-                      {library.type}
-                    </p>
+                    {hideTypeSubtitle ? null : (
+                      <span className="mt-1.5 inline-block rounded-full border border-(--plum-border) px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+                        {libraryTypeLabel(library.type)}
+                      </span>
+                    )}
                   </div>
                   <Button
                     onClick={() => void saveLibraryPreferences(library)}
@@ -814,7 +932,7 @@ export function Settings() {
   // ── Tab: Media Stack ───────────────────────────────────────────────────────
 
   const mediaStackTabContent = (
-    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-(--plum-text)">Media stack</h2>
@@ -826,7 +944,7 @@ export function Settings() {
         <div className="flex flex-wrap gap-3">
           <Button
             variant="outline"
-            onClick={handleValidateMediaStack}
+            onClick={() => void handleValidateMediaStack({ applyDefaults: true })}
             disabled={mediaStackForm == null || validateMediaStack.isPending}
           >
             {validateMediaStack.isPending ? "Validating..." : "Validate & load defaults"}
@@ -886,19 +1004,103 @@ export function Settings() {
     </section>
   );
 
+  const arrProfilesTabContent = (
+    <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4 shadow-[0_20px_45px_rgba(0,0,0,0.35)]">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-(--plum-text)">Sonarr / Radarr profiles</h2>
+          <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
+            Pick the default quality profiles used when Discover adds a movie to Radarr or a series to
+            Sonarr TV. Set the base URL and API key on the{" "}
+            <span className="text-(--plum-text-secondary)">Media stack</span> tab first. Lists load
+            automatically when you open this tab; use Refresh if you changed Arr outside Plum.{" "}
+            <span className="text-(--plum-muted)">
+              Refreshing only updates the dropdowns and does not replace your saved choices.
+            </span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={() => void handleValidateMediaStack({ applyDefaults: false })}
+            disabled={mediaStackForm == null || validateMediaStack.isPending}
+          >
+            {validateMediaStack.isPending ? "Refreshing…" : "Refresh profile lists"}
+          </Button>
+          <Button
+            onClick={() => void handleSaveMediaStack()}
+            disabled={mediaStackForm == null || !mediaStackDirty || updateMediaStack.isPending}
+          >
+            {updateMediaStack.isPending ? "Saving…" : "Save profile defaults"}
+          </Button>
+        </div>
+      </div>
+
+      {mediaStackQuery.isLoading || mediaStackForm == null ? (
+        <p className="mt-5 text-sm text-(--plum-muted)">Loading media stack settings...</p>
+      ) : mediaStackQuery.isError ? (
+        <p className="mt-5 text-sm text-red-300">
+          {mediaStackQuery.error.message || "Failed to load media stack settings."}
+        </p>
+      ) : (
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          <MediaStackArrQualityProfileCard
+            title="Radarr (movies)"
+            description="Default quality profile for new movie adds."
+            service={mediaStackForm.radarr}
+            validation={mediaStackValidation?.radarr ?? null}
+            idPrefix="arr-profiles-radarr"
+            qualityLabel="Default movie quality profile (Radarr)"
+            onChange={(profileId) => setMediaStackServiceField("radarr", "qualityProfileId", profileId)}
+          />
+          <MediaStackArrQualityProfileCard
+            title="Sonarr TV (shows)"
+            description="Default quality profile for new series adds."
+            service={mediaStackForm.sonarrTv}
+            validation={mediaStackValidation?.sonarrTv ?? null}
+            idPrefix="arr-profiles-sonarr"
+            qualityLabel="Default TV quality profile (Sonarr)"
+            onChange={(profileId) =>
+              setMediaStackServiceField("sonarrTv", "qualityProfileId", profileId)
+            }
+          />
+        </div>
+      )}
+
+      <p
+        className={`mt-4 text-sm ${
+          mediaStackSaveMessage == null
+            ? "text-(--plum-muted)"
+            : mediaStackSaveTone === "success"
+              ? "text-emerald-300"
+              : mediaStackSaveTone === "warning"
+                ? "text-amber-200"
+                : mediaStackSaveMessage
+                  ? "text-red-300"
+                  : "text-(--plum-muted)"
+        }`}
+      >
+        {mediaStackSaveMessage ??
+          (mediaStackDirty
+            ? "Unsaved changes."
+            : "Saved defaults are used the next time a title is sent to Radarr or Sonarr TV.")}
+      </p>
+    </section>
+  );
+
   // ── Tab: Metadata ──────────────────────────────────────────────────────────
 
   const metadataTabContent = (() => {
     if (metadataArtworkQuery.isLoading || metadataArtworkForm == null) {
       return (
-        <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+        <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4">
           <p className="text-sm text-(--plum-muted)">Loading metadata artwork settings…</p>
         </div>
       );
     }
     if (metadataArtworkQuery.isError) {
       return (
-        <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+        <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4">
           <p className="text-sm text-red-300">
             {metadataArtworkQuery.error.message || "Failed to load metadata artwork settings."}
           </p>
@@ -907,7 +1109,7 @@ export function Settings() {
     }
     return (
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)] md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4 shadow-[0_20px_45px_rgba(0,0,0,0.35)] md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-(--plum-text)">Metadata artwork</h2>
             <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
@@ -922,7 +1124,7 @@ export function Settings() {
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
           <div className="flex flex-col gap-6">
-            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4">
               <h3 className="text-base font-medium text-(--plum-text)">Movies</h3>
               <p className="mt-1 text-sm text-(--plum-muted)">
                 Automatic order: Fanart, then TMDB, then TVDB.
@@ -948,7 +1150,7 @@ export function Settings() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4">
               <h3 className="text-base font-medium text-(--plum-text)">Shows</h3>
               <p className="mt-1 text-sm text-(--plum-muted)">
                 Automatic order: Fanart, then TMDB, then TVDB.
@@ -974,7 +1176,7 @@ export function Settings() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4">
               <h3 className="text-base font-medium text-(--plum-text)">Seasons</h3>
               <p className="mt-1 text-sm text-(--plum-muted)">
                 Automatic order: Fanart, then TMDB, then TVDB.
@@ -1000,7 +1202,7 @@ export function Settings() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-6">
+            <div className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-4">
               <h3 className="text-base font-medium text-(--plum-text)">Episodes</h3>
               <p className="mt-1 text-sm text-(--plum-muted)">
                 Automatic order: TMDB, TVDB, then OMDb.
@@ -1051,8 +1253,8 @@ export function Settings() {
               </ul>
             </div>
 
-            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+            <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
                 Save status
               </h3>
               <p
@@ -1061,7 +1263,7 @@ export function Settings() {
                     ? "text-emerald-300"
                     : metadataArtworkSaveMessage
                       ? "text-red-300"
-                      : "text-[var(--plum-muted)]"
+                      : "text-(--plum-muted)"
                 }`}
               >
                 {metadataArtworkSaveMessage ??
@@ -1081,14 +1283,14 @@ export function Settings() {
   const transcodingTabContent = (() => {
     if (settingsQuery.isLoading || form == null) {
       return (
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
-          <p className="text-sm text-[var(--plum-muted)]">Loading transcoding settings…</p>
+        <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-4">
+          <p className="text-sm text-(--plum-muted)">Loading transcoding settings…</p>
         </div>
       );
     }
     if (settingsQuery.isError) {
       return (
-        <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+        <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-4">
           <p className="text-sm text-red-300">
             {settingsQuery.error.message || "Failed to load transcoding settings."}
           </p>
@@ -1097,10 +1299,10 @@ export function Settings() {
     }
     return (
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6 shadow-[0_20px_45px_rgba(0,0,0,0.35)] md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-2 rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-4 shadow-[0_20px_45px_rgba(0,0,0,0.35)] md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-[var(--plum-text)]">Transcoding</h2>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--plum-muted)]">
+            <h2 className="text-xl font-semibold text-(--plum-text)">Transcoding</h2>
+            <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
               Configure server-wide VAAPI decode and hardware encode behavior for future transcode
               jobs.
             </p>
@@ -1112,13 +1314,13 @@ export function Settings() {
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
           <div className="flex flex-col gap-6">
-            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+            <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-base font-medium text-[var(--plum-text)]">
+                  <h3 className="text-base font-medium text-(--plum-text)">
                     Video Acceleration API
                   </h3>
-                  <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                  <p className="mt-1 text-sm text-(--plum-muted)">
                     Enable VAAPI on the server and choose which source codecs are allowed to use it
                     for decode.
                   </p>
@@ -1133,7 +1335,7 @@ export function Settings() {
               <div className="mt-5 space-y-5">
                 <div>
                   <label
-                    className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                    className="mb-2 block text-sm font-medium text-(--plum-text)"
                     htmlFor="vaapi-device"
                   >
                     VAAPI device
@@ -1144,15 +1346,15 @@ export function Settings() {
                     onChange={(event) => setField("vaapiDevicePath", event.target.value)}
                     placeholder="/dev/dri/renderD128"
                   />
-                  <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                  <p className="mt-2 text-xs text-(--plum-muted)">
                     Default render node for Intel/AMD VAAPI on Linux hosts.
                   </p>
                 </div>
 
                 <div>
                   <div className="mb-3">
-                    <h4 className="text-sm font-medium text-[var(--plum-text)]">Decode codecs</h4>
-                    <p className="mt-1 text-xs text-[var(--plum-muted)]">
+                    <h4 className="text-sm font-medium text-(--plum-text)">Decode codecs</h4>
+                    <p className="mt-1 text-xs text-(--plum-muted)">
                       Each codec can be enabled or disabled independently. Disabled codecs stay on
                       software decode.
                     </p>
@@ -1172,11 +1374,11 @@ export function Settings() {
               </div>
             </div>
 
-            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-6">
+            <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-base font-medium text-[var(--plum-text)]">Hardware encoding</h3>
-                  <p className="mt-1 text-sm text-[var(--plum-muted)]">
+                  <h3 className="text-base font-medium text-(--plum-text)">Hardware encoding</h3>
+                  <p className="mt-1 text-sm text-(--plum-muted)">
                     Use VAAPI encoders when possible, with automatic software fallback if the hardware
                     path fails.
                   </p>
@@ -1191,10 +1393,10 @@ export function Settings() {
               <div className="mt-5 space-y-5">
                 <div>
                   <div className="mb-3">
-                    <h4 className="text-sm font-medium text-[var(--plum-text)]">
+                    <h4 className="text-sm font-medium text-(--plum-text)">
                       Allowed output formats
                     </h4>
-                    <p className="mt-1 text-xs text-[var(--plum-muted)]">
+                    <p className="mt-1 text-xs text-(--plum-muted)">
                       H.264 is enabled by default. HEVC and AV1 stay opt-in for compatibility and host
                       support reasons.
                     </p>
@@ -1214,7 +1416,7 @@ export function Settings() {
 
                 <div>
                   <label
-                    className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+                    className="mb-2 block text-sm font-medium text-(--plum-text)"
                     htmlFor="preferred-encode-format"
                   >
                     Preferred hardware encode format
@@ -1228,7 +1430,7 @@ export function Settings() {
                         event.target.value as HardwareEncodeFormat,
                       )
                     }
-                    className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+                    className="flex h-9 w-full rounded-(--radius-md) border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
                   >
                     {encodeFormatOptions.map((option) => (
                       <option
@@ -1240,7 +1442,7 @@ export function Settings() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-2 text-xs text-[var(--plum-muted)]">
+                  <p className="mt-2 text-xs text-(--plum-muted)">
                     Plum will try this hardware output format first, then retry in software if enabled
                     below.
                   </p>
@@ -1257,12 +1459,12 @@ export function Settings() {
           </div>
 
           <aside className="flex flex-col gap-4">
-            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+            <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
                 Host warnings
               </h3>
               {warnings.length === 0 ? (
-                <p className="mt-3 text-sm text-[var(--plum-muted)]">
+                <p className="mt-3 text-sm text-(--plum-muted)">
                   No capability warnings reported for the current server configuration.
                 </p>
               ) : (
@@ -1270,7 +1472,7 @@ export function Settings() {
                   {warnings.map((warning) => (
                     <li
                       key={warning.code}
-                      className="rounded-[var(--radius-md)] border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100"
+                      className="rounded-(--radius-md) border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100"
                     >
                       {warning.message}
                     </li>
@@ -1279,8 +1481,8 @@ export function Settings() {
               )}
             </div>
 
-            <div className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-5">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--plum-muted)]">
+            <div className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel)/80 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
                 Save status
               </h3>
               <p
@@ -1289,7 +1491,7 @@ export function Settings() {
                     ? "text-emerald-300"
                     : saveMessage
                       ? "text-red-300"
-                      : "text-[var(--plum-muted)]"
+                      : "text-(--plum-muted)"
                 }`}
               >
                 {saveMessage ??
@@ -1305,27 +1507,39 @@ export function Settings() {
   // ── Tab definitions ────────────────────────────────────────────────────────
 
   const navItemBase =
-    "relative flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer select-none w-full";
+    "relative flex items-center gap-2 px-2.5 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer select-none w-full";
   const navItemActive =
-    "text-[var(--plum-text)] bg-[rgba(181,123,255,0.1)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-[var(--plum-accent)] before:content-[''] shadow-[0_0_20px_rgba(139,92,246,0.08)]";
+    "text-(--plum-text) bg-[rgba(181,123,255,0.1)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-(--plum-accent) before:content-[''] shadow-[0_0_20px_rgba(139,92,246,0.08)]";
   const navItemInactive =
-    "text-[var(--plum-muted)] hover:text-[var(--plum-text)] hover:bg-[rgba(181,123,255,0.06)]";
+    "text-(--plum-muted) hover:text-(--plum-text) hover:bg-[rgba(181,123,255,0.06)]";
 
   type TabItem = { id: SettingsTab; label: string; icon: React.ReactNode };
-  const tabs: TabItem[] = [
-    { id: "playback", label: "Playback", icon: <Volume2 className="size-4 shrink-0" /> },
-    ...(isAdmin
-      ? ([
-          { id: "media-stack", label: "Media Stack", icon: <Link2 className="size-4 shrink-0" /> },
-          { id: "metadata", label: "Metadata", icon: <Image className="size-4 shrink-0" /> },
-          { id: "transcoding", label: "Transcoding", icon: <Cpu className="size-4 shrink-0" /> },
-        ] as TabItem[])
-      : []),
+  const adminTabSections: { heading: string; tabs: TabItem[] }[] = [
+    {
+      heading: "Host",
+      tabs: [{ id: "server-env", label: "Environment", icon: <Server className="size-4 shrink-0" /> }],
+    },
+    {
+      heading: "Integrations",
+      tabs: [
+        { id: "media-stack", label: "Media stack", icon: <Link2 className="size-4 shrink-0" /> },
+        { id: "arr-profiles", label: "Arr profiles", icon: <ListTree className="size-4 shrink-0" /> },
+      ],
+    },
+    {
+      heading: "Processing",
+      tabs: [
+        { id: "metadata", label: "Metadata", icon: <Image className="size-4 shrink-0" /> },
+        { id: "transcoding", label: "Transcoding", icon: <Cpu className="size-4 shrink-0" /> },
+      ],
+    },
   ];
 
   const tabContent: Record<SettingsTab, React.ReactNode> = {
     playback: playbackTabContent,
+    "server-env": <ServerEnvSettingsTab />,
     "media-stack": mediaStackTabContent,
+    "arr-profiles": arrProfilesTabContent,
     metadata: metadataTabContent,
     transcoding: transcodingTabContent,
   };
@@ -1346,80 +1560,174 @@ export function Settings() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[var(--plum-text)]">Settings</h1>
-        <p className="mt-1 text-sm text-[var(--plum-muted)]">
-          Manage playback preferences{isAdmin ? ", media stack, metadata artwork, and transcoding" : ""}.
-        </p>
-      </div>
-
-      {user ? (
-        <div className="mb-6 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h2 className="flex items-center gap-2 text-base font-medium text-[var(--plum-text)]">
-                <MonitorPlay className="size-4 shrink-0" aria-hidden />
-                Quick connect (Android TV)
-              </h2>
-              <p className="mt-1 text-sm text-[var(--plum-muted)]">
-                Signed in as <span className="text-[var(--plum-text-secondary)]">{user.email}</span>. Generate a
-                one-time 4-digit code for this account. On each TV, set this server&apos;s URL, then choose
-                &quot;Sign in with TV code&quot; and enter the digits. Codes expire in 15 minutes and work once.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={quickConnectBusy}
-              onClick={() => void generateQuickConnect()}
-            >
-              {quickConnectBusy ? "Generating…" : quickConnect ? "New code" : "Generate code"}
-            </Button>
-          </div>
-          {quickConnectErr ? (
-            <p className="mt-3 text-sm text-red-400">{quickConnectErr}</p>
-          ) : null}
-          {quickConnect ? (
-            <div className="mt-4 rounded-lg border border-[var(--plum-border)] bg-[var(--plum-panel)] p-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-[var(--plum-muted)]">Code</p>
-              <p className="mt-1 font-mono text-3xl font-semibold tracking-[0.35em] text-[var(--plum-text)]">
-                {quickConnect.code}
-              </p>
-              <p className="mt-2 text-sm text-[var(--plum-muted)]">
-                Expires {new Date(quickConnect.expiresAt).toLocaleString()} · single use
-              </p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="flex gap-6 items-start">
+    <div className="mx-auto max-w-6xl">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
         <nav
-          className="w-44 shrink-0 rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel)]/80 p-2"
+          className="w-full shrink-0 rounded-lg border border-(--plum-border) bg-(--plum-panel)/85 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] lg:sticky lg:top-0 lg:w-52 lg:self-start"
           aria-label="Settings sections"
         >
+          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-(--plum-muted)">
+            Library
+          </p>
           <div className="flex flex-col gap-0.5">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(navItemBase, activeTab === tab.id ? navItemActive : navItemInactive)}
-                aria-current={activeTab === tab.id ? "page" : undefined}
-              >
-                {tab.icon}
-                <span className="truncate">{tab.label}</span>
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => setActiveTab("playback")}
+              className={cn(
+                navItemBase,
+                activeTab === "playback" ? navItemActive : navItemInactive,
+              )}
+              aria-current={activeTab === "playback" ? "page" : undefined}
+            >
+              <Volume2 className="size-4 shrink-0" />
+              <span className="truncate">Playback</span>
+            </button>
           </div>
+          {isAdmin ? <div className="my-3 border-t border-(--plum-border)" /> : null}
+          {isAdmin
+            ? adminTabSections.map((section, idx) => (
+                <div key={section.heading} className={cn(idx === 0 ? "" : "mt-4")}>
+                  <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-(--plum-muted)">
+                    {section.heading}
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {section.tabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={cn(
+                          navItemBase,
+                          activeTab === tab.id ? navItemActive : navItemInactive,
+                        )}
+                        aria-current={activeTab === tab.id ? "page" : undefined}
+                      >
+                        {tab.icon}
+                        <span className="truncate">{tab.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))
+            : null}
+
+          {user ? (
+            <div className="mt-4 border-t border-(--plum-border) pt-3">
+              <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-(--plum-muted)">
+                <MonitorPlay className="size-3.5 shrink-0" aria-hidden />
+                Quick connect
+              </h2>
+              <p className="mt-1.5 text-xs leading-snug text-(--plum-muted)">
+                TV sign-in for <span className="text-(--plum-text-secondary)">{user.email}</span>. On the TV,
+                use this server&apos;s URL and &quot;Sign in with TV code&quot;. Code expires in 15 minutes,
+                one use.
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-2 w-full"
+                disabled={quickConnectBusy}
+                onClick={() => void generateQuickConnect()}
+              >
+                {quickConnectBusy ? "Generating…" : quickConnect ? "New code" : "Generate code"}
+              </Button>
+              {quickConnectErr ? (
+                <p className="mt-2 text-xs text-red-400">{quickConnectErr}</p>
+              ) : null}
+              {quickConnect ? (
+                <div className="mt-2 rounded-md border border-(--plum-border) bg-(--plum-panel) p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-(--plum-muted)">Code</p>
+                  <p className="mt-0.5 font-mono text-xl font-semibold tracking-[0.25em] text-(--plum-text)">
+                    {quickConnect.code}
+                  </p>
+                  <p className="mt-1 text-[11px] text-(--plum-muted)">
+                    Expires {new Date(quickConnect.expiresAt).toLocaleString()} · once
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </nav>
 
-        <div className="min-w-0 flex-1">
-          {tabContent[activeTab]}
-        </div>
+        <div className="min-w-0 flex-1 pb-2">{tabContent[activeTab]}</div>
       </div>
     </div>
+  );
+}
+
+function MediaStackArrQualityProfileCard({
+  title,
+  description,
+  service,
+  validation,
+  qualityLabel,
+  idPrefix,
+  onChange,
+}: {
+  title: string;
+  description: string;
+  service: MediaStackSettingsShape["radarr"];
+  validation: MediaStackServiceValidationResult | null;
+  qualityLabel: string;
+  idPrefix: string;
+  onChange: (qualityProfileId: number) => void;
+}) {
+  const reachable = validation?.reachable === true;
+
+  return (
+    <article className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel-alt)/60 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-medium text-(--plum-text)">{title}</h3>
+          <p className="mt-1 text-sm text-(--plum-muted)">{description}</p>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
+            reachable
+              ? "bg-emerald-500/12 text-emerald-200"
+              : validation?.configured
+                ? "bg-amber-500/12 text-amber-200"
+                : "bg-(--plum-panel) text-(--plum-muted)"
+          }`}
+        >
+          {reachable ? "Connected" : validation?.configured ? "Needs attention" : "Not configured"}
+        </span>
+      </div>
+
+      <div className="mt-5">
+        <label
+          htmlFor={`${idPrefix}-quality-profile`}
+          className="mb-2 block text-sm font-medium text-(--plum-text)"
+        >
+          {qualityLabel}
+        </label>
+        <select
+          id={`${idPrefix}-quality-profile`}
+          value={service.qualityProfileId}
+          onChange={(event) =>
+            onChange(Number.parseInt(event.target.value, 10) || 0)
+          }
+          className="flex h-9 w-full rounded-(--radius-md) border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
+        >
+          <option value={0}>Select a quality profile</option>
+          {(validation?.qualityProfiles ?? []).map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <p
+        className={`mt-4 text-sm ${
+          validation?.errorMessage ? "text-amber-200" : "text-(--plum-muted)"
+        }`}
+      >
+        {validation?.errorMessage ??
+          "Profile names load when you open this tab (after URL and API key are set on Media stack). Use Refresh profile lists to update."}
+      </p>
+    </article>
   );
 }
 
@@ -1443,11 +1751,11 @@ function MediaStackServiceCard({
   const serviceId = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
   return (
-    <article className="rounded-[var(--radius-lg)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-5">
+    <article className="rounded-(--radius-lg) border border-(--plum-border) bg-(--plum-panel-alt)/60 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-medium text-[var(--plum-text)]">{title}</h3>
-          <p className="mt-1 text-sm text-[var(--plum-muted)]">{description}</p>
+          <h3 className="text-base font-medium text-(--plum-text)">{title}</h3>
+          <p className="mt-1 text-sm text-(--plum-muted)">{description}</p>
         </div>
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
@@ -1455,7 +1763,7 @@ function MediaStackServiceCard({
               ? "bg-emerald-500/12 text-emerald-200"
               : validation?.configured
                 ? "bg-amber-500/12 text-amber-200"
-                : "bg-[var(--plum-panel)] text-[var(--plum-muted)]"
+                : "bg-(--plum-panel) text-(--plum-muted)"
           }`}
         >
           {reachable ? "Connected" : validation?.configured ? "Needs attention" : "Not configured"}
@@ -1466,7 +1774,8 @@ function MediaStackServiceCard({
         <div>
           <label
             htmlFor={`${serviceId}-base-url`}
-            className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+            className="mb-2 block text-sm font-medium text-(--plum-text)"
+            title="Root URL you use in the browser for this app (include http/https, no trailing path)."
           >
             Base URL
           </label>
@@ -1481,7 +1790,8 @@ function MediaStackServiceCard({
         <div>
           <label
             htmlFor={`${serviceId}-api-key`}
-            className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+            className="mb-2 block text-sm font-medium text-(--plum-text)"
+            title="From Settings → General → Security → API key in Radarr or Sonarr."
           >
             API key
           </label>
@@ -1498,7 +1808,8 @@ function MediaStackServiceCard({
           <div>
             <label
               htmlFor={`${serviceId}-root-folder`}
-              className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+              className="mb-2 block text-sm font-medium text-(--plum-text)"
+              title="Library path on the Arr host where new downloads are imported."
             >
               Root folder
             </label>
@@ -1506,7 +1817,7 @@ function MediaStackServiceCard({
               id={`${serviceId}-root-folder`}
               value={service.rootFolderPath}
               onChange={(event) => onChange("rootFolderPath", event.target.value)}
-              className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+              className="flex h-9 w-full rounded-(--radius-md) border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
             >
               <option value="">Select a root folder</option>
               {(validation?.rootFolders ?? []).map((folder) => (
@@ -1520,7 +1831,8 @@ function MediaStackServiceCard({
           <div>
             <label
               htmlFor={`${serviceId}-quality-profile`}
-              className="mb-2 block text-sm font-medium text-[var(--plum-text)]"
+              className="mb-2 block text-sm font-medium text-(--plum-text)"
+              title="Default profile when Discover adds a title. Refresh lists after validating the connection."
             >
               Quality profile
             </label>
@@ -1530,7 +1842,7 @@ function MediaStackServiceCard({
               onChange={(event) =>
                 onChange("qualityProfileId", Number.parseInt(event.target.value, 10) || 0)
               }
-              className="flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel)] px-3 py-1 text-sm text-[var(--plum-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--plum-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--plum-bg)]"
+              className="flex h-9 w-full rounded-(--radius-md) border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
             >
               <option value={0}>Select a quality profile</option>
               {(validation?.qualityProfiles ?? []).map((profile) => (
@@ -1545,7 +1857,7 @@ function MediaStackServiceCard({
 
       <p
         className={`mt-4 text-sm ${
-          validation?.errorMessage ? "text-amber-200" : "text-[var(--plum-muted)]"
+          validation?.errorMessage ? "text-amber-200" : "text-(--plum-muted)"
         }`}
       >
         {validation?.errorMessage ??
@@ -1567,17 +1879,29 @@ function Toggle({
   description?: string;
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-start gap-3 text-sm text-[var(--plum-text)]">
+    <label className="inline-flex cursor-pointer items-start gap-3 text-sm text-(--plum-text)">
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 size-4 rounded border-[var(--plum-border)] bg-[var(--plum-panel-alt)] accent-[var(--plum-accent)]"
+        className="sr-only"
       />
+      <span
+        aria-hidden
+        className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+          checked ? "bg-(--plum-accent)" : "bg-(--plum-panel-alt)"
+        }`}
+      >
+        <span
+          className={`inline-block size-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+            checked ? "translate-x-4" : "translate-x-0"
+          }`}
+        />
+      </span>
       <span className="flex flex-col">
         <span>{label}</span>
         {description ? (
-          <span className="text-xs text-[var(--plum-muted)]">{description}</span>
+          <span className="text-xs text-(--plum-muted)">{description}</span>
         ) : null}
       </span>
     </label>
@@ -1599,11 +1923,14 @@ function CheckboxCard({
 }) {
   return (
     <label
-      className={`flex gap-3 rounded-[var(--radius-md)] border border-[var(--plum-border)] bg-[var(--plum-panel-alt)]/60 p-3 transition-colors ${
+      className={cn(
+        "flex gap-3 rounded-(--radius-md) border p-3 transition-colors",
         disabled
-          ? "cursor-not-allowed opacity-70"
-          : "cursor-pointer hover:border-[var(--plum-accent-soft)]"
-      }`}
+          ? "cursor-not-allowed border-(--plum-border) bg-(--plum-panel-alt)/60 opacity-70"
+          : checked
+            ? "cursor-pointer border-(--plum-accent-soft) bg-(--plum-accent-subtle)"
+            : "cursor-pointer border-(--plum-border) bg-(--plum-panel-alt)/60 hover:border-(--plum-accent-soft)",
+      )}
     >
       <input
         type="checkbox"
@@ -1611,11 +1938,11 @@ function CheckboxCard({
         aria-label={label}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 size-4 rounded border-[var(--plum-border)] bg-[var(--plum-panel-alt)] accent-[var(--plum-accent)]"
+        className="mt-1 size-4 shrink-0 rounded border-(--plum-border) bg-(--plum-panel-alt) accent-(--plum-accent)"
       />
       <span className="flex min-w-0 flex-col">
-        <span className="text-sm font-medium text-[var(--plum-text)]">{label}</span>
-        <span className="text-xs text-[var(--plum-muted)]">{description}</span>
+        <span className="text-sm font-medium text-(--plum-text)">{label}</span>
+        <span className="text-xs text-(--plum-muted)">{description}</span>
       </span>
     </label>
   );

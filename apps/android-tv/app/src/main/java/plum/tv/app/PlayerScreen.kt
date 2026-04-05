@@ -1,6 +1,8 @@
 package plum.tv.app
 
 import android.text.format.DateFormat
+import android.view.Gravity
+import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewGroup
@@ -9,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,6 +84,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.updateLayoutParams
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -93,7 +98,11 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import java.util.Date
+import android.graphics.Color as AndroidGraphicsColor
 import kotlinx.coroutines.delay
+import plum.tv.core.data.SubtitleAppearance
+import plum.tv.core.data.SubtitlePosition
+import plum.tv.core.data.SubtitleSize
 import plum.tv.core.player.TrackPicker
 import plum.tv.core.player.TrackPickerOption
 import plum.tv.core.player.UpNextOverlayState
@@ -116,10 +125,13 @@ fun PlayerRoute(
     val wallClockMs by viewModel.wallClock.collectAsState()
     val trackPicker by viewModel.trackPicker.collectAsState()
     val upNext by viewModel.upNext.collectAsState()
+    val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
+    val subtitleStyleOverlayVisible by viewModel.subtitleStyleOverlayVisible.collectAsState()
     val rootFocusRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
     val seekBarFocusRequester = remember { FocusRequester() }
     val upNextPlayFocusRequester = remember { FocusRequester() }
+    val subtitleStyleFocusRequester = remember { FocusRequester() }
 
     // Each time hideTimerKey changes, the LaunchedEffect restarts the hide countdown.
     var hideTimerKey by remember { mutableIntStateOf(0) }
@@ -181,7 +193,11 @@ fun PlayerRoute(
         viewModel.dismissUpNext()
     }
 
-    BackHandler(trackPicker == null && upNext == null) {
+    BackHandler(trackPicker == null && subtitleStyleOverlayVisible) {
+        viewModel.dismissSubtitleStyleSettings()
+    }
+
+    BackHandler(trackPicker == null && upNext == null && !subtitleStyleOverlayVisible) {
         if (controlsVisible) {
             onClose()
         } else {
@@ -215,11 +231,28 @@ fun PlayerRoute(
         hadTrackPicker = trackPicker != null
     }
 
+    var hadSubtitleStyleOverlay by remember { mutableStateOf(false) }
+    LaunchedEffect(subtitleStyleOverlayVisible) {
+        if (subtitleStyleOverlayVisible) {
+            withFrameNanos { }
+            subtitleStyleFocusRequester.requestFocus()
+        } else if (hadSubtitleStyleOverlay) {
+            withFrameNanos { }
+            if (controlsVisible) {
+                playFocusRequester.requestFocus()
+            } else {
+                rootFocusRequester.requestFocus()
+            }
+        }
+        hadSubtitleStyleOverlay = subtitleStyleOverlayVisible
+    }
+
     val keepAwake =
         ui.isPlaying ||
             ui.isBuffering ||
             upNext != null ||
-            trackPicker != null
+            trackPicker != null ||
+            subtitleStyleOverlayVisible
     DisposableEffect(keepAwake) {
         val window = (context as ComponentActivity).window
         if (keepAwake) {
@@ -293,7 +326,7 @@ fun PlayerRoute(
                     descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     player = viewModel.player
-                    configurePlumSubtitleOverlay()
+                    applyPlumSubtitleAppearance(viewModel.subtitleAppearance.value)
                 }
             },
             update = { view ->
@@ -303,7 +336,7 @@ fun PlayerRoute(
                 view.isFocusable = false
                 view.isFocusableInTouchMode = false
                 view.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                view.configurePlumSubtitleOverlay()
+                view.applyPlumSubtitleAppearance(subtitleAppearance)
             },
         )
 
@@ -497,6 +530,16 @@ fun PlayerRoute(
                                 )
                             }
                             PlayerControlButton(
+                                icon = Icons.Filled.Settings,
+                                contentDescription = "Subtitle appearance: size, color, position",
+                                onClick = {
+                                    viewModel.openSubtitleStyleSettings()
+                                    showControls()
+                                },
+                                utility = true,
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            )
+                            PlayerControlButton(
                                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back",
                                 onClick = onClose,
@@ -525,6 +568,16 @@ fun PlayerRoute(
                 picker = picker,
                 onDismiss = { viewModel.dismissTrackPicker() },
                 onSelect = { viewModel.selectTrackPickerOption(it) },
+            )
+        }
+
+        if (subtitleStyleOverlayVisible) {
+            SubtitleStyleOverlay(
+                modifier = Modifier.zIndex(5f),
+                appearance = subtitleAppearance,
+                onAppearanceChange = { viewModel.setSubtitleAppearance(it) },
+                onDismiss = { viewModel.dismissSubtitleStyleSettings() },
+                firstFocusRequester = subtitleStyleFocusRequester,
             )
         }
     }
@@ -821,6 +874,306 @@ private fun TrackPickerRow(
     }
 }
 
+private data class SubtitleColorPreset(val label: String, val hex: String)
+
+private val subtitleColorPresets =
+    listOf(
+        SubtitleColorPreset("White", "#ffffff"),
+        SubtitleColorPreset("Yellow", "#ffff00"),
+        SubtitleColorPreset("Lime", "#7cfc00"),
+        SubtitleColorPreset("Cyan", "#00ffff"),
+        SubtitleColorPreset("Pink", "#ffb6c1"),
+        SubtitleColorPreset("Orange", "#ffab40"),
+    )
+
+private fun subtitleColorsEqual(stored: String, presetHex: String): Boolean {
+    fun norm(s: String) = s.trim().lowercase().removePrefix("#")
+    return norm(stored) == norm(presetHex)
+}
+
+@Composable
+private fun SubtitleStyleOverlay(
+    appearance: SubtitleAppearance,
+    onAppearanceChange: (SubtitleAppearance) -> Unit,
+    onDismiss: () -> Unit,
+    firstFocusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    val palette = PlumTheme.palette
+    val panelShape = RoundedCornerShape(16.dp)
+    Box(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.75f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .widthIn(max = 440.dp)
+                    .fillMaxWidth(0.85f)
+                    .fillMaxHeight(0.85f)
+                    .clip(panelShape)
+                    .background(palette.panel)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            Text(
+                text = "Subtitle appearance",
+                style = PlumTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = "Size",
+                    style = PlumTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SubtitleSize.entries.forEachIndexed { index, size ->
+                        val label =
+                            when (size) {
+                                SubtitleSize.SMALL -> "Small"
+                                SubtitleSize.MEDIUM -> "Medium"
+                                SubtitleSize.LARGE -> "Large"
+                            }
+                        SubtitleChoiceChip(
+                            text = label,
+                            selected = appearance.size == size,
+                            onClick = { onAppearanceChange(appearance.copy(size = size)) },
+                            modifier =
+                                if (index == 0) {
+                                    Modifier
+                                        .weight(1f)
+                                        .focusRequester(firstFocusRequester)
+                                } else {
+                                    Modifier.weight(1f)
+                                },
+                        )
+                    }
+                }
+                Text(
+                    text = "Position",
+                    style = PlumTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(SubtitlePosition.BOTTOM, SubtitlePosition.TOP).forEach { position ->
+                        val label =
+                            when (position) {
+                                SubtitlePosition.BOTTOM -> "Bottom"
+                                SubtitlePosition.TOP -> "Top"
+                            }
+                        SubtitleChoiceChip(
+                            text = label,
+                            selected = appearance.position == position,
+                            onClick = { onAppearanceChange(appearance.copy(position = position)) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Text(
+                    text = "Color",
+                    style = PlumTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    subtitleColorPresets.forEach { preset ->
+                        SubtitleColorDot(
+                            preset = preset,
+                            selected = subtitleColorsEqual(appearance.colorHex, preset.hex),
+                            onClick = {
+                                onAppearanceChange(appearance.copy(colorHex = preset.hex))
+                            },
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
+                colors =
+                    ClickableSurfaceDefaults.colors(
+                        containerColor = Color.White.copy(alpha = 0.08f),
+                        contentColor = Color.White.copy(alpha = 0.85f),
+                        focusedContainerColor = Color.White.copy(alpha = 0.16f),
+                        focusedContentColor = Color.White,
+                        pressedContainerColor = Color.White.copy(alpha = 0.16f),
+                        pressedContentColor = Color.White,
+                    ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                border =
+                    ClickableSurfaceDefaults.border(
+                        border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(10.dp)),
+                        focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
+                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
+                    ),
+                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 9.dp, horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Done",
+                        style = PlumTheme.typography.labelMedium,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubtitleChoiceChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = PlumTheme.palette
+    val shape = RoundedCornerShape(10.dp)
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors =
+            ClickableSurfaceDefaults.colors(
+                containerColor =
+                    if (selected) {
+                        Color.White.copy(alpha = 0.14f)
+                    } else {
+                        Color.White.copy(alpha = 0.06f)
+                    },
+                contentColor = Color.White,
+                focusedContainerColor = Color.White.copy(alpha = 0.18f),
+                focusedContentColor = Color.White,
+                pressedContainerColor = Color.White.copy(alpha = 0.18f),
+                pressedContentColor = Color.White,
+            ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        border =
+            ClickableSurfaceDefaults.border(
+                border =
+                    plumBorder(
+                        if (selected) {
+                            palette.accent.copy(alpha = 0.75f)
+                        } else {
+                            Color.White.copy(alpha = 0.1f)
+                        },
+                        if (selected) {
+                            2.dp
+                        } else {
+                            1.dp
+                        },
+                        shape,
+                    ),
+                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
+            ),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp, horizontal = 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                style = PlumTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SubtitleColorDot(
+    preset: SubtitleColorPreset,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = PlumTheme.palette
+    val fill =
+        runCatching { Color(AndroidGraphicsColor.parseColor(preset.hex)) }
+            .getOrElse { Color.White }
+    val shape = CircleShape
+    val edge =
+        if (preset.hex.equals("#ffffff", ignoreCase = true)) {
+            Color.Black.copy(alpha = 0.4f)
+        } else {
+            Color.White.copy(alpha = 0.22f)
+        }
+    Surface(
+        onClick = onClick,
+        modifier =
+            Modifier
+                .size(44.dp)
+                .semantics { contentDescription = "Subtitle color ${preset.label}" },
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors =
+            ClickableSurfaceDefaults.colors(
+                containerColor = fill,
+                contentColor = Color.White,
+                focusedContainerColor = fill,
+                focusedContentColor = Color.White,
+                pressedContainerColor = fill,
+                pressedContentColor = Color.White,
+            ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        border =
+            ClickableSurfaceDefaults.border(
+                border =
+                    plumBorder(
+                        if (selected) {
+                            palette.accent
+                        } else {
+                            edge
+                        },
+                        if (selected) {
+                            2.5.dp
+                        } else {
+                            1.dp
+                        },
+                        shape,
+                    ),
+                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.95f), 2.5.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.95f), 2.5.dp, shape),
+            ),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+    ) {
+        Box(modifier = Modifier.fillMaxSize())
+    }
+}
+
 // ── Seek bar ─────────────────────────────────────────────────────────────────
 
 private fun controlUpToSeekBar(durationMs: Long, seekBarFocusRequester: FocusRequester): Modifier =
@@ -1106,19 +1459,45 @@ private fun subtitleContentDescription(value: String?): String =
     else "Change subtitles"
 
 @OptIn(UnstableApi::class)
-private fun PlayerView.configurePlumSubtitleOverlay() {
+private fun PlayerView.applyPlumSubtitleAppearance(appearance: SubtitleAppearance) {
     subtitleView?.apply {
+        val fg =
+            runCatching { AndroidGraphicsColor.parseColor(appearance.colorHex) }
+                .getOrElse { AndroidGraphicsColor.WHITE }
         setStyle(
             CaptionStyleCompat(
-                android.graphics.Color.WHITE,
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT,
+                fg,
+                AndroidGraphicsColor.TRANSPARENT,
+                AndroidGraphicsColor.TRANSPARENT,
                 CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
-                android.graphics.Color.BLACK,
+                AndroidGraphicsColor.BLACK,
                 null,
             ),
         )
         setApplyEmbeddedStyles(false)
+        setApplyEmbeddedFontSizes(false)
+        val sp =
+            when (appearance.size) {
+                SubtitleSize.SMALL -> 26f
+                SubtitleSize.MEDIUM -> 34f
+                SubtitleSize.LARGE -> 42f
+            }
+        setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
+        setBottomPaddingFraction(
+            when (appearance.position) {
+                SubtitlePosition.BOTTOM -> 0.12f
+                SubtitlePosition.TOP -> 0.04f
+            },
+        )
+        updateLayoutParams<FrameLayout.LayoutParams> {
+            gravity =
+                when (appearance.position) {
+                    SubtitlePosition.TOP ->
+                        Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                    SubtitlePosition.BOTTOM ->
+                        Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                }
+        }
     }
 }
 

@@ -1728,6 +1728,7 @@ func ListIdentifiableByLibrary(db *sql.DB, libraryID int) ([]IdentificationRow, 
 	if table == "tv_episodes" || table == "anime_episodes" {
 		q = `SELECT m.id, m.title, m.path, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.match_status, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, '') FROM ` + table + ` m
 WHERE m.library_id = ?
+  AND COALESCE(m.missing_since, '') = ''
   AND COALESCE(m.metadata_confirmed, 0) = 0
   AND (
     COALESCE(m.match_status, '') != ? OR
@@ -1741,6 +1742,7 @@ WHERE m.library_id = ?
 	} else {
 		q = `SELECT m.id, m.title, m.path, COALESCE(m.match_status, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, '') FROM ` + table + ` m
 WHERE m.library_id = ?
+  AND COALESCE(m.missing_since, '') = ''
   AND (
     COALESCE(m.match_status, '') != ? OR
     COALESCE(m.tmdb_id, 0) = 0 OR
@@ -1779,6 +1781,97 @@ WHERE m.library_id = ?
 	return out, rows.Err()
 }
 
+// UnidentifiedLibrarySummary is a non-music library that has at least one row still needing
+// provider identification (aligns with HTTP identify "tracked" rows, not refresh-only repairs).
+type UnidentifiedLibrarySummary struct {
+	LibraryID int    `json:"library_id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Count     int    `json:"count"`
+}
+
+func identificationRowNeedsProviderAttention(matchStatus string, tmdbID int, tvdbID string) bool {
+	if matchStatus != MatchStatusIdentified {
+		return true
+	}
+	return !(tmdbID > 0 || strings.TrimSpace(tvdbID) != "")
+}
+
+// CountTrackedUnidentifiedByLibrary counts rows that still need a provider match or are not
+// marked identified. Music libraries always return 0.
+func CountTrackedUnidentifiedByLibrary(db *sql.DB, libraryID int) (int, error) {
+	var typ string
+	if err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	table := mediaTableForKind(typ)
+	if table == "music_tracks" {
+		return 0, nil
+	}
+	if table == "tv_episodes" || table == "anime_episodes" {
+		rows, err := ListEpisodeIdentifyRowsByLibrary(db, libraryID)
+		if err != nil {
+			return 0, err
+		}
+		n := 0
+		for _, row := range rows {
+			if identificationRowNeedsProviderAttention(row.MatchStatus, row.TMDBID, row.TVDBID) {
+				n++
+			}
+		}
+		return n, nil
+	}
+	rows, err := ListIdentifiableByLibrary(db, libraryID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, row := range rows {
+		if identificationRowNeedsProviderAttention(row.MatchStatus, row.TMDBID, row.TVDBID) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ListUnidentifiedLibrarySummariesForUser returns non-music libraries with count > 0.
+func ListUnidentifiedLibrarySummariesForUser(db *sql.DB, userID int) ([]UnidentifiedLibrarySummary, error) {
+	rows, err := db.Query(
+		`SELECT id, name, type FROM libraries WHERE user_id = ? AND type != ? ORDER BY id`,
+		userID, LibraryTypeMusic,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []UnidentifiedLibrarySummary
+	for rows.Next() {
+		var id int
+		var name, typ string
+		if err := rows.Scan(&id, &name, &typ); err != nil {
+			return nil, err
+		}
+		n, err := CountTrackedUnidentifiedByLibrary(db, id)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			continue
+		}
+		out = append(out, UnidentifiedLibrarySummary{
+			LibraryID: id,
+			Name:      name,
+			Type:      typ,
+			Count:     n,
+		})
+	}
+	return out, rows.Err()
+}
+
 func ListEpisodeIdentifyRowsByLibrary(db *sql.DB, libraryID int) ([]EpisodeIdentifyRow, error) {
 	var typ string
 	if err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ); err != nil {
@@ -1796,6 +1889,7 @@ func ListEpisodeIdentifyRowsByLibrary(db *sql.DB, libraryID int) ([]EpisodeIdent
 	rows, err := db.Query(`SELECT m.id, m.title, m.path, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.match_status, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, '')
 FROM `+table+` m
 WHERE m.library_id = ?
+  AND COALESCE(m.missing_since, '') = ''
   AND COALESCE(m.metadata_confirmed, 0) = 0
   AND (
     COALESCE(m.match_status, '') != ? OR

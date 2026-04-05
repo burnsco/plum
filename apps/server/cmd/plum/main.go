@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -20,6 +19,7 @@ import (
 
 	"plum/internal/arr"
 	"plum/internal/db"
+	"plum/internal/dotenv"
 	httpapi "plum/internal/http"
 	"plum/internal/metadata"
 	"plum/internal/transcoder"
@@ -27,7 +27,7 @@ import (
 )
 
 func main() {
-	envLoaded := loadDotEnv()
+	envLoaded := dotenv.LoadIntoOSEnv()
 
 	addr := getEnv("PLUM_ADDR", ":8080")
 	conn := getEnv("PLUM_DATABASE_URL", getEnv("PLUM_DB_PATH", "./data/plum.db"))
@@ -156,50 +156,6 @@ func getEnv(key, def string) string {
 	return def
 }
 
-func loadDotEnv() bool {
-	loaded := false
-	candidates := []string{".env", "../.env"}
-	for _, path := range candidates {
-		file, err := os.Open(path)
-		if err != nil {
-			continue
-		}
-		loaded = true
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			if strings.HasPrefix(line, "export ") {
-				line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-			}
-			key, value, ok := strings.Cut(line, "=")
-			if !ok {
-				continue
-			}
-			key = strings.TrimSpace(key)
-			value = strings.TrimSpace(value)
-			if key == "" {
-				continue
-			}
-			if _, exists := os.LookupEnv(key); exists {
-				continue
-			}
-			if len(value) >= 2 {
-				if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
-					(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
-					value = value[1 : len(value)-1]
-				}
-			}
-			_ = os.Setenv(key, value)
-		}
-		_ = file.Close()
-	}
-	return loaded
-}
-
 type startupConfig struct {
 	Component  string           `json:"component"`
 	Event      string           `json:"event"`
@@ -268,6 +224,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
 	metadataArtworkSettingsHandler := &httpapi.MetadataArtworkSettingsHandler{DB: sqlDB, Artwork: pipeline}
 	mediaStackSettingsHandler := &httpapi.MediaStackSettingsHandler{DB: sqlDB, Arr: mediaStack}
+	serverEnvSettingsHandler := &httpapi.ServerEnvSettingsHandler{Pipeline: pipeline}
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -294,14 +251,18 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 			admin.Get("/api/settings/media-stack", mediaStackSettingsHandler.Get)
 			admin.Put("/api/settings/media-stack", mediaStackSettingsHandler.Put)
 			admin.Post("/api/settings/media-stack/validate", mediaStackSettingsHandler.Validate)
+			admin.Get("/api/settings/server-env", serverEnvSettingsHandler.Get)
+			admin.Put("/api/settings/server-env", serverEnvSettingsHandler.Put)
 		})
 
 		protected.Post("/api/auth/quick-connect", authHandler.CreateQuickConnectCode)
 		protected.Post("/api/libraries", libHandler.CreateLibrary)
 		protected.Get("/api/libraries", libHandler.ListLibraries)
+		protected.Get("/api/libraries/unidentified-summary", libHandler.ListUnidentifiedLibrarySummaries)
 		protected.Put("/api/libraries/{id}/playback-preferences", libHandler.UpdateLibraryPlaybackPreferences)
 		protected.Get("/api/home", libHandler.GetHomeDashboard)
 		protected.Get("/api/downloads", libHandler.GetDownloads)
+		protected.Post("/api/downloads/remove", libHandler.RemoveDownload)
 		protected.Get("/api/discover", libHandler.GetDiscover)
 		protected.Get("/api/discover/genres", libHandler.GetDiscoverGenres)
 		protected.Get("/api/discover/browse", libHandler.BrowseDiscover)

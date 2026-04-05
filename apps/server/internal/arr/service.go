@@ -512,6 +512,49 @@ func (s *Service) postJSON(ctx context.Context, settings db.MediaStackServiceSet
 	return s.doJSON(ctx, http.MethodPost, settings, path, body, out)
 }
 
+func (s *Service) deleteJSON(ctx context.Context, settings db.MediaStackServiceSettings, path string) error {
+	return s.doJSON(ctx, http.MethodDelete, settings, path, nil, nil)
+}
+
+// RemoveQueueItem deletes a Radarr or Sonarr queue record. compoundID is "radarr:<queueId>" or "sonarr-tv:<queueId>".
+func (s *Service) RemoveQueueItem(ctx context.Context, settings db.MediaStackSettings, compoundID string) error {
+	if s == nil {
+		return errors.New("arr service unavailable")
+	}
+	settings = db.NormalizeMediaStackSettings(settings)
+	parts := strings.SplitN(strings.TrimSpace(compoundID), ":", 2)
+	if len(parts) != 2 {
+		return errors.New("invalid download id")
+	}
+	source := metadata.MediaStackServiceKind(parts[0])
+	queueID, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil || queueID <= 0 {
+		return errors.New("invalid download id")
+	}
+	var svc db.MediaStackServiceSettings
+	switch source {
+	case metadata.MediaStackServiceRadarr:
+		if !IsConfigured(settings.Radarr) {
+			return errors.New("radarr is not configured")
+		}
+		svc = settings.Radarr
+	case metadata.MediaStackServiceSonarrTV:
+		if !IsConfigured(settings.SonarrTV) {
+			return errors.New("sonarr-tv is not configured")
+		}
+		svc = settings.SonarrTV
+	default:
+		return errors.New("unknown download source")
+	}
+	svc = normalizeServiceSettings(svc)
+	q := url.Values{}
+	q.Set("removeFromClient", "false")
+	q.Set("blocklist", "false")
+	q.Set("skipRedownload", "true")
+	path := fmt.Sprintf("/api/v3/queue/%d?%s", queueID, q.Encode())
+	return s.deleteJSON(ctx, svc, path)
+}
+
 func (s *Service) doJSON(
 	ctx context.Context,
 	method string,

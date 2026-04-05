@@ -139,3 +139,20 @@ func readEnvBool(getEnv func(string) string, key string) (bool, bool) {
 	}
 	return parsed, true
 }
+
+// MediaStackSettingsEnvPairs maps saved media stack settings to .env assignments for Radarr and Sonarr TV.
+func MediaStackSettingsEnvPairs(settings MediaStackSettings) map[string]string {
+	settings = NormalizeMediaStackSettings(settings)
+	return map[string]string{
+		envRadarrBaseURL:            settings.Radarr.BaseURL,
+		envRadarrAPIKey:             settings.Radarr.APIKey,
+		envRadarrQualityProfileID:   strconv.Itoa(settings.Radarr.QualityProfileID),
+		envRadarrRootFolderPath:     settings.Radarr.RootFolderPath,
+		envRadarrSearchOnAdd:        strconv.FormatBool(settings.Radarr.SearchOnAdd),
+		envSonarrTVBaseURL:          settings.SonarrTV.BaseURL,
+		envSonarrTVAPIKey:           settings.SonarrTV.APIKey,
+		envSonarrTVQualityProfileID: strconv.Itoa(settings.SonarrTV.QualityProfileID),
+		envSonarrTVRootFolderPath:   settings.SonarrTV.RootFolderPath,
+		envSonarrTVSearchOnAdd:      strconv.FormatBool(settings.SonarrTV.SearchOnAdd),
+	}
+}
