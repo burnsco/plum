@@ -219,8 +219,8 @@ func TestQuickConnect_CreateAndRedeem(t *testing.T) {
 	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create response: %v", err)
 	}
-	if len(created.Code) != 4 {
-		t.Fatalf("expected 4-digit code, got %q", created.Code)
+	if len(created.Code) != 6 {
+		t.Fatalf("expected 6-character code, got %q", created.Code)
 	}
 
 	redeemReq := httptest.NewRequest(http.MethodPost, "/api/auth/quick-connect/redeem", strings.NewReader(`{"code":"`+created.Code+`"}`))

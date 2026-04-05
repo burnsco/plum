@@ -11,6 +11,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.data.SessionRepository
+import java.util.Locale
 import javax.inject.Inject
 
 enum class StartupState {
@@ -111,13 +112,14 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    /** Redeem a 4-digit code created in the web app (Settings → Quick connect). */
+    /** Redeem a 6-character code created in the web app (Settings → Quick connect). */
     fun redeemQuickConnect(code: String, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
-            val normalized = code.filter { it.isDigit() }.take(4)
+            val normalized =
+                code.uppercase(Locale.US).filter { it.isDigit() || it in 'A'..'Z' }.take(6)
             val result =
-                if (normalized.length != 4) {
-                    Result.failure(Exception("Enter the 4-digit code from the web app."))
+                if (normalized.length != 6) {
+                    Result.failure(Exception("Enter the 6-character code from the web app."))
                 } else {
                     withTimeoutOrNull(35_000) {
                         sessionRepository.redeemQuickConnect(normalized)

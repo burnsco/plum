@@ -106,6 +106,22 @@ func TestCORSMiddleware_ReflectsOnlyAllowedOrigins(t *testing.T) {
 	}
 }
 
+func TestCORSMiddleware_BlocksMutatingRequestsWithDisallowedOrigin(t *testing.T) {
+	middleware := CORSMiddleware(AllowedOriginsFromEnv("http://allowed.example"))
+	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("handler should not run")
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{}`))
+	req.Header.Set("Origin", "http://blocked.example")
+	rec := httptest.NewRecorder()
+	next.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for blocked origin on POST, got %d", rec.Code)
+	}
+}
+
 func TestRequestBodyLimitMiddleware_RejectsOversizedRequests(t *testing.T) {
 	middleware := RequestBodyLimitMiddleware(8)
 	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -170,7 +186,7 @@ func TestAuthMiddleware_BearerTokenSetsUserAndSessionContext(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_BearerTokenWorksWhenCookieIsStale(t *testing.T) {
+func TestAuthMiddleware_StaleCookieDoesNotFallbackToBearer(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -181,15 +197,8 @@ func TestAuthMiddleware_BearerTokenWorksWhenCookieIsStale(t *testing.T) {
 
 	middleware := AuthMiddleware(dbConn)
 	next := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u := UserFromContext(r.Context())
-		if u == nil || u.Email != "user@example.com" {
-			t.Fatalf("unexpected user: %+v", u)
-		}
-		if SessionIDFromContext(r.Context()) != sessionID {
-			t.Fatalf("session id in context = %q want %q", SessionIDFromContext(r.Context()), sessionID)
-		}
-		if !AuthViaBearerFromContext(r.Context()) {
-			t.Fatal("expected AuthViaBearerFromContext true")
+		if UserFromContext(r.Context()) != nil {
+			t.Fatalf("expected no authenticated user when cookie invalid even with bearer")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))

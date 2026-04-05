@@ -438,8 +438,7 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload createLibraryRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if payload.Name == "" || payload.Path == "" || payload.Type == "" {
@@ -692,8 +691,7 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 
 	idStr := chi.URLParam(r, "id")
 	var payload updateLibraryPlaybackPreferencesRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 
@@ -3273,8 +3271,7 @@ func (h *LibraryHandler) UpdateMediaProgress(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var payload updateMediaProgressRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if err := db.UpsertPlaybackProgress(h.DB, u.ID, mediaID, payload.PositionSeconds, payload.DurationSeconds, payload.Completed); err != nil {
@@ -3437,8 +3434,7 @@ func (h *LibraryHandler) IdentifyMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload identifyMovieRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	payload.Provider = strings.ToLower(strings.TrimSpace(payload.Provider))
@@ -3776,8 +3772,7 @@ func (h *LibraryHandler) RefreshShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload refreshShowRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if payload.ShowKey == "" {
@@ -3824,8 +3819,7 @@ func (h *LibraryHandler) IdentifyShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload identifyShowRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	payload.ShowKey = strings.TrimSpace(payload.ShowKey)
@@ -3878,8 +3872,7 @@ func (h *LibraryHandler) ConfirmShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload confirmShowRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	if payload.ShowKey == "" {

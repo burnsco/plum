@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -22,13 +22,13 @@ func (e *StatusError) Error() string {
 func HandleListMediaForUser(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, userID int) {
 	items, err := GetAllMediaForUser(dbConn, userID)
 	if err != nil {
-		log.Printf("list media: %v", err)
+		slog.Error("list media", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(items); err != nil {
-		log.Printf("encode media: %v", err)
+		slog.Error("encode media", "error", err)
 	}
 }
 

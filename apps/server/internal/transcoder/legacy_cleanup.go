@@ -19,6 +19,10 @@ func CleanupLegacyTranscodes(root string) error {
 	return nil
 }
 
+// SessionDirCleanupMinAgeAny is the maxAge value that removes every directory under root (ignores
+// mtime). Only safe at startup before live sessions use that root.
+const SessionDirCleanupMinAgeAny = time.Duration(0)
+
 // CleanupOrphanedSessionDirs removes session temp directories that are older
 // than maxAge. It is safe to call at startup before any sessions exist, in
 // which case all directories in root are removed regardless of age.

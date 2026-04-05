@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -52,6 +52,7 @@ func ServeWebSocket(hub *ws.Hub, sessions *transcoder.PlaybackSessionManager, al
 				handlePlaybackSessionCommand(sessions, client, payload)
 			},
 		}); err != nil {
+			// Upgrade may have failed after writing the HTTP error response; do not log as handler error.
 			return
 		}
 	}
@@ -63,14 +64,13 @@ func logWebSocketHandshakeRejected(r *http.Request, reason string, userID int) {
 		return
 	}
 
-	log.Printf(
-		"ws handshake rejected reason=%s origin=%q remote=%q host=%q user_id=%d session_auth=%t",
-		reason,
-		strings.TrimSpace(r.Header.Get("Origin")),
-		clientIP(r),
-		strings.TrimSpace(r.Host),
-		userID,
-		hasSessionAuth,
+	slog.Info("ws handshake rejected",
+		"reason", reason,
+		"origin", strings.TrimSpace(r.Header.Get("Origin")),
+		"remote_ip", clientIP(r),
+		"host", strings.TrimSpace(r.Host),
+		"user_id", userID,
+		"session_auth", hasSessionAuth,
 	)
 }
 
@@ -87,7 +87,7 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 	case "attach_playback_session":
 		state, err := sessions.Attach(command.SessionID, client.User().ID, client.ID())
 		if err != nil {
-			log.Printf("attach playback session session=%s client=%s user=%d error=%v", command.SessionID, client.ID(), client.User().ID, err)
+			slog.Debug("attach playback session failed", "session_id", command.SessionID, "client_id", client.ID(), "user_id", client.User().ID, "error", err)
 			return
 		}
 		if state != nil {
@@ -117,20 +117,19 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 			}
 			payload, marshalErr := json.Marshal(msg)
 			if marshalErr != nil {
-				log.Printf("attach playback session marshal replay session=%s client=%s user=%d error=%v", command.SessionID, client.ID(), client.User().ID, marshalErr)
+				slog.Debug("attach playback session marshal failed", "session_id", command.SessionID, "client_id", client.ID(), "user_id", client.User().ID, "error", marshalErr)
 				return
 			}
 			if !client.Send(payload) {
-				log.Printf("attach playback session replay dropped session=%s client=%s user=%d", command.SessionID, client.ID(), client.User().ID)
+				slog.Debug("attach playback session replay dropped", "session_id", command.SessionID, "client_id", client.ID(), "user_id", client.User().ID)
 				return
 			}
-			log.Printf(
-				"attach playback session replay session=%s client=%s user=%d status=%s revision=%d",
-				command.SessionID,
-				client.ID(),
-				client.User().ID,
-				state.Status,
-				state.Revision,
+			slog.Debug("attach playback session replay",
+				"session_id", command.SessionID,
+				"client_id", client.ID(),
+				"user_id", client.User().ID,
+				"status", state.Status,
+				"revision", state.Revision,
 			)
 		}
 	case "detach_playback_session":

@@ -270,8 +270,7 @@ func (h *LibraryHandler) RemoveDownload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var body removeDownloadRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &body) {
 		return
 	}
 	if strings.TrimSpace(body.ID) == "" {

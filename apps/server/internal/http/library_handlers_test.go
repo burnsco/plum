@@ -5267,7 +5267,7 @@ func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
 		t.Fatalf("insert owner: %v", err)
 	}
 	if err := dbConn.QueryRow(
-		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 0, ?) RETURNING id`,
 		"other@test.com",
 		"hash2",
 		now,
@@ -5295,7 +5295,7 @@ func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
 		nil,
 	)
 	req = req.WithContext(
-		context.WithValue(withUser(req.Context(), &db.User{ID: otherID, IsAdmin: true}), chi.RouteCtxKey, rctx),
+		context.WithValue(withUser(req.Context(), &db.User{ID: otherID, IsAdmin: false}), chi.RouteCtxKey, rctx),
 	)
 	rec := httptest.NewRecorder()
 

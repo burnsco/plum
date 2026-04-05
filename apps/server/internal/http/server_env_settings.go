@@ -145,8 +145,7 @@ func (h *ServerEnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *ServerEnvSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	var req serverEnvUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &req) {
 		return
 	}
 

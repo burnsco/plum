@@ -255,18 +255,19 @@ private fun QuickConnectRoute(
     ) {
         Text("Sign in with code")
         TvText(
-            text = "On your computer, open Plum (signed in as the account you want on this TV) → Settings → Quick connect, then generate a code. Enter the 4 digits here (server URL must already be set).",
+            text = "On your computer, open Plum (signed in as the account you want on this TV) → Settings → Quick connect, then generate a code. Enter the 6 characters here (server URL must already be set).",
             style = PlumTheme.typography.bodySmall,
             color = PlumTheme.palette.muted,
         )
         OutlinedTextField(
             value = code,
             onValueChange = { raw ->
-                code = raw.filter { it.isDigit() }.take(4)
+                code =
+                    raw.uppercase().filter { it.isDigit() || it in 'A'..'Z' }.take(6)
             },
             modifier = Modifier.focusRequester(codeFocus),
             singleLine = true,
-            label = { Text("4-digit code") },
+            label = { Text("6-character code") },
         )
         error?.let { Text(it) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

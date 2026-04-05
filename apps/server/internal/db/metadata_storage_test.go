@@ -10,9 +10,8 @@ func TestUpdateMediaMetadataWithState_UpsertsShowSeasonAndVersions(t *testing.T)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var userID int
-	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
-		"meta@example.com", "hash", 1, now).Scan(&userID); err != nil {
-		t.Fatalf("insert user: %v", err)
+	if err := dbConn.QueryRow(`SELECT id FROM users ORDER BY id LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("user id: %v", err)
 	}
 	var libraryID int
 	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
@@ -95,9 +94,8 @@ func TestUpdateMediaMetadataWithState_DoesNotMergeDifferentTMDBShowsWithSameTitl
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var userID int
-	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
-		"meta@example.com", "hash", 1, now).Scan(&userID); err != nil {
-		t.Fatalf("insert user: %v", err)
+	if err := dbConn.QueryRow(`SELECT id FROM users ORDER BY id LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("user id: %v", err)
 	}
 	var libraryID int
 	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,

@@ -3,18 +3,52 @@ package httpapi
 import (
 	"crypto/rand"
 	"database/sql"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"plum/internal/auth"
 	"plum/internal/db"
+	"plum/internal/env"
 )
+
+const (
+	quickConnectCodeLength       = 6
+	quickConnectMaxFailedGuesses = 5
+	// Alphabet avoids ambiguous 0/O and 1/I (similar to many TV pairing UIs).
+	quickConnectAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+)
+
+var quickConnectFailureCounts sync.Map // normalized code -> *quickConnectFailSlot
+
+type quickConnectFailSlot struct {
+	n atomic.Int32
+}
+
+func quickConnectRegisterFailedGuess(code string) bool {
+	v, _ := quickConnectFailureCounts.LoadOrStore(code, &quickConnectFailSlot{})
+	return v.(*quickConnectFailSlot).n.Add(1) > int32(quickConnectMaxFailedGuesses)
+}
+
+func quickConnectClearGuessFailures(code string) {
+	quickConnectFailureCounts.Delete(code)
+}
+
+func randomQuickConnectCode() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	b := make([]byte, 0, quickConnectCodeLength)
+	for i := 0; i < quickConnectCodeLength; i++ {
+		b = append(b, quickConnectAlphabet[int(raw[i])%len(quickConnectAlphabet)])
+	}
+	return string(b), nil
+}
 
 type AuthHandler struct {
 	DB      *sql.DB
@@ -35,19 +69,11 @@ type setupLibraryConfig struct {
 
 func setupLibraryDefaults() setupLibraryConfig {
 	return setupLibraryConfig{
-		TV:    envOrDefault("PLUM_MEDIA_TV_PATH", "/tv"),
-		Movie: envOrDefault("PLUM_MEDIA_MOVIES_PATH", "/movies"),
-		Anime: envOrDefault("PLUM_MEDIA_ANIME_PATH", "/anime"),
-		Music: envOrDefault("PLUM_MEDIA_MUSIC_PATH", "/music"),
+		TV:    env.String("PLUM_MEDIA_TV_PATH", "/tv"),
+		Movie: env.String("PLUM_MEDIA_MOVIES_PATH", "/movies"),
+		Anime: env.String("PLUM_MEDIA_ANIME_PATH", "/anime"),
+		Music: env.String("PLUM_MEDIA_MUSIC_PATH", "/music"),
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	return value
 }
 
 func (h *AuthHandler) SetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -86,19 +112,8 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var existing int
-	if err := h.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE is_admin = 1`).Scan(&existing); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if existing > 0 {
-		http.Error(w, "admin already exists", http.StatusConflict)
-		return
-	}
-
 	var payload adminSetupRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	email := normalizeEmail(payload.Email)
@@ -126,11 +141,22 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	err = tx.QueryRowContext(
 		r.Context(),
-		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		`INSERT INTO users (email, password_hash, is_admin, created_at)
+		 SELECT ?, ?, 1, ? WHERE NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)
+		 RETURNING id`,
 		email, pwHash, now,
 	).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		_ = tx.Rollback()
+		http.Error(w, "admin already exists", http.StatusConflict)
+		return
+	}
 	if err != nil {
 		_ = tx.Rollback()
+		if isSQLiteUniqueConstraintError(err) {
+			http.Error(w, "admin already exists", http.StatusConflict)
+			return
+		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -167,6 +193,14 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func isSQLiteUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint failed")
+}
+
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -185,8 +219,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	email := normalizeEmail(payload.Email)
@@ -200,14 +233,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, email, password_hash, is_admin, created_at FROM users WHERE email = ?`,
 		email,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
-	if err != nil {
-		time.Sleep(500 * time.Millisecond)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	hash := auth.LoginTimingMitigationHash
+	if err == nil {
+		hash = u.PasswordHash
+	}
+	if err := auth.CheckPasswordHash(payload.Password, hash); err != nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-
-	if err := auth.CheckPasswordHash(payload.Password, u.PasswordHash); err != nil {
-		time.Sleep(500 * time.Millisecond)
+	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -251,8 +289,7 @@ func (h *AuthHandler) DeviceLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	email := normalizeEmail(payload.Email)
@@ -266,14 +303,19 @@ func (h *AuthHandler) DeviceLogin(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, email, password_hash, is_admin, created_at FROM users WHERE email = ?`,
 		email,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
-	if err != nil {
-		time.Sleep(500 * time.Millisecond)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	hash := auth.LoginTimingMitigationHash
+	if err == nil {
+		hash = u.PasswordHash
+	}
+	if err := auth.CheckPasswordHash(payload.Password, hash); err != nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-
-	if err := auth.CheckPasswordHash(payload.Password, u.PasswordHash); err != nil {
-		time.Sleep(500 * time.Millisecond)
+	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -323,6 +365,18 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	sessID := SessionIDFromContext(r.Context())
+	if sessID != "" {
+		now := time.Now().UTC()
+		expires := now.Add(auth.SessionLifetime())
+		if _, err := h.DB.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, expires, sessID); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !AuthViaBearerFromContext(r.Context()) {
+			setSessionCookie(w, r, sessID, expires)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(userResponse{
 		ID:      user.ID,
@@ -336,7 +390,7 @@ type quickConnectCodeResponse struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// CreateQuickConnectCode issues a short-lived 4-digit code so a TV (or other device) can sign in as
+// CreateQuickConnectCode issues a short-lived alphanumeric code so a TV (or other device) can sign in as
 // the current user without typing a password. Requires an authenticated session (same as the web UI).
 func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
@@ -346,7 +400,7 @@ func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Requ
 	}
 
 	now := time.Now().UTC()
-	_, _ = h.DB.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Format(time.RFC3339))
+	_, _ = h.DB.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Unix())
 	if _, err := h.DB.Exec(`DELETE FROM quick_connect_codes WHERE user_id = ?`, user.ID); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -355,21 +409,18 @@ func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Requ
 	const maxTries = 32
 	const ttl = 15 * time.Minute
 	expires := now.Add(ttl)
-	expStr := expires.Format(time.RFC3339)
-	createdStr := now.Format(time.RFC3339)
 
 	var code string
 	for range maxTries {
-		var buf [2]byte
-		if _, err := rand.Read(buf[:]); err != nil {
+		var err error
+		code, err = randomQuickConnectCode()
+		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		n := binary.BigEndian.Uint16(buf[:]) % 10000
-		code = fmt.Sprintf("%04d", n)
 		res, err := h.DB.Exec(
 			`INSERT OR IGNORE INTO quick_connect_codes (code, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
-			code, user.ID, expStr, createdStr,
+			code, user.ID, expires.Unix(), now.Unix(),
 		)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -389,16 +440,17 @@ type quickConnectRedeemRequest struct {
 }
 
 func normalizeQuickConnectCode(s string) string {
+	s = strings.ToUpper(strings.TrimSpace(s))
 	var b strings.Builder
-	for _, r := range strings.TrimSpace(s) {
-		if r >= '0' && r <= '9' {
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') {
 			b.WriteRune(r)
-			if b.Len() >= 4 {
+			if b.Len() >= quickConnectCodeLength {
 				break
 			}
 		}
 	}
-	if b.Len() < 4 {
+	if b.Len() < quickConnectCodeLength {
 		return ""
 	}
 	return b.String()
@@ -412,8 +464,7 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	var payload quickConnectRedeemRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	code := normalizeQuickConnectCode(payload.Code)
@@ -430,16 +481,20 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC()
-	_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Format(time.RFC3339))
+	_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Unix())
 
 	var userID int
-	var expStr string
+	var expUnix int64
 	err = tx.QueryRow(
 		`SELECT user_id, expires_at FROM quick_connect_codes WHERE code = ?`,
 		code,
-	).Scan(&userID, &expStr)
+	).Scan(&userID, &expUnix)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if quickConnectRegisterFailedGuess(code) {
+				http.Error(w, "too many invalid attempts for this code", http.StatusTooManyRequests)
+				return
+			}
 			time.Sleep(300 * time.Millisecond)
 			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
 			return
@@ -447,8 +502,8 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	expiresAt, perr := time.Parse(time.RFC3339, expStr)
-	if perr != nil || now.After(expiresAt) {
+	quickConnectClearGuessFailures(code)
+	if expUnix <= 0 || now.Unix() > expUnix {
 		_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE code = ?`, code)
 		_ = tx.Commit()
 		time.Sleep(300 * time.Millisecond)

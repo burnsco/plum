@@ -139,7 +139,7 @@ func buildHardwarePlan(itemPath, outPath string, settings db.TranscodingSettings
 		args = appendFFmpegInput(args, itemPath)
 		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, false)
 		if prefix != "" {
-			args = append(args, "-vf", prefix+"format="+uploadFormat+",hwupload")
+			args = append(args, "-vf", prefix+"scale_vaapi=format="+uploadFormat)
 		} else {
 			args = append(args, "-vf", "format="+uploadFormat+",hwupload")
 		}
@@ -258,7 +258,7 @@ func buildHardwareHLSPlan(itemPath, outDir string, settings db.TranscodingSettin
 		args = appendFFmpegInput(args, itemPath)
 		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, false)
 		if prefix != "" {
-			args = append(args, "-vf", prefix+"format="+uploadFormat+",hwupload")
+			args = append(args, "-vf", prefix+"scale_vaapi=format="+uploadFormat)
 		} else {
 			args = append(args, "-vf", "format="+uploadFormat+",hwupload")
 		}

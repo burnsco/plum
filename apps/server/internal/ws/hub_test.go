@@ -19,10 +19,11 @@ func TestHubBroadcastToUser(t *testing.T) {
 		<-done
 	})
 
-	userOne := &Client{id: "user-one", user: &db.User{ID: 1}, send: make(chan []byte, 1)}
-	userTwo := &Client{id: "user-two", user: &db.User{ID: 2}, send: make(chan []byte, 1)}
-	hub.Register(userOne)
-	hub.Register(userTwo)
+	userOne := &Client{id: "user-one", user: &db.User{ID: 1}, send: make(chan []byte, 1), done: make(chan struct{})}
+	userTwo := &Client{id: "user-two", user: &db.User{ID: 2}, send: make(chan []byte, 1), done: make(chan struct{})}
+	if !hub.Register(userOne) || !hub.Register(userTwo) {
+		t.Fatal("register client")
+	}
 
 	hub.BroadcastToUser(2, []byte("scan-update"))
 
