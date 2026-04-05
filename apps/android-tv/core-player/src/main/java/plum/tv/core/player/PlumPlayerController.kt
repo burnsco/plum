@@ -385,6 +385,17 @@ class PlumPlayerController(
     @Volatile
     private var preferNonCea608TextAfterLoad: Boolean = false
 
+    /**
+     * After [pauseWhenBackgrounded] runs [Player.stop], we must [Player.prepare] on return so the
+     * same ExoPlayer instance works again. Avoids calling [prepare] on cold start (never stopped).
+     */
+    @Volatile
+    private var playbackReleasedForBackground: Boolean = false
+
+    /** Whether to auto-play after [resumeWhenForegrounded]; captured before [Player.stop]. */
+    @Volatile
+    private var resumePlaybackAfterForeground: Boolean = false
+
     /** Filled when movie playback has no episode queue but we can resolve title from the API. */
     @Volatile
     private var fetchedStandaloneTitle: String? = null
@@ -1797,17 +1808,46 @@ class PlumPlayerController(
      * Called when the activity is no longer visible (Home, recents, another app). Stops audio/video
      * and tears down transient UI so returning to the app does not surprise the user.
      *
-     * Releases the video surface so hardware decoders are not left reserved for Plum when the user
-     * switches to live TV or another full-screen video app on the same device.
+     * [Player.stop] releases loaded media and decoder/audio resources while keeping the playlist
+     * and position (unlike [close] / [ExoPlayer.release]). That matters on Android TV boxes where
+     * pausing alone can leave hardware decoders or the HDMI path reserved and break live TV until a
+     * reboot. [resumeWhenForegrounded] runs [Player.prepare] when the user returns.
      */
     fun pauseWhenBackgrounded() {
         scope.launch(Dispatchers.Main) {
             if (controllerClosed.get()) return@launch
             clearUpNextCountdown()
             dismissTrackPicker()
-            player.pause()
-            player.playWhenReady = false
+            if (player.playbackState == Player.STATE_IDLE) {
+                refreshUiState()
+                return@launch
+            }
+            val wantResumeAfterForeground =
+                player.playWhenReady && player.playbackState != Player.STATE_ENDED
             runCatching { player.clearVideoSurface() }
+            if (player.isCommandAvailable(Player.COMMAND_STOP)) {
+                resumePlaybackAfterForeground = wantResumeAfterForeground
+                player.stop()
+                playbackReleasedForBackground = true
+            } else {
+                player.pause()
+                player.playWhenReady = false
+            }
+            refreshUiState()
+        }
+    }
+
+    /** Pair with [pauseWhenBackgrounded] after [Player.stop] so playback can continue when visible again. */
+    fun resumeWhenForegrounded() {
+        scope.launch(Dispatchers.Main) {
+            if (controllerClosed.get()) return@launch
+            if (!playbackReleasedForBackground) return@launch
+            playbackReleasedForBackground = false
+            if (player.isCommandAvailable(Player.COMMAND_PREPARE)) {
+                player.prepare()
+                player.playWhenReady = resumePlaybackAfterForeground
+            }
+            resumePlaybackAfterForeground = false
             refreshUiState()
         }
     }
