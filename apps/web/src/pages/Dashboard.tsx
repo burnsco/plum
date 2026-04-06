@@ -1,7 +1,7 @@
 import type { HomeDashboard, RecentlyAddedEntry } from "@/api";
 import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayerQueue } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
 import { getPreferredMovieRating, getPreferredShowRatingFromBrowseEpisode } from "@/lib/ratings";
 import { useHomeDashboard } from "@/queries";
@@ -172,7 +172,7 @@ const RECENT_RAILS: RecentRailConfig[] = [
 
 export function Dashboard() {
   const { data, error, isLoading, refetch } = useHomeDashboard();
-  const { playEpisode, playMovie } = usePlayer();
+  const { playEpisode, playMovie } = usePlayerQueue();
 
   const continueWatchingCards: PosterGridItem[] =
     data?.continueWatching.map((entry) =>

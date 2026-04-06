@@ -4,7 +4,7 @@ import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@pl
 import { BASE_URL, type MediaItem } from "@/api";
 import { PosterPickerDialog } from "@/components/PosterPickerDialog";
 import { RatingBadge } from "@/components/RatingBadge";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayerQueue } from "@/contexts/PlayerContext";
 import { useMovieDetails } from "@/queries";
 
 function formatRuntime(minutes?: number): string {
@@ -24,7 +24,7 @@ export function MovieDetail() {
   const libraryId = libraryIdParam ? Number(libraryIdParam) : null;
   const mediaId = mediaIdParam ? Number(mediaIdParam) : null;
   const { data: details, isLoading, error } = useMovieDetails(libraryId, mediaId);
-  const { playMovie } = usePlayer();
+  const { playMovie } = usePlayerQueue();
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
 
   if (libraryId == null || mediaId == null) {

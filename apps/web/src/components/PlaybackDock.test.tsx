@@ -39,6 +39,9 @@ const { mockHlsInstances } = vi.hoisted(() => ({
 
 vi.mock("../contexts/PlayerContext", () => ({
   usePlayer: () => mockUsePlayer(),
+  usePlayerSession: () => mockUsePlayer(),
+  usePlayerQueue: () => mockUsePlayer(),
+  usePlayerTransport: () => mockUsePlayer(),
 }));
 
 vi.mock("hls.js", () => ({

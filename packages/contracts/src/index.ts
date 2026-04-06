@@ -1798,6 +1798,13 @@ export interface PongEvent {
   type: "pong";
 }
 
+/**
+ * Interval (milliseconds) at which video clients SHOULD persist in-session playback progress
+ * (e.g. `UpdateMediaProgressPayload.progress_seconds`) so resume points stay aligned when
+ * switching devices. Web `PlaybackDock` and Android `PlumPlayerController` must match this value.
+ */
+export const PLAYBACK_PROGRESS_HEARTBEAT_MS = 10_000;
+
 export interface AttachPlaybackSessionCommand {
   action: "attach_playback_session";
   sessionId: string;
@@ -1808,6 +1815,11 @@ export interface DetachPlaybackSessionCommand {
   sessionId: string;
 }
 
+/**
+ * WebSocket `playback_session_update` payload. Must match Go
+ * `transcoder.PlaybackSessionState.MarshalWSPayload` and Android
+ * `PlaybackSessionUpdateEventJson`.
+ */
 export interface PlaybackSessionUpdateEvent {
   type: "playback_session_update";
   sessionId: string;

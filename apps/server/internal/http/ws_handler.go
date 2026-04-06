@@ -74,12 +74,25 @@ func logWebSocketHandshakeRejected(r *http.Request, reason string, userID int) {
 	)
 }
 
+func truncatePayload(b []byte, max int) string {
+	if len(b) <= max {
+		return string(b)
+	}
+	return string(b[:max]) + "…"
+}
+
 func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, client *ws.Client, payload []byte) {
 	var command struct {
 		Action    string `json:"action"`
 		SessionID string `json:"sessionId"`
 	}
 	if err := json.Unmarshal(payload, &command); err != nil {
+		slog.Warn("ws command unmarshal failed",
+			"client_id", client.ID(),
+			"user_id", client.User().ID,
+			"error", err,
+			"payload_preview", truncatePayload(payload, 200),
+		)
 		return
 	}
 
@@ -91,31 +104,7 @@ func handlePlaybackSessionCommand(sessions *transcoder.PlaybackSessionManager, c
 			return
 		}
 		if state != nil {
-			msg := map[string]any{
-				"type":            "playback_session_update",
-				"sessionId":       state.SessionID,
-				"delivery":        state.Delivery,
-				"mediaId":         state.MediaID,
-				"revision":        state.Revision,
-				"audioIndex":      state.AudioIndex,
-				"status":          state.Status,
-				"streamUrl":       state.StreamURL,
-				"durationSeconds": state.DurationSeconds,
-				"error":           state.Error,
-			}
-			if state.IntroSkipMode != "" {
-				msg["intro_skip_mode"] = state.IntroSkipMode
-			}
-			if state.IntroStartSeconds != nil {
-				msg["intro_start_seconds"] = *state.IntroStartSeconds
-			}
-			if state.IntroEndSeconds != nil {
-				msg["intro_end_seconds"] = *state.IntroEndSeconds
-			}
-			if state.BurnEmbeddedSubtitleStreamIndex != nil {
-				msg["burnEmbeddedSubtitleStreamIndex"] = *state.BurnEmbeddedSubtitleStreamIndex
-			}
-			payload, marshalErr := json.Marshal(msg)
+			payload, marshalErr := state.MarshalWSPayload()
 			if marshalErr != nil {
 				slog.Debug("attach playback session marshal failed", "session_id", command.SessionID, "client_id", client.ID(), "user_id", client.User().ID, "error", marshalErr)
 				return

@@ -1,10 +1,12 @@
+import { Suspense, lazy } from "react";
 import { Outlet } from "react-router-dom";
 import { DownloadCompletionNotifier } from "@/components/DownloadCompletionNotifier";
 import { LibraryReadyNotifier } from "@/components/LibraryReadyNotifier";
-import { PlaybackDock } from "./PlaybackDock";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
 import { Toaster } from "./ui/sonner";
+
+const PlaybackDock = lazy(() => import("./PlaybackDock").then(m => ({ default: m.PlaybackDock })));
 
 export function MainLayout() {
   return (
@@ -21,7 +23,9 @@ export function MainLayout() {
           </section>
         </main>
       </div>
-      <PlaybackDock />
+      <Suspense fallback={null}>
+        <PlaybackDock />
+      </Suspense>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { RatingBadge } from "../components/RatingBadge";
-import { usePlayer } from "../contexts/PlayerContext";
+import { usePlayerQueue } from "../contexts/PlayerContext";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
 import { useShowDetails, useShowEpisodes } from "../queries";
@@ -29,7 +29,7 @@ export function ShowDetail() {
 
   const { data: episodesData, isLoading: loading, error } = useShowEpisodes(libraryId, showKey);
   const { data: details } = useShowDetails(libraryId, showKey);
-  const { playShowGroup } = usePlayer();
+  const { playShowGroup } = usePlayerQueue();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);

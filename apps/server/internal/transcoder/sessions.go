@@ -63,6 +63,48 @@ type PlaybackSessionState struct {
 	IntroEndSeconds                 *float64                       `json:"intro_end_seconds,omitempty"`
 }
 
+// MarshalWSPayload serialises the state fields that belong in a
+// "playback_session_update" WebSocket frame. Using this single method
+// for both the broadcast path and the attach-replay path guarantees the
+// two frames are always identical.
+//
+// The JSON shape is the contract of record alongside PlaybackSessionUpdateEventSchema in
+// @plum/contracts (packages/contracts) and Android PlaybackSessionUpdateEventJson.
+func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
+	type wsPayload struct {
+		Type                            string   `json:"type"`
+		SessionID                       string   `json:"sessionId"`
+		Delivery                        string   `json:"delivery"`
+		MediaID                         int      `json:"mediaId"`
+		Revision                        int      `json:"revision"`
+		AudioIndex                      int      `json:"audioIndex"`
+		Status                          string   `json:"status"`
+		StreamURL                       string   `json:"streamUrl"`
+		DurationSeconds                 int      `json:"durationSeconds"`
+		Error                           string   `json:"error,omitempty"`
+		BurnEmbeddedSubtitleStreamIndex *int     `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
+		IntroSkipMode                   string   `json:"intro_skip_mode,omitempty"`
+		IntroStartSeconds               *float64 `json:"intro_start_seconds,omitempty"`
+		IntroEndSeconds                 *float64 `json:"intro_end_seconds,omitempty"`
+	}
+	return json.Marshal(wsPayload{
+		Type:                            "playback_session_update",
+		SessionID:                       s.SessionID,
+		Delivery:                        s.Delivery,
+		MediaID:                         s.MediaID,
+		Revision:                        s.Revision,
+		AudioIndex:                      s.AudioIndex,
+		Status:                          s.Status,
+		StreamURL:                       s.StreamURL,
+		DurationSeconds:                 s.DurationSeconds,
+		Error:                           s.Error,
+		BurnEmbeddedSubtitleStreamIndex: s.BurnEmbeddedSubtitleStreamIndex,
+		IntroSkipMode:                   s.IntroSkipMode,
+		IntroStartSeconds:               s.IntroStartSeconds,
+		IntroEndSeconds:                 s.IntroEndSeconds,
+	})
+}
+
 type playbackRevision struct {
 	number     int
 	delivery   string
@@ -951,31 +993,7 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 	if m.hub == nil {
 		return
 	}
-	msg := map[string]any{
-		"type":            "playback_session_update",
-		"sessionId":       state.SessionID,
-		"delivery":        state.Delivery,
-		"mediaId":         state.MediaID,
-		"revision":        state.Revision,
-		"audioIndex":      state.AudioIndex,
-		"status":          state.Status,
-		"streamUrl":       state.StreamURL,
-		"durationSeconds": state.DurationSeconds,
-		"error":           state.Error,
-	}
-	if state.BurnEmbeddedSubtitleStreamIndex != nil {
-		msg["burnEmbeddedSubtitleStreamIndex"] = *state.BurnEmbeddedSubtitleStreamIndex
-	}
-	if state.IntroSkipMode != "" {
-		msg["intro_skip_mode"] = state.IntroSkipMode
-	}
-	if state.IntroStartSeconds != nil {
-		msg["intro_start_seconds"] = *state.IntroStartSeconds
-	}
-	if state.IntroEndSeconds != nil {
-		msg["intro_end_seconds"] = *state.IntroEndSeconds
-	}
-	payload, err := json.Marshal(msg)
+	payload, err := state.MarshalWSPayload()
 	if err != nil {
 		slog.Error("marshal playback session update", "error", err)
 		return

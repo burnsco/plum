@@ -13,6 +13,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
+import { PLAYBACK_PROGRESS_HEARTBEAT_MS } from "@plum/contracts";
 import {
   embeddedSubtitleAssUrl,
   embeddedSubtitleNeedsWebBurnIn,
@@ -52,7 +53,11 @@ import {
 } from "../api";
 
 const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
-import { usePlayer } from "../contexts/PlayerContext";
+import {
+  usePlayerQueue,
+  usePlayerSession,
+  usePlayerTransport,
+} from "../contexts/PlayerContext";
 import {
   getPlayerLocalSettingsSnapshot,
   isEnglishSubtitleTrackForMenu,
@@ -484,29 +489,28 @@ export function PlaybackDock() {
     activeItem,
     activeMode,
     isDockOpen,
-    queue,
-    queueIndex,
-    repeatMode,
-    volume,
-    muted,
     videoSourceUrl,
     playbackDurationSeconds,
     videoDelivery,
     videoAudioIndex,
     wsConnected,
     lastEvent,
+    dismissDock,
+    burnEmbeddedSubtitleStreamIndex,
+  } = usePlayerSession();
+  const { queue, queueIndex, repeatMode, playNextInQueue, playPreviousInQueue } =
+    usePlayerQueue();
+  const {
+    volume,
+    muted,
     registerMediaElement,
     togglePlayPause,
     seekTo,
     setMuted,
     setVolume,
-    dismissDock,
-    playNextInQueue,
-    playPreviousInQueue,
     changeAudioTrack,
-    burnEmbeddedSubtitleStreamIndex,
     changeEmbeddedSubtitleBurn,
-  } = usePlayer();
+  } = usePlayerTransport();
   const captureSubtitleResumePosition = useCallback(() => {
     const v = videoRef.current;
     if (v && Number.isFinite(v.currentTime) && v.currentTime > 0) {
@@ -1599,7 +1603,7 @@ export function PlaybackDock() {
     if (!isVideo || !activeItem) return;
     const intervalId = window.setInterval(() => {
       void persistPlaybackProgress();
-    }, 10_000);
+    }, PLAYBACK_PROGRESS_HEARTBEAT_MS);
     return () => window.clearInterval(intervalId);
   }, [activeItem, isVideo, persistPlaybackProgress]);
 

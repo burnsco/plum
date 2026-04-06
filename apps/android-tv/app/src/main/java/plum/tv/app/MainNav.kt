@@ -135,7 +135,7 @@ fun MainNavHost(
     }
 
     DisposableEffect(webSocketManager) {
-        webSocketManager.start(scope)
+        webSocketManager.start()
         onDispose { webSocketManager.stop() }
     }
 

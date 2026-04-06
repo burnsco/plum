@@ -1,21 +1,45 @@
 import { resolvePosterUrl } from "@plum/shared";
 import { Play } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BASE_URL } from "../api";
 import { LibraryMediaContextMenu } from "@/components/LibraryMediaContextMenu";
 import { RatingBadge } from "@/components/RatingBadge";
 import type { PosterGridItem } from "./types";
 
-export function MediaCard({
-  item,
-  className,
-  index = 0,
-}: {
+type MediaCardProps = {
   item: PosterGridItem;
   className?: string;
   index?: number;
-}) {
+};
+
+function arePropsEqual(prev: MediaCardProps, next: MediaCardProps): boolean {
+  const p = prev.item;
+  const n = next.item;
+  return (
+    p.key === n.key &&
+    p.title === n.title &&
+    p.subtitle === n.subtitle &&
+    p.metaLine === n.metaLine &&
+    p.posterPath === n.posterPath &&
+    p.posterUrl === n.posterUrl &&
+    p.ratingLabel === n.ratingLabel &&
+    p.ratingValue === n.ratingValue &&
+    p.progressPercent === n.progressPercent &&
+    p.cardState === n.cardState &&
+    p.statusLabel === n.statusLabel &&
+    p.statusActionLabel === n.statusActionLabel &&
+    p.statusActionDisabled === n.statusActionDisabled &&
+    p.actionLabel === n.actionLabel &&
+    p.actionDisabled === n.actionDisabled &&
+    p.actionTone === n.actionTone &&
+    p.href === n.href &&
+    prev.className === next.className &&
+    prev.index === next.index
+  );
+}
+
+function MediaCardInner({ item, className, index = 0 }: MediaCardProps) {
   const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
   const [posterErrored, setPosterErrored] = useState(false);
   const cardState = item.cardState ?? "default";
@@ -176,4 +200,5 @@ export function MediaCard({
   );
 }
 
+export const MediaCard = memo(MediaCardInner, arePropsEqual);
 export default MediaCard;

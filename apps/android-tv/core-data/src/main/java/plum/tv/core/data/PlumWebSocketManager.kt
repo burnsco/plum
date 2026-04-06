@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -48,7 +49,8 @@ class PlumWebSocketManager @Inject constructor(
     private val attachedSessionIds = linkedSetOf<String>()
 
     private var socket: WebSocket? = null
-    private var loopJob: Job? = null
+    /** Cancels the reconnect loop and all work launched under it ([start] replaces with a fresh supervisor). */
+    private var loopSupervisor: Job? = null
 
     private val _updates = MutableSharedFlow<PlaybackSessionUpdateEventJson>(
         extraBufferCapacity = 64,
@@ -56,37 +58,38 @@ class PlumWebSocketManager @Inject constructor(
     )
     val playbackSessionUpdates: SharedFlow<PlaybackSessionUpdateEventJson> = _updates.asSharedFlow()
 
-    fun start(scope: CoroutineScope) {
-        loopJob?.cancel()
-        loopJob =
-            scope.launch(Dispatchers.IO) {
-                var missingAuthBackoffMs = 1_000L
-                while (isActive) {
-                    val base =
-                        prefs.serverUrl.value?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
-                    val token = tokenBridge.bearerToken()?.takeIf { it.isNotEmpty() }
-                    if (base == null || token == null) {
-                        Log.d(TAG, "ws waiting for server URL / auth token")
-                        delay(missingAuthBackoffMs)
-                        missingAuthBackoffMs = (missingAuthBackoffMs * 3 / 2).coerceAtMost(30_000L)
-                        continue
-                    }
-                    missingAuthBackoffMs = 1_000L
-                    Log.d(TAG, "ws connect start base=$base")
-                    try {
-                        awaitSocketSession(base, token)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                    }
-                    delay(3_000)
+    fun start() {
+        stop()
+        val supervisor = SupervisorJob()
+        loopSupervisor = supervisor
+        CoroutineScope(supervisor + Dispatchers.IO).launch {
+            var missingAuthBackoffMs = 1_000L
+            while (isActive) {
+                val base =
+                    prefs.serverUrl.value?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+                val token = tokenBridge.bearerToken()?.takeIf { it.isNotEmpty() }
+                if (base == null || token == null) {
+                    Log.d(TAG, "ws waiting for server URL / auth token")
+                    delay(missingAuthBackoffMs)
+                    missingAuthBackoffMs = (missingAuthBackoffMs * 3 / 2).coerceAtMost(30_000L)
+                    continue
                 }
+                missingAuthBackoffMs = 1_000L
+                Log.d(TAG, "ws connect start base=$base")
+                try {
+                    awaitSocketSession(base, token)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                }
+                delay(3_000)
             }
+        }
     }
 
     fun stop() {
-        loopJob?.cancel()
-        loopJob = null
+        loopSupervisor?.cancel()
+        loopSupervisor = null
         val currentSocket =
             synchronized(socketLock) {
                 val activeSocket = socket

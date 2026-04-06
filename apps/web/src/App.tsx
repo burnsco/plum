@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SCAN_SENSITIVE_STALE_MS } from "./queries";
-import { Component, type ErrorInfo, type ReactNode, useState } from "react";
+import { Component, type ErrorInfo, type ReactNode, Suspense, lazy, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
 import { MainLayout } from "./components/MainLayout";
@@ -9,18 +9,19 @@ import { IdentifyQueueProvider } from "./contexts/IdentifyQueueContext";
 import { PlayerProvider } from "./contexts/PlayerContext";
 import { ScanQueueProvider } from "./contexts/ScanQueueProvider";
 import { WsProvider } from "./contexts/WsContext";
-import { Dashboard } from "./pages/Dashboard";
-import { Discover } from "./pages/Discover";
-import { DiscoverBrowse } from "./pages/DiscoverBrowse";
-import { DiscoverDetail } from "./pages/DiscoverDetail";
-import { Downloads } from "./pages/Downloads";
-import { Home } from "./pages/Home";
-import { Login } from "./pages/Login";
-import { MovieDetail } from "./pages/MovieDetail";
-import { Onboarding } from "./pages/Onboarding";
-import { SearchPage } from "./pages/Search";
-import { Settings } from "./pages/Settings";
-import { ShowDetail } from "./pages/ShowDetail";
+
+const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
+const Discover = lazy(() => import("./pages/Discover").then(m => ({ default: m.Discover })));
+const DiscoverBrowse = lazy(() => import("./pages/DiscoverBrowse").then(m => ({ default: m.DiscoverBrowse })));
+const DiscoverDetail = lazy(() => import("./pages/DiscoverDetail").then(m => ({ default: m.DiscoverDetail })));
+const Downloads = lazy(() => import("./pages/Downloads").then(m => ({ default: m.Downloads })));
+const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
+const Login = lazy(() => import("./pages/Login").then(m => ({ default: m.Login })));
+const MovieDetail = lazy(() => import("./pages/MovieDetail").then(m => ({ default: m.MovieDetail })));
+const Onboarding = lazy(() => import("./pages/Onboarding").then(m => ({ default: m.Onboarding })));
+const SearchPage = lazy(() => import("./pages/Search").then(m => ({ default: m.SearchPage })));
+const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
+const ShowDetail = lazy(() => import("./pages/ShowDetail").then(m => ({ default: m.ShowDetail })));
 
 class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -75,11 +76,19 @@ function AppRouter() {
   }
 
   if (!hasAdmin) {
-    return <Onboarding onGoToHome={handleGoToHome} />;
+    return (
+      <Suspense fallback={null}>
+        <Onboarding onGoToHome={handleGoToHome} />
+      </Suspense>
+    );
   }
 
   if (!user) {
-    return <Login />;
+    return (
+      <Suspense fallback={null}>
+        <Login />
+      </Suspense>
+    );
   }
 
   return (
@@ -88,20 +97,22 @@ function AppRouter() {
         <ScanQueueProvider>
           <IdentifyQueueProvider>
             <PlayerProvider>
-              <Routes>
-                <Route path="/" element={<MainLayout />}>
-                  <Route index element={<Dashboard />} />
-                  <Route path="discover" element={<Discover />} />
-                  <Route path="discover/browse" element={<DiscoverBrowse />} />
-                  <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
-                  <Route path="downloads" element={<Downloads />} />
-                  <Route path="search" element={<SearchPage />} />
-                  <Route path="library/:libraryId" element={<Home />} />
-                  <Route path="library/:libraryId/movie/:mediaId" element={<MovieDetail />} />
-                  <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-              </Routes>
+              <Suspense fallback={null}>
+                <Routes>
+                  <Route path="/" element={<MainLayout />}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="discover" element={<Discover />} />
+                    <Route path="discover/browse" element={<DiscoverBrowse />} />
+                    <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
+                    <Route path="downloads" element={<Downloads />} />
+                    <Route path="search" element={<SearchPage />} />
+                    <Route path="library/:libraryId" element={<Home />} />
+                    <Route path="library/:libraryId/movie/:mediaId" element={<MovieDetail />} />
+                    <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
+                    <Route path="settings" element={<Settings />} />
+                  </Route>
+                </Routes>
+              </Suspense>
             </PlayerProvider>
           </IdentifyQueueProvider>
         </ScanQueueProvider>

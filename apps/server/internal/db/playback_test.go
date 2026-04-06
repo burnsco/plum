@@ -111,6 +111,82 @@ func TestGetHomeDashboardForUser_PrefersActiveEpisodeOverNextUp(t *testing.T) {
 	}
 }
 
+// Regression: continue-watching for a TMDB show key must include all episodes linked to that show row,
+// including tmdb_id=0 episodes whose per-file showKey is title-* (bucket by show_id, not showKeyFromItem).
+func TestGetHomeDashboardForUser_ContinueWatchingMixedTMDBAndTitleKeyEpisodesOnSameShow(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	userID := getSingleUserID(t, dbConn)
+	tvLibraryID := getLibraryID(t, dbConn, LibraryTypeTV)
+
+	const testTMDB = 987654
+	var showID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO shows (library_id, kind, tmdb_id, title, title_key, created_at, updated_at)
+VALUES (?, 'tv', ?, 'Mixed Key Show', 'mixedkeyshow', datetime('now'), datetime('now')) RETURNING id`,
+		tvLibraryID, testTMDB,
+	).Scan(&showID); err != nil {
+		t.Fatalf("insert show: %v", err)
+	}
+
+	var refTMDb, refTitle int
+	if err := dbConn.QueryRow(
+		`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode, tmdb_id, show_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		tvLibraryID, "Mixed Key Show - S01E01 - Pilot", "/tv/mixed/S01E01.mkv", 1800, MatchStatusLocal, 1, 1, testTMDB, showID,
+	).Scan(&refTMDb); err != nil {
+		t.Fatalf("insert tmdb episode: %v", err)
+	}
+	if err := dbConn.QueryRow(
+		`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode, tmdb_id, show_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?) RETURNING id`,
+		tvLibraryID, "Mixed Key Show - S01E02 - Second", "/tv/mixed/S01E02.mkv", 1800, MatchStatusLocal, 1, 2, showID,
+	).Scan(&refTitle); err != nil {
+		t.Fatalf("insert title-key episode: %v", err)
+	}
+
+	var seasonID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO seasons (show_id, season_number, title, created_at, updated_at)
+VALUES (?, 1, 'Season 1', datetime('now'), datetime('now')) RETURNING id`,
+		showID,
+	).Scan(&seasonID); err != nil {
+		t.Fatalf("insert season: %v", err)
+	}
+	if _, err := dbConn.Exec(`UPDATE tv_episodes SET season_id = ? WHERE id IN (?, ?)`, seasonID, refTMDb, refTitle); err != nil {
+		t.Fatalf("link season to episodes: %v", err)
+	}
+
+	var globalTMDB, globalTitle int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES ('tv', ?) RETURNING id`, refTMDb).Scan(&globalTMDB); err != nil {
+		t.Fatalf("insert global tmdb ep: %v", err)
+	}
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES ('tv', ?) RETURNING id`, refTitle).Scan(&globalTitle); err != nil {
+		t.Fatalf("insert global title ep: %v", err)
+	}
+
+	if err := UpsertPlaybackProgress(dbConn, userID, globalTMDB, 1800, 1800, true); err != nil {
+		t.Fatalf("complete first episode: %v", err)
+	}
+	setPlaybackTimestamp(t, dbConn, userID, globalTMDB, "2026-03-20T10:00:00Z")
+
+	dashboard, err := GetHomeDashboardForUser(dbConn, userID)
+	if err != nil {
+		t.Fatalf("get home dashboard: %v", err)
+	}
+	if len(dashboard.ContinueWatching) != 1 {
+		t.Fatalf("expected one continue-watching entry, got %+v", dashboard.ContinueWatching)
+	}
+	entry := dashboard.ContinueWatching[0]
+	if entry.Kind != "show" || entry.Media.ID != globalTitle {
+		t.Fatalf("expected next-up title-key episode (S01E02), got %+v", entry)
+	}
+	if entry.EpisodeLabel != "S01E02" {
+		t.Fatalf("expected S01E02, got %q", entry.EpisodeLabel)
+	}
+}
+
 func TestGetHomeDashboardForUser_ExcludesMissingMoviesFromContinueWatching(t *testing.T) {
 	dbConn := newTestDB(t)
 	t.Cleanup(func() { _ = dbConn.Close() })
