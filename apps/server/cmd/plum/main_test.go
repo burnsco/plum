@@ -129,7 +129,19 @@ func testServer(t *testing.T) (string, *sql.DB, func()) {
 	go hub.Run()
 
 	playbackSessions := transcoder.NewPlaybackSessionManager(context.Background(), filepath.Join(t.TempDir(), "playback"), hub)
-	router := buildRouter(context.Background(), dbConn, hub, playbackSessions, metadata.NewPipeline("", "", "", "", ""), t.TempDir(), t.TempDir())
+	tmpPlayback := filepath.Join(t.TempDir(), "plum_playback")
+	router := buildRouter(
+		context.Background(),
+		dbConn,
+		hub,
+		playbackSessions,
+		metadata.NewPipeline("", "", "", "", ""),
+		t.TempDir(),
+		t.TempDir(),
+		tmpPlayback,
+		"",
+		"",
+	)
 	server := httptest.NewServer(router)
 
 	return server.URL, dbConn, func() {

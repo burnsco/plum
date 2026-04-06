@@ -3736,38 +3736,36 @@ func (h *LibraryHandler) getPlaybackRefreshStatuses() map[int]*playbackRefreshPr
 	return out
 }
 
-func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *http.Request) {
-	u := UserFromContext(r.Context())
-	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	idStr := chi.URLParam(r, "id")
-	var libraryID, ownerID int
-	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
+func (h *LibraryHandler) userOwnedLibrarySet(userID int) (map[int]struct{}, error) {
+	rows, err := h.DB.Query(`SELECT id FROM libraries WHERE user_id = ?`, userID)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+		return nil, err
 	}
-	if ownerID != u.ID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	defer rows.Close()
+	owned := make(map[int]struct{})
+	for rows.Next() {
+		var libraryID int
+		if scanErr := rows.Scan(&libraryID); scanErr != nil {
+			return nil, scanErr
+		}
+		owned[libraryID] = struct{}{}
 	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, rowsErr
+	}
+	return owned, nil
+}
+
+// startLibraryPlaybackRefreshAsync starts a background ffprobe/chapter refresh for one library.
+// Returns false if a refresh is already running for that library or media listing fails.
+func (h *LibraryHandler) startLibraryPlaybackRefreshAsync(libraryID int) bool {
 	items, itemsErr := db.GetMediaByLibraryID(h.DB, libraryID)
 	if itemsErr != nil {
-		http.Error(w, "failed to list media: "+itemsErr.Error(), http.StatusInternalServerError)
-		return
+		return false
 	}
 	progress := h.tryStartLibraryPlaybackRefresh(libraryID, len(items))
 	if progress == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"accepted":  false,
-			"libraryId": libraryID,
-			"error":     "playback track refresh already running for this library",
-		})
-		return
+		return false
 	}
 	go func(libID int, mediaItems []db.MediaItem, prog *playbackRefreshProgress) {
 		defer h.finishLibraryPlaybackRefresh(libID)
@@ -3787,6 +3785,36 @@ func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *
 		prog.update(len(mediaItems), "")
 		log.Printf("library playback refresh library=%d done refreshed=%d failed=%d", libID, refreshed, failed)
 	}(libraryID, items, progress)
+	return true
+}
+
+func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	var libraryID, ownerID int
+	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !h.startLibraryPlaybackRefreshAsync(libraryID) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"accepted":  false,
+			"libraryId": libraryID,
+			"error":     "playback track refresh already running for this library",
+		})
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -4006,9 +4034,18 @@ func (h *LibraryHandler) GetIntroRefreshStatus(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	ownedLibraryIDs, err := h.userOwnedLibrarySet(u.ID)
+	if err != nil {
+		log.Printf("list owned libraries user=%d: %v", u.ID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	statuses := h.getPlaybackRefreshStatuses()
-	entries := make([]introRefreshStatusEntry, 0, len(statuses))
+	entries := make([]introRefreshStatusEntry, 0, len(ownedLibraryIDs))
 	for libID, prog := range statuses {
+		if _, ok := ownedLibraryIDs[libID]; !ok {
+			continue
+		}
 		total, processed, currentPath := prog.snapshot()
 		entries = append(entries, introRefreshStatusEntry{
 			LibraryID:   libID,

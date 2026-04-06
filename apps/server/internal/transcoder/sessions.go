@@ -222,6 +222,78 @@ func (m *PlaybackSessionManager) countSessionsForUser(userID int) int {
 	return n
 }
 
+// ActiveSessionIDSet returns the set of in-memory playback session IDs (transcode workdirs use these names).
+func (m *PlaybackSessionManager) ActiveSessionIDSet() map[string]struct{} {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]struct{}, len(m.sessions))
+	for id := range m.sessions {
+		out[id] = struct{}{}
+	}
+	return out
+}
+
+// ActivePlaybackSessionAdmin describes an active session for admin dashboards.
+type ActivePlaybackSessionAdmin struct {
+	SessionID       string `json:"sessionId"`
+	UserID          int    `json:"userId"`
+	MediaID         int    `json:"mediaId"`
+	Title           string `json:"title"`
+	LibraryID       int    `json:"libraryId"`
+	Kind            string `json:"kind"` // mirrors media type (movie, tv_episode, etc.)
+	Delivery        string `json:"delivery"`
+	Status          string `json:"status"`
+	DurationSeconds int    `json:"durationSeconds"`
+}
+
+// ListActiveSessionsForAdmin returns a snapshot of all in-memory playback sessions.
+func (m *PlaybackSessionManager) ListActiveSessionsForAdmin() []ActivePlaybackSessionAdmin {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	type pair struct {
+		id string
+		s  *playbackSession
+	}
+	pairs := make([]pair, 0, len(m.sessions))
+	for id, s := range m.sessions {
+		pairs = append(pairs, pair{id: id, s: s})
+	}
+	m.mu.RUnlock()
+
+	out := make([]ActivePlaybackSessionAdmin, 0, len(pairs))
+	for _, item := range pairs {
+		session := item.s
+		session.mu.Lock()
+		media := session.media
+		userID := session.userID
+		duration := session.durationSeconds
+		delivery := ""
+		status := ""
+		if rev := session.revisions[session.activeRevision]; rev != nil {
+			delivery = rev.delivery
+			status = rev.status
+		}
+		session.mu.Unlock()
+		out = append(out, ActivePlaybackSessionAdmin{
+			SessionID:       item.id,
+			UserID:          userID,
+			MediaID:         media.ID,
+			Title:           media.Title,
+			LibraryID:       media.LibraryID,
+			Kind:            media.Type,
+			Delivery:        delivery,
+			Status:          status,
+			DurationSeconds: duration,
+		})
+	}
+	return out
+}
+
 // Shutdown cancels all in-flight transcodes. It does not remove session records or temp dirs;
 // use Close(sessionID) per session for that. Safe to call more than once.
 func (m *PlaybackSessionManager) Shutdown() {

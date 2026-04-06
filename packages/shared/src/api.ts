@@ -53,6 +53,12 @@ import type {
     MediaStackSettings,
     MediaStackValidationResult,
     MetadataArtworkProvider,
+    AdminActivePlaybackResponse,
+    AdminLogsResponse,
+    AdminMaintenanceRunRequest,
+    AdminMaintenanceRunResponse,
+    AdminMaintenanceScheduleResponse,
+    AdminMaintenanceTaskId,
     ServerEnvSettingsResponse,
     ServerEnvSettingsUpdate,
     MetadataArtworkProviderStatus,
@@ -120,6 +126,11 @@ import {
     MediaStackSettingsSchema,
     MediaStackValidationResultSchema,
     MetadataArtworkSettingsResponseSchema,
+    AdminActivePlaybackResponseSchema,
+    AdminLogsResponseSchema,
+    AdminMaintenanceRunRequestSchema,
+    AdminMaintenanceRunResponseSchema,
+    AdminMaintenanceScheduleResponseSchema,
     ServerEnvSettingsResponseSchema,
     ServerEnvSettingsUpdateSchema,
     MetadataArtworkSettingsSchema,
@@ -197,6 +208,12 @@ export type {
     MediaStackServiceValidationResult,
     MediaStackSettings,
     MediaStackValidationResult, MetadataArtworkProvider,
+    AdminActivePlaybackResponse,
+    AdminLogsResponse,
+    AdminMaintenanceRunRequest,
+    AdminMaintenanceRunResponse,
+    AdminMaintenanceScheduleResponse,
+    AdminMaintenanceTaskId,
     ServerEnvSettingsResponse,
     ServerEnvSettingsUpdate,
     MetadataArtworkProviderStatus,
@@ -1248,6 +1265,52 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
+    getAdminMaintenanceSchedule: () =>
+      jsonRequestEffect({
+        path: "/api/admin/maintenance/schedule",
+        schema: AdminMaintenanceScheduleResponseSchema,
+        errorMessage: ({ status, body }) => body || `Admin schedule: ${status}`,
+      }),
+    putAdminMaintenanceSchedule: (payload: {
+      readonly tasks: Record<string, { readonly intervalHours: number }>;
+    }) =>
+      jsonRequestEffect({
+        method: "PUT",
+        path: "/api/admin/maintenance/schedule",
+        schema: AdminMaintenanceScheduleResponseSchema,
+        body: payload,
+        errorMessage: ({ status, body }) => body || `Save admin schedule: ${status}`,
+      }),
+    runAdminMaintenanceTask: (payload: AdminMaintenanceRunRequest) =>
+      decodeSchemaEffect(
+        AdminMaintenanceRunRequestSchema,
+        payload,
+        "POST",
+        "/api/admin/maintenance/run",
+        "Invalid admin maintenance task.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "POST",
+            path: "/api/admin/maintenance/run",
+            schema: AdminMaintenanceRunResponseSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Admin maintenance: ${status}`,
+          }),
+        ),
+      ),
+    getAdminActivePlayback: () =>
+      jsonRequestEffect({
+        path: "/api/admin/playback/active",
+        schema: AdminActivePlaybackResponseSchema,
+        errorMessage: ({ status, body }) => body || `Active playback: ${status}`,
+      }),
+    getAdminLogs: (options?: { readonly lines?: number }) =>
+      jsonRequestEffect({
+        path: `/api/admin/logs${options?.lines != null ? `?lines=${options.lines}` : ""}`,
+        schema: AdminLogsResponseSchema,
+        errorMessage: ({ status, body }) => body || `Admin logs: ${status}`,
+      }),
     getMoviePosterCandidates: (libraryId: number, mediaId: number) =>
       jsonRequestEffect({
         path: `/api/libraries/${libraryId}/movies/${mediaId}/artwork/poster/candidates`,
@@ -1480,6 +1543,14 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     getServerEnvSettings: () => run(effects.getServerEnvSettings()),
     updateServerEnvSettings: (payload: ServerEnvSettingsUpdate) =>
       run(effects.updateServerEnvSettings(payload)),
+    getAdminMaintenanceSchedule: () => run(effects.getAdminMaintenanceSchedule()),
+    putAdminMaintenanceSchedule: (payload: {
+      readonly tasks: Record<string, { readonly intervalHours: number }>;
+    }) => run(effects.putAdminMaintenanceSchedule(payload)),
+    runAdminMaintenanceTask: (payload: AdminMaintenanceRunRequest) =>
+      run(effects.runAdminMaintenanceTask(payload)),
+    getAdminActivePlayback: () => run(effects.getAdminActivePlayback()),
+    getAdminLogs: (options?: { readonly lines?: number }) => run(effects.getAdminLogs(options)),
     getMoviePosterCandidates: (libraryId: number, mediaId: number) =>
       run(effects.getMoviePosterCandidates(libraryId, mediaId)),
     setMoviePosterSelection: (

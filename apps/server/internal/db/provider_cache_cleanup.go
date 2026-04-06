@@ -43,6 +43,12 @@ func StartMetadataProviderCacheCleanup(ctx context.Context, dbConn *sql.DB, logg
 	}()
 }
 
+// RunMetadataProviderCacheCleanup deletes expired metadata_provider_cache rows and applies
+// PLUM_METADATA_CACHE_MAX_ROWS trimming. Safe to call manually from admin maintenance.
+func RunMetadataProviderCacheCleanup(ctx context.Context, dbConn *sql.DB) error {
+	return cleanupMetadataProviderCache(ctx, dbConn)
+}
+
 func cleanupMetadataProviderCache(ctx context.Context, dbConn *sql.DB) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := RetryOnBusy(ctx, 4, 500*time.Millisecond, func() error {
