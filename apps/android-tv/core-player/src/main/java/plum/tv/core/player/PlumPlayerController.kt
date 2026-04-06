@@ -836,13 +836,171 @@ class PlumPlayerController(
         return null
     }
 
+    private data class FlatAudioTrack(
+        val groupIndex: Int,
+        val trackIndex: Int,
+        val format: Format,
+    )
+
+    private fun flattenExoAudioTracks(): List<FlatAudioTrack> {
+        val out = mutableListOf<FlatAudioTrack>()
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_AUDIO || g.length == 0) continue
+            for (j in 0 until g.length) {
+                out += FlatAudioTrack(gi, j, g.mediaTrackGroup.getFormat(j))
+            }
+        }
+        return out
+    }
+
+    private fun selectedAudioGroupAndIndex(): Pair<Int, Int>? {
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_AUDIO || g.length == 0) continue
+            for (j in 0 until g.length) {
+                if (g.isTrackSelected(j)) return gi to j
+            }
+        }
+        return null
+    }
+
+    private fun isHardEmbeddedExoAudioLanguageConflict(emb: EmbeddedAudioTrackJson, fmt: Format): Boolean {
+        val e = TrackLanguagePreference.normalize(emb.language)
+        val f = TrackLanguagePreference.normalize(fmt.language)
+        if (e.isEmpty() || f.isEmpty()) return false
+        return e != f
+    }
+
+    private fun scoreEmbeddedToExoAudio(emb: EmbeddedAudioTrackJson, fmt: Format): Int {
+        var s = 5
+        val e = TrackLanguagePreference.normalize(emb.language)
+        val f = TrackLanguagePreference.normalize(fmt.language)
+        if (e.isNotEmpty() && f.isNotEmpty() && e == f) s += 120
+        val et = emb.title.trim().lowercase(Locale.US)
+        val fl = fmt.label?.trim()?.lowercase(Locale.US).orEmpty()
+        if (et.isNotEmpty() && fl.isNotEmpty()) {
+            when {
+                et == fl -> s += 90
+                et.contains(fl) || fl.contains(et) -> s += 45
+            }
+        }
+        val id = fmt.id?.trim().orEmpty()
+        if (id == emb.streamIndex.toString()) s += 80
+        return s
+    }
+
+    private fun permutationsIndices(n: Int): List<List<Int>> {
+        val list = (0 until n).toList()
+        if (n <= 1) return listOf(list)
+        val out = mutableListOf<List<Int>>()
+        fun permute(rest: List<Int>, prefix: List<Int> = emptyList()) {
+            if (rest.isEmpty()) {
+                out += prefix
+                return
+            }
+            for (i in rest.indices) {
+                permute(rest.filterIndexed { idx, _ -> idx != i }, prefix + rest[i])
+            }
+        }
+        permute(list)
+        return out
+    }
+
+    /**
+     * Maps ffprobe [EmbeddedAudioTrackJson.streamIndex] to Exo (group, track) for direct play.
+     * Uses best permutation assignment (small N) so labels match the web catalog even when stream order differs.
+     */
+    private fun directPlayEmbeddedStreamIndexToExo(): Map<Int, Pair<Int, Int>>? {
+        if (hlsSessionId != null) return null
+        val sortedEmb = embeddedAudioTracks.distinctBy { it.streamIndex }.sortedBy { it.streamIndex }
+        if (sortedEmb.size < 2) return null
+        val exo = flattenExoAudioTracks()
+        if (sortedEmb.size != exo.size) return null
+        val n = sortedEmb.size
+        if (n > 6) {
+            if ((0 until n).any { isHardEmbeddedExoAudioLanguageConflict(sortedEmb[it], exo[it].format) }) {
+                return null
+            }
+            return sortedEmb.indices.associate { idx ->
+                sortedEmb[idx].streamIndex to (exo[idx].groupIndex to exo[idx].trackIndex)
+            }
+        }
+        var best: Map<Int, Pair<Int, Int>>? = null
+        var bestScore = Int.MIN_VALUE
+        for (perm in permutationsIndices(n)) {
+            var total = 0
+            var conflict = false
+            val map = mutableMapOf<Int, Pair<Int, Int>>()
+            for (i in 0 until n) {
+                val xi = perm[i]
+                if (isHardEmbeddedExoAudioLanguageConflict(sortedEmb[i], exo[xi].format)) {
+                    conflict = true
+                    break
+                }
+                total += scoreEmbeddedToExoAudio(sortedEmb[i], exo[xi].format)
+                map[sortedEmb[i].streamIndex] = exo[xi].groupIndex to exo[xi].trackIndex
+            }
+            if (conflict) continue
+            if (total > bestScore) {
+                bestScore = total
+                best = map
+            }
+        }
+        return best
+    }
+
+    private fun directPlaySelectedEmbeddedStreamIndex(): Int? {
+        val map = directPlayEmbeddedStreamIndexToExo() ?: return null
+        val sel = selectedAudioGroupAndIndex() ?: return null
+        return map.entries.firstOrNull { it.value.first == sel.first && it.value.second == sel.second }?.key
+    }
+
+    private fun effectiveAudioPickerEmbeddedStreamIndex(sorted: List<EmbeddedAudioTrackJson>): Int {
+        if (hlsSessionId != null) {
+            val cur = serverAudioIndex
+            return when {
+                cur >= 0 && sorted.any { it.streamIndex == cur } -> cur
+                else -> sorted.first().streamIndex
+            }
+        }
+        directPlaySelectedEmbeddedStreamIndex()?.let { si ->
+            if (sorted.any { it.streamIndex == si }) return si
+        }
+        val s = serverAudioIndex
+        if (s >= 0 && sorted.any { it.streamIndex == s }) return s
+        return sorted.first().streamIndex
+    }
+
+    private fun embeddedAudioCatalogPickerLabel(t: EmbeddedAudioTrackJson): String {
+        val titlePart = t.title.trim()
+        val langPart = languageLabel(t.language)
+        return when {
+            titlePart.isNotEmpty() && langPart != null && !titlePart.contains(langPart, ignoreCase = true) ->
+                "$titlePart · $langPart"
+            titlePart.isNotEmpty() -> titlePart
+            langPart != null -> langPart
+            else -> "Track ${t.streamIndex + 1}"
+        }
+    }
+
     private fun currentAudioTrackLabel(): String? {
         val sid = hlsSessionId
         if (sid != null && embeddedAudioTracks.isNotEmpty()) {
             val current = embeddedAudioTracks.firstOrNull { it.streamIndex == serverAudioIndex } ?: embeddedAudioTracks.firstOrNull()
             return current?.displayLabel() ?: "Track ${serverAudioIndex + 1}"
         }
-
+        directPlayEmbeddedStreamIndexToExo()?.let { map ->
+            val sel = selectedAudioGroupAndIndex()
+            if (sel != null) {
+                val streamIx = map.entries.firstOrNull { it.value == sel }?.key
+                if (streamIx != null) {
+                    embeddedAudioTracks.firstOrNull { it.streamIndex == streamIx }?.displayLabel()?.let { return it }
+                }
+            }
+        }
         return selectedAudioFormat()?.displayLabel()
     }
 
@@ -855,7 +1013,7 @@ class PlumPlayerController(
             return "Burn-in"
         }
         if (trackGroups(C.TRACK_TYPE_TEXT).isEmpty()) return null
-        return selectedSubtitleFormat()?.displayLabel() ?: "Off"
+        return selectedSubtitleFormat()?.computeSubtitlePickerLabel() ?: "Off"
     }
 
     private fun EmbeddedAudioTrackJson.displayLabel(): String? =
@@ -864,8 +1022,152 @@ class PlumPlayerController(
     private fun EmbeddedSubtitleJson.displayLabel(): String? =
         listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
 
-    private fun Format.displayLabel(): String? =
-        listOfNotNull(label?.trim()?.takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+    /**
+     * In-band CEA-608/708 from Exo often has label "CEA-608" and no language; ffprobe catalog lists the
+     * same stream as [embeddedSubtitleTracks] with human title/language (matches web player menus).
+     */
+    private fun isCeaEmbeddedCatalogCodec(codec: String?): Boolean {
+        val c = codec?.trim()?.lowercase(Locale.US) ?: return false
+        return c == "eia_608" || c == "eia_708"
+    }
+
+    private fun serverEmbeddedCatalogForCea608Format(fmt: Format): EmbeddedSubtitleJson? {
+        val ceaEmbedded = embeddedSubtitleTracks.filter { isCeaEmbeddedCatalogCodec(it.codec) }
+        if (ceaEmbedded.isEmpty()) return null
+        if (ceaEmbedded.size == 1) return ceaEmbedded.first()
+        val fl = fmt.language?.trim()?.lowercase(Locale.US)?.takeIf { it.isNotEmpty() && it != "und" }
+        if (fl != null) {
+            ceaEmbedded.firstOrNull { sub ->
+                val sl = sub.language.trim().lowercase(Locale.US)
+                sl == fl || sl.startsWith(fl) || fl.startsWith(sl)
+            }?.let { return it }
+        }
+        return ceaEmbedded.firstOrNull()
+    }
+
+    private fun codecMatchesEmbeddedSubtitleCodec(codec: String?, mime: String): Boolean {
+        val c = codec?.trim()?.lowercase(Locale.US).orEmpty()
+        if (c.isEmpty()) return false
+        val m = mime.lowercase(Locale.US)
+        return when {
+            c.contains("subrip") || c == "srt" -> m.contains("subrip") || m.contains("x-subrip")
+            c.contains("ass") || c.contains("ssa") -> m.contains("ass") || m.contains("ssa")
+            c.contains("webvtt") || c == "text" || c == "mov_text" || c == "hdmv_text_subtitle" ->
+                m.contains("vtt") || m.contains("webvtt")
+            c.contains("ttml") || c == "tx3g" -> m.contains("ttml")
+            c.contains("pgs") || c.contains("pgssub") || c == "hdmv_pgs_subtitle" -> m.contains("pgs") || m.contains("dvdsub")
+            else -> false
+        }
+    }
+
+    private fun roughEmbeddedMatchForText(fmt: Format, sub: EmbeddedSubtitleJson): Boolean {
+        if (fmt.isCea608ClosedCaptionTrack()) return false
+        if (isCeaEmbeddedCatalogCodec(sub.codec)) return false
+        val mime = fmt.sampleMimeType.orEmpty()
+        if (!codecMatchesEmbeddedSubtitleCodec(sub.codec, mime)) return false
+        val fn = TrackLanguagePreference.normalize(fmt.language)
+        val sn = TrackLanguagePreference.normalize(sub.language)
+        if (fn.isEmpty() || sn.isEmpty()) return true
+        return fn == sn
+    }
+
+    private fun embeddedCatalogForDemuxedTextFormat(fmt: Format): EmbeddedSubtitleJson? {
+        if (fmt.isCea608ClosedCaptionTrack()) return null
+        val matches = embeddedSubtitleTracks.filter { roughEmbeddedMatchForText(fmt, it) }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.first()
+            else -> {
+                val lab = fmt.label?.trim()?.lowercase(Locale.US).orEmpty()
+                if (lab.isNotEmpty()) {
+                    matches
+                        .firstOrNull {
+                            val t = it.title.trim().lowercase(Locale.US)
+                            t == lab || lab.contains(t) || t.contains(lab)
+                        }
+                        ?.let { return it }
+                }
+                matches.firstOrNull()
+            }
+        }
+    }
+
+    private fun catalogSubtitleLabelFromServer(fmt: Format): String? {
+        val id = fmt.id?.trim().orEmpty()
+        when {
+            id.startsWith("emb:") -> {
+                val idx = id.removePrefix("emb:").toIntOrNull() ?: return null
+                return embeddedSubtitleTracks.firstOrNull { it.streamIndex == idx }?.displayLabel()
+            }
+            id.startsWith("ext:") -> {
+                val extId = id.removePrefix("ext:").toIntOrNull() ?: return null
+                val sub = externalSubtitles.firstOrNull { it.id == extId } ?: return null
+                return listOfNotNull(
+                    sub.title.trim().takeIf { it.isNotEmpty() },
+                    languageLabel(sub.language),
+                ).firstOrNull()
+            }
+            else -> return embeddedCatalogForDemuxedTextFormat(fmt)?.displayLabel()
+        }
+    }
+
+    private fun Format.trackCatalogDisplayLabel(): String? {
+        if (isCea608ClosedCaptionTrack()) {
+            serverEmbeddedCatalogForCea608Format(this)?.displayLabel()?.let { return it }
+            languageLabel(language)?.let { return it }
+            return "Closed captions"
+        }
+        catalogSubtitleLabelFromServer(this)?.let { return it }
+        return listOfNotNull(label?.trim()?.takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+    }
+
+    private fun Format.computeSubtitlePickerLabel(): String {
+        trackCatalogDisplayLabel()?.let { return it }
+        val lang = languageLabel(language)
+        val lab = label?.trim()?.takeIf { it.isNotEmpty() }
+        return when {
+            lab != null && lang != null && !lab.contains(lang, ignoreCase = true) -> "$lab · $lang"
+            lab != null -> lab
+            lang != null -> lang
+            else -> "Subtitle"
+        }
+    }
+
+    private fun Format.displayLabel(): String? = trackCatalogDisplayLabel()
+
+    private fun subtitleSideloadPriority(fmt: Format): Int {
+        val id = fmt.id?.trim().orEmpty()
+        return when {
+            id.startsWith("emb:") -> 300
+            id.startsWith("ext:") -> 200
+            id.startsWith("emps:") -> 150
+            else -> 0
+        }
+    }
+
+    /**
+     * Drops demuxed text tracks that duplicate a Plum sideload row (same visible label + language),
+     * so direct play does not list "English" twice (container + [MediaItem] subtitle config).
+     */
+    private fun shouldDropDemuxedSubtitleDuplicate(
+        candidateGi: Int,
+        candidateJ: Int,
+        candidateFmt: Format,
+        candidateLabel: String,
+        textRows: List<Triple<Int, Int, Format>>,
+    ): Boolean {
+        if (subtitleSideloadPriority(candidateFmt) > 0) return false
+        val candLang = TrackLanguagePreference.normalize(candidateFmt.language)
+        for ((ogi, oj, ofmt) in textRows) {
+            if (ogi == candidateGi && oj == candidateJ) continue
+            if (subtitleSideloadPriority(ofmt) == 0) continue
+            if (candidateLabel != ofmt.computeSubtitlePickerLabel()) continue
+            val oLang = TrackLanguagePreference.normalize(ofmt.language)
+            if (candLang.isNotEmpty() && oLang.isNotEmpty() && candLang != oLang) continue
+            return true
+        }
+        return false
+    }
 
     private fun languageLabel(language: String?): String? {
         val trimmed = language?.trim().orEmpty()
@@ -884,16 +1186,7 @@ class PlumPlayerController(
         }
     }
 
-    private fun Format.primarySubtitlePickerLabel(): String {
-        val lang = languageLabel(language)
-        val lab = label?.trim()?.takeIf { it.isNotEmpty() }
-        return when {
-            lab != null && lang != null && !lab.contains(lang, ignoreCase = true) -> "$lab · $lang"
-            lab != null -> lab
-            lang != null -> lang
-            else -> "Subtitle"
-        }
-    }
+    private fun Format.primarySubtitlePickerLabel(): String = computeSubtitlePickerLabel()
 
     private fun Format.audioPickerDetail(): String? {
         val parts = mutableListOf<String>()
@@ -941,22 +1234,27 @@ class PlumPlayerController(
                 detail = "Hide subtitles",
             )
         val groups = player.currentTracks.groups
+        val textRows = mutableListOf<Triple<Int, Int, Format>>()
         for (gi in groups.indices) {
             val g = groups[gi]
             if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
             for (j in 0 until g.length) {
-                val fmt = g.mediaTrackGroup.getFormat(j)
-                val label = fmt.primarySubtitlePickerLabel()
-                val id = SubtitlePickerTrackId.TextTrack(gi, j).toWireId()
-                val selected = !textDisabled && !burnActive && g.isTrackSelected(j)
-                options +=
-                    TrackPickerOption(
-                        id = id,
-                        label = label,
-                        selected = selected,
-                        detail = fmt.subtitlePickerDetail(),
-                    )
+                textRows += Triple(gi, j, g.mediaTrackGroup.getFormat(j))
             }
+        }
+        for ((gi, j, fmt) in textRows) {
+            val g = groups[gi]
+            val label = fmt.computeSubtitlePickerLabel()
+            if (shouldDropDemuxedSubtitleDuplicate(gi, j, fmt, label, textRows)) continue
+            val id = SubtitlePickerTrackId.TextTrack(gi, j).toWireId()
+            val selected = !textDisabled && !burnActive && g.isTrackSelected(j)
+            options +=
+                TrackPickerOption(
+                    id = id,
+                    label = label,
+                    selected = selected,
+                    detail = fmt.subtitlePickerDetail(),
+                )
         }
         // Bitmap subtitle tracks not reachable via WebVTT or PGS raw binary: offer server burn-in.
         // Only shown for HLS sessions — direct-play ExoPlayer parses these from the source file natively.
@@ -993,33 +1291,24 @@ class PlumPlayerController(
         return "$truncated (burn-in)"
     }
 
-    /** Server-indexed tracks when in an HLS session with metadata; otherwise flattened Exo audio tracks. */
+    /** Server catalog labels when ffprobe lists ≥2 audio streams (HLS or direct); else flattened Exo tracks. */
     private fun buildAudioPickerOptions(): List<TrackPickerOption>? {
-        val sid = hlsSessionId
         val embeddedDistinct = embeddedAudioTracks.distinctBy { it.streamIndex }
-        if (sid != null && embeddedDistinct.size >= 2) {
-            val sorted = embeddedDistinct.sortedBy { it.streamIndex }
-            val cur = serverAudioIndex
+        val sorted = embeddedDistinct.sortedBy { it.streamIndex }
+        val useEmbeddedCatalog =
+            sorted.size >= 2 && (hlsSessionId != null || directPlayEmbeddedStreamIndexToExo() != null)
+        if (useEmbeddedCatalog) {
+            val eff = effectiveAudioPickerEmbeddedStreamIndex(sorted)
             return sorted.map { t ->
                 val id = "s:${t.streamIndex}"
-                val titlePart = t.title.trim()
-                val langPart = languageLabel(t.language)
-                val label =
-                    when {
-                        titlePart.isNotEmpty() && langPart != null -> "$titlePart · $langPart"
-                        titlePart.isNotEmpty() -> titlePart
-                        langPart != null -> langPart
-                        else -> "Track ${t.streamIndex + 1}"
-                    }
+                val label = embeddedAudioCatalogPickerLabel(t)
                 val detail =
                     if (sorted.size > 1) {
                         "Embedded stream ${t.streamIndex + 1}"
                     } else {
                         null
                     }
-                val selected =
-                    t.streamIndex == cur ||
-                        (cur < 0 && t.streamIndex == sorted.first().streamIndex)
+                val selected = t.streamIndex == eff
                 TrackPickerOption(id = id, label = label, selected = selected, detail = detail)
             }
         }
@@ -1754,7 +2043,12 @@ class PlumPlayerController(
                                     )
                                 }
                             }
-                            applyServerAudioStream(stream)
+                            if (hlsSessionId != null) {
+                                applyServerAudioStream(stream)
+                            } else {
+                                val pair = directPlayEmbeddedStreamIndexToExo()?.get(stream) ?: return@launch
+                                applyExoAudioSelection(pair.first, pair.second)
+                            }
                         }
                         id.startsWith("a:") -> {
                             val rest = id.removePrefix("a:").split(":")
