@@ -1,5 +1,6 @@
 import Hls from "hls.js";
 import type { ClientPlaybackCapabilities, MediaItem } from "../../api";
+import { ignorePromise } from "../ignorePromise";
 import { languageMatchesPreference, type SubtitleAppearance } from "../playbackPreferences";
 
 export type BrowserAudioTrack = {
@@ -332,7 +333,7 @@ export async function consumeSubtitleResponseWithPartialUpdates(
     while (true) {
       const { done, value } = await reader.read();
       if (signal.aborted) {
-        await reader.cancel().catch(() => {});
+        ignorePromise(reader.cancel(), "playerMedia:readerCancelAborted");
         throw new DOMException("Aborted", "AbortError");
       }
       if (value) {
@@ -351,7 +352,7 @@ export async function consumeSubtitleResponseWithPartialUpdates(
     }
   } catch (error) {
     if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
-      await reader.cancel().catch(() => {});
+      ignorePromise(reader.cancel(), "playerMedia:readerCancelCatch");
       throw new DOMException("Aborted", "AbortError");
     }
     throw error;
@@ -451,13 +452,19 @@ export function getPreferredSubtitleKey(
     track.supported !== false &&
     (languageMatchesPreference(track.srcLang, preferredLanguage) ||
       languageMatchesPreference(track.label, preferredLanguage));
+  const noBurn = (track: SubtitleTrackOption) => !track.requiresBurn;
+
   if (hint) {
-    const withHint = subtitleTracks.find(
+    const hintMatches = subtitleTracks.filter(
       (track) => langMatch(track) && subtitleLabelMatchesHint(track.label, hint),
     );
-    if (withHint) return withHint.key;
+    const bestHint = hintMatches.find(noBurn) ?? hintMatches[0];
+    if (bestHint) return bestHint.key;
   }
-  return subtitleTracks.find((track) => langMatch(track))?.key ?? "off";
+
+  const allLangMatches = subtitleTracks.filter(langMatch);
+  const best = allLangMatches.find(noBurn) ?? allLangMatches[0];
+  return best?.key ?? "off";
 }
 
 export function getPreferredAudioKey(

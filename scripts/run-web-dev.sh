@@ -14,6 +14,12 @@ load_env() {
     . "$ROOT_DIR/.env"
     set +a
   fi
+  # Match scripts/dev.sh: a root .env may still set this legacy value. Treat it as
+  # unset so the browser stays same-origin with Vite and uses the /api + /ws proxy
+  # (run-web-dev.sh sources .env after dev.sh has already unset it).
+  if [[ "${VITE_BACKEND_URL:-}" == "http://localhost:8080" ]]; then
+    unset VITE_BACKEND_URL
+  fi
 }
 
 # Avoid Vite proxying to :8080 before air/go has finished building and listening

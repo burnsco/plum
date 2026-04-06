@@ -38,6 +38,7 @@ apps/server/data/
 *.log
 tmp/
 .vscode/
+.cursor/
 .idea/
 *.swp
 *.swo

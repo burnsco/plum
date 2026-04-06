@@ -3,7 +3,9 @@ import { SCAN_SENSITIVE_STALE_MS } from "./queries";
 import { Component, type ErrorInfo, type ReactNode, Suspense, lazy, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
+import { LibrarySectionLayout } from "./components/LibrarySectionLayout";
 import { MainLayout } from "./components/MainLayout";
+import { ignorePromiseAlwaysLogUnexpected } from "./lib/ignorePromise";
 import { AuthProvider, useAuthActions, useAuthState } from "./contexts/AuthContext";
 import { IdentifyQueueProvider } from "./contexts/IdentifyQueueContext";
 import { PlayerProvider } from "./contexts/PlayerContext";
@@ -62,7 +64,7 @@ function AppRouter() {
   const { refreshSetupStatus } = useAuthActions();
 
   const handleGoToHome = () => {
-    refreshSetupStatus().catch(() => {});
+    ignorePromiseAlwaysLogUnexpected(refreshSetupStatus(), "App:refreshSetupStatus");
   };
 
   if (loading) {
@@ -106,9 +108,11 @@ function AppRouter() {
                     <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
                     <Route path="downloads" element={<Downloads />} />
                     <Route path="search" element={<SearchPage />} />
-                    <Route path="library/:libraryId" element={<Home />} />
-                    <Route path="library/:libraryId/movie/:mediaId" element={<MovieDetail />} />
-                    <Route path="library/:libraryId/show/:showKey" element={<ShowDetail />} />
+                    <Route path="library/:libraryId" element={<LibrarySectionLayout />}>
+                      <Route index element={<Home />} />
+                      <Route path="movie/:mediaId" element={<MovieDetail />} />
+                      <Route path="show/:showKey" element={<ShowDetail />} />
+                    </Route>
                     <Route path="settings" element={<Settings />} />
                   </Route>
                 </Routes>
@@ -128,6 +132,8 @@ function App() {
         defaultOptions: {
           queries: {
             staleTime: SCAN_SENSITIVE_STALE_MS,
+            /** Keep inactive browse data a bit longer than RQ default (5m); detail hooks set their own. */
+            gcTime: 10 * 60 * 1000,
             retry: import.meta.env.MODE === "test" ? false : 3,
           },
         },

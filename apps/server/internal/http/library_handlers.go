@@ -187,46 +187,46 @@ type libraryResponse struct {
 }
 
 type libraryBrowseItemResponse struct {
-	ID                   int     `json:"id"`
-	LibraryID            int     `json:"library_id,omitempty"`
-	Title                string  `json:"title"`
-	Path                 string  `json:"path"`
-	Duration             int     `json:"duration"`
-	Type                 string  `json:"type"`
-	MatchStatus          string  `json:"match_status,omitempty"`
-	IdentifyState        string  `json:"identify_state,omitempty"`
-	TMDBID               int     `json:"tmdb_id,omitempty"`
-	TVDBID               string  `json:"tvdb_id,omitempty"`
-	Overview             string  `json:"overview,omitempty"`
-	PosterPath           string  `json:"poster_path,omitempty"`
-	BackdropPath         string  `json:"backdrop_path,omitempty"`
-	PosterURL            string  `json:"poster_url,omitempty"`
-	BackdropURL          string  `json:"backdrop_url,omitempty"`
-	ShowPosterPath       string  `json:"show_poster_path,omitempty"`
-	ShowPosterURL        string  `json:"show_poster_url,omitempty"`
-	ReleaseDate          string  `json:"release_date,omitempty"`
-	ShowVoteAverage      float64 `json:"show_vote_average,omitempty"`
-	ShowIMDbRating       float64 `json:"show_imdb_rating,omitempty"`
-	VoteAverage          float64 `json:"vote_average,omitempty"`
-	IMDbID               string  `json:"imdb_id,omitempty"`
-	IMDbRating           float64 `json:"imdb_rating,omitempty"`
-	Artist               string  `json:"artist,omitempty"`
-	Album                string  `json:"album,omitempty"`
-	AlbumArtist          string  `json:"album_artist,omitempty"`
-	DiscNumber           int     `json:"disc_number,omitempty"`
-	TrackNumber          int     `json:"track_number,omitempty"`
-	ReleaseYear          int     `json:"release_year,omitempty"`
-	ProgressSeconds      float64 `json:"progress_seconds,omitempty"`
-	ProgressPercent      float64 `json:"progress_percent,omitempty"`
-	RemainingSeconds     float64 `json:"remaining_seconds,omitempty"`
-	Completed            bool    `json:"completed,omitempty"`
-	LastWatchedAt        string  `json:"last_watched_at,omitempty"`
-	Season               int     `json:"season,omitempty"`
-	Episode              int     `json:"episode,omitempty"`
-	MetadataReviewNeeded bool    `json:"metadata_review_needed,omitempty"`
-	MetadataConfirmed    bool    `json:"metadata_confirmed,omitempty"`
-	ThumbnailPath        string  `json:"thumbnail_path,omitempty"`
-	ThumbnailURL         string  `json:"thumbnail_url,omitempty"`
+	ID                   int      `json:"id"`
+	LibraryID            int      `json:"library_id,omitempty"`
+	Title                string   `json:"title"`
+	Path                 string   `json:"path"`
+	Duration             int      `json:"duration"`
+	Type                 string   `json:"type"`
+	MatchStatus          string   `json:"match_status,omitempty"`
+	IdentifyState        string   `json:"identify_state,omitempty"`
+	TMDBID               int      `json:"tmdb_id,omitempty"`
+	TVDBID               string   `json:"tvdb_id,omitempty"`
+	Overview             string   `json:"overview,omitempty"`
+	PosterPath           string   `json:"poster_path,omitempty"`
+	BackdropPath         string   `json:"backdrop_path,omitempty"`
+	PosterURL            string   `json:"poster_url,omitempty"`
+	BackdropURL          string   `json:"backdrop_url,omitempty"`
+	ShowPosterPath       string   `json:"show_poster_path,omitempty"`
+	ShowPosterURL        string   `json:"show_poster_url,omitempty"`
+	ReleaseDate          string   `json:"release_date,omitempty"`
+	ShowVoteAverage      float64  `json:"show_vote_average,omitempty"`
+	ShowIMDbRating       float64  `json:"show_imdb_rating,omitempty"`
+	VoteAverage          float64  `json:"vote_average,omitempty"`
+	IMDbID               string   `json:"imdb_id,omitempty"`
+	IMDbRating           float64  `json:"imdb_rating,omitempty"`
+	Artist               string   `json:"artist,omitempty"`
+	Album                string   `json:"album,omitempty"`
+	AlbumArtist          string   `json:"album_artist,omitempty"`
+	DiscNumber           int      `json:"disc_number,omitempty"`
+	TrackNumber          int      `json:"track_number,omitempty"`
+	ReleaseYear          int      `json:"release_year,omitempty"`
+	ProgressSeconds      float64  `json:"progress_seconds,omitempty"`
+	ProgressPercent      float64  `json:"progress_percent,omitempty"`
+	RemainingSeconds     float64  `json:"remaining_seconds,omitempty"`
+	Completed            bool     `json:"completed,omitempty"`
+	LastWatchedAt        string   `json:"last_watched_at,omitempty"`
+	Season               int      `json:"season,omitempty"`
+	Episode              int      `json:"episode,omitempty"`
+	MetadataReviewNeeded bool     `json:"metadata_review_needed,omitempty"`
+	MetadataConfirmed    bool     `json:"metadata_confirmed,omitempty"`
+	ThumbnailPath        string   `json:"thumbnail_path,omitempty"`
+	ThumbnailURL         string   `json:"thumbnail_url,omitempty"`
 	Missing              bool     `json:"missing,omitempty"`
 	MissingSince         string   `json:"missing_since,omitempty"`
 	IntroStartSeconds    *float64 `json:"intro_start_seconds,omitempty"`
@@ -558,7 +558,7 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(
 		`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language,
 		        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes, intro_skip_mode
-		   FROM libraries WHERE user_id = ? ORDER BY id`,
+		   FROM libraries WHERE user_id = ? ORDER BY name COLLATE NOCASE, id`,
 		u.ID,
 	)
 	legacyColumns := false
@@ -567,21 +567,21 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.DB.Query(
 			`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language,
 			        subtitles_enabled_by_default, watcher_enabled, watcher_mode, scan_interval_minutes
-			   FROM libraries WHERE user_id = ? ORDER BY id`,
+			   FROM libraries WHERE user_id = ? ORDER BY name COLLATE NOCASE, id`,
 			u.ID,
 		)
 	}
 	if err != nil && isMissingColumnError(err, "preferred_audio_language") {
 		legacyColumns = true
 		rows, err = h.DB.Query(
-			`SELECT id, name, type, path, user_id FROM libraries WHERE user_id = ? ORDER BY id`,
+			`SELECT id, name, type, path, user_id FROM libraries WHERE user_id = ? ORDER BY name COLLATE NOCASE, id`,
 			u.ID,
 		)
 	} else if err != nil && isMissingColumnError(err, "watcher_enabled") {
 		legacyAutomationColumns = true
 		rows, err = h.DB.Query(
 			`SELECT id, name, type, path, user_id, preferred_audio_language, preferred_subtitle_language, subtitles_enabled_by_default
-			   FROM libraries WHERE user_id = ? ORDER BY id`,
+			   FROM libraries WHERE user_id = ? ORDER BY name COLLATE NOCASE, id`,
 			u.ID,
 		)
 	}
@@ -2024,6 +2024,7 @@ func logRetryableMovieIdentifyFailure(libraryID int, title string, err error) {
 }
 
 func updateMetadataWithRetry(
+	ctx context.Context,
 	dbConn *sql.DB,
 	table string,
 	refID int,
@@ -2047,6 +2048,7 @@ func updateMetadataWithRetry(
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		lastErr = db.UpdateMediaMetadataWithCanonicalState(
+			ctx,
 			dbConn,
 			table,
 			refID,
@@ -2282,7 +2284,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 			res.Provider,
 		)
 	}
-	if err := updateMetadataWithRetry(h.DB, tbl, row.RefID, res.Title, res.Overview, posterPath, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, seasonNumber, episodeNumber, canonical, false, false, true); err != nil {
+	if err := updateMetadataWithRetry(ctx, h.DB, tbl, row.RefID, res.Title, res.Overview, posterPath, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, seasonNumber, episodeNumber, canonical, false, false, true); err != nil {
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
 	h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
@@ -2464,6 +2466,7 @@ func (h *LibraryHandler) applySeriesToRefs(
 				fallbackCanonical.SeasonPosterPath = fallbackCanonical.PosterPath
 			}
 			if err := updateMetadataWithRetry(
+				ctx,
 				h.DB,
 				table,
 				ref.RefID,
@@ -2530,7 +2533,7 @@ func (h *LibraryHandler) applySeriesToRefs(
 			ep.PosterURL,
 			ep.Provider,
 		)
-		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, episodePosterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, episodeCanonical, metadataReviewNeeded, metadataConfirmed, true); err != nil {
+		if err := updateMetadataWithRetry(ctx, h.DB, table, ref.RefID, ep.Title, ep.Overview, episodePosterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, seriesTMDBID, tvdbID, ref.Season, ref.Episode, episodeCanonical, metadataReviewNeeded, metadataConfirmed, true); err != nil {
 			continue
 		}
 		updatedRefIDs = append(updatedRefIDs, ref.RefID)
@@ -2626,7 +2629,7 @@ func (h *LibraryHandler) applySeriesMatchToRefs(
 			Genres:      ep.Genres,
 			Runtime:     ep.Runtime,
 		}
-		if err := updateMetadataWithRetry(h.DB, table, ref.RefID, ep.Title, ep.Overview, posterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, tmdbID, tvdbID, ref.Season, ref.Episode, canonical, metadataReviewNeeded, metadataConfirmed, false); err != nil {
+		if err := updateMetadataWithRetry(ctx, h.DB, table, ref.RefID, ep.Title, ep.Overview, posterPath, ep.BackdropURL, ep.ReleaseDate, ep.VoteAverage, ep.IMDbID, ep.IMDbRating, tmdbID, tvdbID, ref.Season, ref.Episode, canonical, metadataReviewNeeded, metadataConfirmed, false); err != nil {
 			continue
 		}
 		updatedRefIDs = append(updatedRefIDs, ref.RefID)
@@ -3524,6 +3527,7 @@ WHERE m.library_id = ? AND g.id = ?`, libraryID, payload.MediaID).Scan(&refID)
 		Runtime:      match.Runtime,
 	}
 	if err := updateMetadataWithRetry(
+		r.Context(),
 		h.DB,
 		db.MediaTableForKind(db.LibraryTypeMovie),
 		refID,

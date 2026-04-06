@@ -22,7 +22,7 @@ import {
   type PlumWebSocketCommand,
   updatePlaybackSessionAudio,
 } from "../api";
-import { resolveLibraryPlaybackPreferences } from "../lib/playbackPreferences";
+import { resolveEffectivePreferredAudioLanguage, resolveLibraryPlaybackPreferences } from "../lib/playbackPreferences";
 import {
   clampVolume,
   indexOfQueueItem,
@@ -33,6 +33,7 @@ import {
   clampVideoSeekSeconds,
   detectClientPlaybackCapabilities,
 } from "../lib/playback/playerMedia";
+import { ignorePromise, ignorePromiseAlwaysLogUnexpected } from "../lib/ignorePromise";
 import { sortMusicTracks } from "../lib/musicGrouping";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
 import { useLibraries } from "../queries";
@@ -318,7 +319,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     (sessionId?: string | null) => {
       if (!sessionId) return;
       sendPlaybackCommand({ action: "detach_playback_session", sessionId });
-      closePlaybackSession(sessionId).catch(() => {});
+      ignorePromiseAlwaysLogUnexpected(closePlaybackSession(sessionId), "Player:closePlaybackSession");
     },
     [sendPlaybackCommand],
   );
@@ -377,7 +378,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const exitBrowserFullscreen = useCallback(() => {
     if (!document.fullscreenElement) return;
-    void document.exitFullscreen().catch(() => {});
+    ignorePromise(document.exitFullscreen(), "Player:exitBrowserFullscreen");
   }, []);
 
   const registerMediaElement = useCallback(
@@ -450,12 +451,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setMusicBaseQueue([]);
       setLastEvent("");
       if (!nextItem) return;
-      void warmEmbeddedSubtitleCaches(nextItem.id).catch(() => {});
+      ignorePromiseAlwaysLogUnexpected(warmEmbeddedSubtitleCaches(nextItem.id), "Player:warmEmbeddedSubtitles");
       const activeLibrary =
         libraries.find((library) => library.id === nextItem.library_id) ?? null;
-      const preferredAudioLanguage = resolveLibraryPlaybackPreferences(
+      const libraryPrefs = resolveLibraryPlaybackPreferences(
         activeLibrary ?? { type: nextItem.type },
-      ).preferredAudioLanguage;
+      );
+      const preferredAudioLanguage = resolveEffectivePreferredAudioLanguage(nextItem, libraryPrefs);
       createClientPlaybackSession(
         nextItem,
         preferredInitialAudioIndex(nextItem, preferredAudioLanguage),
@@ -505,6 +507,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       const activeLibrary =
         libraries.find((library) => library.id === nextItem.library_id) ?? null;
+      const libraryPrefs = resolveLibraryPlaybackPreferences(activeLibrary ?? { type: nextItem.type });
       const preferredAudioLanguage =
         activeItem?.embeddedAudioTracks?.find(
           (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
@@ -512,9 +515,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         activeItem?.embeddedAudioTracks?.find(
           (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
         )?.title ||
-        resolveLibraryPlaybackPreferences(activeLibrary ?? { type: nextItem.type })
-          .preferredAudioLanguage;
-      void warmEmbeddedSubtitleCaches(nextItem.id).catch(() => {});
+        resolveEffectivePreferredAudioLanguage(nextItem, libraryPrefs);
+      ignorePromiseAlwaysLogUnexpected(warmEmbeddedSubtitleCaches(nextItem.id), "Player:warmEmbeddedSubtitles");
       createClientPlaybackSession(
         nextItem,
         preferredInitialAudioIndex(nextItem, preferredAudioLanguage),
@@ -858,7 +860,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const active = getActiveMediaElement();
     if (!active) return;
     if (active.paused) {
-      void active.play().catch(() => {});
+      ignorePromise(active.play(), "Player:togglePlayPause");
       return;
     }
     active.pause();

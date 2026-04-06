@@ -82,7 +82,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
         if (cancelled) return;
         setDefaultLibraryPaths(status.libraryDefaults);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (import.meta.env.DEV) console.warn("[Onboarding:getSetupStatus]", err);
+      });
 
     return () => {
       cancelled = true;
@@ -147,7 +149,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
     try {
       await createAdmin({ email: email.trim(), password });
       setStep("library");
-      refreshMe().catch(() => {}); // update user/session in background; don't block transition
+      void refreshMe().catch((err) => {
+        if (import.meta.env.DEV) console.warn("[Onboarding:refreshMe]", err);
+      }); // update user/session in background; don't block transition
     } catch (err) {
       setError(err instanceof Error ? err.message : "Setup failed.");
     } finally {
@@ -166,7 +170,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
       const quickPassword = "passwordpassword";
       await createAdmin({ email: quickEmail, password: quickPassword });
       setStep("library");
-      refreshMe().catch(() => {}); // update user/session in background; don't block transition
+      void refreshMe().catch((err) => {
+        if (import.meta.env.DEV) console.warn("[Onboarding:refreshMe]", err);
+      }); // update user/session in background; don't block transition
     } catch (err) {
       setError(err instanceof Error ? err.message : "Quick start failed.");
     } finally {

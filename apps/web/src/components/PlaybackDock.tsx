@@ -8,11 +8,10 @@ import {
   type ChangeEvent,
   type CSSProperties,
   type PointerEvent,
-  type RefObject,
   type SyntheticEvent,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import Hls from "hls.js";
+import type Hls from "hls.js";
 import { PLAYBACK_PROGRESS_HEARTBEAT_MS } from "@plum/contracts";
 import {
   embeddedSubtitleAssUrl,
@@ -24,23 +23,7 @@ import {
   resolveBackdropUrl,
   resolvePosterUrl,
 } from "@plum/shared";
-import {
-  FastForward,
-  Maximize2,
-  Settings,
-  Minimize2,
-  Pause,
-  Play,
-  Ratio,
-  Repeat,
-  Rewind,
-  SkipBack,
-  SkipForward,
-  Subtitles,
-  Volume2,
-  VolumeX,
-  X,
-} from "lucide-react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import {
   BASE_URL,
   refreshPlaybackTracks,
@@ -53,6 +36,16 @@ import {
 } from "../api";
 
 const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
+/** Avoid unbounded growth of failed subtitle keys over a long session (oldest entries drop first). */
+const MAX_BLOCKED_SUBTITLE_RETRY_KEYS = 64;
+function rememberBlockedSubtitleKey(set: Set<string>, key: string) {
+  set.add(key);
+  while (set.size > MAX_BLOCKED_SUBTITLE_RETRY_KEYS) {
+    const oldest = set.keys().next().value;
+    if (oldest === undefined) break;
+    set.delete(oldest);
+  }
+}
 import {
   usePlayerQueue,
   usePlayerSession,
@@ -70,8 +63,6 @@ import {
   resolveLibraryPlaybackPreferences,
   subscribePlayerLocalSettings,
   subtitleFontSizeValue,
-  subtitlePositionOptions,
-  subtitleSizeOptions,
   formatDetectedVideoAspectLabel,
   videoAspectModeOptions,
   writeStoredPlayerWebDefaults,
@@ -89,7 +80,6 @@ import {
   consumeSubtitleResponseWithPartialUpdates,
   findHlsSubtitleTrackIndexForPlumKey,
   formatClock,
-  formatHlsErrorMessage,
   formatTrackLabel,
   getBrowserAudioTracks,
   getPreferredAudioKey,
@@ -101,14 +91,21 @@ import {
   resolvedVideoDuration,
   seekUpperBoundSeconds,
 } from "../lib/playback/playerMedia";
-import type {
-  AudioTrackOption,
-  HlsErrorData,
-  SubtitleTrackOption,
-  TrackMenuOption,
-} from "../lib/playback/playerMedia";
+import type { AudioTrackOption, SubtitleTrackOption } from "../lib/playback/playerMedia";
+import {
+  useFullscreenPlaybackKeyboard,
+  usePlaybackUpNextKeyboard,
+  type FullscreenPlaybackKeyboardDeps,
+} from "@/hooks/usePlaybackDockKeyboard";
+import { ignorePromise } from "@/lib/ignorePromise";
 import { queryKeys, useLibraries } from "../queries";
-import { JassubRenderer } from "./JassubRenderer";
+import {
+  VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS,
+} from "./playback/constants";
+import { PlaybackControls } from "./playback/PlaybackControls";
+import { PlaybackVideoStage } from "./playback/PlaybackVideoStage";
+import { PlayerLoadingOverlay } from "./playback/PlayerLoadingOverlay";
+import { useHlsAttachment } from "./playback/useHlsAttachment";
 
 type PlaybackState = {
   currentTime: number;
@@ -151,173 +148,7 @@ const CONTROLS_HIDE_DELAY = 3000;
 const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
 /** Embedded tracks are transcoded server-side (often full-file ffmpeg); client abort was killing ffmpeg at ~45s. */
 const EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS = 600_000;
-const VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS = 5;
-const VIDEO_SKIP_BUTTON_SECONDS = 30;
 const UPNEXT_COUNTDOWN_SECONDS = 10;
-
-/* ── Track popover menu (shared between docked & fullscreen) ── */
-function TrackMenu({
-  options,
-  selectedKey,
-  onSelect,
-  menuRef,
-  position = "above",
-  ariaLabel,
-  offLabel,
-}: {
-  options: TrackMenuOption[];
-  selectedKey: string;
-  onSelect: (key: string) => void;
-  menuRef: RefObject<HTMLDivElement | null>;
-  position?: "above" | "below";
-  ariaLabel: string;
-  offLabel?: string;
-}) {
-  return (
-    <div
-      ref={menuRef}
-      className={`subtitle-menu subtitle-menu--${position}`}
-      role="listbox"
-      aria-label={ariaLabel}
-    >
-      {offLabel && (
-        <button
-          type="button"
-          role="option"
-          aria-selected={selectedKey === "off"}
-          className={`subtitle-menu__item${selectedKey === "off" ? " is-selected" : ""}`}
-          onClick={() => onSelect("off")}
-        >
-          <span className="subtitle-menu__check">{selectedKey === "off" ? "✓" : ""}</span>
-          <span>{offLabel}</span>
-        </button>
-      )}
-      {options.map((option) => (
-        <button
-          key={option.key}
-          type="button"
-          role="option"
-          aria-selected={selectedKey === option.key}
-          disabled={option.disabled}
-          className={`subtitle-menu__item${selectedKey === option.key ? " is-selected" : ""}`}
-          onClick={() => onSelect(option.key)}
-        >
-          <span className="subtitle-menu__check">{selectedKey === option.key ? "✓" : ""}</span>
-          <span>{option.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PlayerSettingsMenu({
-  menuRef,
-  preferences,
-  videoAutoplayEnabled,
-  onChange,
-  onVideoAutoplayChange,
-}: {
-  menuRef: RefObject<HTMLDivElement | null>;
-  preferences: SubtitleAppearance;
-  videoAutoplayEnabled: boolean;
-  onChange: (value: SubtitleAppearance) => void;
-  onVideoAutoplayChange: (enabled: boolean) => void;
-}) {
-  return (
-    <div
-      ref={menuRef}
-      className="player-settings-menu"
-      role="dialog"
-      aria-label="Player settings"
-    >
-      <div className="player-settings-menu__field">
-        <span id="player-settings-subtitle-size">Subtitle size</span>
-        <div
-          className="player-settings-menu__choice-row player-settings-menu__choice-row--thirds"
-          role="group"
-          aria-labelledby="player-settings-subtitle-size"
-        >
-          {subtitleSizeOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`player-settings-menu__choice${preferences.size === option.value ? " is-active" : ""}`}
-              onClick={() => onChange({ ...preferences, size: option.value })}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="player-settings-menu__field">
-        <span id="player-settings-subtitle-location">Subtitle location</span>
-        <div
-          className="player-settings-menu__choice-row"
-          role="group"
-          aria-labelledby="player-settings-subtitle-location"
-        >
-          {subtitlePositionOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`player-settings-menu__choice${preferences.position === option.value ? " is-active" : ""}`}
-              onClick={() => onChange({ ...preferences, position: option.value })}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <label className="player-settings-menu__field">
-        <span>Subtitle color</span>
-        <input
-          type="color"
-          value={preferences.color}
-          onChange={(event) =>
-            onChange({
-              ...preferences,
-              color: event.target.value,
-            })
-          }
-        />
-      </label>
-
-      <label className="player-settings-menu__field player-settings-menu__checkbox-row">
-        <input
-          type="checkbox"
-          checked={videoAutoplayEnabled}
-          onChange={(event) => onVideoAutoplayChange(event.target.checked)}
-        />
-        <span>Autoplay next</span>
-      </label>
-    </div>
-  );
-}
-
-function PlayerLoadingOverlay({
-  label,
-  fullscreen = false,
-}: {
-  label: string;
-  fullscreen?: boolean;
-}) {
-  const ariaLabel = label.trim() !== "" ? label : "Loading";
-  return (
-    <div
-      className={`player-loading-overlay${fullscreen ? " player-loading-overlay--fullscreen" : ""}`}
-      role="status"
-      aria-live="polite"
-      aria-label={ariaLabel}
-    >
-      <div className="player-loading-overlay__spinner" aria-hidden="true" />
-      {label.trim() !== "" ? (
-        <span className="player-loading-overlay__label">{label}</span>
-      ) : null}
-    </div>
-  );
-}
 
 function embeddedStreamIndexFromKey(key: string): number | null {
   if (!key.startsWith("emb-")) return null;
@@ -581,7 +412,7 @@ export function PlaybackDock() {
         activeItem.duration,
         delivery,
       );
-      void element.play().catch(() => {});
+      ignorePromise(element.play(), "PlaybackDock:resumeFromProgressPlay");
     }
     resumeAppliedRef.current = prompt.mediaId;
     setResumePrompt(null);
@@ -593,7 +424,7 @@ export function PlaybackDock() {
     const element = videoRef.current;
     if (element) {
       element.currentTime = 0;
-      void element.play().catch(() => {});
+      ignorePromise(element.play(), "PlaybackDock:startFromBeginningPlay");
     }
     resumeAppliedRef.current = prompt.mediaId;
     setResumePrompt(null);
@@ -890,7 +721,7 @@ export function PlaybackDock() {
 
     const handle = window.setTimeout(() => {
       if (videoRef.current !== video) return;
-      void video.play().catch(() => {});
+      ignorePromise(video.play(), "PlaybackDock:autoplayAfterStreamReady");
     }, 0);
     return () => window.clearTimeout(handle);
   }, [activeItemId, isVideo, videoSourceUrl]);
@@ -1105,7 +936,7 @@ export function PlaybackDock() {
         setLoadedSubtitleTracks((current) =>
           current.filter((candidate) => candidate.key !== track.key),
         );
-        blockedSubtitleRetryKeysRef.current.add(track.key);
+        rememberBlockedSubtitleKey(blockedSubtitleRetryKeysRef.current, track.key);
         setPendingSubtitleKey((current) => (current === track.key ? null : current));
         setSubtitleStatusMessage(
           loadError instanceof Error && loadError.message === "Subtitle request timed out"
@@ -1358,11 +1189,17 @@ export function PlaybackDock() {
       ) {
         return;
       }
-      await updateMediaProgress(activeItem.id, {
-        position_seconds: snapshot.positionSeconds,
-        duration_seconds: snapshot.durationSeconds,
-        completed,
-      }).catch(() => {});
+      try {
+        await updateMediaProgress(activeItem.id, {
+          position_seconds: snapshot.positionSeconds,
+          duration_seconds: snapshot.durationSeconds,
+          completed,
+        });
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.warn("[PlaybackDock:updateMediaProgress]", err);
+        }
+      }
       lastPersistedRef.current = {
         mediaId: activeItem.id,
         positionSeconds: snapshot.positionSeconds,
@@ -1484,7 +1321,7 @@ export function PlaybackDock() {
         resumePlaybackAfterReloadRef.current = false;
         if (shouldResumePlayback) {
           suppressVideoAutoplayOnCanPlayRef.current = false;
-          void element.play().catch(() => {});
+          ignorePromise(element.play(), "PlaybackDock:resumePlaybackAfterReload");
         } else {
           element.pause();
           suppressVideoAutoplayOnCanPlayRef.current = true;
@@ -1506,7 +1343,7 @@ export function PlaybackDock() {
         } else {
           suppressVideoAutoplayOnCanPlayRef.current = false;
           applyResumePosition(element);
-          void element.play().catch(() => {});
+          ignorePromise(element.play(), "PlaybackDock:initialCanPlayPlay");
         }
       }
       syncPlaybackState(element);
@@ -1538,7 +1375,7 @@ export function PlaybackDock() {
         !suppressVideoAutoplayOnCanPlayRef.current &&
         kickstartVideoPlaybackRef.current
       ) {
-        void element.play().catch(() => {});
+        ignorePromise(element.play(), "PlaybackDock:canPlayKickstart");
       }
     },
     [maybeRecoverInitialBufferGap, markSubtitleReady, syncPlaybackState, syncVideoProgressSnapshot],
@@ -2092,161 +1929,27 @@ export function PlaybackDock() {
     [activeItem, audioTracks],
   );
 
-  useEffect(() => {
-    if (hlsRef.current != null) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    const video = videoRef.current;
-    if (!isVideo || !video) return;
-
-    if (!videoSourceUrl) {
-      video.removeAttribute("src");
-      video.load();
-      return;
-    }
-
-    if (!videoSourceIsHls || !Hls.isSupported()) {
-      video.src = videoSourceUrl;
-      return;
-    }
-
-    const hls = new Hls({
-      enableWorker: true,
-      backBufferLength: 90,
-      maxBufferLength: 60,
-      maxMaxBufferLength: 120,
-      startFragPrefetch: true,
-      startPosition: seekToAfterReloadRef.current !== null ? seekToAfterReloadRef.current : -1,
-      xhrSetup: (xhr) => {
-        xhr.withCredentials = true;
-      },
-    });
-    hlsRef.current = hls;
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      setHlsStatusMessage("");
-      mediaRecoveryAttemptsRef.current = 0;
-      networkRecoveryAttemptsRef.current = 0;
-      markSubtitleReady();
-    });
-    hls.on(Hls.Events.ERROR, (_event, data: HlsErrorData) => {
-      const formattedError = formatHlsErrorMessage(data);
-      const isRecoverableGapError =
-        !data.fatal &&
-        (data.details === "bufferStalledError" || data.details === "bufferSeekOverHole");
-      if (!isRecoverableGapError) {
-        console.error("[PlaybackDock] HLS error", {
-          mediaId: activeItemId,
-          source: videoSourceUrl,
-          fatal: data.fatal,
-          type: data.type,
-          details: data.details,
-          error: data.error,
-        });
-      }
-
-      if (!data.fatal) {
-        if (data.details === "bufferStalledError") {
-          const video = videoRef.current;
-          if (maybeRecoverInitialBufferGap(video)) {
-            setHlsStatusMessage("Resyncing playback...");
-            void video?.play().catch(() => {});
-          }
-        }
-        return;
-      }
-
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveryAttemptsRef.current < 2) {
-        networkRecoveryAttemptsRef.current += 1;
-        setHlsStatusMessage("Reconnecting stream...");
-        hls.startLoad();
-        return;
-      }
-
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveryAttemptsRef.current < 2) {
-        mediaRecoveryAttemptsRef.current += 1;
-        setHlsStatusMessage("Recovering playback...");
-        hls.recoverMediaError();
-        return;
-      }
-
-      setHlsStatusMessage(`Stream error: ${formattedError}`);
-    });
-    hls.loadSource(videoSourceUrl);
-    hls.attachMedia(video);
-
-    return () => {
-      hls.destroy();
-      if (hlsRef.current === hls) {
-        hlsRef.current = null;
-      }
-    };
-  }, [
-    activeItemId,
+  useHlsAttachment({
     isVideo,
+    activeItemId,
+    videoSourceUrl,
+    videoSourceIsHls,
+    videoAttachmentVersion,
+    videoRef,
+    hlsRef,
+    seekToAfterReloadRef,
+    setHlsStatusMessage,
     markSubtitleReady,
     maybeRecoverInitialBufferGap,
-    videoAttachmentVersion,
-    videoSourceIsHls,
-    videoSourceUrl,
-  ]);
-
-  useEffect(() => {
-    if (!videoSourceIsHls) return;
-    const hls = hlsRef.current;
-    if (!hls) return;
-    const burnIdx = burnEmbeddedSubtitleStreamIndex;
-    if (
-      burnIdx != null &&
-      selectedSubtitleKey === `emb-${burnIdx}`
-    ) {
-      hls.subtitleTrack = -1;
-      hls.subtitleDisplay = false;
-      return;
-    }
-    if (selectedSubtitleKey === "off") {
-      hls.subtitleTrack = -1;
-      return;
-    }
-    const selectedReq = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
-    if (selectedReq?.assEligible && selectedReq.assSrc) {
-      // ASS is rendered by JASSUB; the same logical track may still appear as HLS WebVTT.
-      hls.subtitleTrack = -1;
-      hls.subtitleDisplay = false;
-      return;
-    }
-    const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
-    if (idx >= 0) {
-      hls.subtitleTrack = idx;
-      hls.subtitleDisplay = true;
-    } else {
-      hls.subtitleTrack = -1;
-    }
-  }, [
+    mediaRecoveryAttemptsRef,
+    networkRecoveryAttemptsRef,
     burnEmbeddedSubtitleStreamIndex,
     selectedSubtitleKey,
-    subtitleReadyVersion,
     subtitleTrackRequests,
-    videoAttachmentVersion,
-    videoSourceIsHls,
-  ]);
-
-  useEffect(() => {
-    if (!videoSourceIsHls || selectedSubtitleKey === "off") return;
-    const hls = hlsRef.current;
-    if (!hls) return;
-    const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
-    if (idx < 0) return;
-    const controller = subtitleLoadControllersRef.current.get(selectedSubtitleKey);
-    if (controller) {
-      controller.abort();
-      subtitleLoadControllersRef.current.delete(selectedSubtitleKey);
-    }
-    setLoadedSubtitleTracks((current) =>
-      current.filter((candidate) => candidate.key !== selectedSubtitleKey),
-    );
-  }, [selectedSubtitleKey, subtitleReadyVersion, videoSourceIsHls]);
+    subtitleReadyVersion,
+    subtitleLoadControllersRef,
+    setLoadedSubtitleTracks,
+  });
 
   /* ── Close track menus on outside click ── */
   useEffect(() => {
@@ -2283,13 +1986,14 @@ export function PlaybackDock() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [syncBrowserFullscreenState]);
 
-  const toggleBrowserFullscreen = useCallback(async () => {
+  const toggleBrowserFullscreen = useCallback(() => {
     if (document.fullscreenElement === playerRootRef.current) {
-      await document.exitFullscreen().catch(() => {});
+      ignorePromise(document.exitFullscreen(), "PlaybackDock:exitFullscreenToggle");
       return;
     }
     if (!playerRootRef.current) return;
-    await playerRootRef.current.requestFullscreen?.().catch(() => {});
+    const p = playerRootRef.current.requestFullscreen?.();
+    if (p) ignorePromise(p, "PlaybackDock:requestFullscreen");
   }, []);
 
   /* ── Auto-hide controls in fullscreen ── */
@@ -2320,98 +2024,27 @@ export function PlaybackDock() {
     setControlsVisible(true);
   }, []);
 
-  /* ── Up next: keyboard (theater player) ── */
-  useEffect(() => {
-    if (!upNextTarget || activeMode !== "video" || activeItem == null) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const tag = (event.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        dismissUpNext();
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        confirmUpNextNow();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [upNextTarget, activeMode, activeItem, dismissUpNext, confirmUpNextNow]);
+  usePlaybackUpNextKeyboard(Boolean(upNextTarget && activeMode === "video" && activeItem != null), {
+    dismissUpNext,
+    confirmUpNextNow,
+  });
 
-  /* ── Keyboard shortcuts (fullscreen) ── */
-  useEffect(() => {
-    if (!isWindowPlayer || !isVideo) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      /* Ignore when a form element is focused */
-      const tag = (event.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-
-      switch (event.key) {
-        case "Escape":
-          if (document.fullscreenElement === playerRootRef.current) {
-            void document.exitFullscreen().catch(() => {});
-          } else {
-            const snapshot = captureVideoProgressSnapshot(videoRef.current);
-            void persistPlaybackProgress({ force: true, snapshot });
-            dismissDock();
-          }
-          break;
-        case "f":
-        case "F":
-          event.preventDefault();
-          void toggleBrowserFullscreen();
-          break;
-        case " ":
-          event.preventDefault();
-          togglePlayPause();
-          resetHideTimer();
-          break;
-        case "ArrowLeft":
-          event.preventDefault();
-          seekTo(Math.max(0, (videoRef.current?.currentTime ?? 0) - 10));
-          resetHideTimer();
-          break;
-        case "ArrowRight":
-          event.preventDefault();
-          seekTo((videoRef.current?.currentTime ?? 0) + 10);
-          resetHideTimer();
-          break;
-        case "ArrowUp":
-          event.preventDefault();
-          setVolume(Math.min(1, volume + 0.1));
-          resetHideTimer();
-          break;
-        case "ArrowDown":
-          event.preventDefault();
-          setVolume(Math.max(0, volume - 0.1));
-          resetHideTimer();
-          break;
-        case "m":
-        case "M":
-          setMuted(!muted);
-          resetHideTimer();
-          break;
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    captureVideoProgressSnapshot,
-    dismissDock,
-    isWindowPlayer,
-    isVideo,
+  useFullscreenPlaybackKeyboard(isWindowPlayer && isVideo, {
+    playerRootRef,
+    videoRef,
+    volume,
     muted,
-    persistPlaybackProgress,
-    resetHideTimer,
-    seekTo,
-    setMuted,
-    setVolume,
+    dismissDock,
     toggleBrowserFullscreen,
     togglePlayPause,
-    volume,
-  ]);
+    seekTo,
+    setVolume,
+    setMuted,
+    resetHideTimer,
+    captureVideoProgressSnapshot,
+    persistPlaybackProgress:
+      persistPlaybackProgress as FullscreenPlaybackKeyboardDeps["persistPlaybackProgress"],
+  });
 
   const handleVideoPrevious = useCallback(() => {
     const currentTime = videoRef.current?.currentTime ?? playbackState.currentTime;
@@ -2592,7 +2225,7 @@ export function PlaybackDock() {
         onEnded={() => {
           if (repeatMode === "one" && audioRef.current) {
             audioRef.current.currentTime = 0;
-            void audioRef.current.play().catch(() => {});
+            ignorePromise(audioRef.current.play(), "PlaybackDock:musicRepeatOne");
             return;
           }
           playNextInQueue();
@@ -2718,78 +2351,68 @@ export function PlaybackDock() {
           }
         }}
       >
-        <div className="fullscreen-player__video-stage">
-          <div className="fullscreen-player__video-frame">
-            <video
-              key={activeItem.id}
-              ref={setVideoRef}
-              className="fullscreen-player__video"
-              style={videoSubtitleStyle}
-              crossOrigin="use-credentials"
-              autoPlay
-              playsInline
-              onLoadStart={() => {
-                if (!videoPlaybackStartedRef.current) {
-                  setIsVideoLoading(true);
-                }
-              }}
-              onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-              onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}
-              onTimeUpdate={(event) => {
-                if (event.currentTarget.currentTime > 1) {
-                  initialBufferGapHandledRef.current = true;
-                }
-                syncPlaybackState(event.currentTarget);
-                syncVideoProgressSnapshot(event.currentTarget);
-                persistInitialPlaybackProgress(event.currentTarget);
-                processIntroSkip(event.currentTarget);
-              }}
-              onPlay={(event) => {
-                if (event.currentTarget.currentTime > 1) {
-                  initialBufferGapHandledRef.current = true;
-                }
-                setIsVideoLoading(false);
-                setHlsStatusMessage("");
-                syncPlaybackState(event.currentTarget);
-                syncVideoProgressSnapshot(event.currentTarget);
-                persistInitialPlaybackProgress(event.currentTarget);
-                processIntroSkip(event.currentTarget);
-              }}
-              onPlaying={() => {
-                kickstartVideoPlaybackRef.current = false;
-                videoPlaybackStartedRef.current = true;
-                setIsVideoLoading(false);
-              }}
-              onPause={(event) => {
-                syncPlaybackState(event.currentTarget);
-                const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-                void persistPlaybackProgress({ force: true, snapshot });
-              }}
-              onWaiting={(event) => {
-                if (
-                  !event.currentTarget.ended &&
-                  !videoPlaybackStartedRef.current
-                ) {
-                  setIsVideoLoading(true);
-                }
-              }}
-              onSeeked={(event) => {
-                syncPlaybackState(event.currentTarget);
-                syncVideoProgressSnapshot(event.currentTarget);
-              }}
-              onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
-              onError={() => {
-                setIsVideoLoading(false);
-                setHlsStatusMessage("Stream error: browser media element failed to load playback");
-              }}
-              onEnded={(event) => {
-                setIsVideoLoading(false);
-                handleVideoEnded(event);
-              }}
-            ></video>
-          </div>
-          <JassubRenderer videoElement={jassubVideoElement} assSrc={activeAssSource} />
-        </div>
+        <PlaybackVideoStage
+          mediaItemId={activeItem.id}
+          setVideoRef={setVideoRef}
+          videoSubtitleStyle={videoSubtitleStyle}
+          jassubVideoElement={jassubVideoElement}
+          activeAssSource={activeAssSource}
+          onLoadStart={() => {
+            if (!videoPlaybackStartedRef.current) {
+              setIsVideoLoading(true);
+            }
+          }}
+          onLoadedMetadata={handleVideoLoadedMetadata}
+          onCanPlay={handleVideoCanPlay}
+          onTimeUpdate={(event) => {
+            if (event.currentTarget.currentTime > 1) {
+              initialBufferGapHandledRef.current = true;
+            }
+            syncPlaybackState(event.currentTarget);
+            syncVideoProgressSnapshot(event.currentTarget);
+            persistInitialPlaybackProgress(event.currentTarget);
+            processIntroSkip(event.currentTarget);
+          }}
+          onPlay={(event) => {
+            if (event.currentTarget.currentTime > 1) {
+              initialBufferGapHandledRef.current = true;
+            }
+            setIsVideoLoading(false);
+            setHlsStatusMessage("");
+            syncPlaybackState(event.currentTarget);
+            syncVideoProgressSnapshot(event.currentTarget);
+            persistInitialPlaybackProgress(event.currentTarget);
+            processIntroSkip(event.currentTarget);
+          }}
+          onPlaying={() => {
+            kickstartVideoPlaybackRef.current = false;
+            videoPlaybackStartedRef.current = true;
+            setIsVideoLoading(false);
+          }}
+          onPause={(event) => {
+            syncPlaybackState(event.currentTarget);
+            const snapshot = captureVideoProgressSnapshot(event.currentTarget);
+            void persistPlaybackProgress({ force: true, snapshot });
+          }}
+          onWaiting={(event) => {
+            if (!event.currentTarget.ended && !videoPlaybackStartedRef.current) {
+              setIsVideoLoading(true);
+            }
+          }}
+          onSeeked={(event) => {
+            syncPlaybackState(event.currentTarget);
+            syncVideoProgressSnapshot(event.currentTarget);
+          }}
+          onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
+          onError={() => {
+            setIsVideoLoading(false);
+            setHlsStatusMessage("Stream error: browser media element failed to load playback");
+          }}
+          onEnded={(event) => {
+            setIsVideoLoading(false);
+            handleVideoEnded(event);
+          }}
+        />
         {showSkipIntroControl && (
           <button
             type="button"
@@ -2858,257 +2481,90 @@ export function PlaybackDock() {
           </div>
         </div>
 
-        {/* Bottom controls overlay */}
-        <div
-          ref={overlayRef}
-          className="fullscreen-player__controls"
-          onMouseEnter={handleOverlayMouseEnter}
-        >
-          {/* Seek bar full-width */}
-          <div className="fullscreen-player__seek">
-            <input
-              ref={seekSliderRef}
-              type="range"
-              className="fullscreen-player__seek-slider"
-              aria-label="Seek playback"
-              min={0}
-              max={progressMax || 0}
-              step={0.1}
-              value={seekSliderDisplayValue}
-              onPointerDown={handleSeekSliderPointerDown}
-              onChange={handleSeekSliderChange}
-              onInput={handleSeekSliderChange}
-            />
-          </div>
-
-          <div className="fullscreen-player__controls-row">
-            {/* Left: play + time */}
-            <div className="fullscreen-player__controls-left">
-              <button
-                type="button"
-                className="fullscreen-player__ctrl-btn"
-                onClick={togglePlayPause}
-                aria-label={playbackState.isPlaying ? "Pause playback" : "Play playback"}
-                title={playbackState.isPlaying ? "Pause" : "Play"}
-              >
-                {playbackState.isPlaying ? (
-                  <Pause className="size-[1.125rem]" strokeWidth={2.25} />
-                ) : (
-                  <Play className="size-[1.125rem]" strokeWidth={2.25} />
-                )}
-              </button>
-              <button
-                type="button"
-                className="fullscreen-player__ctrl-btn"
-                onClick={() => seekRelativeSeconds(-VIDEO_SKIP_BUTTON_SECONDS)}
-                aria-label={`Seek back ${VIDEO_SKIP_BUTTON_SECONDS} seconds`}
-                title={`Back ${VIDEO_SKIP_BUTTON_SECONDS}s`}
-              >
-                <Rewind className="size-[1.125rem]" strokeWidth={2.25} />
-              </button>
-              <button
-                type="button"
-                className="fullscreen-player__ctrl-btn"
-                onClick={() => seekRelativeSeconds(VIDEO_SKIP_BUTTON_SECONDS)}
-                aria-label={`Seek forward ${VIDEO_SKIP_BUTTON_SECONDS} seconds`}
-                title={`Forward ${VIDEO_SKIP_BUTTON_SECONDS}s`}
-              >
-                <FastForward className="size-[1.125rem]" strokeWidth={2.25} />
-              </button>
-              <span className="fullscreen-player__time">
-                {formatClock(seekTimeLabelSec)} / {formatClock(progressMax)}
-              </span>
-            </div>
-
-            {/* Right: subtitles + settings + volume + fullscreen + exit */}
-            <div className="fullscreen-player__controls-right">
-              {isVideo && (
-                <div className="fullscreen-player__aspect-wrap">
-                  <button
-                    ref={aspectBtnRef}
-                    type="button"
-                    className={`fullscreen-player__ctrl-btn${videoAspectMode !== "auto" ? " is-active" : ""}`}
-                    aria-label="Aspect ratio"
-                    title="Aspect ratio"
-                    onClick={() => {
-                      setAspectMenuOpen((value) => !value);
-                      setSubtitleMenuOpen(false);
-                      setAudioMenuOpen(false);
-                      setPlayerSettingsOpen(false);
-                      resetHideTimer();
-                    }}
-                  >
-                    <Ratio className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-                  {aspectMenuOpen && (
-                    <TrackMenu
-                      menuRef={aspectMenuRef}
-                      options={aspectTrackMenuOptions}
-                      selectedKey={videoAspectMode}
-                      ariaLabel="Select aspect ratio"
-                      onSelect={(key) => {
-                        setVideoAspectMode(key as VideoAspectMode);
-                        setAspectMenuOpen(false);
-                        resetHideTimer();
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-
-              {isVideo && (
-                <div className="fullscreen-player__subtitle-wrap">
-                  <button
-                    ref={subtitleBtnRef}
-                    type="button"
-                    className={`fullscreen-player__ctrl-btn${selectedSubtitleKey !== "off" ? " is-active" : ""}`}
-                    aria-label="Subtitles"
-                    title="Subtitles"
-                    onClick={toggleSubtitleMenu}
-                  >
-                    <Subtitles className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-                  {subtitleMenuOpen && (
-                    <TrackMenu
-                      menuRef={subtitleMenuRef}
-                      options={subtitleMenuTrackOptions}
-                      selectedKey={selectedSubtitleKey}
-                      ariaLabel="Select subtitle track"
-                      offLabel="Off"
-                      onSelect={(key) => {
-                        void selectSubtitleTrack(key);
-                        setSubtitleMenuOpen(false);
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-
-              {audioTracks.length > 1 && (
-                <div className="fullscreen-player__audio-wrap">
-                  <button
-                    ref={audioBtnRef}
-                    type="button"
-                    className="fullscreen-player__ctrl-btn"
-                    aria-label={`Audio track: ${selectedAudioLabel}`}
-                    title={`Audio: ${selectedAudioLabel}`}
-                    onClick={() => {
-                      setAudioMenuOpen((value) => !value);
-                      setSubtitleMenuOpen(false);
-                      setAspectMenuOpen(false);
-                      setPlayerSettingsOpen(false);
-                    }}
-                  >
-                    <Volume2 className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-                  {audioMenuOpen && (
-                    <TrackMenu
-                      menuRef={audioMenuRef}
-                      options={audioTracks}
-                      selectedKey={selectedAudioKey}
-                      ariaLabel="Select audio track"
-                      onSelect={(key) => {
-                        selectAudioTrack(key);
-                        setAudioMenuOpen(false);
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-
-              {isVideo && (
-                <div className="fullscreen-player__settings-wrap">
-                  <button
-                    ref={playerSettingsBtnRef}
-                    type="button"
-                    className="fullscreen-player__ctrl-btn"
-                    aria-label="Player settings"
-                    title="Player settings"
-                    onClick={() => {
-                      setPlayerSettingsOpen((value) => !value);
-                      setSubtitleMenuOpen(false);
-                      setAudioMenuOpen(false);
-                      setAspectMenuOpen(false);
-                    }}
-                  >
-                    <Settings className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-                  {playerSettingsOpen && (
-                    <PlayerSettingsMenu
-                      menuRef={playerSettingsMenuRef}
-                      preferences={subtitleAppearance}
-                      videoAutoplayEnabled={videoAutoplayEnabled}
-                      onChange={setSubtitleAppearance}
-                      onVideoAutoplayChange={setVideoAutoplayEnabled}
-                    />
-                  )}
-                </div>
-              )}
-
-              {hasVideoQueueNavigation && (
-                <>
-                  <button
-                    type="button"
-                    className="fullscreen-player__ctrl-btn"
-                    onClick={handleVideoPrevious}
-                    aria-label="Previous episode"
-                    title="Previous episode"
-                  >
-                    <SkipBack className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-
-                  <button
-                    type="button"
-                    className="fullscreen-player__ctrl-btn"
-                    onClick={playNextInQueue}
-                    aria-label="Next episode"
-                    title="Next episode"
-                    disabled={!hasNextQueueItem}
-                  >
-                    <SkipForward className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`fullscreen-player__ctrl-btn${videoAutoplayEnabled ? " is-active" : ""}`}
-                    onClick={() => setVideoAutoplayEnabled((value) => !value)}
-                    aria-label="Autoplay next episode"
-                    title={autoplayButtonLabel}
-                    aria-pressed={videoAutoplayEnabled}
-                  >
-                    <Repeat className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-                </>
-              )}
-
-              <div className="fullscreen-player__volume-group">
-                <button
-                  type="button"
-                  className="fullscreen-player__ctrl-btn"
-                  onClick={() => setMuted(!muted)}
-                  aria-label={muteButtonLabel}
-                  title={muteButtonLabel}
-                >
-                  {muted || volume === 0 ? (
-                    <VolumeX className="size-[1.125rem]" strokeWidth={2.25} />
-                  ) : (
-                    <Volume2 className="size-[1.125rem]" strokeWidth={2.25} />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  className="fullscreen-player__volume-slider"
-                  aria-label="Set volume"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={muted ? 0 : volume}
-                  onChange={(event) => setVolume(Number(event.target.value))}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <PlaybackControls
+          overlayRef={overlayRef}
+          onOverlayMouseEnter={handleOverlayMouseEnter}
+          progressMax={progressMax}
+          seekSliderRef={seekSliderRef}
+          seekSliderDisplayValue={seekSliderDisplayValue}
+          onSeekPointerDown={handleSeekSliderPointerDown}
+          onSeekChange={handleSeekSliderChange}
+          isPlaying={playbackState.isPlaying}
+          onTogglePlayPause={togglePlayPause}
+          seekTimeLabelSec={seekTimeLabelSec}
+          onSeekRelative={seekRelativeSeconds}
+          showAspectControls={isVideo}
+          aspectBtnRef={aspectBtnRef}
+          aspectMenuRef={aspectMenuRef}
+          aspectMenuOpen={aspectMenuOpen}
+          onAspectButtonClick={() => {
+            setAspectMenuOpen((value) => !value);
+            setSubtitleMenuOpen(false);
+            setAudioMenuOpen(false);
+            setPlayerSettingsOpen(false);
+            resetHideTimer();
+          }}
+          videoAspectMode={videoAspectMode}
+          aspectTrackMenuOptions={aspectTrackMenuOptions}
+          onSelectAspect={(key) => {
+            setVideoAspectMode(key as VideoAspectMode);
+            setAspectMenuOpen(false);
+            resetHideTimer();
+          }}
+          showSubtitleControls={isVideo}
+          subtitleBtnRef={subtitleBtnRef}
+          subtitleMenuRef={subtitleMenuRef}
+          subtitleMenuOpen={subtitleMenuOpen}
+          onSubtitleButtonClick={toggleSubtitleMenu}
+          subtitleMenuTrackOptions={subtitleMenuTrackOptions}
+          selectedSubtitleKey={selectedSubtitleKey}
+          onSelectSubtitleTrack={(key) => {
+            void selectSubtitleTrack(key);
+            setSubtitleMenuOpen(false);
+          }}
+          audioBtnRef={audioBtnRef}
+          audioMenuRef={audioMenuRef}
+          audioMenuOpen={audioMenuOpen}
+          onAudioButtonClick={() => {
+            setAudioMenuOpen((value) => !value);
+            setSubtitleMenuOpen(false);
+            setAspectMenuOpen(false);
+            setPlayerSettingsOpen(false);
+          }}
+          audioTracks={audioTracks}
+          selectedAudioKey={selectedAudioKey}
+          selectedAudioLabel={selectedAudioLabel}
+          onSelectAudioTrack={(key) => {
+            selectAudioTrack(key);
+            setAudioMenuOpen(false);
+          }}
+          showSettingsControls={isVideo}
+          playerSettingsBtnRef={playerSettingsBtnRef}
+          playerSettingsMenuRef={playerSettingsMenuRef}
+          playerSettingsOpen={playerSettingsOpen}
+          onPlayerSettingsButtonClick={() => {
+            setPlayerSettingsOpen((value) => !value);
+            setSubtitleMenuOpen(false);
+            setAudioMenuOpen(false);
+            setAspectMenuOpen(false);
+          }}
+          subtitleAppearance={subtitleAppearance}
+          onSubtitleAppearanceChange={setSubtitleAppearance}
+          videoAutoplayEnabled={videoAutoplayEnabled}
+          onVideoAutoplayEnabledChange={setVideoAutoplayEnabled}
+          hasVideoQueueNavigation={hasVideoQueueNavigation}
+          onVideoPrevious={handleVideoPrevious}
+          onPlayNextInQueue={playNextInQueue}
+          hasNextQueueItem={hasNextQueueItem}
+          onToggleQueueAutoplay={() => setVideoAutoplayEnabled((value) => !value)}
+          autoplayNextLabel={autoplayButtonLabel}
+          queueAutoplayActive={videoAutoplayEnabled}
+          muted={muted}
+          volume={volume}
+          onToggleMute={() => setMuted(!muted)}
+          onVolumeSliderChange={setVolume}
+          muteButtonLabel={muteButtonLabel}
+        />
         {resumePromptOverlay}
         {upNextOverlay}
       </section>

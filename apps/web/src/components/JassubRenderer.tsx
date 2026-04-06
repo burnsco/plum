@@ -1,7 +1,18 @@
 import { useEffect } from "react";
+import { devWarn } from "@/lib/devConsole";
 import type JASSUB from "jassub";
 
 type JassubInstance = InstanceType<typeof JASSUB>;
+
+// Trigger dynamic imports eagerly so modules are cached by the time a subtitle is selected.
+// Errors are intentionally swallowed — the init() function will retry and handle them.
+void Promise.all([
+  import("jassub"),
+  // @ts-ignore — ?url import resolved by Vite
+  import("jassub/dist/wasm/jassub-worker.js?url"),
+  // @ts-ignore — ?url import resolved by Vite
+  import("jassub/dist/wasm/jassub-worker.wasm?url"),
+]).catch(() => {});
 
 interface JassubRendererProps {
   videoElement: HTMLVideoElement | null;
@@ -33,7 +44,7 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
         }
         const subContent = await response.text();
         if (signal.aborted) {
-          console.warn("[JassubRenderer] ASS fetch completed after subtitle deselected; discarding load");
+          devWarn("[JassubRenderer] ASS fetch completed after subtitle deselected; discarding load");
           return;
         }
 
@@ -51,7 +62,7 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
           import("jassub/dist/wasm/jassub-worker.wasm?url"),
         ]);
         if (signal.aborted) {
-          console.warn("[JassubRenderer] JASSUB load aborted after subtitle deselected");
+          devWarn("[JassubRenderer] JASSUB load aborted after subtitle deselected");
           return;
         }
 
@@ -63,7 +74,7 @@ export function JassubRenderer({ videoElement, assSrc }: JassubRendererProps) {
         });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          console.warn("[JassubRenderer] ASS fetch aborted (subtitle deselected or track changed)");
+          devWarn("[JassubRenderer] ASS fetch aborted (subtitle deselected or track changed)");
           return;
         }
         console.error("[JassubRenderer] Initialization failed:", err);

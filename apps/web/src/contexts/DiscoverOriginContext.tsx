@@ -14,10 +14,7 @@ const DiscoverOriginContext = createContext<DiscoverOriginContextValue | null>(n
  */
 export function DiscoverOriginProvider({ children }: { children: ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const originCountry = useMemo(
-    () => normalizeDiscoverOriginKey(searchParams.get("origin")),
-    [searchParams],
-  );
+  const originCountry = normalizeDiscoverOriginKey(searchParams.get("origin"));
   const setOriginCountry = useCallback(
     (code: string) => {
       const normalized = normalizeDiscoverOriginKey(code);

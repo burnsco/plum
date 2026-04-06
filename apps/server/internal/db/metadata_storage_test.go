@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -24,7 +25,7 @@ func TestUpdateMediaMetadataWithState_UpsertsShowSeasonAndVersions(t *testing.T)
 		t.Fatalf("insert episode: %v", err)
 	}
 
-	if err := UpdateMediaMetadataWithState(dbConn, "tv_episodes", refID, "Show - S01E01 - Pilot", "overview a", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 100, "", 1, 1, false, true); err != nil {
+	if err := UpdateMediaMetadataWithState(context.Background(), dbConn, "tv_episodes", refID, "Show - S01E01 - Pilot", "overview a", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 100, "", 1, 1, false, true); err != nil {
 		t.Fatalf("first metadata update: %v", err)
 	}
 
@@ -46,7 +47,7 @@ func TestUpdateMediaMetadataWithState_UpsertsShowSeasonAndVersions(t *testing.T)
 		t.Fatalf("load season version: %v", err)
 	}
 
-	if err := UpdateMediaMetadataWithState(dbConn, "tv_episodes", refID, "Show - S01E01 - Pilot", "overview a", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 100, "", 1, 1, false, true); err != nil {
+	if err := UpdateMediaMetadataWithState(context.Background(), dbConn, "tv_episodes", refID, "Show - S01E01 - Pilot", "overview a", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 100, "", 1, 1, false, true); err != nil {
 		t.Fatalf("same metadata update: %v", err)
 	}
 	var (
@@ -67,7 +68,7 @@ func TestUpdateMediaMetadataWithState_UpsertsShowSeasonAndVersions(t *testing.T)
 		t.Fatalf("expected stable versions on unchanged metadata: episode %d->%d show %d->%d season %d->%d", episodeVersion1, episodeVersion2, showVersion1, showVersion2, seasonVersion1, seasonVersion2)
 	}
 
-	if err := UpdateMediaMetadataWithState(dbConn, "tv_episodes", refID, "Show - S01E01 - Pilot", "overview b", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 100, "", 1, 1, false, true); err != nil {
+	if err := UpdateMediaMetadataWithState(context.Background(), dbConn, "tv_episodes", refID, "Show - S01E01 - Pilot", "overview b", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 100, "", 1, 1, false, true); err != nil {
 		t.Fatalf("changed metadata update: %v", err)
 	}
 	var (
@@ -113,10 +114,10 @@ func TestUpdateMediaMetadataWithState_DoesNotMergeDifferentTMDBShowsWithSameTitl
 		}
 	}
 
-	if err := UpdateMediaMetadataWithState(dbConn, "tv_episodes", refIDs[0], "Shared Show - S01E01 - Pilot", "overview a", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 111, "", 1, 1, false, true); err != nil {
+	if err := UpdateMediaMetadataWithState(context.Background(), dbConn, "tv_episodes", refIDs[0], "Shared Show - S01E01 - Pilot", "overview a", "poster-a", "backdrop-a", "2020-01-01", 7.1, "tt0001", 7.6, 111, "", 1, 1, false, true); err != nil {
 		t.Fatalf("first metadata update: %v", err)
 	}
-	if err := UpdateMediaMetadataWithState(dbConn, "tv_episodes", refIDs[1], "Shared Show - S01E02 - Second", "overview b", "poster-b", "backdrop-b", "2020-01-08", 7.2, "tt0002", 7.7, 222, "", 1, 2, false, true); err != nil {
+	if err := UpdateMediaMetadataWithState(context.Background(), dbConn, "tv_episodes", refIDs[1], "Shared Show - S01E02 - Second", "overview b", "poster-b", "backdrop-b", "2020-01-08", 7.2, "tt0002", 7.7, 222, "", 1, 2, false, true); err != nil {
 		t.Fatalf("second metadata update: %v", err)
 	}
 

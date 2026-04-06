@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -84,10 +85,12 @@ func (h *AuthHandler) SetupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(setupStatusResponse{
+	if err := json.NewEncoder(w).Encode(setupStatusResponse{
 		HasAdmin:        count > 0,
 		LibraryDefaults: setupLibraryDefaults(),
-	})
+	}); err != nil {
+		slog.Error("json encode error", "error", err)
+	}
 }
 
 type adminSetupRequest struct {
@@ -190,7 +193,9 @@ func (h *AuthHandler) AdminSetup(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: now,
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("json encode error", "error", err)
+	}
 }
 
 func isSQLiteUniqueConstraintError(err error) bool {
@@ -268,11 +273,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, r, sessID, expires)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(userResponse{
+	if err := json.NewEncoder(w).Encode(userResponse{
 		ID:      u.ID,
 		Email:   u.Email,
 		IsAdmin: u.IsAdmin,
-	})
+	}); err != nil {
+		slog.Error("json encode error", "error", err)
+	}
 }
 
 type deviceLoginResponse struct {
@@ -336,7 +343,7 @@ func (h *AuthHandler) DeviceLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(deviceLoginResponse{
+	if err := json.NewEncoder(w).Encode(deviceLoginResponse{
 		User: userResponse{
 			ID:      u.ID,
 			Email:   u.Email,
@@ -344,7 +351,9 @@ func (h *AuthHandler) DeviceLogin(w http.ResponseWriter, r *http.Request) {
 		},
 		SessionToken: sessID,
 		ExpiresAt:    expires,
-	})
+	}); err != nil {
+		slog.Error("json encode error", "error", err)
+	}
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -378,11 +387,13 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(userResponse{
+	if err := json.NewEncoder(w).Encode(userResponse{
 		ID:      user.ID,
 		Email:   user.Email,
 		IsAdmin: user.IsAdmin,
-	})
+	}); err != nil {
+		slog.Error("json encode error", "error", err)
+	}
 }
 
 type quickConnectCodeResponse struct {
@@ -428,7 +439,9 @@ func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Requ
 		}
 		if n, _ := res.RowsAffected(); n == 1 {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(quickConnectCodeResponse{Code: code, ExpiresAt: expires})
+			if err := json.NewEncoder(w).Encode(quickConnectCodeResponse{Code: code, ExpiresAt: expires}); err != nil {
+				slog.Error("json encode error", "error", err)
+			}
 			return
 		}
 	}
@@ -481,7 +494,10 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC()
-	_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Unix())
+	// Best-effort purge of expired rows before lookup; ignore errors so redemption still proceeds.
+	if _, err := tx.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Unix()); err != nil {
+		slog.Debug("quick connect cleanup expired codes", "error", err)
+	}
 
 	var userID int
 	var expUnix int64
@@ -550,7 +566,7 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(deviceLoginResponse{
+	if err := json.NewEncoder(w).Encode(deviceLoginResponse{
 		User: userResponse{
 			ID:      u.ID,
 			Email:   u.Email,
@@ -558,7 +574,9 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 		},
 		SessionToken: sessID,
 		ExpiresAt:    sessExpires,
-	})
+	}); err != nil {
+		slog.Error("json encode error", "error", err)
+	}
 }
 
 func (h *AuthHandler) rateLimiter() *AuthRateLimiter {

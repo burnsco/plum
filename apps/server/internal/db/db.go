@@ -29,7 +29,7 @@ import (
 var SkipFFprobeInScan bool
 
 var (
-	showKeyNonAlnumRegexp = regexp.MustCompile(`[^a-z0-9]+`)
+	showKeyNonAlnumRegexp   = regexp.MustCompile(`[^a-z0-9]+`)
 	showNameFromTitleRegexp = regexp.MustCompile(`^(.+?)\s*-\s*S\d+`)
 )
 
@@ -1962,7 +1962,7 @@ func CountTrackedUnidentifiedByLibrary(db *sql.DB, libraryID int) (int, error) {
 // ListUnidentifiedLibrarySummariesForUser returns non-music libraries with count > 0.
 func ListUnidentifiedLibrarySummariesForUser(db *sql.DB, userID int) ([]UnidentifiedLibrarySummary, error) {
 	rows, err := db.Query(
-		`SELECT id, name, type FROM libraries WHERE user_id = ? AND type != ? ORDER BY id`,
+		`SELECT id, name, type FROM libraries WHERE user_id = ? AND type != ? ORDER BY name COLLATE NOCASE, id`,
 		userID, LibraryTypeMusic,
 	)
 	if err != nil {
@@ -2048,18 +2048,18 @@ WHERE m.library_id = ?
 }
 
 // UpdateMediaMetadata updates a single category row with identified metadata (title, overview, poster, tmdb_id, etc.).
-func UpdateMediaMetadata(db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int) error {
-	return UpdateMediaMetadataWithState(db, table, refID, title, overview, posterPath, backdropPath, releaseDate, voteAvg, imdbID, imdbRating, tmdbID, tvdbID, season, episode, false, false)
+func UpdateMediaMetadata(ctx context.Context, db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int) error {
+	return UpdateMediaMetadataWithState(ctx, db, table, refID, title, overview, posterPath, backdropPath, releaseDate, voteAvg, imdbID, imdbRating, tmdbID, tvdbID, season, episode, false, false)
 }
 
 // UpdateMediaMetadataWithReview updates a single category row with identified metadata and review state.
-func UpdateMediaMetadataWithReview(db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, metadataReviewNeeded bool) error {
-	return UpdateMediaMetadataWithState(db, table, refID, title, overview, posterPath, backdropPath, releaseDate, voteAvg, imdbID, imdbRating, tmdbID, tvdbID, season, episode, metadataReviewNeeded, false)
+func UpdateMediaMetadataWithReview(ctx context.Context, db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, metadataReviewNeeded bool) error {
+	return UpdateMediaMetadataWithState(ctx, db, table, refID, title, overview, posterPath, backdropPath, releaseDate, voteAvg, imdbID, imdbRating, tmdbID, tvdbID, season, episode, metadataReviewNeeded, false)
 }
 
 // UpdateMediaMetadataWithState updates a single category row with identified metadata and episodic metadata state.
-func UpdateMediaMetadataWithState(db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, metadataReviewNeeded bool, metadataConfirmed bool) error {
-	return UpdateMediaMetadataWithCanonicalState(db, table, refID, title, overview, posterPath, backdropPath, releaseDate, voteAvg, imdbID, imdbRating, tmdbID, tvdbID, season, episode, CanonicalMetadata{
+func UpdateMediaMetadataWithState(ctx context.Context, db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, metadataReviewNeeded bool, metadataConfirmed bool) error {
+	return UpdateMediaMetadataWithCanonicalState(ctx, db, table, refID, title, overview, posterPath, backdropPath, releaseDate, voteAvg, imdbID, imdbRating, tmdbID, tvdbID, season, episode, CanonicalMetadata{
 		Title:        title,
 		Overview:     overview,
 		PosterPath:   posterPath,
@@ -2074,7 +2074,8 @@ func UpdateMediaMetadataWithState(db *sql.DB, table string, refID int, title str
 // UpdateMediaMetadataWithCanonicalState updates a single category row with separate canonical show/season metadata.
 // When updateShowVoteAverage is false, the shows.vote_average column is left unchanged (e.g. episode-only identify flows
 // that do not have provider show-level scores).
-func UpdateMediaMetadataWithCanonicalState(db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, canonical CanonicalMetadata, metadataReviewNeeded bool, metadataConfirmed bool, updateShowVoteAverage bool) error {
+// ctx is used for transactions and queries so shutdown or request cancellation can abort in-flight writes.
+func UpdateMediaMetadataWithCanonicalState(ctx context.Context, db *sql.DB, table string, refID int, title string, overview, posterPath, backdropPath, releaseDate string, voteAvg float64, imdbID string, imdbRating float64, tmdbID int, tvdbID string, season, episode int, canonical CanonicalMetadata, metadataReviewNeeded bool, metadataConfirmed bool, updateShowVoteAverage bool) error {
 	if strings.TrimSpace(canonical.Title) == "" {
 		canonical.Title = title
 	}
@@ -2109,7 +2110,6 @@ func UpdateMediaMetadataWithCanonicalState(db *sql.DB, table string, refID int, 
 	)
 	now := time.Now().UTC().Format(time.RFC3339)
 	if table == "tv_episodes" || table == "anime_episodes" {
-		ctx := context.Background()
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -2178,7 +2178,6 @@ WHERE id = ?`,
 		}
 		return tx.Commit()
 	}
-	ctx := context.Background()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

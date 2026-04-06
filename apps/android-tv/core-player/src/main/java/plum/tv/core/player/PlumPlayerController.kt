@@ -1750,7 +1750,14 @@ class PlumPlayerController(
                     }
                     return
                 }
-                if (player.playbackState == Player.STATE_READY && player.currentTracks.groups.isNotEmpty()) {
+                // Only give up once text tracks have actually been reported by ExoPlayer.
+                // HLS subtitle renditions (WebVTT) often arrive in a later onTracksChanged
+                // after STATE_READY, when only video+audio groups are present. If we seal
+                // the flag before text groups appear, the stored preference is never applied.
+                val textTracksPresent = player.currentTracks.groups.any {
+                    it.type == C.TRACK_TYPE_TEXT && it.length > 0
+                }
+                if (player.playbackState == Player.STATE_READY && textTracksPresent) {
                     appliedStoredSubtitlePreferenceForMedia = true
                 }
             }

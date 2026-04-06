@@ -31,8 +31,8 @@ type AdminHandler struct {
 	ScanJobs     *LibraryScanManager
 	Sessions     *transcoder.PlaybackSessionManager
 	PlaybackRoot string
-	LogFile string
-	LogDir  string
+	LogFile      string
+	LogDir       string
 
 	vacuumMu      sync.Mutex
 	vacuumRunning bool
@@ -130,7 +130,7 @@ func (h *AdminHandler) PostMaintenanceRun(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMaintenanceTaskID, _manual bool) (accepted bool, status int, payload map[string]any) {
+func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMaintenanceTaskID, _ bool) (accepted bool, status int, payload map[string]any) {
 	payload = map[string]any{"task": string(task), "accepted": true}
 
 	switch task {
@@ -425,16 +425,16 @@ func (h *AdminHandler) GetActivePlayback(w http.ResponseWriter, r *http.Request)
 	out := make([]map[string]any, 0, len(sessions))
 	for _, s := range sessions {
 		out = append(out, map[string]any{
-			"sessionId":         s.SessionID,
-			"userId":            s.UserID,
-			"userEmail":         emails[s.UserID],
-			"mediaId":           s.MediaID,
-			"title":             s.Title,
-			"libraryId":         s.LibraryID,
-			"kind":              s.Kind,
-			"delivery":          s.Delivery,
-			"status":            s.Status,
-			"durationSeconds":   s.DurationSeconds,
+			"sessionId":       s.SessionID,
+			"userId":          s.UserID,
+			"userEmail":       emails[s.UserID],
+			"mediaId":         s.MediaID,
+			"title":           s.Title,
+			"libraryId":       s.LibraryID,
+			"kind":            s.Kind,
+			"delivery":        s.Delivery,
+			"status":          s.Status,
+			"durationSeconds": s.DurationSeconds,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -417,6 +417,26 @@ export function resolveLibraryPlaybackPreferences(
   };
 }
 
+/**
+ * Resolves the effective preferred audio language for initial session creation,
+ * checking show-level overrides → web defaults → library defaults.
+ */
+export function resolveEffectivePreferredAudioLanguage(
+  item: MediaItem | null | undefined,
+  libraryPrefs: ResolvedLibraryPlaybackPreferences,
+): string {
+  const webDefaults = readStoredPlayerWebDefaults();
+  const effectiveDefaults = resolveEffectiveWebTrackDefaults(item, webDefaults);
+  const clientAudioLang = effectiveDefaults.defaultAudioLanguage.trim();
+  if (clientAudioLang === PLAYER_WEB_TRACK_LANGUAGE_NONE) {
+    return "";
+  }
+  if (clientAudioLang !== "") {
+    return normalizeLanguagePreference(clientAudioLang);
+  }
+  return libraryPrefs.preferredAudioLanguage;
+}
+
 export function readStoredSubtitleAppearance(): SubtitleAppearance {
   if (typeof window === "undefined") return defaultSubtitleAppearance;
   try {
