@@ -2030,7 +2030,7 @@ func TestLibraryScanManager_FailedMovieNoMatchReindexesAfterTerminalState(t *tes
 	}
 
 	var calls int32
-	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	searchIndex := NewSearchIndexManager(context.Background(), dbConn, nil, nil)
 	var queueCalls int32
 	searchIndex.onQueue = func(gotLibraryID int, full bool) {
 		if gotLibraryID != libraryID {
@@ -2161,7 +2161,7 @@ func TestIdentifyLibrary_GroupsTVEpisodesByShow(t *testing.T) {
 		episodeCalls int32
 		queueCalls   int32
 	)
-	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	searchIndex := NewSearchIndexManager(context.Background(), dbConn, nil, nil)
 	searchIndex.onQueue = func(gotLibraryID int, full bool) {
 		if gotLibraryID != libraryID {
 			t.Fatalf("queued library id = %d", gotLibraryID)
@@ -2912,7 +2912,7 @@ func TestIdentifyConfigForKind_UsesIndependentEpisodeTuning(t *testing.T) {
 }
 
 func TestSearchIndexManager_QueueWhileRunningSchedulesRerun(t *testing.T) {
-	manager := NewSearchIndexManager(nil, nil, nil)
+	manager := NewSearchIndexManager(context.Background(), nil, nil, nil)
 	firstRunStarted := make(chan struct{}, 1)
 	releaseFirstRun := make(chan struct{})
 
@@ -2978,7 +2978,7 @@ func TestLibraryScanManager_FinishSkipsSearchIndexQueueWhenIdentifyRequested(t *
 	t.Cleanup(func() { _ = dbConn.Close() })
 
 	manager := NewLibraryScanManager(dbConn, nil, nil)
-	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	searchIndex := NewSearchIndexManager(context.Background(), dbConn, nil, nil)
 	var queueCalls int32
 	searchIndex.onQueue = func(gotLibraryID int, full bool) {
 		if gotLibraryID != 7 {
@@ -3035,7 +3035,7 @@ func TestLibraryScanManager_StartIdentifyQueuesSearchIndexOnceAtTerminalState(t 
 		t.Fatalf("insert movie: %v", err)
 	}
 
-	searchIndex := NewSearchIndexManager(dbConn, nil, nil)
+	searchIndex := NewSearchIndexManager(context.Background(), dbConn, nil, nil)
 	var queueCalls int32
 	searchIndex.onQueue = func(gotLibraryID int, full bool) {
 		if gotLibraryID != libraryID {

@@ -278,7 +278,7 @@ private fun DiscoverPosterCard(
     modifier: Modifier = Modifier,
     focusedScale: Float? = null,
 ) {
-    val posterUrl = resolveArtworkUrl(serverBase, null, item.posterPath, PlumImageSizes.POSTER_GRID)
+    val posterUrl = resolveArtworkUrl(serverBase, null, item.posterPath, PlumImageSizes.POSTER_GRID_COMPACT)
     PlumPosterCard(
         title = item.title,
         subtitle = discoverItemSubtitle(item),

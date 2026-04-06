@@ -190,7 +190,7 @@ func ensureArtworkAsset(
 		return asset, err
 	}
 
-	contentHash := sha256Hex(downloaded.bytes)
+	contentHash := downloaded.contentHash
 	relPath, mimeType := "", downloaded.contentType
 	if err := dbConn.QueryRow(
 		`SELECT original_rel_path, COALESCE(mime_type, '') FROM artwork_assets WHERE COALESCE(content_hash, '') = ? LIMIT 1`,
@@ -209,7 +209,19 @@ func ensureArtworkAsset(
 			ext = ".img"
 		}
 		downloaded.persistedRelPath = filepath.Join("originals", contentHash+ext)
-		if err := os.WriteFile(filepath.Join(artworkDir, downloaded.persistedRelPath), downloaded.bytes, 0o644); err != nil {
+		destPath := filepath.Join(artworkDir, downloaded.persistedRelPath)
+		if _, err := downloaded.file.Seek(0, io.SeekStart); err != nil {
+			return asset, err
+		}
+		destFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			return asset, err
+		}
+		if _, err := io.Copy(destFile, downloaded.file); err != nil {
+			destFile.Close()
+			return asset, err
+		}
+		if err := destFile.Close(); err != nil {
 			return asset, err
 		}
 	}
@@ -271,9 +283,10 @@ func linkArtworkAsset(dbConn *sql.DB, entityKind string, entityID int, artworkKi
 }
 
 type downloadedArtwork struct {
-	bytes            []byte
+	file             *os.File
 	filename         string
 	contentType      string
+	contentHash      string
 	width            int
 	height           int
 	persistedRelPath string
@@ -293,24 +306,43 @@ func downloadArtworkSource(ctx context.Context, sourceURL string) (downloadedArt
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return downloadedArtwork{}, fmt.Errorf("fetch artwork: %s", resp.Status)
 	}
-	body, err := io.ReadAll(resp.Body)
+
+	tmp, err := os.CreateTemp("", "plum-artwork-*")
 	if err != nil {
 		return downloadedArtwork{}, err
 	}
-	cfg, _, err := image.DecodeConfig(strings.NewReader(string(body)))
-	if err != nil {
-		cfg, _, err = image.DecodeConfig(bytesReader(body))
+	abort := func() {
+		tmp.Close()
+		os.Remove(tmp.Name())
 	}
+
+	h := sha256.New()
+	if _, err := io.Copy(tmp, io.TeeReader(resp.Body, h)); err != nil {
+		abort()
+		return downloadedArtwork{}, err
+	}
+	contentHash := hex.EncodeToString(h.Sum(nil))
+
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		abort()
+		return downloadedArtwork{}, err
+	}
+	cfg, _, err := image.DecodeConfig(tmp)
 	if err != nil {
 		cfg = image.Config{}
 	}
+
 	return downloadedArtwork{
-		bytes:       body,
+		file:        tmp,
 		filename:    filepath.Base(req.URL.Path),
 		contentType: resp.Header.Get("Content-Type"),
+		contentHash: contentHash,
 		width:       cfg.Width,
 		height:      cfg.Height,
-		cleanup:     func() {},
+		cleanup: func() {
+			tmp.Close()
+			os.Remove(tmp.Name())
+		},
 	}, nil
 }
 
@@ -398,11 +430,6 @@ func extensionForContentType(contentType string) string {
 	return exts[0]
 }
 
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
 func resizeImage(src image.Image, width, height int) image.Image {
 	if width <= 0 || height <= 0 {
 		return src
@@ -422,20 +449,3 @@ func resizeImage(src image.Image, width, height int) image.Image {
 	return dst
 }
 
-type byteReader struct {
-	data []byte
-	pos  int
-}
-
-func (r *byteReader) Read(p []byte) (int, error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}
-
-func bytesReader(data []byte) io.Reader {
-	return &byteReader{data: data}
-}

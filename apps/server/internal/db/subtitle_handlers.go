@@ -445,12 +445,29 @@ func materializeEmbeddedSubtitleCacheFile(ctx context.Context, sourcePath string
 	return nil
 }
 
+var warmEmbeddedSubtitleMediaMu sync.Mutex
+var warmEmbeddedSubtitleMediaInFlight = make(map[int]struct{})
+
 // WarmEmbeddedSubtitleCachesForMedia pre-materializes on-disk VTT caches for embedded subtitle tracks
 // so the first client request often hits ServeFile instead of waiting on ffmpeg.
 func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, mediaID int) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	warmEmbeddedSubtitleMediaMu.Lock()
+	if _, busy := warmEmbeddedSubtitleMediaInFlight[mediaID]; busy {
+		warmEmbeddedSubtitleMediaMu.Unlock()
+		return
+	}
+	warmEmbeddedSubtitleMediaInFlight[mediaID] = struct{}{}
+	warmEmbeddedSubtitleMediaMu.Unlock()
+	defer func() {
+		warmEmbeddedSubtitleMediaMu.Lock()
+		delete(warmEmbeddedSubtitleMediaInFlight, mediaID)
+		warmEmbeddedSubtitleMediaMu.Unlock()
+	}()
+
 	item, err := GetMediaByID(dbConn, mediaID)
 	if err != nil || item == nil {
 		return

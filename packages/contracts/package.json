@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "generate:json-schema": "bun run scripts/generate-cross-platform-json-schema.ts",
     "typecheck": "tsc --noEmit",
     "lint": "bunx oxlint",
     "format": "bunx oxfmt"
@@ -15,8 +16,9 @@
     "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@4f969d1"
   },
   "devDependencies": {
-    "oxfmt": "^0.42.0",
-    "oxlint": "^1.57.0",
+    "@types/node": "^24.12.2",
+    "oxfmt": "^0.43.0",
+    "oxlint": "^1.58.0",
     "typescript": "^6.0.2"
   }
 }

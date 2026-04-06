@@ -3,6 +3,7 @@ package plum.tv.core.data
 import javax.inject.Inject
 import javax.inject.Singleton
 import plum.tv.core.network.DiscoverBrowseResponseJson
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.DiscoverGenresResponseJson
 import plum.tv.core.network.DiscoverResponseJson
 import plum.tv.core.network.DiscoverSearchResponseJson
@@ -17,7 +18,7 @@ class DiscoverRepository @Inject constructor(
     suspend fun discover(): Result<DiscoverResponseJson> = runCatching {
         val res = sessionRepository.getPlumApi().discover()
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Discover: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Discover", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty discover response")
     }
@@ -25,7 +26,7 @@ class DiscoverRepository @Inject constructor(
     suspend fun discoverGenres(): Result<DiscoverGenresResponseJson> = runCatching {
         val res = sessionRepository.getPlumApi().discoverGenres()
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Discover genres: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Discover genres", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty discover genres response")
     }
@@ -38,7 +39,7 @@ class DiscoverRepository @Inject constructor(
     ): Result<DiscoverBrowseResponseJson> = runCatching {
         val res = sessionRepository.getPlumApi().browseDiscover(category, mediaType, genreId, page)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Discover browse: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Discover browse", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty discover browse response")
     }
@@ -46,7 +47,7 @@ class DiscoverRepository @Inject constructor(
     suspend fun searchDiscover(query: String): Result<DiscoverSearchResponseJson> = runCatching {
         val res = sessionRepository.getPlumApi().searchDiscover(query)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Discover search: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Discover search", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty discover search response")
     }
@@ -55,7 +56,7 @@ class DiscoverRepository @Inject constructor(
         val res = sessionRepository.getPlumApi().discoverTitleDetails(mediaType, tmdbId)
         if (res.code() == 404) return@runCatching null
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Discover title: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Discover title", res.code(), res.errorBody()?.string()))
         }
         res.body()
     }
@@ -63,14 +64,14 @@ class DiscoverRepository @Inject constructor(
     suspend fun addDiscoverTitle(mediaType: String, tmdbId: Int): Result<Unit> = runCatching {
         val res = sessionRepository.getPlumApi().addDiscoverTitle(mediaType, tmdbId)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Add discover title: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Add discover title", res.code(), res.errorBody()?.string()))
         }
     }
 
     suspend fun downloads(): Result<DownloadsResponseJson> = runCatching {
         val res = sessionRepository.getPlumApi().downloads()
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Downloads: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Downloads", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty downloads response")
     }
@@ -78,7 +79,7 @@ class DiscoverRepository @Inject constructor(
     suspend fun removeDownload(id: String): Result<Unit> = runCatching {
         val res = sessionRepository.getPlumApi().removeDownload(RemoveDownloadPayloadJson(id = id))
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Remove download: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Remove download", res.code(), res.errorBody()?.string()))
         }
     }
 }

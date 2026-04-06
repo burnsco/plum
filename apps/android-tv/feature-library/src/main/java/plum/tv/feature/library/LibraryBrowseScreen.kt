@@ -165,7 +165,7 @@ private fun BrowseMoviePosterCard(
     onClick: () -> Unit,
 ) {
     val serverBase = LocalServerBaseUrl.current
-    val sz = PlumImageSizes.POSTER_GRID
+    val sz = PlumImageSizes.POSTER_GRID_COMPACT
     PlumPosterCard(
         title = item.title,
         subtitle = item.releaseDate?.take(4) ?: item.type,
@@ -192,7 +192,7 @@ private fun BrowseShowPosterCard(
 ) {
     val serverBase = LocalServerBaseUrl.current
     val ep = row.posterItem
-    val sz = PlumImageSizes.POSTER_GRID
+    val sz = PlumImageSizes.POSTER_GRID_COMPACT
     val unwatched = row.episodes.count { it.completed != true }
     val showSubtitle =
         when {

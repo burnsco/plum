@@ -147,7 +147,7 @@ func TestCreateRespectsMaxSessionsPerUser(t *testing.T) {
 		AudioCodecs:       []string{"aac"},
 		Containers:        []string{"mkv"},
 	}
-	if _, err := manager.Create(
+	first, err := manager.Create(
 		context.Background(),
 		db.MediaItem{ID: 501, Path: mediaPath},
 		db.IntroSkipModeManual,
@@ -156,10 +156,23 @@ func TestCreateRespectsMaxSessionsPerUser(t *testing.T) {
 		77,
 		caps,
 		nil,
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
-	_, err := manager.Create(
+	defer func() {
+		if first.SessionID == "" {
+			return
+		}
+		manager.mu.RLock()
+		session := manager.sessions[first.SessionID]
+		manager.mu.RUnlock()
+		if session != nil {
+			waitForRevisionStatus(t, session, 1, "ready")
+		}
+		manager.Close(first.SessionID)
+	}()
+	_, err = manager.Create(
 		context.Background(),
 		db.MediaItem{ID: 502, Path: mediaPath},
 		db.IntroSkipModeManual,

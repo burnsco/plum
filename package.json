@@ -6,6 +6,9 @@
     "packages/*"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "concurrently -n \"web,server\" -c \"blue,green\" \"./scripts/run-web-dev.sh\" \"./scripts/run-server-dev.sh\"",
     "dev:clear-vite-cache": "rm -rf apps/web/.vite",

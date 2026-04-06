@@ -107,6 +107,7 @@ func main() {
 	}
 	db.StartIMDbRatingsSync(appCtx, sqlDB, func(msg string, args ...any) { slog.Info(fmt.Sprintf(msg, args...)) })
 	db.StartSessionCleanup(appCtx, sqlDB, func(msg string, args ...any) { slog.Info(fmt.Sprintf(msg, args...)) })
+	db.StartMetadataProviderCacheCleanup(appCtx, sqlDB, func(msg string, args ...any) { slog.Info(fmt.Sprintf(msg, args...)) })
 
 	thumbDir := getEnv("PLUM_THUMBNAILS_DIR", "")
 	if thumbDir == "" {
@@ -117,7 +118,7 @@ func main() {
 		artDir = filepath.Join(filepath.Dir(conn), "artwork")
 	}
 
-	srv := newHTTPServer(addr, buildRouter(sqlDB, hub, playbackSessions, pipeline, thumbDir, artDir))
+	srv := newHTTPServer(addr, buildRouter(appCtx, sqlDB, hub, playbackSessions, pipeline, thumbDir, artDir))
 
 	go func() {
 		slog.Info("plum backend listening", "addr", addr)
@@ -187,7 +188,7 @@ type mediaStackConfig struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string, artDir string) http.Handler {
+func buildRouter(shutdownCtx context.Context, sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string, artDir string) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(httpapi.RequestLoggingMiddleware())
@@ -205,7 +206,7 @@ func buildRouter(sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.Playba
 		ThumbDir: thumbDir,
 		ArtDir:   artDir,
 	}
-	searchIndex := httpapi.NewSearchIndexManager(sqlDB, pipeline, pipeline)
+	searchIndex := httpapi.NewSearchIndexManager(shutdownCtx, sqlDB, pipeline, pipeline)
 	mediaStack := arr.NewService()
 	libHandler := &httpapi.LibraryHandler{
 		DB:          sqlDB,

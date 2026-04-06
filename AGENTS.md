@@ -15,6 +15,10 @@ Plum is a lightweight, experimental media server and player suite inspired by pl
 2. Reliability first.
 3. Media playback consistency across devices.
 
+## HTTP streaming routes
+
+Handlers that stream large or long-lived bodies (playback, transcodes, downloads) should clear the per-request write deadline (e.g. `httputil.ClearStreamWriteDeadline`) so the server default `WriteTimeout` does not abort mid-stream.
+
 ## Maintainability
 
 Long term maintainability is a core priority. If you add new functionality, first check if there are shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided.

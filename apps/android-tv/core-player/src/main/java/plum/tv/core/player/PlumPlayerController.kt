@@ -2309,10 +2309,12 @@ class PlumPlayerController(
                             )
                         } catch (_: Throwable) {
                         }
-                        withContext(Dispatchers.IO) {
-                            runCatching { sid?.let { playbackRepository.closeSession(it) } }
-                        }
                     }
+                }
+                // Match web: always DELETE the server session when leaving transcoded/remux playback,
+                // even if duration was not resolved yet (otherwise transcoder slots leak).
+                withContext(Dispatchers.IO) {
+                    runCatching { sid?.let { playbackRepository.closeSession(it) } }
                 }
             } catch (_: Throwable) {
             }

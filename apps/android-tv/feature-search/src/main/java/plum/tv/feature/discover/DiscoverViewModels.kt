@@ -99,6 +99,7 @@ class DiscoverViewModel @Inject constructor(
 @HiltViewModel
 class DiscoverBrowseViewModel @Inject constructor(
     private val repository: DiscoverRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
     private val _state = MutableStateFlow<DiscoverBrowseUiState>(DiscoverBrowseUiState.Loading)
     val state: StateFlow<DiscoverBrowseUiState> = _state.asStateFlow()
@@ -108,6 +109,19 @@ class DiscoverBrowseViewModel @Inject constructor(
     private var currentMediaType: String? = null
     private var currentGenreId: Int? = null
     private var isLoadingMore = false
+
+    init {
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect { ev ->
+                if (!ev.invalidateDiscover) return@collect
+                if (currentCategory != null || currentMediaType != null || currentGenreId != null ||
+                    _state.value is DiscoverBrowseUiState.Ready
+                ) {
+                    refresh(currentCategory, currentMediaType, currentGenreId)
+                }
+            }
+        }
+    }
 
     fun refresh(category: String? = null, mediaType: String? = null, genreId: Int? = null) {
         currentCategory = category
@@ -215,11 +229,30 @@ class DiscoverBrowseViewModel @Inject constructor(
 @HiltViewModel
 class DiscoverDetailViewModel @Inject constructor(
     private val repository: DiscoverRepository,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
 ) : ViewModel() {
     private val _state = MutableStateFlow<DiscoverDetailUiState>(DiscoverDetailUiState.Loading)
     val state: StateFlow<DiscoverDetailUiState> = _state.asStateFlow()
 
+    private var lastMediaType: String? = null
+    private var lastTmdbId: Int? = null
+
+    init {
+        viewModelScope.launch {
+            catalogRefreshCoordinator.catalogRefreshEvents.collect { ev ->
+                if (!ev.invalidateDiscover) return@collect
+                val mt = lastMediaType
+                val id = lastTmdbId
+                if (mt != null && id != null) {
+                    refresh(mt, id)
+                }
+            }
+        }
+    }
+
     fun refresh(mediaType: String, tmdbId: Int) {
+        lastMediaType = mediaType
+        lastTmdbId = tmdbId
         viewModelScope.launch {
             _state.value = DiscoverDetailUiState.Loading
             val details = repository.discoverTitleDetails(mediaType, tmdbId).getOrElse {

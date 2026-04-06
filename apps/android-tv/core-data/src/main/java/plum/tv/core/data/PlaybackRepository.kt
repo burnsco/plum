@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import plum.tv.core.network.CreatePlaybackSessionPayloadJson
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.PlaybackSessionJson
 import plum.tv.core.network.UpdateMediaProgressPayloadJson
 import plum.tv.core.network.UpdatePlaybackSessionAudioPayloadJson
@@ -34,7 +35,7 @@ class PlaybackRepository @Inject constructor(
         )
         val res = api.createPlaybackSession(mediaId, payload)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "createPlaybackSession: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Create playback session", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty playback session")
     }
@@ -50,7 +51,9 @@ class PlaybackRepository @Inject constructor(
             ),
         )
         if (!res.isSuccessful) {
-            throw IllegalStateException(res.errorBody()?.string() ?: "progress: ${res.code()}")
+            throw IllegalStateException(
+                PlumHttpMessages.preferBody("Progress", res.code(), res.errorBody()?.string()),
+            )
         }
     }
 
@@ -58,7 +61,7 @@ class PlaybackRepository @Inject constructor(
         val api = sessionRepository.getPlumApi()
         val res = api.updatePlaybackSessionAudio(sessionId, UpdatePlaybackSessionAudioPayloadJson(audioIndex))
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "update audio: ${res.code()}")
+            error(PlumHttpMessages.preferBody("Update playback session audio", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty session")
     }

@@ -73,6 +73,11 @@ type playbackRevision struct {
 	err        string
 	cancel     context.CancelFunc
 	readySent  bool
+
+	masterMu          sync.Mutex
+	cachedMaster      string
+	cachedMasterMTime time.Time
+	cachedMasterBurn  bool
 }
 
 type playbackSession struct {
@@ -104,6 +109,14 @@ func attachIntroFields(state *PlaybackSessionState, media db.MediaItem, introSki
 	}
 }
 
+// PlaybackSessionManager coordinates transcode sessions and WebSocket updates.
+//
+// Locking (static review): m.mu protects the sessions and clients maps; each session.mu
+// protects that session's fields and its revisions map. ServeFile holds m.mu as RLock
+// briefly, then session.mu for revision lookup. runRevision avoids holding session.mu
+// across ffmpeg I/O; markRevisionReady updates state under session.mu then releases
+// before json.Marshal and hub fan-out. Before widening locks or sharding, confirm with
+// mutex or block pprof under realistic concurrent playback.
 type PlaybackSessionManager struct {
 	shutdownCtx context.Context
 	root        string
@@ -125,6 +138,18 @@ func NewPlaybackSessionManager(shutdownCtx context.Context, root string, hub *ws
 		sessions:    make(map[string]*playbackSession),
 		clients:     make(map[string]string),
 	}
+}
+
+// ShutdownContext is cancelled when the server begins graceful shutdown. Pass it to
+// background work so ffmpeg and DB calls stop promptly instead of using context.Background().
+func (m *PlaybackSessionManager) ShutdownContext() context.Context {
+	if m == nil {
+		return context.Background()
+	}
+	if m.shutdownCtx == nil {
+		return context.Background()
+	}
+	return m.shutdownCtx
 }
 
 // EnsureSessionOwner returns ErrNotFound if the session does not exist or belongs to another user.
@@ -552,24 +577,48 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Cache-Control", "no-store")
 
 	if filepath.Ext(target) == ".m3u8" && baseName == "index.m3u8" && relFromRoot == "index.m3u8" {
-		raw, err := os.ReadFile(target)
+		info, err := os.Stat(target)
 		if err != nil {
 			return err
 		}
 		session.mu.Lock()
 		burning := session.burnEmbeddedSubtitleStream != nil
 		session.mu.Unlock()
+
+		revision.masterMu.Lock()
+		hit := revision.cachedMaster != "" &&
+			revision.cachedMasterMTime.Equal(info.ModTime()) &&
+			revision.cachedMasterBurn == burning
+		if hit {
+			body := revision.cachedMaster
+			revision.masterMu.Unlock()
+			http.ServeContent(w, r, baseName, info.ModTime(), strings.NewReader(body))
+			return nil
+		}
+		revision.masterMu.Unlock()
+
+		raw, err := os.ReadFile(target)
+		if err != nil {
+			return err
+		}
+		info, err = os.Stat(target)
+		if err != nil {
+			return err
+		}
 		tracks := CollectHlsWebSubtitles(session.media)
 		if burning {
 			tracks = nil
 		}
 		out := InjectHlsSubtitleRenditions(string(raw), tracks)
-		if info, statErr := os.Stat(target); statErr == nil {
-			http.ServeContent(w, r, baseName, info.ModTime(), strings.NewReader(out))
-			return nil
-		}
-		_, err = w.Write([]byte(out))
-		return err
+
+		revision.masterMu.Lock()
+		revision.cachedMaster = out
+		revision.cachedMasterMTime = info.ModTime()
+		revision.cachedMasterBurn = burning
+		revision.masterMu.Unlock()
+
+		http.ServeContent(w, r, baseName, info.ModTime(), strings.NewReader(out))
+		return nil
 	}
 
 	file, err := os.Open(target)
@@ -770,6 +819,10 @@ func (m *PlaybackSessionManager) runRevision(
 			select {
 			case <-ctx.Done():
 				ticker.Stop()
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+				<-waitCh
 				return
 			case err := <-waitCh:
 				ticker.Stop()

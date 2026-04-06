@@ -2,6 +2,7 @@ package plum.tv.core.data
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.SearchResponseJson
 
 @Singleton
@@ -24,7 +25,7 @@ class SearchRepository @Inject constructor(
             genre = genre,
         )
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Search: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Search", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty search response")
     }

@@ -32,10 +32,29 @@ type targetedBroadcast struct {
 // Hub/client channel capacities. Global broadcast fans out to every connection; larger buffer
 // reduces drops under bursty updates. Per-client send queues outbound messages before writeLoop.
 const (
-	hubBroadcastBuffer = 128
-	hubTargetedBuffer  = 64
-	clientSendBuffer   = 64
+	hubBroadcastBuffer = 256
+	hubTargetedBuffer  = 128
+	clientSendBuffer   = 128
 )
+
+// enqueueFanout delivers a hub fan-out frame to a client. If the per-client queue is full, evict
+// one oldest queued message (typically stale under scan/playback bursts) instead of disconnecting.
+func enqueueFanout(c *Client, msg []byte) {
+	select {
+	case c.send <- msg:
+		return
+	default:
+	}
+	select {
+	case <-c.send:
+	default:
+	}
+	select {
+	case c.send <- msg:
+	default:
+		slog.Debug("ws: client send queue saturated after eviction, dropping fan-out frame", "client_id", c.ID())
+	}
+}
 
 func maxHubClientsFromEnv() int {
 	raw := strings.TrimSpace(os.Getenv("PLUM_WS_MAX_CLIENTS"))
@@ -84,12 +103,7 @@ func (h *Hub) Run() {
 				return
 			}
 			for c := range h.clients {
-				select {
-				case c.send <- msg:
-				default:
-					delete(h.clients, c)
-					c.signalDone()
-				}
+				enqueueFanout(c, msg)
 			}
 		case targeted, ok := <-h.targeted:
 			if !ok {
@@ -100,12 +114,7 @@ func (h *Hub) Run() {
 				if c.User() == nil || c.User().ID != targeted.userID {
 					continue
 				}
-				select {
-				case c.send <- targeted.msg:
-				default:
-					delete(h.clients, c)
-					c.signalDone()
-				}
+				enqueueFanout(c, targeted.msg)
 			}
 		}
 	}

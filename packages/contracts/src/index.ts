@@ -1813,7 +1813,8 @@ export interface PlaybackSessionUpdateEvent {
   sessionId: string;
   delivery: "remux" | "transcode" | "direct";
   mediaId: number;
-  revision: number;
+  /** Omitted for direct delivery and zero revision (matches Go `json:",omitempty"`). */
+  revision?: number;
   audioIndex: number;
   status: PlaybackSessionStatus;
   streamUrl: string;
@@ -1862,7 +1863,7 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   sessionId: Schema.String,
   delivery: Schema.Literals(["remux", "transcode", "direct"]),
   mediaId: Schema.Number,
-  revision: Schema.Number,
+  revision: Schema.optional(Schema.Number),
   audioIndex: Schema.Number,
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
