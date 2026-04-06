@@ -24,6 +24,17 @@ var embeddedSubtitleWarmSem = make(chan struct{}, 6)
 
 const embeddedSubtitleWarmTimeout = 5 * time.Minute
 
+// acquireEmbeddedSubtitleWarmSem waits for a warm slot or returns false if ctx is cancelled first,
+// so goroutines do not block indefinitely when shutdown or timeout fires before the semaphore frees.
+func acquireEmbeddedSubtitleWarmSem(ctx context.Context) bool {
+	select {
+	case embeddedSubtitleWarmSem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 type PlaybackHandler struct {
 	DB       *sql.DB
 	Sessions *transcoder.PlaybackSessionManager
@@ -145,7 +156,9 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 	go func() {
 		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), embeddedSubtitleWarmTimeout)
 		defer cancel()
-		embeddedSubtitleWarmSem <- struct{}{}
+		if !acquireEmbeddedSubtitleWarmSem(ctx) {
+			return
+		}
 		defer func() { <-embeddedSubtitleWarmSem }()
 		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
 	}()
@@ -171,7 +184,9 @@ func (h *PlaybackHandler) WarmEmbeddedSubtitleCaches(w http.ResponseWriter, r *h
 	go func() {
 		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), embeddedSubtitleWarmTimeout)
 		defer cancel()
-		embeddedSubtitleWarmSem <- struct{}{}
+		if !acquireEmbeddedSubtitleWarmSem(ctx) {
+			return
+		}
 		defer func() { <-embeddedSubtitleWarmSem }()
 		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
 	}()

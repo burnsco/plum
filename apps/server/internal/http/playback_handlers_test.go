@@ -365,3 +365,38 @@ func TestRefreshPlaybackTracksReturnsOnDemandMetadata(t *testing.T) {
 		t.Fatalf("embedded subtitles = %#v", payload.EmbeddedSubtitles)
 	}
 }
+
+func drainEmbeddedSubtitleWarmSem(t *testing.T) {
+	t.Helper()
+	for {
+		select {
+		case <-embeddedSubtitleWarmSem:
+		default:
+			return
+		}
+	}
+}
+
+func TestAcquireEmbeddedSubtitleWarmSem_RespectsCancelledContextWhenFull(t *testing.T) {
+	drainEmbeddedSubtitleWarmSem(t)
+	for i := 0; i < cap(embeddedSubtitleWarmSem); i++ {
+		embeddedSubtitleWarmSem <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if acquireEmbeddedSubtitleWarmSem(ctx) {
+		t.Fatal("expected false when semaphore full and ctx cancelled")
+	}
+	for i := 0; i < cap(embeddedSubtitleWarmSem); i++ {
+		<-embeddedSubtitleWarmSem
+	}
+}
+
+func TestAcquireEmbeddedSubtitleWarmSem_AcquiresWhenSpace(t *testing.T) {
+	drainEmbeddedSubtitleWarmSem(t)
+	ctx := context.Background()
+	if !acquireEmbeddedSubtitleWarmSem(ctx) {
+		t.Fatal("expected true when semaphore has capacity")
+	}
+	<-embeddedSubtitleWarmSem
+}

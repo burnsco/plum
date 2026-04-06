@@ -228,7 +228,7 @@ func buildRouter(
 	r.Use(httpapi.AuthMiddleware(sqlDB))
 
 	authHandler := &httpapi.AuthHandler{DB: sqlDB}
-	scanJobs := httpapi.NewLibraryScanManager(sqlDB, pipeline, hub)
+	scanJobs := httpapi.NewLibraryScanManager(shutdownCtx, sqlDB, pipeline, hub)
 	playbackHandler := &httpapi.PlaybackHandler{
 		DB:       sqlDB,
 		Sessions: playbackSessions,

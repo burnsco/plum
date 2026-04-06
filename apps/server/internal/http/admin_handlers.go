@@ -223,14 +223,30 @@ func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMain
 		}
 		defer rows.Close()
 		queued := 0
+		var scanRowErr error
 		for rows.Next() {
 			var id int
 			var path, typ string
 			if err := rows.Scan(&id, &path, &typ); err != nil {
-				continue
+				scanRowErr = err
+				break
 			}
 			h.ScanJobs.start(id, path, typ, true, nil)
 			queued++
+		}
+		if err := rows.Err(); err != nil {
+			payload["accepted"] = false
+			payload["error"] = err.Error()
+			payload["queuedLibraries"] = queued
+			payload["detail"] = fmt.Sprintf("Iteration failed after queuing %d library scan(s).", queued)
+			return true, http.StatusInternalServerError, payload
+		}
+		if scanRowErr != nil {
+			payload["accepted"] = false
+			payload["error"] = scanRowErr.Error()
+			payload["queuedLibraries"] = queued
+			payload["detail"] = fmt.Sprintf("Row scan failed after queuing %d library scan(s).", queued)
+			return true, http.StatusInternalServerError, payload
 		}
 		_ = db.TouchAdminMaintenanceLastRun(ctx, h.DB, db.AdminTaskScanAllMedia)
 		payload["detail"] = fmt.Sprintf("Queued library scans for %d libraries.", queued)
@@ -249,11 +265,28 @@ func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMain
 			return true, http.StatusInternalServerError, payload
 		}
 		var libIDs []int
+		var scanRowErr error
 		for rows.Next() {
 			var id int
-			if err := rows.Scan(&id); err == nil {
-				libIDs = append(libIDs, id)
+			if err := rows.Scan(&id); err != nil {
+				scanRowErr = err
+				break
 			}
+			libIDs = append(libIDs, id)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			payload["accepted"] = false
+			payload["error"] = err.Error()
+			payload["detail"] = fmt.Sprintf("Listed %d libraries before iteration error.", len(libIDs))
+			return true, http.StatusInternalServerError, payload
+		}
+		if scanRowErr != nil {
+			_ = rows.Close()
+			payload["accepted"] = false
+			payload["error"] = scanRowErr.Error()
+			payload["detail"] = fmt.Sprintf("Listed %d libraries before row scan error.", len(libIDs))
+			return true, http.StatusInternalServerError, payload
 		}
 		_ = rows.Close()
 		started := 0
@@ -292,13 +325,22 @@ func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMain
 				}
 				var id int
 				if err := rows.Scan(&id); err != nil {
+					slog.Warn("admin metadata check: scan library row", "error", err)
 					continue
 				}
 				if _, ierr := h.Lib.identifyLibrary(shutdownCtx, id); ierr != nil {
 					slog.Warn("admin metadata check: identify library", "library_id", id, "error", ierr)
 				}
 			}
-			_ = db.TouchAdminMaintenanceLastRun(context.Background(), h.DB, db.AdminTaskCheckMetadataUpdates)
+			if err := rows.Err(); err != nil {
+				slog.Warn("admin metadata check: rows iteration", "error", err)
+				return
+			}
+			touchCtx := shutdownCtx
+			if touchCtx.Err() != nil {
+				touchCtx = context.Background()
+			}
+			_ = db.TouchAdminMaintenanceLastRun(touchCtx, h.DB, db.AdminTaskCheckMetadataUpdates)
 			slog.Info("admin maintenance: check_metadata_updates completed")
 		}()
 		payload["detail"] = "Metadata identify/refresh started in the background for all libraries."
@@ -309,6 +351,46 @@ func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMain
 			"task": string(task), "accepted": false, "error": "unknown task",
 		}
 	}
+}
+
+// adminBatchUserEmails returns a map of user id -> email in one query (avoids N+1 on active playback).
+func adminBatchUserEmails(dbConn *sql.DB, userIDs []int) (map[int]string, error) {
+	if len(userIDs) == 0 {
+		return map[int]string{}, nil
+	}
+	uniq := make([]int, 0, len(userIDs))
+	seen := make(map[int]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniq = append(uniq, id)
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(uniq)), ",")
+	q := `SELECT id, email FROM users WHERE id IN (` + placeholders + `)`
+	args := make([]any, len(uniq))
+	for i, id := range uniq {
+		args[i] = id
+	}
+	rows, err := dbConn.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int]string, len(uniq))
+	for rows.Next() {
+		var id int
+		var email string
+		if err := rows.Scan(&id, &email); err != nil {
+			return nil, err
+		}
+		out[id] = email
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func adminResolveLogDir(logFile, logDir string) string {
@@ -330,14 +412,15 @@ func (h *AdminHandler) GetActivePlayback(w http.ResponseWriter, r *http.Request)
 	if h.Sessions != nil {
 		sessions = h.Sessions.ListActiveSessionsForAdmin()
 	}
-	emails := make(map[int]string)
+	userIDs := make([]int, 0, len(sessions))
 	for _, s := range sessions {
-		if _, ok := emails[s.UserID]; ok {
-			continue
-		}
-		var email string
-		_ = h.DB.QueryRow(`SELECT email FROM users WHERE id = ?`, s.UserID).Scan(&email)
-		emails[s.UserID] = email
+		userIDs = append(userIDs, s.UserID)
+	}
+	emails, err := adminBatchUserEmails(h.DB, userIDs)
+	if err != nil {
+		slog.Error("admin active playback: batch user emails", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 	out := make([]map[string]any, 0, len(sessions))
 	for _, s := range sessions {

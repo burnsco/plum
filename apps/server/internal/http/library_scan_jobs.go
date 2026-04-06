@@ -91,9 +91,10 @@ type libraryScanActivityEntry struct {
 }
 
 type LibraryScanManager struct {
-	db   *sql.DB
-	hub  *ws.Hub
-	meta metadata.Identifier
+	lifecycleCtx context.Context
+	db           *sql.DB
+	hub          *ws.Hub
+	meta         metadata.Identifier
 
 	mu             sync.Mutex
 	jobs           map[int]libraryScanStatus
@@ -165,8 +166,15 @@ func cloneLibraryScanActivity(activity libraryScanActivity) *libraryScanActivity
 	return &cloned
 }
 
-func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub) *LibraryScanManager {
+// NewLibraryScanManager creates a scan queue manager. lifecycleCtx should be the app shutdown
+// context (e.g. from main) so discovery, identify, enrichment, and DB helpers cancel on shutdown.
+// If lifecycleCtx is nil, context.Background() is used (tests).
+func NewLibraryScanManager(lifecycleCtx context.Context, sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub) *LibraryScanManager {
+	if lifecycleCtx == nil {
+		lifecycleCtx = context.Background()
+	}
 	return &LibraryScanManager{
+		lifecycleCtx:   lifecycleCtx,
 		db:             sqlDB,
 		hub:            hub,
 		meta:           meta,
@@ -323,7 +331,7 @@ func (m *LibraryScanManager) resumeRecoveredEnrichment(
 	libraryType string,
 	identifyRequested bool,
 ) {
-	tasks, err := db.ListLibraryEnrichmentTasks(context.Background(), m.db, libraryID, libraryType, identifyRequested)
+	tasks, err := db.ListLibraryEnrichmentTasks(m.lifecycleCtx, m.db, libraryID, libraryType, identifyRequested)
 	if err != nil {
 		log.Printf("recover enrichment library=%d type=%s: %v", libraryID, libraryType, err)
 		return
@@ -771,7 +779,7 @@ func (m *LibraryScanManager) queuePositionLocked(libraryID int) int {
 
 func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, libraryType, path string) {
 	subpaths := m.scanSubpaths(libraryID)
-	delta, err := scanLibraryDiscovery(context.Background(), m.db, path, libraryType, libraryID, db.ScanOptions{
+	delta, err := scanLibraryDiscovery(m.lifecycleCtx, m.db, path, libraryType, libraryID, db.ScanOptions{
 		ProbeMedia:             false,
 		ProbeEmbeddedSubtitles: false,
 		ScanSidecarSubtitles:   false,
@@ -852,7 +860,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		} else if handler.ScanJobs == nil {
 			handler.ScanJobs = m
 		}
-		result, err := handler.identifyLibrary(context.Background(), libraryID)
+		result, err := handler.identifyLibrary(m.lifecycleCtx, libraryID)
 
 		m.mu.Lock()
 		status, ok = m.jobs[libraryID]
@@ -975,7 +983,7 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		m.mu.Unlock()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 
 	m.mu.Lock()
 	status, ok := m.jobs[libraryID]
@@ -1293,7 +1301,7 @@ func (m *LibraryScanManager) tryMarkImmediateMissingFromPaths(libraryID int, lib
 	if len(toMark) == 0 {
 		return
 	}
-	n, err := db.MarkMediaMissingForFilesystemPaths(context.Background(), m.db, libraryID, libraryRoot, toMark)
+	n, err := db.MarkMediaMissingForFilesystemPaths(m.lifecycleCtx, m.db, libraryID, libraryRoot, toMark)
 	if err != nil {
 		log.Printf("library %d immediate missing mark: %v", libraryID, err)
 		return
