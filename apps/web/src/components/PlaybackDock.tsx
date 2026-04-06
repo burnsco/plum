@@ -799,6 +799,8 @@ export function PlaybackDock() {
     setIntroButtonDismissed(true);
   }, [introEndSec, seekTo]);
 
+  const INTRO_END_MARGIN_SEC = 0.5;
+
   const processIntroSkip = useCallback(
     (video: HTMLVideoElement) => {
       const mode = libraryPlaybackPreferences.introSkipMode;
@@ -809,11 +811,16 @@ export function PlaybackDock() {
       const st = introStartSec;
       const t = Number.isFinite(video.currentTime) ? video.currentTime : 0;
       const state = introSkipStateRef.current;
+      // Reset auto-skip when user seeks backward into/before the intro window
+      if (t < state.lastTime - 1.0 && t < end) {
+        state.consumedAuto = false;
+        state.suppressed = false;
+      }
       if (state.lastTime >= end && t < end - 0.25) {
         state.suppressed = true;
       }
       state.lastTime = t;
-      if (t < st || t >= end - 0.15) {
+      if (t < st || t >= end - INTRO_END_MARGIN_SEC) {
         return;
       }
       if (mode === "auto" && !state.consumedAuto && !state.suppressed && video.readyState >= 2) {
@@ -830,7 +837,7 @@ export function PlaybackDock() {
     libraryPlaybackPreferences.introSkipMode !== "off" &&
     !introButtonDismissed &&
     playbackState.currentTime >= introStartSec &&
-    playbackState.currentTime < introEndSec - 0.5;
+    playbackState.currentTime < introEndSec - INTRO_END_MARGIN_SEC;
 
   useEffect(() => {
     const previousUrl = previousVideoSourceUrlRef.current;
