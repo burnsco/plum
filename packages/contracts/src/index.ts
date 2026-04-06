@@ -1982,6 +1982,102 @@ export const PlumWebSocketEventSchema = Schema.Union([
   LibraryCatalogChangedEventSchema,
 ]);
 
+/** Known admin maintenance task identifiers (server + client). */
+export type AdminMaintenanceTaskId =
+  | "optimize_database"
+  | "clean_transcode"
+  | "clean_logs"
+  | "delete_cache"
+  | "scan_all_media"
+  | "extract_chapter_images"
+  | "check_metadata_updates";
+
+export interface AdminMaintenanceScheduleTask {
+  intervalHours: number;
+}
+
+export interface AdminMaintenanceScheduleResponse {
+  tasks: Record<string, AdminMaintenanceScheduleTask>;
+  lastRun: Record<string, string>;
+}
+
+export const AdminMaintenanceScheduleTaskSchema = Schema.Struct({
+  intervalHours: Schema.Number,
+});
+
+export const AdminMaintenanceScheduleResponseSchema = Schema.Struct({
+  tasks: Schema.Record(Schema.String, AdminMaintenanceScheduleTaskSchema),
+  lastRun: Schema.Record(Schema.String, Schema.String),
+});
+
+export interface AdminMaintenanceRunRequest {
+  task: AdminMaintenanceTaskId;
+}
+
+export const AdminMaintenanceRunRequestSchema = Schema.Struct({
+  task: Schema.String,
+});
+
+export interface AdminMaintenanceRunResponse {
+  task: string;
+  accepted: boolean;
+  detail?: string;
+  error?: string;
+}
+
+export const AdminMaintenanceRunResponseSchema = Schema.Struct({
+  task: Schema.String,
+  accepted: Schema.Boolean,
+  detail: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+});
+
+export interface AdminActivePlaybackSession {
+  sessionId: string;
+  userId: number;
+  userEmail: string;
+  mediaId: number;
+  title: string;
+  libraryId: number;
+  kind: string;
+  delivery: string;
+  status: string;
+  durationSeconds: number;
+}
+
+export const AdminActivePlaybackSessionSchema = Schema.Struct({
+  sessionId: Schema.String,
+  userId: Schema.Number,
+  userEmail: Schema.String,
+  mediaId: Schema.Number,
+  title: Schema.String,
+  libraryId: Schema.Number,
+  kind: Schema.String,
+  delivery: Schema.String,
+  status: Schema.String,
+  durationSeconds: Schema.Number,
+});
+
+export interface AdminActivePlaybackResponse {
+  sessions: AdminActivePlaybackSession[];
+}
+
+export const AdminActivePlaybackResponseSchema = Schema.Struct({
+  sessions: Schema.Array(AdminActivePlaybackSessionSchema),
+});
+
+export interface AdminLogsResponse {
+  lines: string[];
+  source: string;
+  hint?: string;
+}
+
+export const AdminLogsResponseSchema = Schema.Struct({
+  lines: Schema.Array(Schema.String),
+  source: Schema.String,
+  hint: Schema.optional(Schema.String),
+});
+
 export const PlumWebSocketCommandSchema = Schema.Union([
   AttachPlaybackSessionCommandSchema,
   DetachPlaybackSessionCommandSchema,

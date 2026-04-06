@@ -41,7 +41,8 @@ import {
 } from "@/queries";
 import { createQuickConnectCode } from "@/api";
 import { cn } from "@/lib/utils";
-import { Cpu, Image, Link2, ListTree, MonitorPlay, Server, SkipForward, Volume2 } from "lucide-react";
+import { Cpu, Image, Link2, ListTree, MonitorPlay, Server, Shield, SkipForward, Volume2 } from "lucide-react";
+import { AdminSettingsTab } from "@/pages/AdminSettingsTab";
 import { ServerEnvSettingsTab } from "@/pages/ServerEnvSettingsTab";
 import { IntroSkipperPluginTab } from "@/pages/IntroSkipperPluginTab";
 
@@ -379,6 +380,7 @@ function libraryNameRedundantWithType(name: string, type: Library["type"]): bool
 type SettingsTab =
   | "playback"
   | "server-env"
+  | "admin"
   | "media-stack"
   | "arr-profiles"
   | "metadata"
@@ -1836,7 +1838,10 @@ export function Settings() {
   const adminTabSections: { heading: string; tabs: TabItem[] }[] = [
     {
       heading: "Host",
-      tabs: [{ id: "server-env", label: "Environment", icon: <Server className="size-4 shrink-0" /> }],
+      tabs: [
+        { id: "server-env", label: "Environment", icon: <Server className="size-4 shrink-0" /> },
+        { id: "admin", label: "Admin", icon: <Shield className="size-4 shrink-0" /> },
+      ],
     },
     {
       heading: "Integrations",
@@ -1863,6 +1868,7 @@ export function Settings() {
   const tabContent: Record<SettingsTab, React.ReactNode> = {
     playback: playbackTabContent,
     "server-env": <ServerEnvSettingsTab />,
+    admin: <AdminSettingsTab />,
     "media-stack": mediaStackTabContent,
     "arr-profiles": arrProfilesTabContent,
     metadata: metadataTabContent,

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -29,7 +30,20 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	logWriters := []io.Writer{os.Stderr}
+	logFilePath := strings.TrimSpace(getEnv("PLUM_LOG_FILE", ""))
+	if logFilePath != "" {
+		if err := os.MkdirAll(filepath.Dir(logFilePath), 0o755); err != nil {
+			log.Fatalf("prepare log file dir: %v", err)
+		}
+		f, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			log.Fatalf("open log file: %v", err)
+		}
+		defer f.Close()
+		logWriters = append(logWriters, f)
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(io.MultiWriter(logWriters...), &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	envLoaded := dotenv.LoadIntoOSEnv()
 
@@ -98,6 +112,7 @@ func main() {
 	go hub.Run()
 	playbackRoot := filepath.Join(os.TempDir(), "plum_playback")
 	playbackSessions := transcoder.NewPlaybackSessionManager(appCtx, playbackRoot, hub)
+	logDirEnv := strings.TrimSpace(getEnv("PLUM_LOG_DIR", ""))
 	if err := transcoder.CleanupLegacyTranscodes(os.TempDir()); err != nil {
 		slog.Warn("cleanup legacy transcodes", "error", err)
 	}
@@ -118,7 +133,10 @@ func main() {
 		artDir = filepath.Join(filepath.Dir(conn), "artwork")
 	}
 
-	srv := newHTTPServer(addr, buildRouter(appCtx, sqlDB, hub, playbackSessions, pipeline, thumbDir, artDir))
+	srv := newHTTPServer(
+		addr,
+		buildRouter(appCtx, sqlDB, hub, playbackSessions, pipeline, thumbDir, artDir, playbackRoot, logFilePath, logDirEnv),
+	)
 
 	go func() {
 		slog.Info("plum backend listening", "addr", addr)
@@ -188,7 +206,18 @@ type mediaStackConfig struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func buildRouter(shutdownCtx context.Context, sqlDB *sql.DB, hub *ws.Hub, playbackSessions *transcoder.PlaybackSessionManager, pipeline *metadata.Pipeline, thumbDir string, artDir string) http.Handler {
+func buildRouter(
+	shutdownCtx context.Context,
+	sqlDB *sql.DB,
+	hub *ws.Hub,
+	playbackSessions *transcoder.PlaybackSessionManager,
+	pipeline *metadata.Pipeline,
+	thumbDir string,
+	artDir string,
+	playbackRoot string,
+	logFilePath string,
+	logDirEnv string,
+) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(httpapi.RequestLoggingMiddleware())
@@ -227,6 +256,17 @@ func buildRouter(shutdownCtx context.Context, sqlDB *sql.DB, hub *ws.Hub, playba
 		slog.Warn("recover scan jobs", "error", err)
 	}
 	searchIndex.QueueAllLibraries(true)
+	adminHandler := &httpapi.AdminHandler{
+		ShutdownCtx:  shutdownCtx,
+		DB:           sqlDB,
+		Lib:          libHandler,
+		ScanJobs:     scanJobs,
+		Sessions:     playbackSessions,
+		PlaybackRoot: playbackRoot,
+		LogFile:      logFilePath,
+		LogDir:       logDirEnv,
+	}
+	httpapi.StartAdminMaintenanceScheduler(shutdownCtx, adminHandler)
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
 	metadataArtworkSettingsHandler := &httpapi.MetadataArtworkSettingsHandler{DB: sqlDB, Artwork: pipeline}
 	mediaStackSettingsHandler := &httpapi.MediaStackSettingsHandler{DB: sqlDB, Arr: mediaStack}
@@ -259,6 +299,7 @@ func buildRouter(shutdownCtx context.Context, sqlDB *sql.DB, hub *ws.Hub, playba
 			admin.Post("/api/settings/media-stack/validate", mediaStackSettingsHandler.Validate)
 			admin.Get("/api/settings/server-env", serverEnvSettingsHandler.Get)
 			admin.Put("/api/settings/server-env", serverEnvSettingsHandler.Put)
+			httpapi.MountAdminRoutes(admin, adminHandler)
 		})
 
 		protected.Post("/api/auth/quick-connect", authHandler.CreateQuickConnectCode)

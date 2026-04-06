@@ -94,7 +94,7 @@ import { normalizeDiscoverOriginKey } from "@/lib/discover";
  * JSON is validated in `@plum/shared` with `@plum/contracts` schemas. Effect schema `Type` is deeply
  * readonly; hooks use mutable DTO interfaces from the same contracts — widen here only for TypeScript.
  */
-function contractsView<T>(value: unknown): T {
+export function contractsView<T>(value: unknown): T {
   return value as T;
 }
 
