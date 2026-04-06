@@ -3991,7 +3991,7 @@ func TestLibraryScanManager_PreservesRerunPartialSubpathsWhileScanning(t *testin
 	}
 }
 
-func TestLibraryScanManager_QueueAutomatedScanUsesParentDirectoryForMissingPath(t *testing.T) {
+func TestLibraryScanManager_QueueAutomatedScanUsesSeriesFolderForTV(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -4015,7 +4015,7 @@ func TestLibraryScanManager_QueueAutomatedScanUsesParentDirectoryForMissingPath(
 	scanJobs.queueAutomatedScan(1, root, db.LibraryTypeTV, episodePath)
 
 	got := scanJobs.scanSubpaths(1)
-	want := filepath.Join("Show A", "Season 1")
+	want := "Show A"
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("scan subpaths = %#v, want [%q]", got, want)
 	}

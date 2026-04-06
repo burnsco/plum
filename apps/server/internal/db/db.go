@@ -3894,6 +3894,59 @@ updated_at = excluded.updated_at`)
 	return tasks, nil
 }
 
+// findRelocatedTVEpisodeRow returns an existing row for the same library/season/episode whose
+// file path is gone (rename/move) so discovery can update the path instead of inserting a duplicate.
+func findRelocatedTVEpisodeRow(ctx context.Context, dbConn *sql.DB, table, kind string, libraryID, season, episode int, newPath string) (existingMediaRow, bool, error) {
+	var zero existingMediaRow
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return zero, false, nil
+	}
+	if episode <= 0 {
+		return zero, false, nil
+	}
+	query := `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0)
+FROM ` + table + ` m
+LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+WHERE m.library_id = ? AND COALESCE(m.season, 0) = ? AND COALESCE(m.episode, 0) = ?`
+	rows, err := dbConn.QueryContext(ctx, query, kind, libraryID, season, episode)
+	if err != nil {
+		return zero, false, err
+	}
+	defer rows.Close()
+
+	var absent []existingMediaRow
+	for rows.Next() {
+		var row existingMediaRow
+		var tvdbID, imdbID sql.NullString
+		if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed); err != nil {
+			return zero, false, err
+		}
+		if tvdbID.Valid {
+			row.TVDBID = tvdbID.String
+		}
+		if imdbID.Valid {
+			row.IMDbID = imdbID.String
+		}
+		if row.Path == newPath {
+			continue
+		}
+		if row.MissingSince != "" {
+			absent = append(absent, row)
+			continue
+		}
+		if _, statErr := os.Stat(row.Path); errors.Is(statErr, os.ErrNotExist) {
+			absent = append(absent, row)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return zero, false, err
+	}
+	if len(absent) != 1 {
+		return zero, false, nil
+	}
+	return absent[0], true, nil
+}
+
 func appendPlaceholders(dst []string, count int) []string {
 	for i := 0; i < count; i++ {
 		dst = append(dst, "?")
@@ -4035,18 +4088,21 @@ func ScanLibraryDiscovery(
 
 			existing := existingByPath[candidate.Path]
 			isNew := existing.RefID == 0
-			hasStableFileState := !isNew &&
-				existing.MissingSince == "" &&
-				existing.FileSizeBytes == candidate.Size &&
-				existing.FileModTime == candidate.ModTime
-			isUnchanged := !isNew &&
-				hasStableFileState &&
-				existing.FileHash != "" &&
-				existing.FileHashKind != ""
 
 			item, _, _, err := buildScannedMediaItem(root, kind, candidate)
 			if err != nil {
 				return err
+			}
+			if isNew && (kind == LibraryTypeTV || kind == LibraryTypeAnime) {
+				relocated, ok, err := findRelocatedTVEpisodeRow(ctx, dbConn, table, kind, libraryID, item.Season, item.Episode, candidate.Path)
+				if err != nil {
+					return err
+				}
+				if ok {
+					delete(existingByPath, relocated.Path)
+					existing = relocated
+					isNew = false
+				}
 			}
 			if !isNew {
 				applyExistingMetadata(&item, existing, kind)
@@ -4055,6 +4111,16 @@ func ScanLibraryDiscovery(
 					item.MetadataConfirmed = existing.MetadataConfirmed
 				}
 			}
+
+			hasStableFileState := !isNew &&
+				existing.MissingSince == "" &&
+				existing.FileSizeBytes == candidate.Size &&
+				existing.FileModTime == candidate.ModTime
+			isUnchanged := !isNew &&
+				existing.Path == candidate.Path &&
+				hasStableFileState &&
+				existing.FileHash != "" &&
+				existing.FileHashKind != ""
 
 			if isUnchanged {
 				if err := markMediaPresent(ctx, dbConn, table, existing.RefID, candidate.Size, candidate.ModTime, existing.FileHash, existing.FileHashKind, now); err != nil {
@@ -4436,14 +4502,6 @@ func HandleScanLibraryWithOptions(
 
 			existing := existingByPath[path]
 			isNew := existing.RefID == 0
-			hasStableFileState := !isNew &&
-				existing.MissingSince == "" &&
-				existing.FileSizeBytes == candidate.Size &&
-				existing.FileModTime == candidate.ModTime
-			isUnchanged := !isNew &&
-				hasStableFileState &&
-				existing.FileHash != "" &&
-				existing.FileHashKind != ""
 
 			title := strings.TrimSuffix(candidate.Name, filepath.Ext(candidate.Name))
 			if title == "" {
@@ -4507,6 +4565,30 @@ func HandleScanLibraryWithOptions(
 				mItem.Title = buildEpisodeDisplayTitle(pathInfo.ShowName, merged, title, fileInfo.Title)
 				fileInfo = merged
 			}
+
+			if isNew && (kind == LibraryTypeTV || kind == LibraryTypeAnime) {
+				relocated, ok, err := findRelocatedTVEpisodeRow(ctx, dbConn, table, kind, libraryID, mItem.Season, mItem.Episode, path)
+				if err != nil {
+					return err
+				}
+				if ok {
+					delete(existingByPath, relocated.Path)
+					existing = relocated
+					isNew = false
+					mItem.FileHash = existing.FileHash
+					mItem.FileHashKind = existing.FileHashKind
+				}
+			}
+
+			hasStableFileState := !isNew &&
+				existing.MissingSince == "" &&
+				existing.FileSizeBytes == candidate.Size &&
+				existing.FileModTime == candidate.ModTime
+			isUnchanged := !isNew &&
+				existing.Path == path &&
+				hasStableFileState &&
+				existing.FileHash != "" &&
+				existing.FileHashKind != ""
 
 			identifyInfo := fileInfo
 			hasMetadata := existingHasMetadata(kind, existing)

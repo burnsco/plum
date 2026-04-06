@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"plum/internal/db"
 )
 
 type libraryAutomationConfig struct {
@@ -294,6 +296,26 @@ func detectLibraryPollChanges(root string, previous, current map[string]libraryP
 	return out
 }
 
+// tvAutomationDiscoverySubpath returns the first path segment under the library root (series folder)
+// so discovery and mark-missing cover sibling season directories after renames. When this returns
+// false, callers should fall back to path-based subpaths or a full-library scan.
+func tvAutomationDiscoverySubpath(rel string) (subpath string, ok bool) {
+	rel = filepath.Clean(rel)
+	if rel == "." || rel == "" {
+		return "", false
+	}
+	var parts []string
+	for _, p := range strings.Split(rel, string(filepath.Separator)) {
+		if p != "" && p != "." {
+			parts = append(parts, p)
+		}
+	}
+	if len(parts) < 2 {
+		return "", false
+	}
+	return parts[0], true
+}
+
 func (m *LibraryScanManager) queueAutomatedScan(libraryID int, root, libraryType, eventPath string) {
 	m.tryMarkImmediateMissingFromPaths(libraryID, root, []string{eventPath})
 	// Match default manual scan behavior (identify != false): new hardlinks / *arr imports
@@ -313,6 +335,11 @@ func (m *LibraryScanManager) queueAutomatedScan(libraryID int, root, libraryType
 	subpath := rel
 	if info, statErr := os.Stat(eventPath); statErr != nil || !info.IsDir() {
 		subpath = filepath.Dir(rel)
+	}
+	if (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime) && subpath != "." && subpath != "" {
+		if showRoot, wide := tvAutomationDiscoverySubpath(rel); wide {
+			subpath = showRoot
+		}
 	}
 	if subpath == "." || subpath == "" {
 		m.start(libraryID, root, libraryType, autoIdentify, nil)
