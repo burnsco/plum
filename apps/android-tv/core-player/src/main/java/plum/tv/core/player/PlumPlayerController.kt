@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import androidx.annotation.OptIn
 import android.net.Uri
+import android.os.Looper
 import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
@@ -2241,8 +2243,8 @@ class PlumPlayerController(
     }
 
     /**
-     * Cleanup that snapshots playback, releases ExoPlayer immediately (frees decoders/audio for
-     * other apps), then persists progress + closes the server session in the background.
+     * Cleanup that snapshots playback and releases ExoPlayer before returning (frees decoders/audio
+     * promptly on teardown), then persists progress + closes the server session in the background.
      */
     fun close() {
         if (!controllerClosed.compareAndSet(false, true)) return
@@ -2259,9 +2261,16 @@ class PlumPlayerController(
         val sid = hlsSessionId
         val closingMediaId = mediaId
 
+        val (posMs, durMs, state) =
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                snapshotForCloseAndRelease()
+            } else {
+                runBlocking {
+                    withContext(Dispatchers.Main) { snapshotForCloseAndRelease() }
+                }
+            }
+
         applicationScope.launch {
-            val (posMs, durMs, state) =
-                withContext(Dispatchers.Main) { snapshotForCloseAndRelease() }
             try {
                 withTimeoutOrNull(5_000) {
                     val durSec = durMs / 1000.0

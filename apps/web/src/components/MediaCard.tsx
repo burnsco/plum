@@ -34,6 +34,12 @@ function arePropsEqual(prev: MediaCardProps, next: MediaCardProps): boolean {
     p.actionDisabled === n.actionDisabled &&
     p.actionTone === n.actionTone &&
     p.href === n.href &&
+    p.onClick === n.onClick &&
+    p.onPlay === n.onPlay &&
+    p.onAction === n.onAction &&
+    p.onStatusAction === n.onStatusAction &&
+    p.contextMenuContent === n.contextMenuContent &&
+    p.topBadge === n.topBadge &&
     prev.className === next.className &&
     prev.index === next.index
   );
