@@ -1108,7 +1108,7 @@ class PlumPlayerController(
         val groups = player.currentTracks.groups
         val textTrackPresent = groups.any { it.type == C.TRACK_TYPE_TEXT && it.length > 0 }
         if (!textTrackPresent) {
-            preferNonCea608TextAfterLoad = false
+            // No text tracks yet — HLS subtitle renditions may still be incoming; wait.
             return
         }
         if (!isCea608TextTrackSelected(groups)) {
@@ -1116,7 +1116,13 @@ class PlumPlayerController(
             return
         }
         val idx = findFirstNonCea608TextTrackIndex(groups) ?: run {
-            preferNonCea608TextAfterLoad = false
+            // CEA-608 is selected but no non-CEA tracks exist yet. In HLS, in-band CEA-608 from
+            // the video stream is reported before subtitle renditions (WebVTT). Only give up once
+            // the player is fully ready; during buffering keep the flag so we retry on the next
+            // onTracksChanged when the subtitle renditions arrive.
+            if (player.playbackState == Player.STATE_READY) {
+                preferNonCea608TextAfterLoad = false
+            }
             return
         }
         applyTextTrackOverride(idx.first, idx.second)

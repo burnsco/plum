@@ -515,13 +515,21 @@ export function applyVttCueSettings(cue: TextTrackCue, settings: string[]) {
 }
 
 export function clearTextTrackCues(track: TextTrack | null) {
-  const cues = track?.cues;
-  if (!track || !cues) return;
+  if (!track) return;
+  // track.cues is null when mode === "disabled"; switch to "hidden" so we can access the list.
+  const wasDisabled = track.mode === "disabled";
+  if (wasDisabled) track.mode = "hidden";
+  const cues = track.cues;
+  if (!cues) {
+    if (wasDisabled) track.mode = "disabled";
+    return;
+  }
   while (cues.length > 0) {
     const cue = cues[0];
     if (!cue) break;
     track.removeCue(cue);
   }
+  if (wasDisabled) track.mode = "disabled";
 }
 
 export function buildSubtitleCues(body: string): TextTrackCue[] {
