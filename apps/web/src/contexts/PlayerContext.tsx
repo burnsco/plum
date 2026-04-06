@@ -265,11 +265,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // matching Android TV / ExoPlayer behavior.
   const lastReadyVideoUrlRef = useRef("");
   const lastReadyVideoItemRef = useRef<number | null>(null);
+  const prevVideoSessionIdRef = useRef<string | null>(null);
 
   const activeItemId_ = activeItem?.id ?? null;
   if (activeItemId_ !== lastReadyVideoItemRef.current) {
     lastReadyVideoUrlRef.current = "";
     lastReadyVideoItemRef.current = activeItemId_;
+  }
+
+  const sessionId = videoSession?.sessionId ?? null;
+  if (sessionId !== prevVideoSessionIdRef.current) {
+    // A new playback session replaces the in-memory old one (e.g. subtitle burn closes the
+    // prior session). The cached "ready" URL refers to the old session and must not be reused.
+    lastReadyVideoUrlRef.current = "";
+    prevVideoSessionIdRef.current = sessionId;
   }
 
   const readyUrl =
@@ -602,7 +611,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       setLastEvent("Switching subtitles...");
       try {
-        closeVideoSession(vs?.sessionId ?? null);
+        // Create the new session BEFORE closing the old one. If we close first,
+        // the server's "closed" WebSocket broadcast can arrive while we're still
+        // awaiting the create call, nulling videoSession and killing HLS.js /
+        // subtitle state mid-transition. With the new session applied first,
+        // the "closed" event's sessionId won't match and is safely ignored.
+        const oldSessionId = vs?.sessionId ?? null;
         const nextSession = await createClientPlaybackSession(
           activeItem,
           audioIndex,
@@ -612,6 +626,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         );
         if (!mountedRef.current) return;
         applyPlaybackSession(nextSession);
+        closeVideoSession(oldSessionId);
       } catch (err) {
         console.error("[Player] changeEmbeddedSubtitleBurn failed", err);
         setLastEvent(

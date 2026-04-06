@@ -8,6 +8,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import plum.tv.core.network.LibraryCatalogChangedWsEventJson
 import plum.tv.core.network.LibraryScanStatusJson
 import plum.tv.core.network.LibraryScanUpdateWsEventJson
 
@@ -54,11 +55,27 @@ class LibraryCatalogRefreshCoordinator @Inject constructor(
     /**
      * @return true if this was a handled library scan message (playback parsers should skip).
      */
-    fun handleWebSocketText(adapter: JsonAdapter<LibraryScanUpdateWsEventJson>, text: String): Boolean {
-        val parsed = runCatching { adapter.fromJson(text) }.getOrNull() ?: return false
+    fun handleWebSocketText(
+        scanAdapter: JsonAdapter<LibraryScanUpdateWsEventJson>,
+        catalogChangedAdapter: JsonAdapter<LibraryCatalogChangedWsEventJson>,
+        text: String,
+    ): Boolean {
+        val catalogParsed = runCatching { catalogChangedAdapter.fromJson(text) }.getOrNull()
+        if (catalogParsed != null && catalogParsed.type == "library_catalog_changed") {
+            onLibraryCatalogChanged(catalogParsed.libraryId)
+            return true
+        }
+        val parsed = runCatching { scanAdapter.fromJson(text) }.getOrNull() ?: return false
         if (parsed.type != "library_scan_update") return false
         onLibraryScanStatus(parsed.scan.toSnapshot())
         return true
+    }
+
+    private fun onLibraryCatalogChanged(libraryId: Int) {
+        browseRepository.invalidateLibrariesCache()
+        if (!_events.tryEmit(CatalogRefreshEvent(libraryId = libraryId, invalidateDiscover = false))) {
+            Log.w(TAG, "catalog refresh event dropped (buffer full) libraryId=$libraryId")
+        }
     }
 
     private fun onLibraryScanStatus(next: ScanStatusSnapshot) {

@@ -295,6 +295,7 @@ func detectLibraryPollChanges(root string, previous, current map[string]libraryP
 }
 
 func (m *LibraryScanManager) queueAutomatedScan(libraryID int, root, libraryType, eventPath string) {
+	m.tryMarkImmediateMissingFromPaths(libraryID, root, []string{eventPath})
 	// Match default manual scan behavior (identify != false): new hardlinks / *arr imports
 	// should get TMDB matching as soon as discovery sees them. Music skips identify when
 	// no music identifier is configured (see LibraryScanManager.start).

@@ -7,6 +7,7 @@ import io.mockk.verify
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import plum.tv.core.network.LibraryCatalogChangedWsEventJson
 import plum.tv.core.network.LibraryScanStatusJson
 import plum.tv.core.network.LibraryScanUpdateWsEventJson
 
@@ -17,13 +18,14 @@ class LibraryCatalogRefreshCoordinatorTest {
             .addLast(KotlinJsonAdapterFactory())
             .build()
 
-    private val adapter = moshi.adapter(LibraryScanUpdateWsEventJson::class.java)
+    private val scanAdapter = moshi.adapter(LibraryScanUpdateWsEventJson::class.java)
+    private val catalogAdapter = moshi.adapter(LibraryCatalogChangedWsEventJson::class.java)
 
     @Test
     fun handleWebSocketText_invalidJson_returnsFalse() {
         val browse = mockk<BrowseRepository>(relaxed = true)
         val coordinator = LibraryCatalogRefreshCoordinator(browse)
-        assertFalse(coordinator.handleWebSocketText(adapter, "not json"))
+        assertFalse(coordinator.handleWebSocketText(scanAdapter, catalogAdapter, "not json"))
         verify(exactly = 0) { browse.invalidateLibrariesCache() }
     }
 
@@ -32,9 +34,9 @@ class LibraryCatalogRefreshCoordinatorTest {
         val browse = mockk<BrowseRepository>(relaxed = true)
         val coordinator = LibraryCatalogRefreshCoordinator(browse)
         val json = """{"type":"library_scan_update","scan":{"libraryId":1,"phase":"scanning"}}"""
-        assertTrue(coordinator.handleWebSocketText(adapter, json))
+        assertTrue(coordinator.handleWebSocketText(scanAdapter, catalogAdapter, json))
         verify(exactly = 1) { browse.invalidateLibrariesCache() }
-        assertTrue(coordinator.handleWebSocketText(adapter, json))
+        assertTrue(coordinator.handleWebSocketText(scanAdapter, catalogAdapter, json))
         verify(exactly = 1) { browse.invalidateLibrariesCache() }
     }
 
@@ -43,8 +45,17 @@ class LibraryCatalogRefreshCoordinatorTest {
         val browse = mockk<BrowseRepository>(relaxed = true)
         val coordinator = LibraryCatalogRefreshCoordinator(browse)
         val json = """{"type":"library_scan_update","scan":{"libraryId":1,"phase":"idle"}}"""
-        assertTrue(coordinator.handleWebSocketText(adapter, json))
+        assertTrue(coordinator.handleWebSocketText(scanAdapter, catalogAdapter, json))
         verify(exactly = 0) { browse.invalidateLibrariesCache() }
+    }
+
+    @Test
+    fun catalogChanged_invalidatesCache() {
+        val browse = mockk<BrowseRepository>(relaxed = true)
+        val coordinator = LibraryCatalogRefreshCoordinator(browse)
+        val json = """{"type":"library_catalog_changed","libraryId":3}"""
+        assertTrue(coordinator.handleWebSocketText(scanAdapter, catalogAdapter, json))
+        verify(exactly = 1) { browse.invalidateLibrariesCache() }
     }
 
     @Test

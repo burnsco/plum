@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -181,10 +184,10 @@ func NewLibraryScanManager(sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub)
 		enrichCancels:  make(map[int]context.CancelFunc),
 		watcherStops:   make(map[int]context.CancelFunc),
 		schedulerStops: make(map[int]context.CancelFunc),
-		enrichSem: make(chan struct{}, 1),
+		enrichSem:      make(chan struct{}, 1),
 		// More than one library can identify at a time so a long TV pass does not
 		// block movie libraries (each run still has its own rate limiter).
-		identifySem: make(chan struct{}, 2),
+		identifySem:    make(chan struct{}, 2),
 		lastFlushed:    make(map[int]libraryScanFlushState),
 		lastActivityAt: make(map[int]time.Time),
 	}
@@ -1246,6 +1249,63 @@ func (m *LibraryScanManager) broadcast(status libraryScanStatus) {
 		return
 	}
 	m.hub.BroadcastToUser(ownerID, payload)
+}
+
+func (m *LibraryScanManager) broadcastLibraryCatalogChanged(libraryID int) {
+	if m.hub == nil || libraryID <= 0 {
+		return
+	}
+	ownerID := m.ownerID(libraryID)
+	if ownerID <= 0 {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"type":      "library_catalog_changed",
+		"libraryId": libraryID,
+	})
+	if err != nil {
+		return
+	}
+	m.hub.BroadcastToUser(ownerID, payload)
+}
+
+// tryMarkImmediateMissingFromPaths marks library rows missing when paths no longer exist on disk
+// (e.g. fsnotify Remove, polling diff). Discovery still runs afterward to reconcile hashes and metadata.
+func (m *LibraryScanManager) tryMarkImmediateMissingFromPaths(libraryID int, libraryRoot string, candidatePaths []string) {
+	if m.db == nil || libraryID <= 0 || libraryRoot == "" {
+		return
+	}
+	toMark := make([]string, 0, len(candidatePaths))
+	for _, raw := range candidatePaths {
+		p := filepath.Clean(strings.TrimSpace(raw))
+		if p == "" || p == "." {
+			continue
+		}
+		_, err := os.Lstat(p)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		toMark = append(toMark, p)
+	}
+	if len(toMark) == 0 {
+		return
+	}
+	n, err := db.MarkMediaMissingForFilesystemPaths(context.Background(), m.db, libraryID, libraryRoot, toMark)
+	if err != nil {
+		log.Printf("library %d immediate missing mark: %v", libraryID, err)
+		return
+	}
+	if n == 0 {
+		return
+	}
+	log.Printf("library %d marked %d item(s) missing immediately after filesystem removal", libraryID, n)
+	if handler := m.handler; handler != nil && handler.SearchIndex != nil {
+		handler.SearchIndex.Queue(libraryID, false)
+	}
+	m.broadcastLibraryCatalogChanged(libraryID)
 }
 
 func libraryScanUpdatePayload(status libraryScanStatus) ([]byte, error) {

@@ -1050,6 +1050,39 @@ func countHlsSegmentEntriesFromPlaylist(revisionDir string) int {
 	return strings.Count(string(raw), "#EXTINF:")
 }
 
+// parseHlsSegmentIndex parses segment indices from ffmpeg HLS output names like "segment_00022.ts".
+func parseHlsSegmentIndex(fileBase string) (index int, ok bool) {
+	if !strings.HasPrefix(fileBase, "segment_") || !strings.HasSuffix(fileBase, ".ts") {
+		return 0, false
+	}
+	num := strings.TrimSuffix(strings.TrimPrefix(fileBase, "segment_"), ".ts")
+	n, err := strconv.Atoi(num)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// transcodeSegmentAppearDeadline is how long to wait for segment_<index>.ts to exist while ffmpeg
+// is still catching up from t=0 (e.g. subtitle burn-in starts a fresh transcode but the web client
+// resumes at the previous wall-clock position and requests a deep segment immediately).
+func transcodeSegmentAppearDeadline(segmentIndex int) time.Duration {
+	const maxWait = 8 * time.Minute
+	const baseline = 15 * time.Second
+	if segmentIndex < 0 {
+		segmentIndex = 0
+	}
+	mediaSecondsAhead := float64(segmentIndex+1) * float64(hlsSegmentDurationSeconds)
+	const minRealtimeSpeed = 0.25 // pessimistic vs realtime; avoids 404 while transcode ramps
+	pessimisticSeconds := mediaSecondsAhead / minRealtimeSpeed
+	pessimisticWall := time.Duration(math.Ceil(pessimisticSeconds)) * time.Second
+	out := baseline + pessimisticWall
+	if out > maxWait {
+		return maxWait
+	}
+	return out
+}
+
 func countNonEmptyHlsSegments(root string) int {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -1082,7 +1115,21 @@ func waitForPlaybackFile(ctx context.Context, target string) error {
 		return err
 	}
 
-	deadline := time.NewTimer(1500 * time.Millisecond)
+	waitCap := 1500 * time.Millisecond
+	ext := filepath.Ext(target)
+	switch ext {
+	case ".ts":
+		if idx, ok := parseHlsSegmentIndex(filepath.Base(target)); ok {
+			waitCap = transcodeSegmentAppearDeadline(idx)
+		}
+	case ".m3u8":
+		// Master / variant playlists can lag segment creation while ffmpeg initializes (especially
+		// burn-in / hardware paths). A short wait returns 404 and the client loops on retry.
+		const hlsPlaylistAppearWait = 2 * time.Minute
+		waitCap = hlsPlaylistAppearWait
+	}
+
+	deadline := time.NewTimer(waitCap)
 	defer deadline.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()

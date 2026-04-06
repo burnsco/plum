@@ -363,6 +363,32 @@ func TestServeFileWaitsForDelayedSegment(t *testing.T) {
 	}
 }
 
+func TestParseHlsSegmentIndex(t *testing.T) {
+	t.Parallel()
+	n, ok := parseHlsSegmentIndex("segment_00022.ts")
+	if !ok || n != 22 {
+		t.Fatalf("got %d ok=%v", n, ok)
+	}
+	if _, ok := parseHlsSegmentIndex("other.ts"); ok {
+		t.Fatal("unexpected ok")
+	}
+}
+
+func TestTranscodeSegmentAppearDeadline_ScalesWithSegmentIndex(t *testing.T) {
+	t.Parallel()
+	low := transcodeSegmentAppearDeadline(0)
+	high := transcodeSegmentAppearDeadline(80)
+	if high <= low {
+		t.Fatalf("expected deeper segments to wait longer: low=%v high=%v", low, high)
+	}
+	if low < time.Second || low > 30*time.Second {
+		t.Fatalf("unexpected low deadline: %v", low)
+	}
+	if high > 8*time.Minute+time.Second {
+		t.Fatalf("expected cap near 8m: %v", high)
+	}
+}
+
 func TestMarkRevisionReadyDefersPreviousRevisionCancellation(t *testing.T) {
 	manager := NewPlaybackSessionManager(context.Background(), t.TempDir(), nil)
 	canceled := make(chan struct{}, 1)

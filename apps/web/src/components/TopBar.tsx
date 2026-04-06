@@ -48,8 +48,7 @@ export function TopBar() {
   const activeLibraryId = location.pathname.startsWith("/library/")
     ? Number.parseInt(location.pathname.split("/")[2] ?? "", 10)
     : null;
-  const unidentifiedOnlyMobile =
-    new URLSearchParams(location.search).get("unidentified") === "1";
+  const unidentifiedOnlyMobile = new URLSearchParams(location.search).get("unidentified") === "1";
   const isHomeRoute = location.pathname === "/";
   const isDiscoverRoute =
     location.pathname === "/discover" || location.pathname.startsWith("/discover/");
@@ -84,31 +83,19 @@ export function TopBar() {
       className="sticky top-0 z-40 shrink-0 border-b border-(--plum-chrome-border) bg-(--plum-topbar-bg) shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-xl"
       style={{ backdropFilter: "blur(24px) saturate(1.5)" }}
     >
-      <div className="mx-auto flex w-full max-w-(--page-max-width) flex-wrap items-center gap-3 px-4 py-3 md:h-16 md:flex-nowrap md:gap-4 md:px-6 xl:px-8">
-        <div className="order-1 shrink-0">
+      <div className="mx-auto flex w-full max-w-(--page-max-width) items-center gap-3 px-4 py-3 md:h-16 md:gap-4 md:px-6 xl:px-8 flex-wrap">
+        <div className="flex items-center justify-between gap-3 md:justify-start">
           <PlumLogoButton />
+
+          <div className="flex items-center gap-2 md:hidden">
+            <LibraryActivityCenter />
+            <SettingsButton isActive={isSettingsRoute} />
+            <UserMenu email={user?.email} onSignOut={logout} />
+          </div>
         </div>
 
-        <div className="order-2 ml-auto flex shrink-0 items-center gap-2 md:order-3 md:ml-0">
-          <LibraryActivityCenter />
-          <Link to="/settings" aria-current={isSettingsRoute ? "page" : undefined}>
-            <Button
-              variant="icon"
-              size="icon"
-              aria-label="Settings"
-              className={cn(
-                isSettingsRoute &&
-                  "border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.1)] text-(--plum-text) hover:border-[rgba(255,255,255,0.22)] hover:bg-[rgba(255,255,255,0.14)] hover:text-(--plum-text)",
-              )}
-            >
-              <Settings className="size-5" />
-            </Button>
-          </Link>
-          <UserMenu email={user?.email} onSignOut={logout} />
-        </div>
-
-        <div className="order-3 flex min-w-0 w-full basis-full justify-center md:order-2 md:w-auto md:flex-1 md:basis-auto">
-          <div className="relative max-w-xl min-w-0 flex-1">
+        <div className="flex flex-1 min-w-0 justify-center">
+          <div className="relative flex-1 min-w-0 max-w-xl">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-(--plum-muted)" />
             <Input
               type="search"
@@ -122,7 +109,7 @@ export function TopBar() {
 
         <HorizontalScrollRail
           label="mobile navigation"
-          className="order-4 basis-full md:hidden"
+          className="md:hidden"
           contentClassName="flex gap-2 overflow-x-auto px-10"
         >
           <MobileNavLink to="/" active={isHomeRoute}>
@@ -163,18 +150,36 @@ export function TopBar() {
             );
           })}
         </HorizontalScrollRail>
+
+        <div className="hidden items-center gap-2 md:flex">
+          <LibraryActivityCenter />
+          <SettingsButton isActive={isSettingsRoute} />
+          <UserMenu email={user?.email} onSignOut={logout} />
+        </div>
       </div>
     </header>
   );
 }
 
-function UserMenu({
-  email,
-  onSignOut,
-}: {
-  email?: string | null;
-  onSignOut: () => void;
-}) {
+function SettingsButton({ isActive }: { isActive: boolean }) {
+  return (
+    <Link to="/settings" aria-current={isActive ? "page" : undefined}>
+      <Button
+        variant="icon"
+        size="icon"
+        aria-label="Settings"
+        className={cn(
+          isActive &&
+            "border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.1)] text-(--plum-text) hover:border-[rgba(255,255,255,0.22)] hover:bg-[rgba(255,255,255,0.14)] hover:text-(--plum-text)",
+        )}
+      >
+        <Settings className="size-5" />
+      </Button>
+    </Link>
+  );
+}
+
+function UserMenu({ email, onSignOut }: { email?: string | null; onSignOut: () => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -183,9 +188,9 @@ function UserMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {email ? (
+        {email && (
           <div className="truncate px-2 py-1.5 text-sm text-(--plum-muted)">{email}</div>
-        ) : null}
+        )}
         <DropdownMenuItem
           onSelect={() => onSignOut()}
           className="text-(--plum-accent) focus:text-(--plum-accent)"

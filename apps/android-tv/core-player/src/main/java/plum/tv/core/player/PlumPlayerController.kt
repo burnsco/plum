@@ -30,6 +30,7 @@ import androidx.media3.extractor.ts.TsExtractor
 import java.util.ArrayList
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1354,34 +1355,41 @@ class PlumPlayerController(
         return (withHint ?: langMatches.first()).streamIndex
     }
 
+    /**
+     * Persists subtitle choice to preferences. [ExoPlayer] may only be read on the main thread;
+     * the hint is computed on the caller thread ([applySubtitlePickerSelection] runs on Main), then
+     * preference writes run on [applicationScope] (Default dispatcher).
+     */
     private fun persistManualSubtitlePreference(trackId: SubtitlePickerTrackId) {
-        applicationScope.launch(controllerJob) {
-            val langHint =
-                when (trackId) {
-                    SubtitlePickerTrackId.Off ->
-                        TrackLanguagePreference.NONE to ""
-                    is SubtitlePickerTrackId.BurnIn -> {
-                        val sub = embeddedSubtitleTracks.firstOrNull { it.streamIndex == trackId.streamIndex }
-                        val lang =
-                            TrackLanguagePreference.normalize(sub?.language).ifEmpty {
-                                TrackLanguagePreference.normalize(sub?.title)
-                            }.ifEmpty { "und" }
-                        lang to sub?.title?.trim().orEmpty()
-                    }
-                    is SubtitlePickerTrackId.TextTrack -> {
-                        val fmt =
-                            player.currentTracks.groups.getOrNull(trackId.groupIndex)?.mediaTrackGroup?.getFormat(
-                                trackId.trackIndex,
-                            )
-                        val lang =
-                            TrackLanguagePreference.normalize(fmt?.language).ifEmpty {
-                                TrackLanguagePreference.normalize(fmt?.label)
-                            }.ifEmpty { "und" }
-                        lang to fmt?.label?.trim().orEmpty()
-                    }
+        val langHint =
+            when (trackId) {
+                SubtitlePickerTrackId.Off ->
+                    TrackLanguagePreference.NONE to ""
+                is SubtitlePickerTrackId.BurnIn -> {
+                    val sub = embeddedSubtitleTracks.firstOrNull { it.streamIndex == trackId.streamIndex }
+                    val lang =
+                        TrackLanguagePreference.normalize(sub?.language).ifEmpty {
+                            TrackLanguagePreference.normalize(sub?.title)
+                        }.ifEmpty { "und" }
+                    lang to sub?.title?.trim().orEmpty()
                 }
+                is SubtitlePickerTrackId.TextTrack -> {
+                    val group = player.currentTracks.groups.getOrNull(trackId.groupIndex)
+                    val fmt =
+                        group?.mediaTrackGroup?.let { mg ->
+                            if (trackId.trackIndex in 0 until mg.length) mg.getFormat(trackId.trackIndex) else null
+                        }
+                    val lang =
+                        TrackLanguagePreference.normalize(fmt?.language).ifEmpty {
+                            TrackLanguagePreference.normalize(fmt?.label)
+                        }.ifEmpty { "und" }
+                    lang to fmt?.label?.trim().orEmpty()
+                }
+            }
+        val compositeKey = showTrackCompositeKey()
+        applicationScope.launch(controllerJob) {
             playerSubtitlePreferences.setDefaultSubtitlePreference(langHint.first, langHint.second)
-            showTrackCompositeKey()?.let { ck ->
+            compositeKey?.let { ck ->
                 playerSubtitlePreferences.mergeShowTrackLanguageOverride(
                     ck,
                     defaultSubtitleLanguage = langHint.first,
@@ -1491,7 +1499,8 @@ class PlumPlayerController(
                     val j = trackId.trackIndex
                     if (activeBurnSubtitleStreamIndex != null) {
                         // Switching away from burn-in to a regular text track: reload without burn-in, then restore.
-                        val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
+                        val mg = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup
+                        val fmt = if (mg != null && j in 0 until mg.length) mg.getFormat(j) else null
                         val resumeSec = player.currentPosition / 1000.0f
                         pendingSubtitleRestore =
                             SubtitleRestoreState(
@@ -1710,8 +1719,15 @@ class PlumPlayerController(
         when (picker) {
             is TrackPicker.Subtitles ->
                 scope.launch(Dispatchers.Main) {
-                    applySubtitlePickerSelection(id)
-                    refreshUiState()
+                    try {
+                        applySubtitlePickerSelection(id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        updateError(e.message ?: "Subtitle change failed")
+                    } finally {
+                        refreshUiState()
+                    }
                 }
             is TrackPicker.Audio ->
                 scope.launch(Dispatchers.Main) {
@@ -1740,7 +1756,8 @@ class PlumPlayerController(
                             val gi = rest[0].toIntOrNull() ?: return@launch
                             val j = rest[1].toIntOrNull() ?: return@launch
                             applyExoAudioSelection(gi, j)
-                            val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
+                            val audioMg = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup
+                            val fmt = if (audioMg != null && j in 0 until audioMg.length) audioMg.getFormat(j) else null
                             applicationScope.launch(controllerJob) {
                                 val lang =
                                     TrackLanguagePreference.normalize(fmt?.language).ifEmpty {

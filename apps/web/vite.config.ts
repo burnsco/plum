@@ -31,7 +31,12 @@ export default defineConfig({
   assetsInclude: ["**/*.wasm"],
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // jassub/debug.js imports `throughput` as ESM default; the real package is CJS-only.
+      // optimizeDeps cannot fix imports inside excluded `jassub`, so replace the id globally.
+      throughput: path.resolve(__dirname, "./src/shims/throughput.ts"),
+    },
     // Avoid two React copies (workspace deps / prebundle) breaking context hooks.
     dedupe: ["react", "react-dom"],
   },

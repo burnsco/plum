@@ -1867,6 +1867,9 @@ export function PlaybackDock() {
     if (!sessionAudioKey) return;
     setSelectedAudioKey((current) => (current === sessionAudioKey ? current : sessionAudioKey));
     dispatchedAudioTrackRef.current = { mediaId: activeItem.id, key: sessionAudioKey };
+    // Session/WebSocket can report a new audio index without reloading the element metadata handler;
+    // bump so native audioTracks selection re-syncs (fixes UI showing server track while mux played another).
+    setAudioTrackVersion((v) => v + 1);
     if (
       requestedAudioTrackRef.current?.mediaId === activeItem.id &&
       requestedAudioTrackRef.current.key === sessionAudioKey

@@ -272,7 +272,7 @@ export const queryKeys = {
   transcodingSettings: ["transcoding-settings"] as const,
 };
 
-function invalidateSearchAfterLibraryDataChange(
+export function invalidateSearchAfterLibraryDataChange(
   queryClient: QueryClient,
   libraryId: number,
 ): void {

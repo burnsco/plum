@@ -16,6 +16,7 @@ import { getEnrichmentPhase, isLibraryScanProcessing } from "../lib/libraryActiv
 import {
   invalidateDiscoverRelatedQueries,
   invalidateLibraryCatalogQueries,
+  invalidateSearchAfterLibraryDataChange,
   useLibraries,
 } from "../queries";
 import { ScanQueueContext, type QueueScanOptions, type RecentLibraryActivity } from "./ScanQueueContext";
@@ -310,6 +311,12 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       invalidateDiscoverRelatedQueries(queryClient);
     }
   }, [eventSequence, latestEvent, queryClient, setScanStatus]);
+
+  useEffect(() => {
+    if (!latestEvent || latestEvent.type !== "library_catalog_changed") return;
+    invalidateLibraryCatalogQueries(queryClient, latestEvent.libraryId);
+    invalidateSearchAfterLibraryDataChange(queryClient, latestEvent.libraryId);
+  }, [eventSequence, latestEvent, queryClient]);
 
   const activeLibraryIds = useMemo(
     () =>

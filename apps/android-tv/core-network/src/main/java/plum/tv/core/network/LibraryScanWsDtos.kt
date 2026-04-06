@@ -30,3 +30,9 @@ data class LibraryScanUpdateWsEventJson(
     @Json(name = "type") val type: String,
     @Json(name = "scan") val scan: LibraryScanStatusJson,
 )
+
+@JsonClass(generateAdapter = true)
+data class LibraryCatalogChangedWsEventJson(
+    @Json(name = "type") val type: String,
+    @Json(name = "libraryId") val libraryId: Int,
+)

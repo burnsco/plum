@@ -1843,11 +1843,18 @@ export interface LibraryScanUpdateEvent {
   scan: LibraryScanStatus;
 }
 
+/** Emitted when library rows are hidden or reshaped without a terminal scan phase change (e.g. immediate missing-file mark after delete). */
+export interface LibraryCatalogChangedEvent {
+  type: "library_catalog_changed";
+  libraryId: number;
+}
+
 export type PlumWebSocketEvent =
   | WelcomeEvent
   | PongEvent
   | PlaybackSessionUpdateEvent
-  | LibraryScanUpdateEvent;
+  | LibraryScanUpdateEvent
+  | LibraryCatalogChangedEvent;
 
 export type PlumWebSocketCommand = AttachPlaybackSessionCommand | DetachPlaybackSessionCommand;
 
@@ -1892,11 +1899,17 @@ export const LibraryScanUpdateEventSchema = Schema.Struct({
   scan: LibraryScanStatusSchema,
 });
 
+export const LibraryCatalogChangedEventSchema = Schema.Struct({
+  type: Schema.Literal("library_catalog_changed"),
+  libraryId: Schema.Number,
+});
+
 export const PlumWebSocketEventSchema = Schema.Union([
   WelcomeEventSchema,
   PongEventSchema,
   PlaybackSessionUpdateEventSchema,
   LibraryScanUpdateEventSchema,
+  LibraryCatalogChangedEventSchema,
 ]);
 
 export const PlumWebSocketCommandSchema = Schema.Union([

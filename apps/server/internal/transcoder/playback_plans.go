@@ -116,7 +116,7 @@ func buildSoftwareAdaptiveHLSPlan(
 		filterParts = append(
 			filterParts,
 			fmt.Sprintf(
-				"[v%d]scale=w=-2:h=%d:force_original_aspect_ratio=decrease,format=yuv420p[outv%d]",
+				"[v%d]scale=w=-2:h=%d:force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p[outv%d]",
 				index,
 				variant.Height,
 				index,
@@ -131,11 +131,11 @@ func buildSoftwareAdaptiveHLSPlan(
 	}
 
 	args = append(args, "-filter_complex", strings.Join(filterParts, ";"))
+	// ABR ladder uses -b:v/-maxrate only; combining -crf with -b:v breaks libx264 init on many FFmpeg builds.
 	for index, variant := range variants {
 		args = append(args,
 			fmt.Sprintf("-c:v:%d", index), "libx264",
 			fmt.Sprintf("-preset:v:%d", index), "veryfast",
-			fmt.Sprintf("-crf:v:%d", index), strconv.Itoa(settings.CRF),
 			fmt.Sprintf("-profile:v:%d", index), "high",
 			fmt.Sprintf("-pix_fmt:v:%d", index), "yuv420p",
 			fmt.Sprintf("-b:v:%d", index), variant.VideoRate,

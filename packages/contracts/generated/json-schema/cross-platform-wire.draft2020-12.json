@@ -11036,6 +11036,47 @@
             "scan"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "library_catalog_changed"
+              ]
+            },
+            "libraryId": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "NaN"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "-Infinity"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "libraryId"
+          ],
+          "additionalProperties": false
         }
       ]
     },
