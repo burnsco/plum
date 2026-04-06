@@ -1305,17 +1305,9 @@ class PlumPlayerController(
     }
 
     private fun buildSubtitlePickerOptions(): List<TrackPickerOption> {
-        val options = mutableListOf<TrackPickerOption>()
         val textDisabled =
             player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
         val burnActive = activeBurnSubtitleStreamIndex != null
-        options +=
-            TrackPickerOption(
-                id = SubtitlePickerTrackId.Off.toWireId(),
-                label = "Off",
-                selected = textDisabled && !burnActive,
-                detail = "Hide subtitles",
-            )
         val groups = player.currentTracks.groups
         val textRows = mutableListOf<Triple<Int, Int, Format>>()
         for (gi in groups.indices) {
@@ -1325,13 +1317,20 @@ class PlumPlayerController(
                 textRows += Triple(gi, j, g.mediaTrackGroup.getFormat(j))
             }
         }
+        val trackOptions = mutableListOf<TrackPickerOption>()
+        var anyTrackSelected = false
         for ((gi, j, fmt) in textRows) {
             val g = groups[gi]
+            // In-band CEA-608/708 tracks cannot render on PlayerView (Media3 #1606). Hide them
+            // entirely — if the server catalogued the same stream, a working WebVTT sideload
+            // (emb:) is already present in the track groups and will appear instead.
+            if (fmt.isCea608ClosedCaptionTrack()) continue
             val label = fmt.computeSubtitlePickerLabel()
             if (shouldDropDemuxedSubtitleDuplicate(gi, j, fmt, label, textRows)) continue
             val id = SubtitlePickerTrackId.TextTrack(gi, j).toWireId()
             val selected = !textDisabled && !burnActive && g.isTrackSelected(j)
-            options +=
+            if (selected) anyTrackSelected = true
+            trackOptions +=
                 TrackPickerOption(
                     id = id,
                     label = label,
@@ -1339,12 +1338,14 @@ class PlumPlayerController(
                     detail = fmt.subtitlePickerDetail(),
                 )
         }
+        val burnOptions = mutableListOf<TrackPickerOption>()
         // Bitmap subtitle tracks not reachable via WebVTT or PGS raw binary: offer server burn-in.
         // Only shown for HLS sessions — direct-play ExoPlayer parses these from the source file natively.
         for (subtitle in serverBurnInEmbeddedSubtitleTracks()) {
             val id = SubtitlePickerTrackId.BurnIn(subtitle.streamIndex).toWireId()
             val selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex
-            options +=
+            if (selected) anyTrackSelected = true
+            burnOptions +=
                 TrackPickerOption(
                     id = id,
                     label = subtitle.burnInPickerLabel(),
@@ -1352,6 +1353,19 @@ class PlumPlayerController(
                     detail = subtitle.codec?.uppercase(Locale.US),
                 )
         }
+        // "Off" is active when text is explicitly disabled, OR when the only Exo-selected track is
+        // a hidden CEA-608 (which can't render) — avoids a picker with no option highlighted.
+        val offSelected = (textDisabled || !anyTrackSelected) && !burnActive
+        val options = mutableListOf<TrackPickerOption>()
+        options +=
+            TrackPickerOption(
+                id = SubtitlePickerTrackId.Off.toWireId(),
+                label = "Off",
+                selected = offSelected,
+                detail = "Hide subtitles",
+            )
+        options += trackOptions
+        options += burnOptions
         return options
     }
 
