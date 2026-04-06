@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SCAN_SENSITIVE_STALE_MS } from "./queries";
 import { Component, type ErrorInfo, type ReactNode, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
@@ -115,7 +116,7 @@ function App() {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60_000,
+            staleTime: SCAN_SENSITIVE_STALE_MS,
             retry: import.meta.env.MODE === "test" ? false : 3,
           },
         },

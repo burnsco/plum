@@ -12,9 +12,11 @@ import plum.tv.core.network.LibraryScanStatusJson
 import plum.tv.core.network.LibraryScanUpdateWsEventJson
 
 /**
- * Handles `library_scan_update` WebSocket payloads (same event the web app uses in ScanQueueProvider):
- * drops stale [BrowseRepository] pages and signals ViewModels to refetch so media IDs/paths match the server
- * after library rescans or filesystem renames.
+ * Handles `library_scan_update` WebSocket payloads (web: `ScanQueueProvider`) and
+ * [LibraryScanStatusPoller] REST poll results: drops stale [BrowseRepository] pages and emits
+ * [catalogRefreshEvents]. Home, library browse, and Discover ViewModels refetch so behavior matches web
+ * React Query invalidation (`invalidateLibraryCatalogQueries` + `invalidateDiscoverRelatedQueries` on
+ * terminal scan states).
  */
 @Singleton
 class LibraryCatalogRefreshCoordinator @Inject constructor(

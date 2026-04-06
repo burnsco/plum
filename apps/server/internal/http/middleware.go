@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -57,20 +56,6 @@ func AuthViaBearerFromContext(ctx context.Context) bool {
 		return b
 	}
 	return false
-}
-
-type requestLogEntry struct {
-	Component     string `json:"component"`
-	Event         string `json:"event"`
-	Method        string `json:"method"`
-	Path          string `json:"path"`
-	Route         string `json:"route,omitempty"`
-	Status        int    `json:"status"`
-	DurationMS    int64  `json:"duration_ms"`
-	BytesWritten  int    `json:"bytes_written"`
-	RemoteIP      string `json:"remote_ip,omitempty"`
-	UserID        int    `json:"user_id,omitempty"`
-	AuthViaBearer bool   `json:"auth_via_bearer,omitempty"`
 }
 
 type loggingResponseWriter struct {
@@ -145,26 +130,28 @@ func RequestLoggingMiddleware() func(http.Handler) http.Handler {
 					route = pattern
 				}
 			}
-			entry := requestLogEntry{
-				Component:     "server",
-				Event:         "request",
-				Method:        r.Method,
-				Path:          r.URL.Path,
-				Route:         route,
-				Status:        status,
-				DurationMS:    time.Since(start).Milliseconds(),
-				BytesWritten:  rw.bytesWritten,
-				RemoteIP:      clientIP(r),
-				AuthViaBearer: AuthViaBearerFromContext(r.Context()),
+			attrs := []any{
+				"component", "server",
+				"event", "request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", status,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"bytes_written", rw.bytesWritten,
+			}
+			if route != r.URL.Path {
+				attrs = append(attrs, "route", route)
+			}
+			if rip := clientIP(r); rip != "" {
+				attrs = append(attrs, "remote_ip", rip)
 			}
 			if user := UserFromContext(r.Context()); user != nil {
-				entry.UserID = user.ID
+				attrs = append(attrs, "user_id", user.ID)
 			}
-			if raw, err := json.Marshal(entry); err != nil {
-				slog.Error("request log marshal error", "error", err)
-			} else {
-				slog.Info(string(raw))
+			if AuthViaBearerFromContext(r.Context()) {
+				attrs = append(attrs, "auth_via_bearer", true)
 			}
+			slog.Info("request", attrs...)
 		})
 	}
 }
@@ -279,14 +266,15 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 			bearerID := bearerSessionToken(r)
 
 			trySession := func(sessionID string, viaBearer, clearCookie bool) bool {
-				var (
-					userID    int
-					expiresAt time.Time
-				)
+				var u db.User
+				var expiresAt time.Time
 				err := dbConn.QueryRow(
-					`SELECT user_id, expires_at FROM sessions WHERE id = ?`,
+					`SELECT u.id, u.email, u.is_admin, u.created_at, s.expires_at
+FROM sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.id = ?`,
 					sessionID,
-				).Scan(&userID, &expiresAt)
+				).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt, &expiresAt)
 				if err != nil {
 					if errors.Is(err, sql.ErrNoRows) && clearCookie {
 						clearSessionCookie(w, r)
@@ -297,21 +285,6 @@ func AuthMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
 					_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessionID)
 					if clearCookie {
 						clearSessionCookie(w, r)
-					}
-					return false
-				}
-
-				var u db.User
-				err = dbConn.QueryRow(
-					`SELECT id, email, is_admin, created_at FROM users WHERE id = ?`,
-					userID,
-				).Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt)
-				if err != nil {
-					if errors.Is(err, sql.ErrNoRows) {
-						_, _ = dbConn.Exec(`DELETE FROM sessions WHERE id = ?`, sessionID)
-						if clearCookie {
-							clearSessionCookie(w, r)
-						}
 					}
 					return false
 				}

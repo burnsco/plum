@@ -255,7 +255,12 @@ const (
 
 // sqlitePragmas are applied to every new connection via the DSN so pool connections
 // all have foreign_keys and busy_timeout set (connection-specific in SQLite).
-const sqlitePragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+//
+// cache_size: negative value is a limit in KiB (here ~64 MiB page cache).
+// mmap_size: bytes of DB file mapped read-only; improves cold reads on local disks (avoid huge values on network FS).
+// After very large imports, running ANALYZE once can help the planner; Plum does not run it automatically.
+const sqlitePragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)" +
+	"&_pragma=cache_size(-65536)&_pragma=mmap_size(67108864)"
 
 func InitDB(conn string) (*sql.DB, error) {
 	if conn == "" {
@@ -2669,9 +2674,12 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 	} else {
 		m.EmbeddedAudioTracks = []EmbeddedAudioTrack{}
 	}
-	if err := attachSingleDuplicateState(db, &m); err != nil {
+	dupSlice := []MediaItem{m}
+	dupSlice, err = attachDuplicateState(db, dupSlice)
+	if err != nil {
 		return nil, err
 	}
+	m = dupSlice[0]
 	return &m, nil
 }
 
@@ -2927,17 +2935,48 @@ ORDER BY g.id`
 
 // queryMediaByShowID returns episode rows for a single show (indexed by shows.id), ordered by season/episode.
 func queryMediaByShowID(db *sql.DB, libraryID int, kind string, showID int) ([]MediaItem, error) {
+	if showID <= 0 {
+		return nil, nil
+	}
+	return queryMediaByShowIDs(db, libraryID, kind, []int{showID})
+}
+
+// queryMediaByShowIDs returns episode rows for multiple shows in one query (same columns/order semantics as single-show).
+func queryMediaByShowIDs(db *sql.DB, libraryID int, kind string, showIDs []int) ([]MediaItem, error) {
+	uniq := make([]int, 0, len(showIDs))
+	seenID := make(map[int]struct{}, len(showIDs))
+	for _, id := range showIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seenID[id]; ok {
+			continue
+		}
+		seenID[id] = struct{}{}
+		uniq = append(uniq, id)
+	}
+	if len(uniq) == 0 {
+		return nil, nil
+	}
+	showIDs = uniq
 	table := mediaTableForKind(kind)
 	if table != "tv_episodes" && table != "anime_episodes" {
 		return nil, nil
+	}
+	placeholders := make([]string, len(showIDs))
+	args := make([]interface{}, 0, 2+len(showIDs))
+	args = append(args, kind, libraryID)
+	for i, id := range showIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
 	}
 	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
-WHERE m.library_id = ? AND m.show_id = ? AND COALESCE(m.missing_since, '') = ''
-	ORDER BY COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.title, ''), g.id`
-	rows, err := db.Query(q, kind, libraryID, showID)
+WHERE m.library_id = ? AND m.show_id IN (` + strings.Join(placeholders, ",") + `) AND COALESCE(m.missing_since, '') = ''
+ORDER BY m.show_id, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.title, ''), g.id`
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3071,59 +3110,171 @@ WHERE library_id = ? AND kind = ?`, libraryID, kind)
 	return nil
 }
 
+// duplicateHashQueryChunk limits bound variables per query (below SQLite's default SQLITE_MAX_VARIABLE_NUMBER).
+const duplicateHashQueryChunk = 400
+
+type duplicateStateGroupKey struct {
+	libraryID int
+	kind      string
+}
+
+func mediaFilesTableExists(db *sql.DB) (bool, error) {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'media_files'`).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func queryDuplicateCountsMediaFiles(db *sql.DB, kind string, libraryID int, hashes []string) (map[string]int, error) {
+	if len(hashes) == 0 {
+		return map[string]int{}, nil
+	}
+	table := mediaTableForKind(kind)
+	ph := make([]string, len(hashes))
+	args := make([]any, 0, 2+len(hashes))
+	args = append(args, kind, libraryID)
+	for i, h := range hashes {
+		ph[i] = "?"
+		args = append(args, h)
+	}
+	q := `SELECT COALESCE(mf.file_hash, ''), COUNT(1)
+FROM media_files mf
+JOIN media_global g ON g.id = mf.media_id
+JOIN ` + table + ` m ON m.id = g.ref_id
+WHERE g.kind = ?
+AND m.library_id = ?
+AND COALESCE(mf.file_hash, '') IN (` + strings.Join(ph, ",") + `)
+AND COALESCE(mf.missing_since, '') = ''
+GROUP BY COALESCE(mf.file_hash, '')`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int, len(hashes))
+	for rows.Next() {
+		var hash string
+		var cnt int
+		if err := rows.Scan(&hash, &cnt); err != nil {
+			return nil, err
+		}
+		out[hash] = cnt
+	}
+	return out, rows.Err()
+}
+
+func queryDuplicateCountsLegacy(db *sql.DB, table string, libraryID int, hashes []string) (map[string]int, error) {
+	if len(hashes) == 0 {
+		return map[string]int{}, nil
+	}
+	ph := make([]string, len(hashes))
+	args := make([]any, 0, 1+len(hashes))
+	args = append(args, libraryID)
+	for i, h := range hashes {
+		ph[i] = "?"
+		args = append(args, h)
+	}
+	q := `SELECT COALESCE(file_hash, ''), COUNT(1) FROM ` + table + `
+WHERE library_id = ?
+AND COALESCE(file_hash, '') IN (` + strings.Join(ph, ",") + `)
+AND COALESCE(missing_since, '') = ''
+GROUP BY COALESCE(file_hash, '')`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int, len(hashes))
+	for rows.Next() {
+		var hash string
+		var cnt int
+		if err := rows.Scan(&hash, &cnt); err != nil {
+			return nil, err
+		}
+		out[hash] = cnt
+	}
+	return out, rows.Err()
+}
+
+func duplicateCountsForHashes(db *sql.DB, useMediaFiles bool, kind string, libraryID int, hashes []string) (map[string]int, error) {
+	out := make(map[string]int, len(hashes))
+	table := mediaTableForKind(kind)
+	for start := 0; start < len(hashes); start += duplicateHashQueryChunk {
+		end := start + duplicateHashQueryChunk
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		chunk := hashes[start:end]
+		var part map[string]int
+		var err error
+		if useMediaFiles {
+			part, err = queryDuplicateCountsMediaFiles(db, kind, libraryID, chunk)
+		} else {
+			part, err = queryDuplicateCountsLegacy(db, table, libraryID, chunk)
+		}
+		if err != nil {
+			return nil, err
+		}
+		for h, c := range part {
+			out[h] = c
+		}
+	}
+	return out, nil
+}
+
 func attachDuplicateState(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
 	if len(items) == 0 {
 		return items, nil
 	}
+	useMediaFiles, err := mediaFilesTableExists(db)
+	if err != nil {
+		return nil, err
+	}
+	groups := make(map[duplicateStateGroupKey]map[string]struct{})
 	for i := range items {
-		if err := attachSingleDuplicateState(db, &items[i]); err != nil {
+		it := &items[i]
+		if it.LibraryID <= 0 || it.Missing || it.FileHash == "" {
+			it.Duplicate = false
+			it.DuplicateCount = 0
+			continue
+		}
+		gk := duplicateStateGroupKey{libraryID: it.LibraryID, kind: it.Type}
+		if groups[gk] == nil {
+			groups[gk] = make(map[string]struct{})
+		}
+		groups[gk][it.FileHash] = struct{}{}
+	}
+	countsByGroup := make(map[duplicateStateGroupKey]map[string]int, len(groups))
+	for gk, hashSet := range groups {
+		hashes := make([]string, 0, len(hashSet))
+		for h := range hashSet {
+			hashes = append(hashes, h)
+		}
+		sort.Strings(hashes)
+		m, err := duplicateCountsForHashes(db, useMediaFiles, gk.kind, gk.libraryID, hashes)
+		if err != nil {
 			return nil, err
+		}
+		countsByGroup[gk] = m
+	}
+	for i := range items {
+		it := &items[i]
+		if it.LibraryID <= 0 || it.Missing || it.FileHash == "" {
+			continue
+		}
+		gk := duplicateStateGroupKey{libraryID: it.LibraryID, kind: it.Type}
+		c := countsByGroup[gk][it.FileHash]
+		if c > 1 {
+			it.Duplicate = true
+			it.DuplicateCount = c
+		} else {
+			it.Duplicate = false
+			it.DuplicateCount = 0
 		}
 	}
 	return items, nil
-}
-
-func attachSingleDuplicateState(db *sql.DB, item *MediaItem) error {
-	if item == nil {
-		return nil
-	}
-	if item.LibraryID <= 0 || item.Missing || item.FileHash == "" {
-		item.Duplicate = false
-		item.DuplicateCount = 0
-		return nil
-	}
-	var count int
-	if err := db.QueryRow(
-		`SELECT COUNT(1)
-		   FROM media_files mf
-		   JOIN media_global g ON g.id = mf.media_id
-		   JOIN `+mediaTableForKind(item.Type)+` m ON m.id = g.ref_id
-		  WHERE g.kind = ?
-		    AND m.library_id = ?
-		    AND COALESCE(mf.file_hash, '') = ?
-		    AND COALESCE(mf.missing_since, '') = ''`,
-		item.Type,
-		item.LibraryID,
-		item.FileHash,
-	).Scan(&count); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "no such table: media_files") {
-			table := mediaTableForKind(item.Type)
-			if err := db.QueryRow(
-				`SELECT COUNT(1) FROM `+table+` WHERE library_id = ? AND COALESCE(file_hash, '') = ? AND COALESCE(missing_since, '') = ''`,
-				item.LibraryID,
-				item.FileHash,
-			).Scan(&count); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-	if count > 1 {
-		item.Duplicate = true
-		item.DuplicateCount = count
-	}
-	return nil
 }
 
 func getSubtitlesForMedia(db *sql.DB, mediaID int) ([]Subtitle, error) {

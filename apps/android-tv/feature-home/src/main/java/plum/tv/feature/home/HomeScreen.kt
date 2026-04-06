@@ -471,9 +471,9 @@ private fun MediaEntryCard(
 ) {
     val serverBase = LocalServerBaseUrl.current
     val showArt =
-        resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_GRID)
+        resolveArtworkUrl(serverBase, media.showPosterUrl, media.showPosterPath, PlumImageSizes.POSTER_GRID_COMPACT)
     val itemArt =
-        resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_GRID)
+        resolveArtworkUrl(serverBase, media.posterUrl, media.posterPath, PlumImageSizes.POSTER_GRID_COMPACT)
     val imageUrl =
         if (preferShowPoster) {
             showArt ?: itemArt

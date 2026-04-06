@@ -273,34 +273,265 @@ WHERE pp.user_id = ? AND COALESCE(m.missing_since, '') = ''`
 		return nil, err
 	}
 
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	ensuredLibKind := make(map[libraryKindGroup]struct{})
+	for _, dk := range keys {
+		g := libraryKindGroup{libraryID: dk.libraryID, kind: dk.kind}
+		if _, ok := ensuredLibKind[g]; ok {
+			continue
+		}
+		if err := ensureLibraryShowsAndSeasons(db, dk.libraryID, dk.kind); err != nil {
+			return nil, err
+		}
+		ensuredLibKind[g] = struct{}{}
+	}
+
+	showIDByKey, err := resolveDashboardShowIDs(db, keys)
+	if err != nil {
+		return nil, err
+	}
+
+	keySet := make(map[dashboardShowKey]struct{}, len(keys))
+	for _, k := range keys {
+		keySet[k] = struct{}{}
+	}
+
+	groups := make(map[libraryKindGroup][]dashboardShowKey)
+	for _, dk := range keys {
+		g := libraryKindGroup{libraryID: dk.libraryID, kind: dk.kind}
+		groups[g] = append(groups[g], dk)
+	}
+
+	var flat []MediaItem
+	for g, gkeys := range groups {
+		var showIDs []int
+		for _, dk := range gkeys {
+			if sid := showIDByKey[dk]; sid > 0 {
+				showIDs = append(showIDs, sid)
+			}
+		}
+		var itemsA []MediaItem
+		itemsA, err = queryMediaByShowIDs(db, g.libraryID, g.kind, showIDs)
+		if err != nil {
+			return nil, err
+		}
+		flat = append(flat, itemsA...)
+
+		var withoutShow []dashboardShowKey
+		for _, dk := range gkeys {
+			if showIDByKey[dk] == 0 {
+				withoutShow = append(withoutShow, dk)
+			}
+		}
+		var idsByKey map[dashboardShowKey][]int
+		idsByKey, err = collectEpisodeGlobalIDsForShowKeys(db, g.libraryID, g.kind, withoutShow)
+		if err != nil {
+			return nil, err
+		}
+		mergedSeen := make(map[int]struct{})
+		var mergedIDs []int
+		for _, dk := range withoutShow {
+			for _, gid := range idsByKey[dk] {
+				if _, ok := mergedSeen[gid]; ok {
+					continue
+				}
+				mergedSeen[gid] = struct{}{}
+				mergedIDs = append(mergedIDs, gid)
+			}
+		}
+		var itemsB []MediaItem
+		itemsB, err = batchLoadEpisodeMediaItems(db, g.libraryID, g.kind, mergedIDs)
+		if err != nil {
+			return nil, err
+		}
+		flat = append(flat, itemsB...)
+	}
+
+	flat, err = attachMediaFilesBatch(db, flat)
+	if err != nil {
+		return nil, err
+	}
+	flat, err = attachDuplicateState(db, flat)
+	if err != nil {
+		return nil, err
+	}
+	flat, err = attachPlaybackProgressBatch(db, userID, flat)
+	if err != nil {
+		return nil, err
+	}
+
+	attachedByKey := bucketAttachedEpisodesByDashboardShowKey(flat, keySet)
 	entries := make([]ContinueWatchingEntry, 0, len(keys))
 	for _, sk := range keys {
-		episodes, err := loadDashboardEpisodesForShow(db, sk.libraryID, sk.kind, sk.showKey)
-		if err != nil {
-			return nil, err
+		entry, ok := continueWatchingEntryForShow(sk.showKey, attachedByKey[sk])
+		if ok {
+			entries = append(entries, entry)
 		}
-		if len(episodes) == 0 {
-			continue
-		}
-		episodes, err = attachMediaFilesBatch(db, episodes)
-		if err != nil {
-			return nil, err
-		}
-		episodes, err = attachDuplicateState(db, episodes)
-		if err != nil {
-			return nil, err
-		}
-		episodes, err = attachPlaybackProgressBatch(db, userID, episodes)
-		if err != nil {
-			return nil, err
-		}
-		entry, ok := continueWatchingEntryForShow(sk.showKey, episodes)
-		if !ok {
-			continue
-		}
-		entries = append(entries, entry)
 	}
 	return entries, nil
+}
+
+type libraryKindGroup struct {
+	libraryID int
+	kind      string
+}
+
+// resolveDashboardShowIDs maps each dashboard show key to shows.id (0 when missing). One batched query per kind
+// for TMDB-backed keys and one for title_key-backed keys — avoids N× getShowCanonicalMetadata (and its extra genre/cast queries).
+func resolveDashboardShowIDs(db *sql.DB, keys []dashboardShowKey) (map[dashboardShowKey]int, error) {
+	out := make(map[dashboardShowKey]int, len(keys))
+	groups := make(map[libraryKindGroup][]dashboardShowKey)
+	for _, dk := range keys {
+		g := libraryKindGroup{libraryID: dk.libraryID, kind: dk.kind}
+		groups[g] = append(groups[g], dk)
+	}
+
+	for g, gkeys := range groups {
+		tmdbToKeys := make(map[int][]dashboardShowKey)
+		titleKeyToDK := make(map[string][]dashboardShowKey)
+		for _, dk := range gkeys {
+			if strings.HasPrefix(dk.showKey, "tmdb-") {
+				tid, err := strconv.Atoi(strings.TrimPrefix(dk.showKey, "tmdb-"))
+				if err != nil || tid <= 0 {
+					continue
+				}
+				tmdbToKeys[tid] = append(tmdbToKeys[tid], dk)
+			} else if strings.HasPrefix(dk.showKey, "title-") {
+				tk := strings.TrimPrefix(dk.showKey, "title-")
+				titleKeyToDK[tk] = append(titleKeyToDK[tk], dk)
+			}
+		}
+
+		if len(tmdbToKeys) > 0 {
+			tmdbIDs := make([]int, 0, len(tmdbToKeys))
+			for tid := range tmdbToKeys {
+				tmdbIDs = append(tmdbIDs, tid)
+			}
+			sort.Ints(tmdbIDs)
+			ph := make([]string, len(tmdbIDs))
+			args := make([]interface{}, 0, 2+len(tmdbIDs))
+			args = append(args, g.libraryID, g.kind)
+			for i, id := range tmdbIDs {
+				ph[i] = "?"
+				args = append(args, id)
+			}
+			q := `SELECT id, tmdb_id FROM shows WHERE library_id = ? AND kind = ? AND tmdb_id IN (` + strings.Join(ph, ",") + `)`
+			rows, err := db.Query(q, args...)
+			if err != nil {
+				return nil, err
+			}
+			for rows.Next() {
+				var sid, tid int
+				if err := rows.Scan(&sid, &tid); err != nil {
+					_ = rows.Close()
+					return nil, err
+				}
+				for _, dk := range tmdbToKeys[tid] {
+					out[dk] = sid
+				}
+			}
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if err := rows.Close(); err != nil {
+				return nil, err
+			}
+		}
+
+		if len(titleKeyToDK) > 0 {
+			titleKeys := make([]string, 0, len(titleKeyToDK))
+			for tk := range titleKeyToDK {
+				titleKeys = append(titleKeys, tk)
+			}
+			sort.Strings(titleKeys)
+			ph := make([]string, len(titleKeys))
+			args := make([]interface{}, 0, 2+len(titleKeys))
+			args = append(args, g.libraryID, g.kind)
+			for i, tk := range titleKeys {
+				ph[i] = "?"
+				args = append(args, tk)
+			}
+			q := `SELECT id, title_key FROM shows WHERE library_id = ? AND kind = ? AND title_key IN (` + strings.Join(ph, ",") + `)`
+			rows, err := db.Query(q, args...)
+			if err != nil {
+				return nil, err
+			}
+			for rows.Next() {
+				var sid int
+				var titleKey string
+				if err := rows.Scan(&sid, &titleKey); err != nil {
+					_ = rows.Close()
+					return nil, err
+				}
+				for _, dk := range titleKeyToDK[titleKey] {
+					out[dk] = sid
+				}
+			}
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if err := rows.Close(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
+func collectEpisodeGlobalIDsForShowKeys(db *sql.DB, libraryID int, kind string, keys []dashboardShowKey) (map[dashboardShowKey][]int, error) {
+	out := make(map[dashboardShowKey][]int)
+	if len(keys) == 0 {
+		return out, nil
+	}
+	want := make(map[dashboardShowKey]struct{}, len(keys))
+	for _, k := range keys {
+		want[k] = struct{}{}
+	}
+	table := mediaTableForKind(kind)
+	if table != "tv_episodes" && table != "anime_episodes" {
+		return out, nil
+	}
+	q := `SELECT g.id, COALESCE(m.tmdb_id, 0), m.title FROM ` + table + ` m
+JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+WHERE m.library_id = ?`
+	rows, err := db.Query(q, kind, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var gid, tmdb int
+		var title string
+		if err := rows.Scan(&gid, &tmdb, &title); err != nil {
+			return nil, err
+		}
+		dk := dashboardShowKey{libraryID: libraryID, kind: kind, showKey: showKeyFromItem(tmdb, title)}
+		if _, ok := want[dk]; !ok {
+			continue
+		}
+		out[dk] = append(out[dk], gid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func bucketAttachedEpisodesByDashboardShowKey(items []MediaItem, keySet map[dashboardShowKey]struct{}) map[dashboardShowKey][]MediaItem {
+	out := make(map[dashboardShowKey][]MediaItem)
+	for _, it := range items {
+		dk := dashboardShowKey{libraryID: it.LibraryID, kind: it.Type, showKey: showKeyFromItem(it.TMDBID, it.Title)}
+		if _, ok := keySet[dk]; !ok {
+			continue
+		}
+		out[dk] = append(out[dk], it)
+	}
+	return out
 }
 
 func collectDistinctShowKeys(db *sql.DB, q string, libUserArg, ppUserArg int, kind string, seen map[dashboardShowKey]struct{}, keys *[]dashboardShowKey) error {

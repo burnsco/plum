@@ -84,13 +84,15 @@ import {
 import { recentlyAddedEntryKey } from "@/lib/libraryReadyNotifications";
 import { normalizeDiscoverOriginKey } from "@/lib/discover";
 
-/** Schema-decoded API payloads are deeply readonly; cache entries use mutable view types. */
-function decodeAs<T>(value: unknown): T {
+/**
+ * JSON is validated in `@plum/shared` with `@plum/contracts` schemas. Effect schema `Type` is deeply
+ * readonly; hooks use mutable DTO interfaces from the same contracts — widen here only for TypeScript.
+ */
+function contractsView<T>(value: unknown): T {
   return value as T;
 }
 
 type LibraryMediaPageResult = Exclude<Awaited<ReturnType<typeof fetchLibraryMedia>>, MediaItem[]>;
-type HomeDashboardResult = Awaited<ReturnType<typeof getHomeDashboard>>;
 
 function normalizeLibraryMediaPage(
   response: Awaited<ReturnType<typeof fetchLibraryMedia>>,
@@ -125,7 +127,7 @@ function mergeDashboardRecentlyAddedForNotifier(
   return out;
 }
 
-function buildHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
+function buildHomeDashboard(dashboard: HomeDashboard): HomeDashboard {
   const recentlyAddedTvEpisodes = (dashboard.recentlyAddedTvEpisodes ?? []) as RecentlyAddedEntry[];
   const recentlyAddedTvShows = (dashboard.recentlyAddedTvShows ?? []) as RecentlyAddedEntry[];
   const recentlyAddedMovies = (dashboard.recentlyAddedMovies ?? []) as RecentlyAddedEntry[];
@@ -145,16 +147,21 @@ function buildHomeDashboard(dashboard: HomeDashboardResult): HomeDashboard {
 
 export const queryKeys = {
   discover: (originCountry: string) => ["discover", originCountry] as const,
+  /** Prefix: invalidates all `discover` shelf queries regardless of origin. */
+  discoverAll: ["discover"] as const,
   discoverBrowse: (
     category: DiscoverBrowseCategory | "",
     mediaType: DiscoverMediaType | "",
     genreId: number | null,
     originCountry: string,
   ) => ["discover-browse", category, mediaType, genreId ?? 0, originCountry] as const,
+  discoverBrowseAll: ["discover-browse"] as const,
   discoverGenres: ["discover-genres"] as const,
   discoverSearch: (query: string) => ["discover-search", query] as const,
+  discoverSearchAll: ["discover-search"] as const,
   discoverTitle: (mediaType: DiscoverMediaType, tmdbId: number) =>
     ["discover-title", mediaType, tmdbId] as const,
+  discoverTitleAll: ["discover-title"] as const,
   downloads: ["downloads"] as const,
   home: ["home"] as const,
   libraries: ["libraries"] as const,
@@ -162,6 +169,7 @@ export const queryKeys = {
   library: (id: number, pageSize?: number) =>
     pageSize == null ? (["library", id] as const) : (["library", id, pageSize] as const),
   movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
+  movieDetailsByLibrary: (libraryId: number) => ["movie-details", libraryId] as const,
   moviePosterCandidates: (libraryId: number, mediaId: number) =>
     ["movie-poster-candidates", libraryId, mediaId] as const,
   metadataArtworkSettings: ["metadata-artwork-settings"] as const,
@@ -169,10 +177,13 @@ export const queryKeys = {
   serverEnvSettings: ["server-env-settings"] as const,
   search: (query: string, libraryId: number | null, type: string, genre: string) =>
     ["search", query, libraryId ?? 0, type, genre] as const,
+  /** Prefix: invalidates all `useLibrarySearch` queries. */
+  searchAll: ["search"] as const,
   series: (tmdbId: number) => ["series", tmdbId] as const,
   showPosterCandidates: (libraryId: number, showKey: string) =>
     ["show-poster-candidates", libraryId, showKey] as const,
   showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
+  showDetailsByLibrary: (libraryId: number) => ["show-details", libraryId] as const,
   showEpisodes: (libraryId: number, showKey: string) => ["library", libraryId, "show-episodes", showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
 };
@@ -187,28 +198,32 @@ export function invalidateLibraryCatalogQueries(queryClient: QueryClient, librar
   void queryClient.invalidateQueries({ queryKey: queryKeys.libraries });
   void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
   void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-  void queryClient.invalidateQueries({ queryKey: ["show-details", libraryId] });
-  void queryClient.invalidateQueries({ queryKey: ["movie-details", libraryId] });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.showDetailsByLibrary(libraryId) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetailsByLibrary(libraryId) });
 }
 
 /** Refetch Discover shelves, search, and title detail queries (e.g. after downloads or library scans). */
 export function invalidateDiscoverRelatedQueries(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: ["discover"] });
-  void queryClient.invalidateQueries({ queryKey: ["discover-browse"] });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.discoverAll });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.discoverBrowseAll });
   void queryClient.invalidateQueries({ queryKey: queryKeys.discoverGenres });
-  void queryClient.invalidateQueries({ queryKey: ["discover-search"] });
-  void queryClient.invalidateQueries({ queryKey: ["discover-title"] });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.discoverSearchAll });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.discoverTitleAll });
 }
 
-const LIBRARIES_STALE_MS = 60 * 1000;
-const LIBRARY_MEDIA_STALE_MS = 60 * 1000;
+/** Grids and lists that shift when scans, identification, or playback progress updates land. */
+export const SCAN_SENSITIVE_STALE_MS = 30 * 1000;
+/** TMDB-backed title payloads; explicit mutations invalidate. */
+const METADATA_DETAIL_STALE_MS = 5 * 60 * 1000;
+/** Settings/admin JSON from the server; changes only via Settings or rare env updates. */
+const SERVER_SETTINGS_STALE_MS = 60 * 1000;
 const DISCOVER_STALE_MS = 5 * 60 * 1000;
 
 export function useLibraries(): UseQueryResult<Library[], Error> {
   return useQuery({
     queryKey: queryKeys.libraries,
-    queryFn: async () => decodeAs<Library[]>(await listLibraries()),
-    staleTime: LIBRARIES_STALE_MS,
+    queryFn: async () => contractsView<Library[]>(await listLibraries()),
+    staleTime: SCAN_SENSITIVE_STALE_MS,
   });
 }
 
@@ -218,8 +233,9 @@ export function useUnidentifiedLibrarySummaries(): UseQueryResult<
 > {
   return useQuery({
     queryKey: queryKeys.unidentifiedSummary,
-    queryFn: async () => decodeAs<UnidentifiedLibrariesResponse>(await getUnidentifiedLibrarySummaries()),
-    staleTime: LIBRARIES_STALE_MS,
+    queryFn: async () =>
+      contractsView<UnidentifiedLibrariesResponse>(await getUnidentifiedLibrarySummaries()),
+    staleTime: SCAN_SENSITIVE_STALE_MS,
   });
 }
 
@@ -232,7 +248,7 @@ export function useDiscover(options?: {
   return useQuery({
     queryKey: queryKeys.discover(originKey),
     queryFn: async () =>
-      decodeAs<DiscoverResponse>(
+      contractsView<DiscoverResponse>(
         await getDiscover(originKey ? { originCountry: originKey } : undefined),
       ),
     enabled: options?.enabled ?? true,
@@ -247,7 +263,7 @@ export function useDiscoverGenres(options?: {
 }): UseQueryResult<DiscoverGenresResponse, Error> {
   return useQuery({
     queryKey: queryKeys.discoverGenres,
-    queryFn: async () => decodeAs<DiscoverGenresResponse>(await getDiscoverGenres()),
+    queryFn: async () => contractsView<DiscoverGenresResponse>(await getDiscoverGenres()),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -271,7 +287,7 @@ export function useDiscoverBrowse(
   return useInfiniteQuery({
     queryKey: queryKeys.discoverBrowse(category, mediaType, genreId, originKey),
     queryFn: async ({ pageParam }) =>
-      decodeAs<DiscoverBrowseResponse>(
+      contractsView<DiscoverBrowseResponse>(
         await browseDiscover({
           category: category === "" ? undefined : category,
           mediaType: mediaType === "" ? undefined : mediaType,
@@ -296,7 +312,8 @@ export function useDiscoverSearch(
   const normalizedQuery = query.trim();
   return useQuery({
     queryKey: queryKeys.discoverSearch(normalizedQuery),
-    queryFn: async () => decodeAs<DiscoverSearchResponse>(await searchDiscover(normalizedQuery)),
+    queryFn: async () =>
+      contractsView<DiscoverSearchResponse>(await searchDiscover(normalizedQuery)),
     enabled: (options?.enabled ?? true) && normalizedQuery.length >= 2,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -311,7 +328,7 @@ export function useDiscoverTitleDetails(
   return useQuery({
     queryKey: queryKeys.discoverTitle(mediaType ?? "movie", tmdbId ?? 0),
     queryFn: async () =>
-      decodeAs<DiscoverTitleDetails | null>(await getDiscoverTitleDetails(mediaType!, tmdbId!)),
+      contractsView<DiscoverTitleDetails | null>(await getDiscoverTitleDetails(mediaType!, tmdbId!)),
     enabled: (options?.enabled ?? true) && mediaType != null && tmdbId != null && tmdbId > 0,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,
@@ -324,7 +341,7 @@ export function useDownloads(options?: {
 }): UseQueryResult<DownloadsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.downloads,
-    queryFn: async () => decodeAs<DownloadsResponse>(await getDownloads()),
+    queryFn: async () => contractsView<DownloadsResponse>(await getDownloads()),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     staleTime: 5_000,
@@ -349,9 +366,9 @@ export function useHomeDashboard(options?: {
 }): UseQueryResult<HomeDashboard, Error> {
   return useQuery({
     queryKey: queryKeys.home,
-    queryFn: async () => buildHomeDashboard(await getHomeDashboard()),
+    queryFn: async () => buildHomeDashboard(contractsView<HomeDashboard>(await getHomeDashboard())),
     enabled: options?.enabled ?? true,
-    staleTime: LIBRARY_MEDIA_STALE_MS,
+    staleTime: SCAN_SENSITIVE_STALE_MS,
   });
 }
 
@@ -363,14 +380,16 @@ export function useLibraryMedia(
   return useInfiniteQuery({
     queryKey: queryKeys.library(libraryId ?? 0, pageSize),
     queryFn: async ({ pageParam }) =>
-      normalizeLibraryMediaPage(
-        await fetchLibraryMedia(libraryId!, { offset: Number(pageParam ?? 0), limit: pageSize }),
+      contractsView<LibraryMediaPageResult>(
+        normalizeLibraryMediaPage(
+          await fetchLibraryMedia(libraryId!, { offset: Number(pageParam ?? 0), limit: pageSize }),
+        ),
       ),
     enabled: (options?.enabled ?? true) && libraryId != null,
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.next_offset,
     refetchInterval: options?.refetchInterval,
-    staleTime: LIBRARY_MEDIA_STALE_MS,
+    staleTime: SCAN_SENSITIVE_STALE_MS,
   });
 }
 
@@ -425,17 +444,15 @@ export function useUpdateLibraryPlaybackPreferences(): UseMutationResult<
   });
 }
 
-const SERIES_STALE_MS = 5 * 60 * 1000;
-
 export function useSeries(
   tmdbId: number | null,
   options?: { enabled?: boolean },
 ): UseQueryResult<SeriesDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.series(tmdbId ?? 0),
-    queryFn: async () => decodeAs<SeriesDetails | null>(await fetchSeriesByTmdbId(tmdbId!)),
+    queryFn: async () => contractsView<SeriesDetails | null>(await fetchSeriesByTmdbId(tmdbId!)),
     enabled: (options?.enabled ?? true) && tmdbId != null && tmdbId > 0,
-    staleTime: SERIES_STALE_MS,
+    staleTime: METADATA_DETAIL_STALE_MS,
   });
 }
 
@@ -446,9 +463,10 @@ export function useMovieDetails(
 ): UseQueryResult<MovieDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.movieDetails(libraryId ?? 0, mediaId ?? 0),
-    queryFn: async () => decodeAs<MovieDetails | null>(await getMovieDetails(libraryId!, mediaId!)),
+    queryFn: async () =>
+      contractsView<MovieDetails | null>(await getMovieDetails(libraryId!, mediaId!)),
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
-    staleTime: SERIES_STALE_MS,
+    staleTime: METADATA_DETAIL_STALE_MS,
   });
 }
 
@@ -459,9 +477,10 @@ export function useShowDetails(
 ): UseQueryResult<ShowDetails | null, Error> {
   return useQuery({
     queryKey: queryKeys.showDetails(libraryId ?? 0, showKey ?? ""),
-    queryFn: async () => decodeAs<ShowDetails | null>(await getShowDetails(libraryId!, showKey!)),
+    queryFn: async () =>
+      contractsView<ShowDetails | null>(await getShowDetails(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
-    staleTime: SERIES_STALE_MS,
+    staleTime: METADATA_DETAIL_STALE_MS,
   });
 }
 
@@ -472,9 +491,10 @@ export function useShowEpisodes(
 ): UseQueryResult<ShowEpisodesResponse, Error> {
   return useQuery({
     queryKey: queryKeys.showEpisodes(libraryId ?? 0, showKey ?? ""),
-    queryFn: async () => decodeAs<ShowEpisodesResponse>(await getShowEpisodes(libraryId!, showKey!)),
+    queryFn: async () =>
+      contractsView<ShowEpisodesResponse>(await getShowEpisodes(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
-    staleTime: LIBRARY_MEDIA_STALE_MS,
+    staleTime: SCAN_SENSITIVE_STALE_MS,
   });
 }
 
@@ -486,9 +506,11 @@ export function useMoviePosterCandidates(
   return useQuery({
     queryKey: queryKeys.moviePosterCandidates(libraryId ?? 0, mediaId ?? 0),
     queryFn: async () =>
-      decodeAs<PosterCandidatesResponse>(await getMoviePosterCandidates(libraryId!, mediaId!)),
+      contractsView<PosterCandidatesResponse>(
+        await getMoviePosterCandidates(libraryId!, mediaId!),
+      ),
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
-    staleTime: 30_000,
+    staleTime: METADATA_DETAIL_STALE_MS,
   });
 }
 
@@ -500,9 +522,11 @@ export function useShowPosterCandidates(
   return useQuery({
     queryKey: queryKeys.showPosterCandidates(libraryId ?? 0, showKey ?? ""),
     queryFn: async () =>
-      decodeAs<PosterCandidatesResponse>(await getShowPosterCandidates(libraryId!, showKey!)),
+      contractsView<PosterCandidatesResponse>(
+        await getShowPosterCandidates(libraryId!, showKey!),
+      ),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
-    staleTime: 30_000,
+    staleTime: METADATA_DETAIL_STALE_MS,
   });
 }
 
@@ -528,7 +552,7 @@ export function useLibrarySearch(
       normalizedGenre,
     ),
     queryFn: async () =>
-      decodeAs<SearchResponse>(
+      contractsView<SearchResponse>(
         await searchLibraryMedia(normalizedQuery, {
           libraryId: normalizedLibraryId ?? undefined,
           type: normalizedType === "" ? undefined : normalizedType,
@@ -537,7 +561,7 @@ export function useLibrarySearch(
         }),
       ),
     enabled: (options?.enabled ?? true) && normalizedQuery.length >= 2,
-    staleTime: 30_000,
+    staleTime: SCAN_SENSITIVE_STALE_MS,
   });
 }
 
@@ -554,7 +578,7 @@ export function useRefreshShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -570,7 +594,7 @@ export function useRefreshLibraryPlaybackTracks(): UseMutationResult<
     mutationFn: ({ libraryId }) => refreshLibraryPlaybackTracks(libraryId),
     onSuccess: (_, { libraryId }) => {
       invalidateLibraryCatalogQueries(queryClient, libraryId);
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -590,7 +614,7 @@ export function useRefreshPlaybackTrackMetadata(): UseMutationResult<
     },
     onSuccess: (_, { libraryId }) => {
       invalidateLibraryCatalogQueries(queryClient, libraryId);
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -608,7 +632,7 @@ export function useConfirmShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -618,9 +642,10 @@ export function useTranscodingSettings(options?: {
 }): UseQueryResult<TranscodingSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.transcodingSettings,
-    queryFn: async () => decodeAs<TranscodingSettingsResponse>(await getTranscodingSettings()),
+    queryFn: async () =>
+      contractsView<TranscodingSettingsResponse>(await getTranscodingSettings()),
     enabled: options?.enabled ?? true,
-    staleTime: 30_000,
+    staleTime: SERVER_SETTINGS_STALE_MS,
   });
 }
 
@@ -630,9 +655,9 @@ export function useMetadataArtworkSettings(options?: {
   return useQuery({
     queryKey: queryKeys.metadataArtworkSettings,
     queryFn: async () =>
-      decodeAs<MetadataArtworkSettingsResponse>(await getMetadataArtworkSettings()),
+      contractsView<MetadataArtworkSettingsResponse>(await getMetadataArtworkSettings()),
     enabled: options?.enabled ?? true,
-    staleTime: 30_000,
+    staleTime: SERVER_SETTINGS_STALE_MS,
   });
 }
 
@@ -641,9 +666,9 @@ export function useMediaStackSettings(options?: {
 }): UseQueryResult<MediaStackSettings, Error> {
   return useQuery({
     queryKey: queryKeys.mediaStackSettings,
-    queryFn: async () => decodeAs<MediaStackSettings>(await getMediaStackSettings()),
+    queryFn: async () => contractsView<MediaStackSettings>(await getMediaStackSettings()),
     enabled: options?.enabled ?? true,
-    staleTime: 30_000,
+    staleTime: SERVER_SETTINGS_STALE_MS,
   });
 }
 
@@ -652,9 +677,10 @@ export function useServerEnvSettings(options?: {
 }): UseQueryResult<ServerEnvSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.serverEnvSettings,
-    queryFn: async () => decodeAs<ServerEnvSettingsResponse>(await getServerEnvSettings()),
+    queryFn: async () =>
+      contractsView<ServerEnvSettingsResponse>(await getServerEnvSettings()),
     enabled: options?.enabled ?? true,
-    staleTime: 15_000,
+    staleTime: SERVER_SETTINGS_STALE_MS,
   });
 }
 
@@ -666,7 +692,7 @@ export function useUpdateTranscodingSettings(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (settings) =>
-      decodeAs<TranscodingSettingsResponse>(await updateTranscodingSettings(settings)),
+      contractsView<TranscodingSettingsResponse>(await updateTranscodingSettings(settings)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.transcodingSettings, data);
     },
@@ -681,7 +707,9 @@ export function useUpdateMetadataArtworkSettings(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (settings) =>
-      decodeAs<MetadataArtworkSettingsResponse>(await updateMetadataArtworkSettings(settings)),
+      contractsView<MetadataArtworkSettingsResponse>(
+        await updateMetadataArtworkSettings(settings),
+      ),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.metadataArtworkSettings, data);
     },
@@ -711,7 +739,7 @@ export function useValidateMediaStackSettings(): UseMutationResult<
 > {
   return useMutation({
     mutationFn: async (settings) =>
-      decodeAs<MediaStackValidationResult>(await validateMediaStackSettings(settings)),
+      contractsView<MediaStackValidationResult>(await validateMediaStackSettings(settings)),
   });
 }
 
@@ -723,7 +751,7 @@ export function useUpdateServerEnvSettings(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload) =>
-      decodeAs<ServerEnvSettingsResponse>(await updateServerEnvSettings(payload)),
+      contractsView<ServerEnvSettingsResponse>(await updateServerEnvSettings(payload)),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.serverEnvSettings, data);
       invalidateDiscoverRelatedQueries(queryClient);
@@ -740,7 +768,7 @@ export function useAddDiscoverTitle(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ mediaType, tmdbId }) =>
-      decodeAs<DiscoverAcquisition>(await addDiscoverTitle(mediaType, tmdbId)),
+      contractsView<DiscoverAcquisition>(await addDiscoverTitle(mediaType, tmdbId)),
     onSuccess: () => {
       invalidateDiscoverRelatedQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: queryKeys.downloads });
@@ -762,7 +790,7 @@ export function useSetMoviePosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -780,7 +808,7 @@ export function useResetMoviePosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -800,7 +828,7 @@ export function useSetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }
@@ -819,7 +847,7 @@ export function useResetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     },
   });
 }

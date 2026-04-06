@@ -279,6 +279,7 @@ interface JsonRequestOptions<S extends Schema.Top & { readonly DecodingServices:
     response: Response,
     url: string,
   ) => Effect.Effect<S["Type"], PlumApiError> | null;
+  /** When changing copy here, update Android `PlumHttpMessages` to match user-visible fallbacks. */
   readonly errorMessage?: (details: { readonly status: number; readonly body: string }) => string;
 }
 
@@ -291,6 +292,7 @@ interface VoidRequestOptions {
     response: Response,
     url: string,
   ) => Effect.Effect<void, PlumApiError> | null;
+  /** When changing copy here, update Android `PlumHttpMessages` to match user-visible fallbacks. */
   readonly errorMessage?: (details: { readonly status: number; readonly body: string }) => string;
 }
 

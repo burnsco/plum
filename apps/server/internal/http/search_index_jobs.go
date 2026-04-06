@@ -12,9 +12,10 @@ import (
 )
 
 type SearchIndexManager struct {
-	db     *sql.DB
-	movies metadata.MovieDetailsProvider
-	series metadata.SeriesDetailsProvider
+	shutdownCtx context.Context
+	db          *sql.DB
+	movies      metadata.MovieDetailsProvider
+	series      metadata.SeriesDetailsProvider
 
 	onQueue func(libraryID int, full bool)
 	refresh func(libraryID int, full bool) error
@@ -26,11 +27,15 @@ type SearchIndexManager struct {
 	needFull map[int]bool
 }
 
-func NewSearchIndexManager(sqlDB *sql.DB, movies metadata.MovieDetailsProvider, series metadata.SeriesDetailsProvider) *SearchIndexManager {
+func NewSearchIndexManager(shutdownCtx context.Context, sqlDB *sql.DB, movies metadata.MovieDetailsProvider, series metadata.SeriesDetailsProvider) *SearchIndexManager {
+	if shutdownCtx == nil {
+		shutdownCtx = context.Background()
+	}
 	return &SearchIndexManager{
-		db:       sqlDB,
-		movies:   movies,
-		series:   series,
+		shutdownCtx: shutdownCtx,
+		db:          sqlDB,
+		movies:      movies,
+		series:      series,
 		sem:      make(chan struct{}, 1),
 		queued:   make(map[int]bool),
 		running:  make(map[int]bool),
@@ -120,7 +125,7 @@ func (m *SearchIndexManager) runLibrary(libraryID int) {
 }
 
 func (m *SearchIndexManager) refreshLibrary(libraryID int, full bool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(m.shutdownCtx, 2*time.Minute)
 	defer cancel()
 	if full {
 		if err := m.backfillMovieMetadata(ctx, libraryID); err != nil {

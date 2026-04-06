@@ -136,7 +136,7 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 
 	mid := media.ID
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), 30*time.Minute)
 		defer cancel()
 		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
 	}()
@@ -160,7 +160,7 @@ func (h *PlaybackHandler) WarmEmbeddedSubtitleCaches(w http.ResponseWriter, r *h
 	}
 	mid := media.ID
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), 30*time.Minute)
 		defer cancel()
 		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
 	}()

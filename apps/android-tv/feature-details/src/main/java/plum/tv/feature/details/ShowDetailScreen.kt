@@ -282,8 +282,8 @@ private fun EpisodeRow(
     val shape = RoundedCornerShape(10.dp)
     val thumbUrl =
         resolveArtworkUrl(serverBase, ep.thumbnailUrl, ep.thumbnailPath, PlumImageSizes.THUMB_SMALL)
-            ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, PlumImageSizes.POSTER_GRID)
-            ?: resolveArtworkUrl(serverBase, ep.showPosterUrl, ep.showPosterPath, PlumImageSizes.POSTER_GRID)
+            ?: resolveArtworkUrl(serverBase, ep.posterUrl, ep.posterPath, PlumImageSizes.THUMB_SMALL)
+            ?: resolveArtworkUrl(serverBase, ep.showPosterUrl, ep.showPosterPath, PlumImageSizes.THUMB_SMALL)
     val watched = ep.completed == true
     val progressFrac =
         ((ep.progressPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()

@@ -86,27 +86,58 @@ func replaceTitleGenresTx(ctx context.Context, tx *sql.Tx, titleKind string, tit
 	if _, err := tx.ExecContext(ctx, `DELETE FROM title_genres WHERE title_kind = ? AND title_id = ?`, titleKind, titleID); err != nil {
 		return err
 	}
+
+	type genreRow struct{ name, slug string }
+	seen := make(map[string]bool, len(genres))
+	rows := make([]genreRow, 0, len(genres))
 	for _, name := range genres {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}
 		slug := genreSlug(name)
-		if slug == "" {
+		if slug == "" || seen[slug] {
 			continue
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO metadata_genres (name, slug, created_at, updated_at)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(slug) DO UPDATE SET
-	name = excluded.name,
-	updated_at = excluded.updated_at`, name, slug, now, now); err != nil {
-			return err
+		seen[slug] = true
+		rows = append(rows, genreRow{name, slug})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Single upsert for all genres.
+	{
+		ph := make([]string, len(rows))
+		args := make([]any, 0, len(rows)*4)
+		for i, r := range rows {
+			ph[i] = "(?,?,?,?)"
+			args = append(args, r.name, r.slug, now, now)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO title_genres (title_kind, title_id, genre_slug) VALUES (?, ?, ?)`, titleKind, titleID, slug); err != nil {
+		q := `INSERT INTO metadata_genres (name, slug, created_at, updated_at) VALUES ` +
+			strings.Join(ph, ",") +
+			` ON CONFLICT(slug) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 			return err
 		}
 	}
+
+	// Single insert for all title_genre links.
+	{
+		ph := make([]string, len(rows))
+		args := make([]any, 0, len(rows)*3)
+		for i, r := range rows {
+			ph[i] = "(?,?,?)"
+			args = append(args, titleKind, titleID, r.slug)
+		}
+		q := `INSERT OR IGNORE INTO title_genres (title_kind, title_id, genre_slug) VALUES ` + strings.Join(ph, ",")
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -114,47 +145,74 @@ func replaceTitleCastTx(ctx context.Context, tx *sql.Tx, titleKind string, title
 	if _, err := tx.ExecContext(ctx, `DELETE FROM title_cast WHERE title_kind = ? AND title_id = ?`, titleKind, titleID); err != nil {
 		return err
 	}
-	for _, member := range cast {
-		member.Name = strings.TrimSpace(member.Name)
-		if member.Name == "" {
+
+	type castRow struct {
+		name, nameKey, provider, providerID, profilePath, character string
+		order                                                        int
+	}
+	rows := make([]castRow, 0, len(cast))
+	for _, m := range cast {
+		m.Name = strings.TrimSpace(m.Name)
+		if m.Name == "" {
 			continue
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
-		nameKey := personNameKey(member.Name)
+		nameKey := personNameKey(m.Name)
 		if nameKey == "" {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO metadata_people (
-name, name_key, provider, provider_id, profile_path, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(name_key) DO UPDATE SET
+		rows = append(rows, castRow{
+			name: m.Name, nameKey: nameKey,
+			provider: m.Provider, providerID: m.ProviderID, profilePath: m.ProfilePath,
+			character: strings.TrimSpace(m.Character), order: m.Order,
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	const chunkSize = 200
+	for i := 0; i < len(rows); i += chunkSize {
+		chunk := rows[i:min(i+chunkSize, len(rows))]
+
+		// Batch upsert metadata_people.
+		{
+			ph := make([]string, len(chunk))
+			args := make([]any, 0, len(chunk)*7)
+			for j, r := range chunk {
+				ph[j] = "(?,?,?,?,?,?,?)"
+				args = append(args, r.name, r.nameKey, r.provider, r.providerID, r.profilePath, now, now)
+			}
+			q := `INSERT INTO metadata_people (name, name_key, provider, provider_id, profile_path, created_at, updated_at) VALUES ` +
+				strings.Join(ph, ",") +
+				` ON CONFLICT(name_key) DO UPDATE SET
 	name = excluded.name,
 	provider = CASE WHEN excluded.provider != '' THEN excluded.provider ELSE metadata_people.provider END,
 	provider_id = CASE WHEN excluded.provider_id != '' THEN excluded.provider_id ELSE metadata_people.provider_id END,
 	profile_path = CASE WHEN excluded.profile_path != '' THEN excluded.profile_path ELSE metadata_people.profile_path END,
-	updated_at = excluded.updated_at`,
-			member.Name,
-			nameKey,
-			member.Provider,
-			member.ProviderID,
-			member.ProfilePath,
-			now,
-			now,
-		); err != nil {
-			return err
+	updated_at = excluded.updated_at`
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO title_cast (
-title_kind, title_id, person_name_key, character_name, billing_order
-) VALUES (?, ?, ?, ?, ?)`,
-			titleKind,
-			titleID,
-			nameKey,
-			nullStr(strings.TrimSpace(member.Character)),
-			member.Order,
-		); err != nil {
-			return err
+
+		// Batch insert title_cast links.
+		{
+			ph := make([]string, len(chunk))
+			args := make([]any, 0, len(chunk)*5)
+			for j, r := range chunk {
+				ph[j] = "(?,?,?,?,?)"
+				args = append(args, titleKind, titleID, r.nameKey, nullStr(r.character), r.order)
+			}
+			q := `INSERT INTO title_cast (title_kind, title_id, person_name_key, character_name, billing_order) VALUES ` +
+				strings.Join(ph, ",")
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+				return err
+			}
 		}
 	}
+
 	return nil
 }
 

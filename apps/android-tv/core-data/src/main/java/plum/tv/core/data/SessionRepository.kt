@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import plum.tv.core.model.DeviceLoginResult
 import plum.tv.core.network.DeviceLoginRequest
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.QuickConnectRedeemRequest
 import plum.tv.core.network.PlumApi
 import plum.tv.core.network.PlumRetrofit
@@ -109,7 +110,7 @@ class SessionRepository @Inject constructor(
             val api = getPlumApi()
             val res = api.deviceLogin(DeviceLoginRequest(email = email, password = password))
             if (!res.isSuccessful) {
-                error(res.errorBody()?.string() ?: "Login failed (${res.code()})")
+                error(PlumHttpMessages.deviceLoginFailed(res.errorBody()?.string()))
             }
             val body = res.body() ?: error("Empty login response")
             prefs.setSessionToken(body.sessionToken)
@@ -131,7 +132,7 @@ class SessionRepository @Inject constructor(
             val api = getPlumApi()
             val res = api.redeemQuickConnect(QuickConnectRedeemRequest(code = code.trim()))
             if (!res.isSuccessful) {
-                error(res.errorBody()?.string() ?: "Quick connect failed (${res.code()})")
+                error(PlumHttpMessages.preferBody("Quick connect", res.code(), res.errorBody()?.string()))
             }
             val body = res.body() ?: error("Empty quick connect response")
             prefs.setSessionToken(body.sessionToken)

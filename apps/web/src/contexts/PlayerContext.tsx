@@ -899,19 +899,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     if (latestEvent.status === "ready") {
-      const shouldActivate =
-        latestEvent.revision >= currentSession.desiredRevision;
+      const eventRevision = latestEvent.revision ?? 0;
+      const shouldActivate = eventRevision >= currentSession.desiredRevision;
       setVideoSession((current) =>
         current == null || current.sessionId !== latestEvent.sessionId
           ? current
           : {
               ...current,
               currentRevision: shouldActivate
-                ? latestEvent.revision
+                ? eventRevision
                 : current.currentRevision,
               desiredRevision: Math.max(
                 current.desiredRevision,
-                latestEvent.revision,
+                eventRevision,
               ),
               delivery: latestEvent.delivery,
               audioIndex: latestEvent.audioIndex,

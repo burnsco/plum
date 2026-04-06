@@ -9,6 +9,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import plum.tv.core.network.HomeDashboardJson
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.LibraryJson
 import plum.tv.core.network.LibraryMediaPageJson
 import plum.tv.core.network.LibraryMovieDetailsJson
@@ -61,7 +62,7 @@ class BrowseRepository @Inject constructor(
     suspend fun homeDashboard(): Result<HomeDashboardJson> = runCatching {
         val res = sessionRepository.getPlumApi().homeDashboard()
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Home: HTTP ${res.code()}")
+            error(PlumHttpMessages.statusWithAppendedBody("Home", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty home response")
     }
@@ -75,7 +76,7 @@ class BrowseRepository @Inject constructor(
         return runCatching {
             val res = sessionRepository.getPlumApi().libraries()
             if (!res.isSuccessful) {
-                error(res.errorBody()?.string() ?: "Libraries: HTTP ${res.code()}")
+                error(PlumHttpMessages.statusWithAppendedBody("Libraries", res.code(), res.errorBody()?.string()))
             }
             val body = res.body() ?: emptyList()
             synchronized(librariesCacheLock) {
@@ -102,7 +103,13 @@ class BrowseRepository @Inject constructor(
         return runCatching {
             val res = sessionRepository.getPlumApi().libraryMedia(libraryId, offset, limit)
             if (!res.isSuccessful) {
-                error(res.errorBody()?.string() ?: "Library media: HTTP ${res.code()}")
+                error(
+                    PlumHttpMessages.statusWithAppendedBody(
+                        "Library media",
+                        res.code(),
+                        res.errorBody()?.string(),
+                    ),
+                )
             }
             val body = res.body() ?: error("Empty library media")
             synchronized(mediaCacheLock) {
@@ -159,7 +166,7 @@ class BrowseRepository @Inject constructor(
     suspend fun movieDetails(libraryId: Int, mediaId: Int): Result<LibraryMovieDetailsJson> = runCatching {
         val res = sessionRepository.getPlumApi().movieDetails(libraryId, mediaId)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Movie details: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Movie details", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty movie details")
     }
@@ -168,7 +175,7 @@ class BrowseRepository @Inject constructor(
         val enc = encodeShowKey(showKey)
         val res = sessionRepository.getPlumApi().showDetails(libraryId, enc)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Show details: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Show details", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty show details")
     }
@@ -177,7 +184,7 @@ class BrowseRepository @Inject constructor(
         val enc = encodeShowKey(showKey)
         val res = sessionRepository.getPlumApi().showEpisodes(libraryId, enc)
         if (!res.isSuccessful) {
-            error(res.errorBody()?.string() ?: "Show episodes: HTTP ${res.code()}")
+            error(PlumHttpMessages.preferBody("Show episodes", res.code(), res.errorBody()?.string()))
         }
         res.body() ?: error("Empty show episodes")
     }

@@ -129,7 +129,7 @@ func testServer(t *testing.T) (string, *sql.DB, func()) {
 	go hub.Run()
 
 	playbackSessions := transcoder.NewPlaybackSessionManager(context.Background(), filepath.Join(t.TempDir(), "playback"), hub)
-	router := buildRouter(dbConn, hub, playbackSessions, metadata.NewPipeline("", "", "", "", ""), t.TempDir(), t.TempDir())
+	router := buildRouter(context.Background(), dbConn, hub, playbackSessions, metadata.NewPipeline("", "", "", "", ""), t.TempDir(), t.TempDir())
 	server := httptest.NewServer(router)
 
 	return server.URL, dbConn, func() {

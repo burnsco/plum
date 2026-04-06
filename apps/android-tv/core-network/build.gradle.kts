@@ -25,4 +25,6 @@ dependencies {
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.moshi)
     ksp(libs.moshi.kotlin.codegen)
+
+    testImplementation(libs.junit)
 }

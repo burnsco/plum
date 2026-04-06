@@ -23,6 +23,8 @@ data class EmbeddedSubtitleJson(
     @Json(name = "vttEligible") val vttEligible: Boolean? = null,
     /** Playback session: raw PGS demux for Media3. Null when omitted — infer from [codec]. */
     @Json(name = "pgsBinaryEligible") val pgsBinaryEligible: Boolean? = null,
+    /** Playback session: raw ASS for native ASS renderers (see contracts EmbeddedSubtitle.assEligible). */
+    @Json(name = "assEligible") val assEligible: Boolean? = null,
 )
 
 @JsonClass(generateAdapter = true)
