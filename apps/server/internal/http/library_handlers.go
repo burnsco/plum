@@ -36,8 +36,8 @@ type LibraryHandler struct {
 	SearchIndex *SearchIndexManager
 	identifyRun *identifyRunTracker
 
-	playbackRefreshMu      sync.Mutex
-	playbackRefreshRunning map[int]struct{}
+	playbackRefreshMu     sync.Mutex
+	playbackRefreshStatus map[int]*playbackRefreshProgress
 }
 
 type identifyRunTracker struct {
@@ -413,11 +413,7 @@ func isMissingColumnError(err error, column string) bool {
 }
 
 func isSQLiteBusyError(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := strings.ToLower(err.Error())
-	return strings.Contains(text, "database is locked") || strings.Contains(text, "sqlite_busy")
+	return db.IsSQLiteBusy(err)
 }
 
 func discoverHTTPStatus(err error) (int, string) {
@@ -3689,23 +3685,55 @@ type updateMediaProgressRequest struct {
 	Completed       bool    `json:"completed"`
 }
 
-func (h *LibraryHandler) tryStartLibraryPlaybackRefresh(libraryID int) bool {
+type playbackRefreshProgress struct {
+	mu          sync.Mutex
+	Total       int    `json:"total"`
+	Processed   int    `json:"processed"`
+	CurrentPath string `json:"current_path"`
+}
+
+func (p *playbackRefreshProgress) update(processed int, currentPath string) {
+	p.mu.Lock()
+	p.Processed = processed
+	p.CurrentPath = currentPath
+	p.mu.Unlock()
+}
+
+func (p *playbackRefreshProgress) snapshot() (total, processed int, currentPath string) {
+	p.mu.Lock()
+	total, processed, currentPath = p.Total, p.Processed, p.CurrentPath
+	p.mu.Unlock()
+	return
+}
+
+func (h *LibraryHandler) tryStartLibraryPlaybackRefresh(libraryID int, total int) *playbackRefreshProgress {
 	h.playbackRefreshMu.Lock()
 	defer h.playbackRefreshMu.Unlock()
-	if h.playbackRefreshRunning == nil {
-		h.playbackRefreshRunning = make(map[int]struct{})
+	if h.playbackRefreshStatus == nil {
+		h.playbackRefreshStatus = make(map[int]*playbackRefreshProgress)
 	}
-	if _, ok := h.playbackRefreshRunning[libraryID]; ok {
-		return false
+	if _, ok := h.playbackRefreshStatus[libraryID]; ok {
+		return nil
 	}
-	h.playbackRefreshRunning[libraryID] = struct{}{}
-	return true
+	p := &playbackRefreshProgress{Total: total}
+	h.playbackRefreshStatus[libraryID] = p
+	return p
 }
 
 func (h *LibraryHandler) finishLibraryPlaybackRefresh(libraryID int) {
 	h.playbackRefreshMu.Lock()
 	defer h.playbackRefreshMu.Unlock()
-	delete(h.playbackRefreshRunning, libraryID)
+	delete(h.playbackRefreshStatus, libraryID)
+}
+
+func (h *LibraryHandler) getPlaybackRefreshStatuses() map[int]*playbackRefreshProgress {
+	h.playbackRefreshMu.Lock()
+	defer h.playbackRefreshMu.Unlock()
+	out := make(map[int]*playbackRefreshProgress, len(h.playbackRefreshStatus))
+	for k, v := range h.playbackRefreshStatus {
+		out[k] = v
+	}
+	return out
 }
 
 func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *http.Request) {
@@ -3725,7 +3753,13 @@ func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !h.tryStartLibraryPlaybackRefresh(libraryID) {
+	items, itemsErr := db.GetMediaByLibraryID(h.DB, libraryID)
+	if itemsErr != nil {
+		http.Error(w, "failed to list media: "+itemsErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	progress := h.tryStartLibraryPlaybackRefresh(libraryID, len(items))
+	if progress == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -3735,16 +3769,24 @@ func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *
 		})
 		return
 	}
-	go func(libID int) {
+	go func(libID int, mediaItems []db.MediaItem, prog *playbackRefreshProgress) {
 		defer h.finishLibraryPlaybackRefresh(libID)
 		ctx := context.Background()
-		refreshed, failed, runErr := db.RefreshPlaybackTrackMetadataForLibrary(ctx, h.DB, libID)
-		if runErr != nil {
-			log.Printf("library playback refresh library=%d: %v", libID, runErr)
-			return
+		var refreshed, failed int
+		for i := range mediaItems {
+			it := mediaItems[i]
+			prog.update(i, it.Path)
+			_, rerr := db.RefreshPlaybackTrackMetadata(ctx, h.DB, &it)
+			if rerr != nil {
+				log.Printf("refresh playback tracks library=%d media=%d: %v", libID, it.ID, rerr)
+				failed++
+			} else {
+				refreshed++
+			}
 		}
+		prog.update(len(mediaItems), "")
 		log.Printf("library playback refresh library=%d done refreshed=%d failed=%d", libID, refreshed, failed)
-	}(libraryID)
+	}(libraryID, items, progress)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -3900,4 +3942,82 @@ func (h *LibraryHandler) ConfirmShow(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(showActionResult{Updated: updated})
+}
+
+func (h *LibraryHandler) GetIntroScanSummary(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	summaries, err := db.ListIntroScanSummaries(h.DB, u.ID)
+	if err != nil {
+		log.Printf("list intro scan summaries: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if summaries == nil {
+		summaries = []db.IntroScanLibrarySummary{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"libraries": summaries})
+}
+
+func (h *LibraryHandler) GetIntroScanShowSummary(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	var libraryID, ownerID int
+	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	shows, err := db.ListIntroScanShowSummaries(h.DB, libraryID)
+	if err != nil {
+		log.Printf("list intro scan show summaries library=%d: %v", libraryID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if shows == nil {
+		shows = []db.IntroScanShowSummary{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"shows": shows})
+}
+
+type introRefreshStatusEntry struct {
+	LibraryID   int    `json:"library_id"`
+	Total       int    `json:"total"`
+	Processed   int    `json:"processed"`
+	CurrentPath string `json:"current_path,omitempty"`
+}
+
+func (h *LibraryHandler) GetIntroRefreshStatus(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	statuses := h.getPlaybackRefreshStatuses()
+	entries := make([]introRefreshStatusEntry, 0, len(statuses))
+	for libID, prog := range statuses {
+		total, processed, currentPath := prog.snapshot()
+		entries = append(entries, introRefreshStatusEntry{
+			LibraryID:   libID,
+			Total:       total,
+			Processed:   processed,
+			CurrentPath: currentPath,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].LibraryID < entries[j].LibraryID })
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"libraries": entries})
 }

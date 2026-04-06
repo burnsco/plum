@@ -2049,9 +2049,11 @@ class PlumPlayerController(
                                 loadAndPlay(url, resumeSec)
                                 updateStatus("Playing")
                             } else {
-                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                                activeStreamUrl = url
-                                loadAndPlay(url, resumeSec)
+                                // Don't load the HLS URL until the server reports "ready" —
+                                // index.m3u8 may not exist yet while ffmpeg is starting, and
+                                // a player error here would not be recovered by
+                                // swapToReadyStream (it short-circuits on matching URL).
+                                activeStreamUrl = null
                                 updateStatus("Preparing stream…")
                             }
                         } else {
@@ -2361,13 +2363,11 @@ class PlumPlayerController(
                                 loadAndPlay(url, resumeSec)
                                 updateStatus("Playing")
                             } else {
-                                // Start loading the HLS URL immediately so ExoPlayer begins
-                                // buffering while ffmpeg is still producing segments. The
-                                // playlist type is "event", so ExoPlayer will keep polling for
-                                // new segments. This avoids a long blank wait on large remuxes.
-                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
-                                activeStreamUrl = url
-                                loadAndPlay(url, resumeSec)
+                                // Don't load the HLS URL until the server reports "ready" —
+                                // index.m3u8 may not exist yet while ffmpeg is starting, and
+                                // a player error here would not be recovered by
+                                // swapToReadyStream (it short-circuits on matching URL).
+                                activeStreamUrl = null
                                 updateStatus("Preparing stream…")
                             }
                         } else {

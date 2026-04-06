@@ -40,6 +40,13 @@ func IntroChapterRangeFromProbes(chapters []chapterProbe) (startSec, endSec floa
 		if ch.endSec <= ch.startSec || ch.endSec <= 0 {
 			continue
 		}
+		if ch.endSec-ch.startSec > maxIntroChapterDurationSec {
+			// Skip oversized individual chapter; keep scanning for valid ones.
+			if found {
+				break
+			}
+			continue
+		}
 		if !found {
 			mergedStart = ch.startSec
 			mergedEnd = ch.endSec

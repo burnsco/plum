@@ -1,9 +1,5 @@
 import { Link, useLocation, useParams } from "react-router-dom";
-import {
-  useLibraries,
-  useRefreshLibraryPlaybackTracks,
-  useUnidentifiedLibrarySummaries,
-} from "@/queries";
+import { useLibraries, useRefreshLibraryPlaybackTracks } from "@/queries";
 import { getLibraryActivity } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
 import { cn } from "@/lib/utils";
@@ -16,7 +12,6 @@ import {
   Music,
   RefreshCw,
   ScanLine,
-  ScanSearch,
   Tv,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,8 +35,6 @@ function LibraryIcon({ lib }: { lib: Library }) {
 export function Sidebar() {
   const { libraryId } = useParams();
   const { data: libraries = [], isLoading } = useLibraries();
-  const { data: unidentifiedData } = useUnidentifiedLibrarySummaries();
-  const unidentifiedEntries = unidentifiedData?.libraries ?? [];
   const refreshLibraryPlaybackTracksMutation = useRefreshLibraryPlaybackTracks();
   const { getLibraryPhase, queueLibraryIdentify } = useIdentifyQueue();
   const { getLibraryScanStatus, queueLibraryScan } = useScanQueue();
@@ -51,9 +44,6 @@ export function Sidebar() {
   const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
   const isDownloadsRoute =
     location.pathname === "/downloads" || location.pathname.startsWith("/downloads/");
-  const unidentifiedOnlySidebar =
-    new URLSearchParams(location.search).get("unidentified") === "1";
-
   const navItemBase =
     "relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 transition-all cursor-pointer select-none";
   const navItemActive =
@@ -104,7 +94,7 @@ export function Sidebar() {
           <div className="px-4 py-2 text-sm text-(--plum-text-2) italic">Loading…</div>
         ) : (
           libraries.map((lib) => {
-            const isActive = activeId === lib.id && !unidentifiedOnlySidebar;
+            const isActive = activeId === lib.id;
             const identifyPhase = getLibraryPhase(lib.id);
             const scanStatus = getLibraryScanStatus(lib.id);
             const supportsMetadataRefresh = lib.type !== "music";
@@ -181,39 +171,6 @@ export function Sidebar() {
             );
           })
         )}
-
-        {unidentifiedEntries.length > 0 ? (
-          <>
-            <div className="mx-4 my-3 h-px bg-(--plum-chrome-border)" />
-            <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-(--plum-text-2)">
-              Needs identification
-            </div>
-            {unidentifiedEntries.map((entry) => {
-              const isUnidentifiedActive =
-                activeId === entry.library_id && unidentifiedOnlySidebar;
-              return (
-                <Link
-                  key={`unidentified-${entry.library_id}`}
-                  to={`/library/${entry.library_id}?unidentified=1`}
-                  title={`${entry.name} — ${entry.count} item${entry.count === 1 ? "" : "s"} need identification`}
-                  className={cn(
-                    navItemBase,
-                    isUnidentifiedActive ? navItemActive : navItemInactive,
-                  )}
-                >
-                  <ScanSearch className="size-4 shrink-0" />
-                  <span className="min-w-0 truncate">
-                    {entry.name}
-                    <span className="text-(--plum-text-2) tabular-nums">
-                      {" "}
-                      ({entry.count})
-                    </span>
-                  </span>
-                </Link>
-              );
-            })}
-          </>
-        ) : null}
       </nav>
     </aside>
   );

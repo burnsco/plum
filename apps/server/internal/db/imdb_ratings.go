@@ -45,8 +45,15 @@ func StartIMDbRatingsSync(ctx context.Context, dbConn *sql.DB, logger func(strin
 			logger("sync imdb ratings: %v", err)
 		}
 	}
-	go run()
 	go func() {
+		// Delay initial run so library scans triggered at startup are less
+		// likely to collide with this long-running write transaction.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Minute):
+		}
+		run()
 		ticker := time.NewTicker(imdbRatingsRefreshInterval)
 		defer ticker.Stop()
 		for {
@@ -94,8 +101,12 @@ func SyncIMDbRatings(ctx context.Context, dbConn *sql.DB) error {
 	}
 	defer gzr.Close()
 
-	tx, err := dbConn.BeginTx(ctx, nil)
-	if err != nil {
+	var tx *sql.Tx
+	if err := RetryOnBusy(ctx, 5, 2*time.Second, func() error {
+		var txErr error
+		tx, txErr = dbConn.BeginTx(ctx, nil)
+		return txErr
+	}); err != nil {
 		return err
 	}
 	defer func() {
@@ -170,7 +181,9 @@ SELECT imdb_id, rating, votes, ? FROM imdb_ratings_import
 	if err = applyIMDbRatingsTx(ctx, tx); err != nil {
 		return err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = RetryOnBusy(ctx, 5, 2*time.Second, func() error {
+		return tx.Commit()
+	}); err != nil {
 		return err
 	}
 	return nil

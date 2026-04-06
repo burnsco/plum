@@ -41,8 +41,9 @@ import {
 } from "@/queries";
 import { createQuickConnectCode } from "@/api";
 import { cn } from "@/lib/utils";
-import { Cpu, Image, Link2, ListTree, MonitorPlay, Server, Volume2 } from "lucide-react";
+import { Cpu, Image, Link2, ListTree, MonitorPlay, Server, SkipForward, Volume2 } from "lucide-react";
 import { ServerEnvSettingsTab } from "@/pages/ServerEnvSettingsTab";
+import { IntroSkipperPluginTab } from "@/pages/IntroSkipperPluginTab";
 
 const decodeCodecOptions: Array<{
   key: VaapiDecodeCodec;
@@ -381,7 +382,8 @@ type SettingsTab =
   | "media-stack"
   | "arr-profiles"
   | "metadata"
-  | "transcoding";
+  | "transcoding"
+  | "plugins-intro-skipper";
 
 function PlaybackWebDefaultsSection() {
   const [appearance, setAppearance] = useState(() => readStoredSubtitleAppearance());
@@ -1850,6 +1852,12 @@ export function Settings() {
         { id: "transcoding", label: "Transcoding", icon: <Cpu className="size-4 shrink-0" /> },
       ],
     },
+    {
+      heading: "Plugins",
+      tabs: [
+        { id: "plugins-intro-skipper", label: "Intro Skipper", icon: <SkipForward className="size-4 shrink-0" /> },
+      ],
+    },
   ];
 
   const tabContent: Record<SettingsTab, React.ReactNode> = {
@@ -1859,6 +1867,7 @@ export function Settings() {
     "arr-profiles": arrProfilesTabContent,
     metadata: metadataTabContent,
     transcoding: transcodingTabContent,
+    "plugins-intro-skipper": <IntroSkipperPluginTab />,
   };
 
   const generateQuickConnect = async () => {
