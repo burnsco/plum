@@ -195,10 +195,12 @@ func normalizeContainerName(path string, formatName string) string {
 
 func normalizeCodecName(codec string) string {
 	switch strings.ToLower(strings.TrimSpace(codec)) {
-	case "h265":
+	case "h265", "hvc1", "hev1":
 		return "hevc"
-	case "avc":
+	case "avc", "avc1":
 		return "h264"
+	case "av01":
+		return "av1"
 	case "mpeg2video":
 		return "mpeg2"
 	default:

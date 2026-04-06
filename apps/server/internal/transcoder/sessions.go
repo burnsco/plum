@@ -698,6 +698,7 @@ func (m *PlaybackSessionManager) startRevision(
 
 	dir := filepath.Join(m.root, session.id, fmt.Sprintf("revision_%d", revisionNumber))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		session.mu.Unlock()
 		return PlaybackSessionState{}, err
 	}
 
@@ -756,6 +757,19 @@ func (m *PlaybackSessionManager) scheduleDisconnectLocked(session *playbackSessi
 	delete(m.clients, clientID)
 	sessionID := session.id
 	session.disconnectTimer = time.AfterFunc(playbackDisconnectGracePeriod, func() {
+		// Guard against race: if a new client attached while this goroutine was
+		// blocked on m.mu, the session now has an active owner and must not be closed.
+		m.mu.RLock()
+		s := m.sessions[sessionID]
+		m.mu.RUnlock()
+		if s != nil {
+			s.mu.Lock()
+			hasOwner := s.ownerClientID != ""
+			s.mu.Unlock()
+			if hasOwner {
+				return
+			}
+		}
 		m.Close(sessionID)
 	})
 	slog.Info("playback session disconnect pending",
@@ -1022,7 +1036,10 @@ func revisionReady(dir string, durationSeconds float64) bool {
 		return false
 	}
 
-	minSegments := 4
+	// Two segments (≈4s at 2s/seg) is enough for HLS event playlists — ExoPlayer/hls.js
+	// will keep polling for more while the transcode continues. This gets playback started
+	// much faster for large remux files (e.g. 80GB+ UHD remuxes).
+	minSegments := 2
 	if durationSeconds > 0 {
 		needed := int(math.Ceil(durationSeconds / float64(hlsSegmentDurationSeconds)))
 		if needed < 1 {

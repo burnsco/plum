@@ -3485,8 +3485,14 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 	}
 	if start, end, ok := IntroChapterRangeFromProbes(chProbes); ok {
 		s, e := start, end
-		result.IntroStartSeconds = &s
-		result.IntroEndSeconds = &e
+		// Discard intro window that extends beyond the probed duration.
+		if result.Duration > 0 && e > float64(result.Duration) {
+			e = float64(result.Duration)
+		}
+		if s >= 0 && e > s {
+			result.IntroStartSeconds = &s
+			result.IntroEndSeconds = &e
+		}
 	}
 	return result, nil
 }

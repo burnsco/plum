@@ -30,6 +30,7 @@ import androidx.media3.extractor.ts.TsExtractor
 import java.util.ArrayList
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +94,19 @@ private data class ProgressPersistSnapshot(
     val positionSec: Long,
     val durationSec: Long,
     val completed: Boolean,
+)
+
+private data class IntroWindow(
+    val startSec: Double,
+    val endSec: Double,
+)
+
+private data class IntroState(
+    val startSec: Double? = null,
+    val endSec: Double? = null,
+    val skipMode: String = "manual",
+    val autoSkipConsumed: Boolean = false,
+    val autoSkipInFlight: Boolean = false,
 )
 
 /** Preserves subtitle choice across [setMediaItem] when audio switch replaces the HLS timeline. */
@@ -249,17 +263,7 @@ class PlumPlayerController(
     @Volatile
     private var queueIndex: Int = -1
 
-    @Volatile
-    private var introStartSec: Double? = null
-
-    @Volatile
-    private var introEndSec: Double? = null
-
-    @Volatile
-    private var sessionIntroSkipMode: String = "manual"
-
-    @Volatile
-    private var introAutoSkipConsumed: Boolean = false
+    private val introStateRef = AtomicReference(IntroState())
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -521,7 +525,8 @@ class PlumPlayerController(
                             // Run the persist call here (synchronously) to avoid overlapping network calls
                             try {
                                 persistProgressAsync(completed = false)
-                            } catch (_: Throwable) {
+                            } catch (e: Throwable) {
+                                android.util.Log.w("PlumTV", "progress persist failed", e)
                             }
                         }
                     } else {
@@ -629,13 +634,46 @@ class PlumPlayerController(
             else -> "manual"
         }
 
-    private fun effectiveIntroSkipMode(): String = normalizeIntroSkipMode(sessionIntroSkipMode)
+    private fun effectiveIntroSkipMode(): String = introStateRef.get().skipMode
 
-    private fun positionInsideIntroWindow(positionSec: Double): Boolean {
-        val end = introEndSec ?: return false
-        val start = introStartSec ?: 0.0
-        return positionSec >= start - INTRO_SKIP_LEADING_SLACK_SEC &&
-            positionSec < end - INTRO_SKIP_TRAILING_SLACK_SEC
+    private fun introWindow(): IntroWindow? {
+        val state = introStateRef.get()
+        val end = state.endSec ?: return null
+        val start = state.startSec ?: 0.0
+        if (end <= start) return null
+        return IntroWindow(startSec = start, endSec = end)
+    }
+
+    private fun positionInsideIntroWindow(positionSec: Double, window: IntroWindow): Boolean {
+        return positionSec >= window.startSec - INTRO_SKIP_LEADING_SLACK_SEC &&
+            positionSec < window.endSec - INTRO_SKIP_TRAILING_SLACK_SEC
+    }
+
+    /**
+     * Attempts to seek to intro end once and returns whether a seek request was issued.
+     */
+    private fun requestIntroSkipSeek(window: IntroWindow): Boolean {
+        val targetMs = (window.endSec * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
+        val currentPosMs = player.currentPosition
+        if (targetMs <= currentPosMs) return false
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            player.seekTo(targetMs)
+            return true
+        }
+        // CAS to claim the in-flight slot; avoids duplicate seeks from concurrent callers
+        val prev = introStateRef.get()
+        if (prev.autoSkipInFlight) return false
+        if (!introStateRef.compareAndSet(prev, prev.copy(autoSkipInFlight = true))) return false
+        scope.launch(Dispatchers.Main.immediate) {
+            try {
+                if (targetMs > player.currentPosition) {
+                    player.seekTo(targetMs)
+                }
+            } finally {
+                introStateRef.updateAndGet { it.copy(autoSkipInFlight = false) }
+            }
+        }
+        return true
     }
 
     /**
@@ -644,31 +682,23 @@ class PlumPlayerController(
      */
     fun skipIntro() {
         if (effectiveIntroSkipMode() == "off") return
-        val end = introEndSec ?: return
-        scope.launch(Dispatchers.Main) {
-            val targetMs = (end * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
-            if (targetMs > player.currentPosition) {
-                player.seekTo(targetMs)
-            }
-            introAutoSkipConsumed = true
+        val window = introWindow() ?: return
+        if (requestIntroSkipSeek(window)) {
+            introStateRef.updateAndGet { it.copy(autoSkipConsumed = true) }
         }
     }
 
     private fun maybeAutoSkipIntro() {
         if (!player.isPlaying) return
         if (effectiveIntroSkipMode() != "auto") return
-        if (introAutoSkipConsumed) return
-        val end = introEndSec ?: return
-        val start = introStartSec ?: 0.0
+        val state = introStateRef.get()
+        if (state.autoSkipConsumed) return
+        if (state.autoSkipInFlight) return
+        val window = introWindow() ?: return
         val posSec = player.currentPosition.coerceAtLeast(0) / 1000.0
-        if (posSec < start - INTRO_SKIP_LEADING_SLACK_SEC) return
-        if (posSec >= end - INTRO_SKIP_TRAILING_SLACK_SEC) return
-        introAutoSkipConsumed = true
-        scope.launch(Dispatchers.Main) {
-            val targetMs = (end * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
-            if (targetMs > player.currentPosition) {
-                player.seekTo(targetMs)
-            }
+        if (!positionInsideIntroWindow(posSec, window)) return
+        if (requestIntroSkipSeek(window)) {
+            introStateRef.updateAndGet { it.copy(autoSkipConsumed = true) }
         }
     }
 
@@ -677,9 +707,14 @@ class PlumPlayerController(
         start: Double?,
         end: Double?,
     ) {
-        skipMode?.trim()?.takeIf { it.isNotEmpty() }?.let { sessionIntroSkipMode = it }
-        start?.let { introStartSec = it }
-        end?.let { introEndSec = it }
+        introStateRef.updateAndGet { prev ->
+            prev.copy(
+                skipMode = skipMode?.trim()?.takeIf { it.isNotEmpty() }
+                    ?.let { normalizeIntroSkipMode(it) } ?: prev.skipMode,
+                startSec = start ?: prev.startSec,
+                endSec = end ?: prev.endSec,
+            )
+        }
     }
 
     private fun refreshUiState(
@@ -702,10 +737,11 @@ class PlumPlayerController(
         val status = statusOverride ?: _status.value
         val error = errorOverride ?: _error.value
         val mode = effectiveIntroSkipMode()
+        val window = introWindow()
         val showSkipIntro =
             mode == "manual" &&
-                introEndSec != null &&
-                positionInsideIntroWindow(positionSec) &&
+                window != null &&
+                positionInsideIntroWindow(positionSec, window) &&
                 player.mediaItemCount > 0 &&
                 error == null
         _uiState.value =
@@ -780,10 +816,11 @@ class PlumPlayerController(
         embeddedAudioTracks = session.embeddedAudioTracks.orEmpty()
         embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
-        introStartSec = session.introStartSeconds
-        introEndSec = session.introEndSeconds
-        sessionIntroSkipMode = session.introSkipMode?.trim()?.takeIf { it.isNotEmpty() } ?: "manual"
-        introAutoSkipConsumed = false
+        introStateRef.set(IntroState(
+            startSec = session.introStartSeconds,
+            endSec = session.introEndSeconds,
+            skipMode = normalizeIntroSkipMode(session.introSkipMode?.trim()?.takeIf { it.isNotEmpty() }),
+        ))
     }
 
     /**
@@ -2004,22 +2041,21 @@ class PlumPlayerController(
                             }
                         hlsSessionId = sid
                         wsManager.sendAttach(sid)
-                        if (session.status == "ready") {
-                            lastDurationSec = session.durationSeconds
-                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                        lastDurationSec = session.durationSeconds
+                        if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                            if (session.status == "ready") {
                                 val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
                                 activeStreamUrl = url
-                                lastDurationSec = session.durationSeconds
                                 loadAndPlay(url, resumeSec)
-                            }
-                            updateStatus("Playing")
-                        } else {
-                            lastDurationSec = session.durationSeconds
-                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
-                                updateStatus("Preparing stream…")
-                            } else {
                                 updateStatus("Playing")
+                            } else {
+                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                                activeStreamUrl = url
+                                loadAndPlay(url, resumeSec)
+                                updateStatus("Preparing stream…")
                             }
+                        } else {
+                            updateStatus("Playing")
                         }
                     }
                     else -> {
@@ -2317,22 +2353,25 @@ class PlumPlayerController(
                             }
                         hlsSessionId = sid
                         wsManager.sendAttach(sid)
-                        if (session.status == "ready") {
-                            lastDurationSec = session.durationSeconds
-                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                        lastDurationSec = session.durationSeconds
+                        if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
+                            if (session.status == "ready") {
                                 val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
                                 activeStreamUrl = url
-                                lastDurationSec = session.durationSeconds
                                 loadAndPlay(url, resumeSec)
-                            }
-                            updateStatus("Playing")
-                        } else {
-                            lastDurationSec = session.durationSeconds
-                            if (!tryInitialServerAudioPreferenceAlign(firstResumeSec = resumeSec)) {
-                                updateStatus("Preparing stream…")
-                            } else {
                                 updateStatus("Playing")
+                            } else {
+                                // Start loading the HLS URL immediately so ExoPlayer begins
+                                // buffering while ffmpeg is still producing segments. The
+                                // playlist type is "event", so ExoPlayer will keep polling for
+                                // new segments. This avoids a long blank wait on large remuxes.
+                                val url = playbackRepository.absoluteStreamUrl(session.streamUrl)
+                                activeStreamUrl = url
+                                loadAndPlay(url, resumeSec)
+                                updateStatus("Preparing stream…")
                             }
+                        } else {
+                            updateStatus("Playing")
                         }
                     }
                     else -> {
@@ -2432,9 +2471,7 @@ class PlumPlayerController(
         activeStreamUrl = null
         hlsSessionId = null
         lastAppliedStreamRevision = -1
-        introStartSec = null
-        introEndSec = null
-        introAutoSkipConsumed = false
+        introStateRef.set(IntroState())
         openMedia(mediaId, resumeSec)
     }
 

@@ -25,4 +25,32 @@ func TestIntroChapterRangeFromProbes(t *testing.T) {
 	if !ok3 || start3 != 5.5 || end3 != 88.25 {
 		t.Fatalf("got ok=%v start=%v end=%v", ok3, start3, end3)
 	}
+
+	// Adjacent intro chapters should merge into a single range.
+	start4, end4, ok4 := IntroChapterRangeFromProbes([]chapterProbe{
+		{startSec: 0, endSec: 30, title: "Opening"},
+		{startSec: 30, endSec: 90, title: "Opening Theme"},
+	})
+	if !ok4 || start4 != 0 || end4 != 90 {
+		t.Fatalf("adjacent merge: got ok=%v start=%v end=%v", ok4, start4, end4)
+	}
+
+	// Non-intro chapter between two intro chapters stops the merge.
+	start5, end5, ok5 := IntroChapterRangeFromProbes([]chapterProbe{
+		{startSec: 0, endSec: 30, title: "Intro"},
+		{startSec: 30, endSec: 60, title: "Scene 1"},
+		{startSec: 60, endSec: 90, title: "Intro reprise"},
+	})
+	if !ok5 || start5 != 0 || end5 != 30 {
+		t.Fatalf("gap break: got ok=%v start=%v end=%v", ok5, start5, end5)
+	}
+
+	// Merged range exceeding max duration is rejected.
+	_, _, ok6 := IntroChapterRangeFromProbes([]chapterProbe{
+		{startSec: 0, endSec: 400, title: "OP part 1"},
+		{startSec: 400, endSec: 800, title: "OP part 2"},
+	})
+	if ok6 {
+		t.Fatal("expected merged range exceeding max duration to be rejected")
+	}
 }

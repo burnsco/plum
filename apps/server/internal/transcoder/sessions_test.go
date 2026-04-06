@@ -3,7 +3,6 @@ package transcoder
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,20 +72,17 @@ func TestRevisionReadyRequiresBufferedSegments(t *testing.T) {
 	if revisionReady(dir, 3600) {
 		t.Fatal("expected false with playlist but no segments")
 	}
-	for i := range 3 {
-		name := fmt.Sprintf("segment_%05d.ts", i)
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
-			t.Fatalf("write segment: %v", err)
-		}
+	if err := os.WriteFile(filepath.Join(dir, "segment_00000.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write segment: %v", err)
 	}
 	if revisionReady(dir, 3600) {
-		t.Fatal("expected false with only three segments for long content")
+		t.Fatal("expected false with only one segment for long content")
 	}
-	if err := os.WriteFile(filepath.Join(dir, "segment_00003.ts"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "segment_00001.ts"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write segment: %v", err)
 	}
 	if !revisionReady(dir, 3600) {
-		t.Fatal("expected true once four segments exist")
+		t.Fatal("expected true once two segments exist")
 	}
 }
 
