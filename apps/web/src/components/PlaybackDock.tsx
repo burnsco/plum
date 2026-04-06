@@ -427,6 +427,8 @@ export function PlaybackDock() {
   }, []);
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [activeAssSource, setActiveAssSource] = useState<string | null>(null);
+  /** Mirrored from the video ref so JassubRenderer re-renders when the element mounts (ref alone does not). */
+  const [jassubVideoElement, setJassubVideoElement] = useState<HTMLVideoElement | null>(null);
   const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
   const [refreshedPlaybackTracks, setRefreshedPlaybackTracks] = useState<PlaybackTrackMetadata | null>(null);
   const [subtitleStatusMessage, setSubtitleStatusMessage] = useState("");
@@ -1122,6 +1124,16 @@ export function PlaybackDock() {
     queuedSubtitlePreferenceRef.current = null;
   }, [playbackQueue]);
 
+  // When the media first becomes ready (subtitleReadyVersion goes from 0 → 1), clear any blocked
+  // subtitle key so the loading effect below can retry. This handles the case where the initial
+  // auto-selected fetch failed transiently (e.g. the server was still warming the subtitle cache)
+  // and the user would otherwise need to manually toggle to trigger a retry.
+  useEffect(() => {
+    if (selectedSubtitleKey !== "off" && subtitleReadyVersion === 1) {
+      blockedSubtitleRetryKeysRef.current.delete(selectedSubtitleKey);
+    }
+  }, [selectedSubtitleKey, subtitleReadyVersion]);
+
   useEffect(() => {
     if (selectedSubtitleKey === "off") return;
     const req = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
@@ -1431,6 +1443,7 @@ export function PlaybackDock() {
       setSubtitleAttachmentVersion((value) => value + 1);
     }
     videoRef.current = element;
+    setJassubVideoElement(element);
     registerMediaElementRef.current("video", element);
     syncPlaybackStateRef.current(element);
     if (element) {
@@ -1795,7 +1808,9 @@ export function PlaybackDock() {
       return;
     }
     const track = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
-    if (!track?.assEligible) {
+    // If the track is missing (e.g. requests list not ready yet), do not clear — the load effect may
+    // have just set activeAssSource; clearing here would race and wipe ASS every time.
+    if (track != null && !track.assEligible) {
       setActiveAssSource(null);
     }
   }, [selectedSubtitleKey, subtitleTrackRequests]);
@@ -2763,7 +2778,7 @@ export function PlaybackDock() {
               }}
             ></video>
           </div>
-          <JassubRenderer videoElement={videoRef.current} assSrc={activeAssSource} />
+          <JassubRenderer videoElement={jassubVideoElement} assSrc={activeAssSource} />
         </div>
         {showSkipIntroControl && (
           <button
