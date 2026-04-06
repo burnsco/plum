@@ -1944,6 +1944,85 @@ func TestScanLibraryDiscovery_TVEpisodeRelocateAfterSeasonFolderRename(t *testin
 	}
 }
 
+// Regression: a missing S01E01 for Show A must not be treated as a relocation target when scanning
+// S01E01 for Show B under the same library (same season/episode, different show folder).
+func TestScanLibraryDiscovery_TVEpisodeRelocateDoesNotMatchOtherShow(t *testing.T) {
+	dbConn := newTestDB(t)
+	tvLibID := getLibraryID(t, dbConn, LibraryTypeTV)
+
+	tmp := t.TempDir()
+	showAFile := filepath.Join(tmp, "ShowA", "Season 1", "ShowA.S01E01.mkv")
+	if err := os.MkdirAll(filepath.Dir(showAFile), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(showAFile, []byte("a"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	prevSkip := SkipFFprobeInScan
+	SkipFFprobeInScan = true
+	t.Cleanup(func() { SkipFFprobeInScan = prevSkip })
+
+	if _, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	}); err != nil {
+		t.Fatalf("initial discovery: %v", err)
+	}
+	var showAID int
+	if err := dbConn.QueryRow(`SELECT id FROM tv_episodes WHERE library_id = ? AND path = ?`, tvLibID, showAFile).Scan(&showAID); err != nil {
+		t.Fatalf("select show A row: %v", err)
+	}
+
+	if err := os.Remove(showAFile); err != nil {
+		t.Fatalf("remove show A file: %v", err)
+	}
+	if _, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	}); err != nil {
+		t.Fatalf("rescan after remove: %v", err)
+	}
+	var missingSince string
+	if err := dbConn.QueryRow(`SELECT COALESCE(missing_since, '') FROM tv_episodes WHERE id = ?`, showAID).Scan(&missingSince); err != nil {
+		t.Fatalf("missing_since: %v", err)
+	}
+	if missingSince == "" {
+		t.Fatal("expected show A episode to be marked missing")
+	}
+
+	showBFile := filepath.Join(tmp, "ShowB", "Season 1", "ShowB.S01E01.mkv")
+	if err := os.MkdirAll(filepath.Dir(showBFile), 0o755); err != nil {
+		t.Fatalf("mkdir show b: %v", err)
+	}
+	if err := os.WriteFile(showBFile, []byte("b"), 0o644); err != nil {
+		t.Fatalf("write show b file: %v", err)
+	}
+	delta, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	})
+	if err != nil {
+		t.Fatalf("discovery show b: %v", err)
+	}
+	if delta.Result.Added != 1 {
+		t.Fatalf("expected new row for show B; added = %d", delta.Result.Added)
+	}
+
+	var count int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM tv_episodes WHERE library_id = ? AND season = 1 AND episode = 1`, tvLibID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("episode rows = %d, want 2 (show A missing + show B present)", count)
+	}
+
+	var pathAfter string
+	if err := dbConn.QueryRow(`SELECT path FROM tv_episodes WHERE id = ?`, showAID).Scan(&pathAfter); err != nil {
+		t.Fatalf("select show A after: %v", err)
+	}
+	if pathAfter != showAFile {
+		t.Fatalf("show A row path was rewritten to %q; want unchanged %q", pathAfter, showAFile)
+	}
+}
+
 func TestScanLibraryDiscovery_TargetedEnrichmentTouchesOnlyChangedFiles(t *testing.T) {
 	dbConn := newTestDB(t)
 	tvLibID := getLibraryID(t, dbConn, "tv")

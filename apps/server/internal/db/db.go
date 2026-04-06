@@ -3894,14 +3894,20 @@ updated_at = excluded.updated_at`)
 	return tasks, nil
 }
 
-// findRelocatedTVEpisodeRow returns an existing row for the same library/season/episode whose
-// file path is gone (rename/move) so discovery can update the path instead of inserting a duplicate.
-func findRelocatedTVEpisodeRow(ctx context.Context, dbConn *sql.DB, table, kind string, libraryID, season, episode int, newPath string) (existingMediaRow, bool, error) {
+// findRelocatedTVEpisodeRow returns an existing row for the same library, show folder, season, and
+// episode whose file path is gone (rename/move) so discovery can update the path instead of inserting
+// a duplicate. Rows for other shows under the same library are ignored so S01E01 in Show A cannot
+// steal a relocation match from Show B.
+func findRelocatedTVEpisodeRow(ctx context.Context, dbConn *sql.DB, table, kind string, libraryID, season, episode int, libraryRoot, newPath string) (existingMediaRow, bool, error) {
 	var zero existingMediaRow
 	if table != "tv_episodes" && table != "anime_episodes" {
 		return zero, false, nil
 	}
 	if episode <= 0 {
+		return zero, false, nil
+	}
+	newShowRoot := filepath.Clean(metadata.ShowRootPath(libraryRoot, newPath))
+	if newShowRoot == "" || newShowRoot == "." {
 		return zero, false, nil
 	}
 	query := `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0)
@@ -3926,6 +3932,10 @@ WHERE m.library_id = ? AND COALESCE(m.season, 0) = ? AND COALESCE(m.episode, 0) 
 		}
 		if imdbID.Valid {
 			row.IMDbID = imdbID.String
+		}
+		rowShowRoot := filepath.Clean(metadata.ShowRootPath(libraryRoot, row.Path))
+		if rowShowRoot != newShowRoot {
+			continue
 		}
 		if row.Path == newPath {
 			continue
@@ -4094,7 +4104,7 @@ func ScanLibraryDiscovery(
 				return err
 			}
 			if isNew && (kind == LibraryTypeTV || kind == LibraryTypeAnime) {
-				relocated, ok, err := findRelocatedTVEpisodeRow(ctx, dbConn, table, kind, libraryID, item.Season, item.Episode, candidate.Path)
+				relocated, ok, err := findRelocatedTVEpisodeRow(ctx, dbConn, table, kind, libraryID, item.Season, item.Episode, root, candidate.Path)
 				if err != nil {
 					return err
 				}
@@ -4567,7 +4577,7 @@ func HandleScanLibraryWithOptions(
 			}
 
 			if isNew && (kind == LibraryTypeTV || kind == LibraryTypeAnime) {
-				relocated, ok, err := findRelocatedTVEpisodeRow(ctx, dbConn, table, kind, libraryID, mItem.Season, mItem.Episode, path)
+				relocated, ok, err := findRelocatedTVEpisodeRow(ctx, dbConn, table, kind, libraryID, mItem.Season, mItem.Episode, root, path)
 				if err != nil {
 					return err
 				}
