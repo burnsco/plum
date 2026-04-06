@@ -424,7 +424,11 @@ class PlumPlayerController(
                             scheduleUpNextCountdown()
                         }
                         Player.STATE_BUFFERING -> refreshUiState()
-                        Player.STATE_READY -> refreshUiState()
+                        Player.STATE_READY -> {
+                            preferNonCea608TextTrackOnceIfNeeded()
+                            preferPlumSideloadOverInBandCea608IfNeeded()
+                            refreshUiState()
+                        }
                     }
                 }
 
@@ -453,6 +457,7 @@ class PlumPlayerController(
                     restorePendingSubtitlesIfNeeded()
                     preferNonCea608TextTrackOnceIfNeeded()
                     applyStoredManualTrackPreferencesAfterTrackLoad()
+                    preferPlumSideloadOverInBandCea608IfNeeded()
                     refreshUiState()
                 }
 
@@ -1028,7 +1033,33 @@ class PlumPlayerController(
      */
     private fun isCeaEmbeddedCatalogCodec(codec: String?): Boolean {
         val c = codec?.trim()?.lowercase(Locale.US) ?: return false
-        return c == "eia_608" || c == "eia_708"
+        return when {
+            c == "eia_608" || c == "eia_708" -> true
+            c.contains("eia_608") || c.contains("eia_708") -> true
+            c == "atsc_a53" -> true
+            else -> false
+        }
+    }
+
+    /** Exo sometimes uses a non-standard [Format.sampleMimeType] but still sets label to the codec name. */
+    private fun looksLikeCeaCaptionLabel(label: String?): Boolean {
+        val t = label?.trim()?.lowercase(Locale.US) ?: return false
+        if (t == "cc") return false
+        val compact = t.replace(" ", "")
+        return t == "cea-608" ||
+            t == "cea608" ||
+            t == "cea-708" ||
+            t == "cea708" ||
+            t.contains("cea-608") ||
+            t.contains("cea-708") ||
+            t.contains("cea608") ||
+            t.contains("cea708") ||
+            compact.contains("cea608") ||
+            compact.contains("cea708") ||
+            t.contains("eia-608") ||
+            t.contains("eia-708") ||
+            compact.contains("eia608") ||
+            compact.contains("eia708")
     }
 
     private fun serverEmbeddedCatalogForCea608Format(fmt: Format): EmbeddedSubtitleJson? {
@@ -1123,6 +1154,12 @@ class PlumPlayerController(
 
     private fun Format.computeSubtitlePickerLabel(): String {
         trackCatalogDisplayLabel()?.let { return it }
+        // Belt-and-suspenders: if display label was null, still avoid raw "CEA-608" from Exo.
+        if (looksLikeCeaCaptionLabel(label)) {
+            serverEmbeddedCatalogForCea608Format(this)?.displayLabel()?.let { return it }
+            languageLabel(language)?.let { return it }
+            return "Closed captions"
+        }
         val lang = languageLabel(language)
         val lab = label?.trim()?.takeIf { it.isNotEmpty() }
         return when {
@@ -1130,6 +1167,27 @@ class PlumPlayerController(
             lab != null -> lab
             lang != null -> lang
             else -> "Subtitle"
+        }
+    }
+
+    /** Text/cue vs bitmap subtitle delivery; used to avoid conflating distinct embedded streams with the same label. */
+    private enum class SubtitleRenderKind {
+        TextCue,
+        Bitmap,
+        Unknown,
+    }
+
+    private fun Format.subtitleRenderKind(): SubtitleRenderKind {
+        val mime = sampleMimeType?.trim()?.lowercase(Locale.US).orEmpty()
+        if (mime.isEmpty()) return SubtitleRenderKind.Unknown
+        return when {
+            mime.contains("pgs") ||
+                mime.contains("pgssub") ||
+                mime.contains("dvd_subtitle") ||
+                mime.contains("dvbsub") ||
+                mime.contains("vobsub") ||
+                mime.contains("x-subpicture") -> SubtitleRenderKind.Bitmap
+            else -> SubtitleRenderKind.TextCue
         }
     }
 
@@ -1146,8 +1204,11 @@ class PlumPlayerController(
     }
 
     /**
-     * Drops demuxed text tracks that duplicate a Plum sideload row (same visible label + language),
-     * so direct play does not list "English" twice (container + [MediaItem] subtitle config).
+     * Drops demuxed text tracks that duplicate a Plum sideload row: same visible label + language is not
+     * enough (e.g. English SubRip vs English PGS are different streams). We require the same embedded
+     * [EmbeddedSubtitleJson.streamIndex] when the sideload is `emb:` / `emps:`, and the same render kind
+     * (text/cue vs bitmap) so `emb:` WebVTT does not hide a demuxed PGS row. External `ext:` sideloads
+     * still match on text/cue only (no embedded index).
      */
     private fun shouldDropDemuxedSubtitleDuplicate(
         candidateGi: Int,
@@ -1158,13 +1219,35 @@ class PlumPlayerController(
     ): Boolean {
         if (subtitleSideloadPriority(candidateFmt) > 0) return false
         val candLang = TrackLanguagePreference.normalize(candidateFmt.language)
+        val candCatalog = embeddedCatalogForDemuxedTextFormat(candidateFmt)
+        val candKind = candidateFmt.subtitleRenderKind()
         for ((ogi, oj, ofmt) in textRows) {
             if (ogi == candidateGi && oj == candidateJ) continue
             if (subtitleSideloadPriority(ofmt) == 0) continue
             if (candidateLabel != ofmt.computeSubtitlePickerLabel()) continue
             val oLang = TrackLanguagePreference.normalize(ofmt.language)
             if (candLang.isNotEmpty() && oLang.isNotEmpty() && candLang != oLang) continue
-            return true
+            val oid = ofmt.id?.trim().orEmpty()
+            val oKind = ofmt.subtitleRenderKind()
+            when {
+                oid.startsWith("emb:") -> {
+                    val idx = oid.removePrefix("emb:").toIntOrNull() ?: continue
+                    if (candCatalog?.streamIndex != idx) continue
+                    if (candKind != SubtitleRenderKind.TextCue || oKind != SubtitleRenderKind.TextCue) continue
+                    return true
+                }
+                oid.startsWith("emps:") -> {
+                    val idx = oid.removePrefix("emps:").toIntOrNull() ?: continue
+                    if (candCatalog?.streamIndex != idx) continue
+                    if (candKind != SubtitleRenderKind.Bitmap || oKind != SubtitleRenderKind.Bitmap) continue
+                    return true
+                }
+                oid.startsWith("ext:") -> {
+                    if (candKind != SubtitleRenderKind.TextCue || oKind != SubtitleRenderKind.TextCue) continue
+                    return true
+                }
+                else -> continue
+            }
         }
         return false
     }
@@ -1356,10 +1439,18 @@ class PlumPlayerController(
     }
 
     private fun Format.isCea608ClosedCaptionTrack(): Boolean {
-        val m = sampleMimeType ?: return false
-        return m == MimeTypes.APPLICATION_CEA608 ||
-            m == MimeTypes.APPLICATION_CEA708 ||
-            m == MimeTypes.APPLICATION_MP4CEA608
+        val m = sampleMimeType?.trim()?.lowercase(Locale.US).orEmpty()
+        if (m.isNotEmpty()) {
+            if (m == MimeTypes.APPLICATION_CEA608.lowercase(Locale.US) ||
+                m == MimeTypes.APPLICATION_CEA708.lowercase(Locale.US) ||
+                m == MimeTypes.APPLICATION_MP4CEA608.lowercase(Locale.US)
+            ) {
+                return true
+            }
+            if (m.contains("cea-608") || m.contains("cea608")) return true
+            if (m.contains("cea-708") || m.contains("cea708")) return true
+        }
+        return looksLikeCeaCaptionLabel(label)
     }
 
     private fun isCea608TextTrackSelected(groups: List<Tracks.Group>): Boolean {
@@ -1374,18 +1465,30 @@ class PlumPlayerController(
         return false
     }
 
-    private fun findFirstNonCea608TextTrackIndex(groups: List<Tracks.Group>): Pair<Int, Int>? {
+    /**
+     * Picks the best non–in-band-CEA text track. Plum sideloads ([subtitleSideloadPriority]) must win over
+     * the first demuxed row: Exo often orders in-band CEA before WebVTT; selecting a non-sideload track
+     * leaves cues off the overlay (see [renderersFactory] / Media3 #1606).
+     */
+    private fun findBestNonCea608TextTrackIndex(groups: List<Tracks.Group>): Pair<Int, Int>? {
+        var bestGi = -1
+        var bestJ = -1
+        var bestPri = -1
         for (gi in groups.indices) {
             val g = groups[gi]
             if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
             for (j in 0 until g.length) {
                 val fmt = g.mediaTrackGroup.getFormat(j)
-                if (!fmt.isCea608ClosedCaptionTrack()) {
-                    return gi to j
+                if (fmt.isCea608ClosedCaptionTrack()) continue
+                val p = subtitleSideloadPriority(fmt)
+                if (p > bestPri || (p == bestPri && (bestGi < 0 || gi < bestGi || (gi == bestGi && j < bestJ)))) {
+                    bestPri = p
+                    bestGi = gi
+                    bestJ = j
                 }
             }
         }
-        return null
+        return if (bestGi >= 0 && bestJ >= 0) bestGi to bestJ else null
     }
 
     private fun preferNonCea608TextTrackOnceIfNeeded() {
@@ -1404,7 +1507,7 @@ class PlumPlayerController(
             preferNonCea608TextAfterLoad = false
             return
         }
-        val idx = findFirstNonCea608TextTrackIndex(groups) ?: run {
+        val idx = findBestNonCea608TextTrackIndex(groups) ?: run {
             // CEA-608 is selected but no non-CEA tracks exist yet. In HLS, in-band CEA-608 from
             // the video stream is reported before subtitle renditions (WebVTT). Only give up once
             // the player is fully ready; during buffering keep the flag so we retry on the next
@@ -1416,6 +1519,20 @@ class PlumPlayerController(
         }
         applyTextTrackOverride(idx.first, idx.second)
         preferNonCea608TextAfterLoad = false
+    }
+
+    /**
+     * If Exo still has in-band CEA selected but a Plum sideload (emb/ext/emps) exists, switch to it so
+     * WebVTT/PGS cues reach [androidx.media3.ui.PlayerView]. Runs after stored prefs so nothing reverts to CEA.
+     */
+    private fun preferPlumSideloadOverInBandCea608IfNeeded() {
+        if (player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return
+        val groups = player.currentTracks.groups
+        if (!isCea608TextTrackSelected(groups)) return
+        val idx = findBestNonCea608TextTrackIndex(groups) ?: return
+        val fmt = groups[idx.first].mediaTrackGroup.getFormat(idx.second)
+        if (subtitleSideloadPriority(fmt) <= 0) return
+        applyTextTrackOverride(idx.first, idx.second)
     }
 
     private fun showTrackCompositeKey(): String? {

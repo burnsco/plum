@@ -1807,13 +1807,16 @@ export function PlaybackDock() {
       setActiveAssSource(null);
       return;
     }
+    // When there is no playback track source, `subtitleTrackRequests` is always [] — do not treat a
+    // missing row as a stale selection (avoids racing `ensureSubtitleTrackLoaded` on the way up).
+    if (playbackTrackSource == null) {
+      return;
+    }
     const track = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
-    // If the track is missing (e.g. requests list not ready yet), do not clear — the load effect may
-    // have just set activeAssSource; clearing here would race and wipe ASS every time.
-    if (track != null && !track.assEligible) {
+    if (track == null || !track.assEligible) {
       setActiveAssSource(null);
     }
-  }, [selectedSubtitleKey, subtitleTrackRequests]);
+  }, [playbackTrackSource, selectedSubtitleKey, subtitleTrackRequests]);
 
   const syncBrowserAudioTrackSelection = useCallback(() => {
     const browserAudioTracks = getBrowserAudioTracks(videoRef.current);
