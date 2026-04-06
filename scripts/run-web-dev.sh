@@ -7,6 +7,41 @@ CACHE_DIR="$WEB_DIR/.vite"
 DEPS_DIR="$CACHE_DIR/deps"
 STALE_ROOT="$ROOT_DIR/tmp/dev"
 
+load_env() {
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$ROOT_DIR/.env"
+    set +a
+  fi
+}
+
+# Avoid Vite proxying to :8080 before air/go has finished building and listening
+# (otherwise the dev console fills with ECONNREFUSED on /api/* and /ws).
+wait_for_backend() {
+  if [[ -n "${PLUM_SKIP_BACKEND_WAIT:-}" ]]; then
+    return 0
+  fi
+
+  load_env
+  local base="${BACKEND_INTERNAL_URL:-http://localhost:8080}"
+  base="${base%/}"
+  local attempt=0
+  local max=240
+
+  echo "Waiting for backend at ${base} (set PLUM_SKIP_BACKEND_WAIT=1 to skip)..." >&2
+  while (( attempt < max )); do
+    if curl -sf -o /dev/null --max-time 1 "${base}/health" 2>/dev/null; then
+      echo "Backend ready; starting Vite." >&2
+      return 0
+    fi
+    sleep 0.25
+    ((attempt++)) || true
+  done
+
+  echo "Warning: backend did not respond at ${base}/health within 60s; starting Vite anyway." >&2
+}
+
 prepare_vite_cache() {
   mkdir -p "$STALE_ROOT"
 
@@ -21,6 +56,8 @@ prepare_vite_cache() {
 }
 
 prepare_vite_cache
+
+wait_for_backend
 
 cd "$WEB_DIR"
 
