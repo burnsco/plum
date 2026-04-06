@@ -5,7 +5,6 @@ import { Sidebar } from "./Sidebar";
 
 vi.mock("@/queries", () => ({
   useLibraries: vi.fn(),
-  useUnidentifiedLibrarySummaries: vi.fn(() => ({ data: { libraries: [] } })),
   useRefreshLibraryPlaybackTracks: () => ({
     mutateAsync: vi.fn().mockResolvedValue({ accepted: true, libraryId: 1 }),
     isPending: false,

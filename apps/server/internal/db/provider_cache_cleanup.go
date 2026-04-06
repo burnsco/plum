@@ -23,8 +23,13 @@ func StartMetadataProviderCacheCleanup(ctx context.Context, dbConn *sql.DB, logg
 			logger("cleanup metadata provider cache: %v", err)
 		}
 	}
-	go run()
 	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(1 * time.Minute):
+		}
+		run()
 		ticker := time.NewTicker(metadataProviderCacheCleanupInterval)
 		defer ticker.Stop()
 		for {
@@ -40,7 +45,10 @@ func StartMetadataProviderCacheCleanup(ctx context.Context, dbConn *sql.DB, logg
 
 func cleanupMetadataProviderCache(ctx context.Context, dbConn *sql.DB) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := dbConn.ExecContext(ctx, `DELETE FROM metadata_provider_cache WHERE expires_at < ?`, now); err != nil {
+	if err := RetryOnBusy(ctx, 4, 500*time.Millisecond, func() error {
+		_, err := dbConn.ExecContext(ctx, `DELETE FROM metadata_provider_cache WHERE expires_at < ?`, now)
+		return err
+	}); err != nil {
 		return err
 	}
 	maxRows := metadataProviderCacheMaxRowsFromEnv()
@@ -55,11 +63,13 @@ func cleanupMetadataProviderCache(ctx context.Context, dbConn *sql.DB) error {
 		return nil
 	}
 	toDelete := cnt - maxRows
-	_, err := dbConn.ExecContext(ctx, `
+	return RetryOnBusy(ctx, 4, 500*time.Millisecond, func() error {
+		_, err := dbConn.ExecContext(ctx, `
 DELETE FROM metadata_provider_cache WHERE rowid IN (
   SELECT rowid FROM metadata_provider_cache ORDER BY last_accessed_at ASC LIMIT ?
 )`, toDelete)
-	return err
+		return err
+	})
 }
 
 func metadataProviderCacheMaxRowsFromEnv() int {

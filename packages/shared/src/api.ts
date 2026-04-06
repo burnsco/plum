@@ -28,6 +28,12 @@ import type {
     HardwareEncodeFormat,
     HomeDashboard,
     IdentifyResult,
+    IntroRefreshLibraryStatus,
+    IntroRefreshStatusResponse,
+    IntroScanLibrarySummary,
+    IntroScanShowSummary,
+    IntroScanSummaryResponse,
+    IntroScanShowSummaryResponse,
     IntroSkipMode,
     Library,
     LibraryBrowseItem,
@@ -103,6 +109,9 @@ import {
     RemoveDownloadPayloadSchema,
     HomeDashboardSchema,
     IdentifyResultSchema,
+    IntroRefreshStatusResponseSchema,
+    IntroScanSummaryResponseSchema,
+    IntroScanShowSummaryResponseSchema,
     LibraryMediaPageSchema,
     LibraryPlaybackTracksRefreshResultSchema,
     LibraryScanStatusSchema,
@@ -166,6 +175,12 @@ export type {
     EmbeddedSubtitle, EpisodeMetadataArtworkFetchers, HardwareEncodeFormat,
     HomeDashboard,
     IdentifyResult,
+    IntroRefreshLibraryStatus,
+    IntroRefreshStatusResponse,
+    IntroScanLibrarySummary,
+    IntroScanShowSummary,
+    IntroScanSummaryResponse,
+    IntroScanShowSummaryResponse,
     IntroSkipMode,
     Library,
     LibraryBrowseItem,
@@ -752,6 +767,27 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: UnidentifiedLibrariesResponseSchema,
         errorMessage: ({ status, body }) =>
           `Unidentified summary: ${status}${body ? ` ${body}` : ""}`,
+      }),
+    getIntroScanSummary: () =>
+      jsonRequestEffect({
+        path: "/api/libraries/intro-summary",
+        schema: IntroScanSummaryResponseSchema,
+        errorMessage: ({ status, body }) =>
+          body || `Intro scan summary: ${status}`,
+      }),
+    getIntroScanShowSummary: (libraryId: number) =>
+      jsonRequestEffect({
+        path: `/api/libraries/${libraryId}/intro-summary/shows`,
+        schema: IntroScanShowSummaryResponseSchema,
+        errorMessage: ({ status, body }) =>
+          body || `Intro scan show summary: ${status}`,
+      }),
+    getIntroRefreshStatus: () =>
+      jsonRequestEffect({
+        path: "/api/libraries/intro-summary/refresh-status",
+        schema: IntroRefreshStatusResponseSchema,
+        errorMessage: ({ status, body }) =>
+          body || `Intro refresh status: ${status}`,
       }),
     updateLibraryPlaybackPreferences: (
       id: number,
@@ -1368,6 +1404,9 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     createLibrary: (payload: CreateLibraryPayload) => run(effects.createLibrary(payload)),
     listLibraries: () => run(effects.listLibraries()),
     getUnidentifiedLibrarySummaries: () => run(effects.getUnidentifiedLibrarySummaries()),
+    getIntroScanSummary: () => run(effects.getIntroScanSummary()),
+    getIntroScanShowSummary: (libraryId: number) => run(effects.getIntroScanShowSummary(libraryId)),
+    getIntroRefreshStatus: () => run(effects.getIntroRefreshStatus()),
     updateLibraryPlaybackPreferences: (
       id: number,
       payload: UpdateLibraryPlaybackPreferencesPayload,

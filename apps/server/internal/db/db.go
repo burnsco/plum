@@ -253,13 +253,47 @@ const (
 	LibraryWatcherModePoll = "poll"
 )
 
+// IsSQLiteBusy returns true when the error indicates SQLite could not acquire a lock.
+func IsSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "database is locked") || strings.Contains(text, "sqlite_busy")
+}
+
+// RetryOnBusy retries fn up to maxAttempts when SQLite returns a busy/locked error,
+// using exponential back-off starting at baseDelay.
+func RetryOnBusy(ctx context.Context, maxAttempts int, baseDelay time.Duration, fn func() error) error {
+	var err error
+	for attempt := range maxAttempts {
+		if err = fn(); err == nil || !IsSQLiteBusy(err) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		delay := baseDelay * time.Duration(1<<uint(attempt))
+		if delay > 10*time.Second {
+			delay = 10 * time.Second
+		}
+		slog.Warn("sqlite busy, retrying", "attempt", attempt+1, "delay", delay)
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(delay):
+		}
+	}
+	return err
+}
+
 // sqlitePragmas are applied to every new connection via the DSN so pool connections
 // all have foreign_keys and busy_timeout set (connection-specific in SQLite).
 //
 // cache_size: negative value is a limit in KiB (here ~64 MiB page cache).
 // mmap_size: bytes of DB file mapped read-only; improves cold reads on local disks (avoid huge values on network FS).
 // After very large imports, running ANALYZE once can help the planner; Plum does not run it automatically.
-const sqlitePragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)" +
+const sqlitePragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)" +
 	"&_pragma=cache_size(-65536)&_pragma=mmap_size(67108864)"
 
 func InitDB(conn string) (*sql.DB, error) {

@@ -25,6 +25,9 @@ import {
   getShowEpisodes,
   getShowPosterCandidates,
   getUnidentifiedLibrarySummaries,
+  getIntroScanSummary,
+  getIntroScanShowSummary,
+  getIntroRefreshStatus,
   fetchLibraryMedia,
   fetchSeriesByTmdbId,
   getHomeDashboard,
@@ -50,6 +53,9 @@ import {
   type DiscoverTitleDetails,
   type DownloadsResponse,
   type IdentifyResult,
+  type IntroRefreshStatusResponse,
+  type IntroScanSummaryResponse,
+  type IntroScanShowSummaryResponse,
   type Library,
   type MetadataArtworkSettings,
   type MetadataArtworkSettingsResponse,
@@ -247,6 +253,9 @@ export const queryKeys = {
   home: ["home"] as const,
   libraries: ["libraries"] as const,
   unidentifiedSummary: ["libraries", "unidentified-summary"] as const,
+  introScanSummary: ["intro-scan-summary"] as const,
+  introScanShows: (libraryId: number) => ["intro-scan-shows", libraryId] as const,
+  introRefreshStatus: ["intro-refresh-status"] as const,
   library: (id: number, pageSize?: number) =>
     pageSize == null ? (["library", id] as const) : (["library", id, pageSize] as const),
   movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
@@ -949,6 +958,61 @@ export function useResetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
+    },
+  });
+}
+
+export function useIntroScanSummary(): UseQueryResult<IntroScanSummaryResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.introScanSummary,
+    queryFn: async () =>
+      contractsView<IntroScanSummaryResponse>(await getIntroScanSummary()),
+    staleTime: SCAN_SENSITIVE_STALE_MS,
+  });
+}
+
+export function useIntroScanShowSummary(
+  libraryId: number | null,
+): UseQueryResult<IntroScanShowSummaryResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.introScanShows(libraryId ?? 0),
+    queryFn: async () =>
+      contractsView<IntroScanShowSummaryResponse>(
+        await getIntroScanShowSummary(libraryId!),
+      ),
+    enabled: libraryId != null,
+    staleTime: SCAN_SENSITIVE_STALE_MS,
+  });
+}
+
+export function useIntroRefreshStatus(
+  enabled: boolean,
+): UseQueryResult<IntroRefreshStatusResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.introRefreshStatus,
+    queryFn: async () =>
+      contractsView<IntroRefreshStatusResponse>(
+        await getIntroRefreshStatus(),
+      ),
+    enabled,
+    refetchInterval: 1000,
+    staleTime: 0,
+  });
+}
+
+export function useRefreshLibraryIntros(): UseMutationResult<
+  LibraryPlaybackTracksRefreshResult,
+  Error,
+  { libraryId: number }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId }) =>
+      contractsView<LibraryPlaybackTracksRefreshResult>(
+        await refreshLibraryPlaybackTracks(libraryId),
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.introScanSummary });
     },
   });
 }

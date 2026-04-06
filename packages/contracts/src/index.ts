@@ -1509,6 +1509,76 @@ export const LibraryPlaybackTracksRefreshResultSchema = Schema.Struct({
   libraryId: Schema.Number,
 });
 
+export interface IntroScanLibrarySummary {
+  library_id: number;
+  name: string;
+  type: MediaType;
+  intro_skip_mode: string;
+  total_episodes: number;
+  with_intro: number;
+}
+
+export const IntroScanLibrarySummarySchema = Schema.Struct({
+  library_id: Schema.Number,
+  name: Schema.String,
+  type: MediaTypeSchema,
+  intro_skip_mode: Schema.String,
+  total_episodes: Schema.Number,
+  with_intro: Schema.Number,
+});
+
+export interface IntroScanSummaryResponse {
+  libraries: IntroScanLibrarySummary[];
+}
+
+export const IntroScanSummaryResponseSchema = Schema.Struct({
+  libraries: Schema.Array(IntroScanLibrarySummarySchema),
+});
+
+export interface IntroScanShowSummary {
+  show_key: string;
+  show_title: string;
+  total_episodes: number;
+  with_intro: number;
+}
+
+export const IntroScanShowSummarySchema = Schema.Struct({
+  show_key: Schema.String,
+  show_title: Schema.String,
+  total_episodes: Schema.Number,
+  with_intro: Schema.Number,
+});
+
+export interface IntroScanShowSummaryResponse {
+  shows: IntroScanShowSummary[];
+}
+
+export const IntroScanShowSummaryResponseSchema = Schema.Struct({
+  shows: Schema.Array(IntroScanShowSummarySchema),
+});
+
+export interface IntroRefreshLibraryStatus {
+  library_id: number;
+  total: number;
+  processed: number;
+  current_path: string;
+}
+
+export const IntroRefreshLibraryStatusSchema = Schema.Struct({
+  library_id: Schema.Number,
+  total: Schema.Number,
+  processed: Schema.Number,
+  current_path: Schema.String,
+});
+
+export interface IntroRefreshStatusResponse {
+  libraries: IntroRefreshLibraryStatus[];
+}
+
+export const IntroRefreshStatusResponseSchema = Schema.Struct({
+  libraries: Schema.Array(IntroRefreshLibraryStatusSchema),
+});
+
 export interface ShowRefreshPayload {
   showKey: string;
 }

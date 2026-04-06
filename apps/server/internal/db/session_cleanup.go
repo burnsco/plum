@@ -19,8 +19,13 @@ func StartSessionCleanup(ctx context.Context, dbConn *sql.DB, logger func(string
 		}
 	}
 
-	go run()
 	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+		run()
 		ticker := time.NewTicker(expiredSessionCleanupInterval)
 		defer ticker.Stop()
 		for {
@@ -35,10 +40,12 @@ func StartSessionCleanup(ctx context.Context, dbConn *sql.DB, logger func(string
 }
 
 func deleteExpiredSessions(ctx context.Context, dbConn *sql.DB) error {
-	_, err := dbConn.ExecContext(
-		ctx,
-		`DELETE FROM sessions WHERE expires_at < ?`,
-		time.Now().UTC(),
-	)
-	return err
+	return RetryOnBusy(ctx, 4, 500*time.Millisecond, func() error {
+		_, err := dbConn.ExecContext(
+			ctx,
+			`DELETE FROM sessions WHERE expires_at < ?`,
+			time.Now().UTC(),
+		)
+		return err
+	})
 }

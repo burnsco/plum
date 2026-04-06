@@ -53,4 +53,13 @@ func TestIntroChapterRangeFromProbes(t *testing.T) {
 	if ok6 {
 		t.Fatal("expected merged range exceeding max duration to be rejected")
 	}
+
+	// Oversized intro chapter should be skipped; a valid one after it should be found.
+	start7, end7, ok7 := IntroChapterRangeFromProbes([]chapterProbe{
+		{startSec: 0, endSec: 700, title: "Intro"},
+		{startSec: 700, endSec: 790, title: "Opening"},
+	})
+	if !ok7 || start7 != 700 || end7 != 790 {
+		t.Fatalf("oversized skip: got ok=%v start=%v end=%v", ok7, start7, end7)
+	}
 }
