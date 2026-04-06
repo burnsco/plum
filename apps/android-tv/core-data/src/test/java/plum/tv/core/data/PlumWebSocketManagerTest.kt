@@ -6,10 +6,6 @@ import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -51,14 +47,11 @@ class PlumWebSocketManagerTest {
                         moshi,
                         catalog,
                     )
-                val job = SupervisorJob()
-                val scope = CoroutineScope(job + Dispatchers.IO)
                 try {
-                    mgr.start(scope)
+                    mgr.start()
                     assertTrue(server.opened.await(20, TimeUnit.SECONDS))
                 } finally {
                     mgr.stop()
-                    scope.cancel()
                 }
             } finally {
                 server.mock.shutdown()
@@ -85,17 +78,14 @@ class PlumWebSocketManagerTest {
                         moshi,
                         catalog,
                     )
-                val job = SupervisorJob()
-                val scope = CoroutineScope(job + Dispatchers.IO)
                 try {
-                    mgr.start(scope)
+                    mgr.start()
                     delay(300)
                     urlState.value = baseUrl
                     tokenBridge.setToken("late-token")
                     assertTrue(server.opened.await(25, TimeUnit.SECONDS))
                 } finally {
                     mgr.stop()
-                    scope.cancel()
                 }
             } finally {
                 server.mock.shutdown()

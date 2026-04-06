@@ -363,7 +363,7 @@ WHERE pp.user_id = ? AND COALESCE(m.missing_since, '') = ''`
 		return nil, err
 	}
 
-	attachedByKey := bucketAttachedEpisodesByDashboardShowKey(flat, keySet)
+	attachedByKey := bucketAttachedEpisodesByDashboardShowKey(flat, keySet, showIDByKey)
 	entries := make([]ContinueWatchingEntry, 0, len(keys))
 	for _, sk := range keys {
 		entry, ok := continueWatchingEntryForShow(sk.showKey, attachedByKey[sk])
@@ -522,9 +522,27 @@ WHERE m.library_id = ?`
 	return out, nil
 }
 
-func bucketAttachedEpisodesByDashboardShowKey(items []MediaItem, keySet map[dashboardShowKey]struct{}) map[dashboardShowKey][]MediaItem {
+func bucketAttachedEpisodesByDashboardShowKey(items []MediaItem, keySet map[dashboardShowKey]struct{}, showIDByKey map[dashboardShowKey]int) map[dashboardShowKey][]MediaItem {
+	showIDToKeys := make(map[int][]dashboardShowKey)
+	for dk, sid := range showIDByKey {
+		if sid <= 0 {
+			continue
+		}
+		showIDToKeys[sid] = append(showIDToKeys[sid], dk)
+	}
 	out := make(map[dashboardShowKey][]MediaItem)
 	for _, it := range items {
+		if it.ShowID > 0 {
+			if dks := showIDToKeys[it.ShowID]; len(dks) > 0 {
+				for _, dk := range dks {
+					if _, ok := keySet[dk]; !ok {
+						continue
+					}
+					out[dk] = append(out[dk], it)
+				}
+				continue
+			}
+		}
 		dk := dashboardShowKey{libraryID: it.LibraryID, kind: it.Type, showKey: showKeyFromItem(it.TMDBID, it.Title)}
 		if _, ok := keySet[dk]; !ok {
 			continue
@@ -597,7 +615,7 @@ func batchLoadEpisodeMediaItems(db *sql.DB, libraryID int, kind string, globalID
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(m.show_id, 0), COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
@@ -630,7 +648,7 @@ func scanEpisodeMediaItems(rows *sql.Rows, kind string) ([]MediaItem, error) {
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
 		var metadataConfirmed sql.NullBool
-		err := rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg, &showImdbAvg)
+		err := rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &m.ShowID, &showPosterPath, &showVoteAvg, &showImdbAvg)
 		if err != nil {
 			return nil, err
 		}

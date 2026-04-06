@@ -1,24 +1,29 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Captions, ExternalLink, Image, RefreshCw, ScanSearch } from "lucide-react";
 import { toast } from "sonner";
 import type { Library, MediaItem } from "../api";
 import { IdentifyMovieDialog } from "../components/IdentifyMovieDialog";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
-import type { PosterGridItem } from "../components/types";
+import { MovieLibraryCardContextMenu } from "../components/home/MovieLibraryCardContextMenu";
+import { ShowLibraryCardContextMenu } from "../components/home/ShowLibraryCardContextMenu";
 import { LibraryPosterGrid } from "../components/LibraryPosterGrid";
 import { LibraryViewControls } from "../components/LibraryViewControls";
 import { MediaDetailView, MediaTableView } from "../components/MediaListView";
 import { MusicLibraryView } from "../components/MusicLibraryView";
 import { MusicNowPlayingBar } from "../components/MusicNowPlayingBar";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
+import type { PosterGridItem } from "../components/types";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
-import { usePlayer } from "../contexts/PlayerContext";
+import { usePlayerQueue } from "../contexts/PlayerContext";
 import { useScanQueue } from "../contexts/ScanQueueContext";
+import { useHomeLibraryDialogs } from "../hooks/useHomeLibraryDialogs";
+import {
+  buildMovieCardModels,
+  buildShowGroupCardModels,
+  hasProviderMatch,
+  isActiveIdentifyState,
+} from "../lib/homeLibraryCardModels";
 import { getEnrichmentPhase, getLibraryActivity } from "../lib/libraryActivity";
-import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
-import { getPreferredMovieRating } from "../lib/ratings";
-import type { ShowGroup } from "../lib/showGrouping";
 import { groupMediaByShow } from "../lib/showGrouping";
 import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
 import { mediaItemNeedsIdentificationAttention } from "@/lib/unidentifiedMedia";
@@ -29,27 +34,10 @@ import {
   useRefreshPlaybackTrackMetadata,
   useRefreshShow,
 } from "../queries";
-import {
-  ContextMenuItem,
-  ContextMenuSeparator,
-} from "@/components/ui/context-menu";
 
 const isTVOrAnime = (lib: Library) => lib.type === "tv" || lib.type === "anime";
 const IDENTIFY_POLL_INTERVAL_MS = 5_000;
 const SCAN_POLL_INTERVAL_MS = 2_000;
-type ItemIdentifyState = "queued" | "identifying" | "failed" | undefined;
-
-const hasProviderMatch = (tmdbId?: number, tvdbId?: string) =>
-  Boolean(tmdbId && tmdbId > 0) || Boolean(tvdbId);
-const isExplicitlyUnmatched = (matchStatus?: string) =>
-  matchStatus === "local" || matchStatus === "unmatched";
-const isActiveIdentifyState = (identifyState?: ItemIdentifyState) =>
-  identifyState === "queued" || identifyState === "identifying";
-
-/** Once provider poster art is present, drop the "Searching…" pill — it lags behind the visible poster for partial matches. */
-function hasMetadataPoster(posterPath?: string, posterUrl?: string) {
-  return Boolean(posterPath?.trim() || posterUrl?.trim());
-}
 
 function canShowFailureState(
   identifyPhase: IdentifyLibraryPhase | undefined,
@@ -94,58 +82,12 @@ function resolveLibraryIdentifyPhase(
   return localPhase ?? backendPhase;
 }
 
-function isMovieIncomplete(item: {
-  match_status?: string;
-  poster_path?: string;
-  tmdb_id?: number;
-  tvdb_id?: string;
-}) {
-  const hasIdentity = Boolean(item.tmdb_id && item.tmdb_id > 0) || Boolean(item.tvdb_id);
-  const isIdentified = item.match_status === "identified" || hasIdentity;
-  return !isIdentified && isExplicitlyUnmatched(item.match_status);
-}
-
-function isMovieTerminalFailure(
-  item: {
-    identify_state?: ItemIdentifyState;
-    match_status?: string;
-    poster_path?: string;
-    tmdb_id?: number;
-    tvdb_id?: string;
-  },
-  libraryCanShowFailure: boolean,
-) {
-  return (
-    isMovieIncomplete(item) &&
-    !isActiveIdentifyState(item.identify_state) &&
-    (item.identify_state === "failed" || libraryCanShowFailure)
-  );
-}
-
-function getGroupIdentifyState(group: ShowGroup): ItemIdentifyState {
-  if (group.episodes.some((episode) => episode.identify_state === "identifying"))
-    return "identifying";
-  if (group.episodes.some((episode) => episode.identify_state === "queued")) return "queued";
-  if (group.episodes.some((episode) => episode.identify_state === "failed")) return "failed";
-  return undefined;
-}
-
-function getShowGroupRating(group: ShowGroup) {
-  if ((group.showImdbRating ?? 0) > 0) {
-    return { label: "IMDb", value: group.showImdbRating };
-  }
-  if ((group.showVoteAverage ?? 0) > 0) {
-    return { label: "TMDb", value: group.showVoteAverage };
-  }
-  return { label: undefined, value: undefined };
-}
-
 export function Home() {
   const { libraryId: libraryIdParam } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const unidentifiedOnly = searchParams.get("unidentified") === "1";
   const navigate = useNavigate();
-  const { playMovie, playMusicCollection, playShowGroup } = usePlayer();
+  const { playMovie, playMusicCollection, playShowGroup } = usePlayerQueue();
   const { getLibraryPhase } = useIdentifyQueue();
   const { getLibraryScanStatus } = useScanQueue();
   const { cardWidth, setCardWidth, layoutMode, setLayoutMode } = useLibraryViewPrefs();
@@ -225,14 +167,14 @@ export function Home() {
   const refreshShowMutation = useRefreshShow();
   const refreshPlaybackTrackMetadataMutation = useRefreshPlaybackTrackMetadata();
   const confirmShowMutation = useConfirmShow();
-
-  const [identifyGroup, setIdentifyGroup] = useState<ShowGroup | null>(null);
-  const [identifyMovieItem, setIdentifyMovieItem] = useState<{ id: number; title: string } | null>(null);
-  const [posterPicker, setPosterPicker] = useState<
-    | { kind: "movie"; libraryId: number; mediaId: number; title: string }
-    | { kind: "show"; libraryId: number; showKey: string; title: string }
-    | null
-  >(null);
+  const {
+    identifyGroup,
+    setIdentifyGroup,
+    identifyMovieItem,
+    setIdentifyMovieItem,
+    posterPicker,
+    setPosterPicker,
+  } = useHomeLibraryDialogs();
 
   useEffect(() => {
     if (libraryIdParam != null || libraries.length === 0) return;
@@ -268,288 +210,149 @@ export function Home() {
     [selectedItems, selectedLib],
   );
 
-  const showCardState = useMemo(() => {
-    const visibleCards = showGroups.flatMap((group) => {
-      const progressEpisode = [...group.episodes]
-        .filter((episode) => shouldShowProgress(episode))
-        .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
-      const needsMetadataReview = group.episodes.some(
-        (episode) => episode.metadata_review_needed === true,
-      );
-      const isConfirmingReview =
-        confirmShowMutation.isPending &&
-        confirmShowMutation.variables?.libraryId === selectedLibraryId &&
-        confirmShowMutation.variables?.showKey === group.showKey;
-      const identifyState = getGroupIdentifyState(group);
-      const isIncomplete = group.unmatchedCount > 0 || group.localCount > 0;
-      const groupHasPoster = hasMetadataPoster(group.posterPath, group.posterUrl);
-      const showSearching =
-        isIncomplete &&
-        !groupHasPoster &&
-        (isActiveIdentifyState(identifyState) ||
-          (identifyState == null && shouldRevealSearchingCards && !selectedLibraryCanShowFailure));
-      const showFailure =
-        isIncomplete &&
-        !showSearching &&
-        !needsMetadataReview &&
-        !isActiveIdentifyState(identifyState) &&
-        (identifyState === "failed" || selectedLibraryCanShowFailure);
-      const rating = getShowGroupRating(group);
+  const showCardModels = useMemo(
+    () =>
+      buildShowGroupCardModels({
+        showGroups,
+        selectedLibraryId,
+        shouldRevealSearchingCards,
+        selectedLibraryCanShowFailure,
+        confirmShowPending: confirmShowMutation.isPending,
+        confirmLibraryId: confirmShowMutation.variables?.libraryId,
+        confirmShowKey: confirmShowMutation.variables?.showKey,
+      }),
+    [
+      showGroups,
+      selectedLibraryId,
+      shouldRevealSearchingCards,
+      selectedLibraryCanShowFailure,
+      confirmShowMutation.isPending,
+      confirmShowMutation.variables?.libraryId,
+      confirmShowMutation.variables?.showKey,
+    ],
+  );
 
-      return [
-        {
-          key: group.showKey,
-          title: group.showTitle,
-          subtitle: `${group.episodes.length} episode${group.episodes.length === 1 ? "" : "s"}${group.unmatchedCount > 0 ? ` • ${group.unmatchedCount} unmatched` : group.localCount > 0 ? ` • ${group.localCount} local` : ""}`,
-          metaLine: progressEpisode
-            ? [
-                formatEpisodeLabel(progressEpisode),
-                formatRemainingTime(progressEpisode.remaining_seconds),
-              ]
-                .filter(Boolean)
-                .join(" • ")
+  const showCardState = useMemo((): PosterGridItem[] => {
+    const lid = selectedLibraryId;
+    return showCardModels.map(({ base, group, progressEpisode, statusAction }) => ({
+      ...base,
+      onPlay: () => playShowGroup(group.episodes, progressEpisode),
+      onStatusAction:
+        statusAction === "confirm-show" && lid != null
+          ? () => confirmShowMutation.mutate({ libraryId: lid, showKey: group.showKey })
+          : statusAction === "identify-show"
+            ? () => setIdentifyGroup(group)
             : undefined,
-          posterPath: group.posterPath,
-          posterUrl: group.posterUrl,
-          ratingLabel: rating.label,
-          ratingValue: rating.value,
-          progressPercent: progressEpisode?.progress_percent,
-          cardState: needsMetadataReview
-            ? "review-needed"
-            : showSearching
-              ? "identifying"
-              : showFailure
-                ? "identify-failed"
-                : "default",
-          statusLabel: needsMetadataReview
-            ? "Is this correct?"
-            : showSearching
-              ? "Searching…"
-              : showFailure
-                ? "Couldn't match automatically"
-                : undefined,
-          statusActionLabel:
-            needsMetadataReview && selectedLibraryId != null
-              ? "Confirm"
-              : showFailure && selectedLibraryId != null
-                ? "Identify manually"
-                : undefined,
-          statusActionDisabled: isConfirmingReview,
-          onStatusAction:
-            needsMetadataReview && selectedLibraryId != null
-              ? () =>
-                  confirmShowMutation.mutate({
-                    libraryId: selectedLibraryId,
-                    showKey: group.showKey,
-                  })
-              : showFailure && selectedLibraryId != null
-                ? () => setIdentifyGroup(group)
-                : undefined,
-          href: `/library/${selectedLibraryId}/show/${encodeURIComponent(group.showKey)}`,
-          onPlay: () => playShowGroup(group.episodes, progressEpisode),
-          contextMenuContent:
-            selectedLibraryId == null ? undefined : (
-              <>
-                <ContextMenuItem
-                  onSelect={() => {
-                    setPosterPicker({
-                      kind: "show",
-                      libraryId: selectedLibraryId,
-                      showKey: group.showKey,
-                      title: group.showTitle,
-                    });
-                  }}
-                >
-                  <Image className="size-4 text-(--plum-muted)" />
-                  Change poster…
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  disabled={refreshShowMutation.isPending}
-                  onSelect={() => {
-                    refreshShowMutation.mutate({
-                      libraryId: selectedLibraryId,
-                      showKey: group.showKey,
-                    });
-                  }}
-                >
-                  <RefreshCw className="size-4 text-(--plum-muted)" />
-                  Refresh metadata
-                </ContextMenuItem>
-                <ContextMenuItem
-                  disabled={refreshPlaybackTrackMetadataMutation.isPending}
-                  onSelect={() => {
-                    const mediaIds = group.episodes.map((ep) => ep.id);
-                    void refreshPlaybackTrackMetadataMutation
-                      .mutateAsync({
-                        libraryId: selectedLibraryId,
-                        mediaIds,
-                      })
-                      .then(() => {
-                        const n = mediaIds.length;
-                        toast.success(
-                          n === 1
-                            ? `Tracks and subtitles rescanned for one episode of “${group.showTitle}”.`
-                            : `Tracks and subtitles rescanned for ${n} episodes of “${group.showTitle}”.`,
-                        );
-                      })
-                      .catch((err: unknown) => {
-                        toast.error(
-                          err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
-                        );
-                      });
-                  }}
-                >
-                  <Captions className="size-4 text-(--plum-muted)" />
-                  Rescan tracks & subtitles (all episodes)
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => setIdentifyGroup(group)}>
-                  <ScanSearch className="size-4 text-(--plum-muted)" />
-                  Identify…
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  onSelect={() => {
-                    navigate(
-                      `/library/${selectedLibraryId}/show/${encodeURIComponent(group.showKey)}`,
-                    );
-                  }}
-                >
-                  <ExternalLink className="size-4 text-(--plum-muted)" />
-                  Open details
-                </ContextMenuItem>
-              </>
-            ),
-        },
-      ] satisfies PosterGridItem[];
-    });
-    return visibleCards;
+      contextMenuContent:
+        lid == null ? undefined : (
+          <ShowLibraryCardContextMenu
+            refreshShowDisabled={refreshShowMutation.isPending}
+            refreshTracksDisabled={refreshPlaybackTrackMetadataMutation.isPending}
+            onChangePoster={() =>
+              setPosterPicker({
+                kind: "show",
+                libraryId: lid,
+                showKey: group.showKey,
+                title: group.showTitle,
+              })
+            }
+            onRefreshShow={() =>
+              refreshShowMutation.mutate({ libraryId: lid, showKey: group.showKey })
+            }
+            onRescanTracks={() => {
+              const mediaIds = group.episodes.map((ep) => ep.id);
+              void refreshPlaybackTrackMetadataMutation
+                .mutateAsync({ libraryId: lid, mediaIds })
+                .then(() => {
+                  const n = mediaIds.length;
+                  toast.success(
+                    n === 1
+                      ? `Tracks and subtitles rescanned for one episode of “${group.showTitle}”.`
+                      : `Tracks and subtitles rescanned for ${n} episodes of “${group.showTitle}”.`,
+                  );
+                })
+                .catch((err: unknown) => {
+                  toast.error(
+                    err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
+                  );
+                });
+            }}
+            onIdentify={() => setIdentifyGroup(group)}
+            onOpenDetails={() =>
+              navigate(`/library/${lid}/show/${encodeURIComponent(group.showKey)}`)
+            }
+          />
+        ),
+    }));
   }, [
-    confirmShowMutation,
-    navigate,
-    playShowGroup,
-    refreshPlaybackTrackMetadataMutation,
-    refreshShowMutation,
-    shouldRevealSearchingCards,
-    selectedLibraryCanShowFailure,
+    showCardModels,
     selectedLibraryId,
-    showGroups,
+    playShowGroup,
+    confirmShowMutation,
+    setIdentifyGroup,
+    refreshShowMutation,
+    refreshPlaybackTrackMetadataMutation,
+    navigate,
+    setPosterPicker,
   ]);
 
-  const movieCardState = useMemo(() => {
-    const visibleCards = selectedItems.flatMap((item) => {
-      const year =
-        item.release_date?.split("-")[0] || item.title.match(/\((\d{4})\)$/)?.[1] || "Unknown year";
-      const rating = getPreferredMovieRating(item);
-      const status =
-        item.match_status &&
-        item.match_status !== "identified" &&
-        !(item.match_status === "local" && hasProviderMatch(item.tmdb_id, item.tvdb_id))
-          ? ` • ${item.match_status}`
-          : "";
-      const isIncomplete = isMovieIncomplete(item);
-      const movieHasPoster = hasMetadataPoster(item.poster_path, item.poster_url);
-      const showSearching =
-        isIncomplete &&
-        !movieHasPoster &&
-        (isActiveIdentifyState(item.identify_state) ||
-          (item.identify_state == null &&
-            shouldRevealSearchingCards &&
-            !selectedLibraryCanShowFailure));
-      const showFailure = isMovieTerminalFailure(item, selectedLibraryCanShowFailure);
+  const movieCardModels = useMemo(
+    () =>
+      buildMovieCardModels({
+        items: selectedItems,
+        selectedLibraryId,
+        shouldRevealSearchingCards,
+        selectedLibraryCanShowFailure,
+      }),
+    [selectedItems, selectedLibraryId, shouldRevealSearchingCards, selectedLibraryCanShowFailure],
+  );
 
-      return [
-        {
-          key: String(item.id),
-          title: item.title,
-          subtitle: `${year}${status}`,
-          metaLine: formatRemainingTime(item.remaining_seconds),
-          posterPath: item.poster_path,
-          posterUrl: item.poster_url,
-          ratingLabel: rating.label,
-          ratingValue: rating.value,
-          progressPercent: shouldShowProgress(item) ? item.progress_percent : undefined,
-          cardState: showSearching ? "identifying" : showFailure ? "identify-failed" : "default",
-          statusLabel: showSearching
-            ? "Searching…"
-            : showFailure
-              ? "Couldn't match automatically"
-              : undefined,
-          statusActionLabel:
-            showFailure && selectedLibraryId != null ? "Identify manually" : undefined,
-          onStatusAction:
-            showFailure && selectedLibraryId != null
-              ? () => setIdentifyMovieItem({ id: item.id, title: item.title })
-              : undefined,
-          href: selectedLibraryId != null ? `/library/${selectedLibraryId}/movie/${item.id}` : undefined,
-          onPlay: () => playMovie(item),
-          contextMenuContent:
-            selectedLibraryId == null ? undefined : (
-              <>
-                <ContextMenuItem
-                  onSelect={() => {
-                    setPosterPicker({
-                      kind: "movie",
-                      libraryId: selectedLibraryId,
-                      mediaId: item.id,
-                      title: item.title,
-                    });
-                  }}
-                >
-                  <Image className="size-4 text-(--plum-muted)" />
-                  Change poster…
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  disabled={refreshPlaybackTrackMetadataMutation.isPending}
-                  onSelect={() => {
-                    void refreshPlaybackTrackMetadataMutation
-                      .mutateAsync({
-                        libraryId: selectedLibraryId,
-                        mediaIds: [item.id],
-                      })
-                      .then(() => {
-                        toast.success(`Tracks and subtitles rescanned for “${item.title}”.`);
-                      })
-                      .catch((err: unknown) => {
-                        toast.error(
-                          err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
-                        );
-                      });
-                  }}
-                >
-                  <Captions className="size-4 text-(--plum-muted)" />
-                  Rescan tracks & subtitles
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem onSelect={() => setIdentifyMovieItem({ id: item.id, title: item.title })}>
-                  <ScanSearch className="size-4 text-(--plum-muted)" />
-                  Identify…
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  onSelect={() => {
-                    navigate(`/library/${selectedLibraryId}/movie/${item.id}`);
-                  }}
-                >
-                  <ExternalLink className="size-4 text-(--plum-muted)" />
-                  Open details
-                </ContextMenuItem>
-              </>
-            ),
-        },
-      ] satisfies PosterGridItem[];
-    });
-
-    return visibleCards;
+  const movieCardState = useMemo((): PosterGridItem[] => {
+    const lid = selectedLibraryId;
+    return movieCardModels.map(({ base, item, statusAction }) => ({
+      ...base,
+      onPlay: () => playMovie(item),
+      onStatusAction:
+        statusAction === "identify-movie"
+          ? () => setIdentifyMovieItem({ id: item.id, title: item.title })
+          : undefined,
+      contextMenuContent:
+        lid == null ? undefined : (
+          <MovieLibraryCardContextMenu
+            refreshTracksDisabled={refreshPlaybackTrackMetadataMutation.isPending}
+            onChangePoster={() =>
+              setPosterPicker({
+                kind: "movie",
+                libraryId: lid,
+                mediaId: item.id,
+                title: item.title,
+              })
+            }
+            onRescanTracks={() => {
+              void refreshPlaybackTrackMetadataMutation
+                .mutateAsync({ libraryId: lid, mediaIds: [item.id] })
+                .then(() => {
+                  toast.success(`Tracks and subtitles rescanned for “${item.title}”.`);
+                })
+                .catch((err: unknown) => {
+                  toast.error(
+                    err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
+                  );
+                });
+            }}
+            onIdentify={() => setIdentifyMovieItem({ id: item.id, title: item.title })}
+            onOpenDetails={() => navigate(`/library/${lid}/movie/${item.id}`)}
+          />
+        ),
+    }));
   }, [
-    navigate,
+    movieCardModels,
+    selectedLibraryId,
     playMovie,
     refreshPlaybackTrackMetadataMutation,
-    selectedItems,
-    shouldRevealSearchingCards,
-    selectedLibraryCanShowFailure,
-    selectedLibraryId,
+    navigate,
+    setPosterPicker,
+    setIdentifyMovieItem,
   ]);
 
   const selectedLibraryCards = useMemo(() => {

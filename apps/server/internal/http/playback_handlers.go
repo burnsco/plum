@@ -17,6 +17,13 @@ import (
 	"plum/internal/transcoder"
 )
 
+// Limits concurrent embedded-subtitle cache warm jobs (each may spawn ffmpeg). Per-media coalescing
+// in db.WarmEmbeddedSubtitleCachesForMedia avoids duplicate work for one title; this bounds total
+// parallelism across many sessions (e.g. scan-then-play bursts).
+var embeddedSubtitleWarmSem = make(chan struct{}, 6)
+
+const embeddedSubtitleWarmTimeout = 5 * time.Minute
+
 type PlaybackHandler struct {
 	DB       *sql.DB
 	Sessions *transcoder.PlaybackSessionManager
@@ -136,8 +143,10 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 
 	mid := media.ID
 	go func() {
-		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), embeddedSubtitleWarmTimeout)
 		defer cancel()
+		embeddedSubtitleWarmSem <- struct{}{}
+		defer func() { <-embeddedSubtitleWarmSem }()
 		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
 	}()
 
@@ -160,8 +169,10 @@ func (h *PlaybackHandler) WarmEmbeddedSubtitleCaches(w http.ResponseWriter, r *h
 	}
 	mid := media.ID
 	go func() {
-		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(h.Sessions.ShutdownContext(), embeddedSubtitleWarmTimeout)
 		defer cancel()
+		embeddedSubtitleWarmSem <- struct{}{}
+		defer func() { <-embeddedSubtitleWarmSem }()
 		db.WarmEmbeddedSubtitleCachesForMedia(ctx, h.DB, mid)
 	}()
 	w.WriteHeader(http.StatusAccepted)
@@ -485,16 +496,18 @@ func parsePathInt(w http.ResponseWriter, raw string, message string) (int, bool)
 func writePlaybackError(w http.ResponseWriter, err error) {
 	var burnErr transcoder.BurnSubtitleError
 	if errors.As(err, &burnErr) {
-		http.Error(w, burnErr.Error(), http.StatusBadRequest)
+		httputil.WritePlumJSONError(w, http.StatusBadRequest, "invalid_burn_subtitle", burnErr.Error())
 		return
 	}
-	status := http.StatusInternalServerError
 	if errors.Is(err, db.ErrNotFound) {
-		status = http.StatusNotFound
+		httputil.WritePlumJSONError(w, http.StatusNotFound, "not_found", err.Error())
+		return
 	}
 	var statusErr *db.StatusError
 	if errors.As(err, &statusErr) {
-		status = statusErr.Status
+		code := httputil.PlumErrorCodeFromHTTPStatus(statusErr.Status)
+		httputil.WritePlumJSONError(w, statusErr.Status, code, statusErr.Message)
+		return
 	}
-	http.Error(w, err.Error(), status)
+	httputil.WritePlumJSONError(w, http.StatusInternalServerError, "internal_error", err.Error())
 }

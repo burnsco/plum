@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -143,6 +144,8 @@ data class UpNextOverlayState(
 
 private const val RESTART_PREVIOUS_THRESHOLD_MS = 10_000L
 private const val UPNEXT_COUNTDOWN_SECONDS = 10
+
+/** Must match `PLAYBACK_PROGRESS_HEARTBEAT_MS` in `@plum/contracts` and the web `PlaybackDock` interval. */
 private const val PROGRESS_HEARTBEAT_MS = 10_000L
 private const val PROGRESS_DUPLICATE_WINDOW_MS = 3_000L
 private const val INTRO_SKIP_LEADING_SLACK_SEC = 0.35
@@ -185,42 +188,6 @@ private sealed class SubtitlePickerTrackId {
     }
 }
 
-/** Mirrors server `EmbeddedSubtitleCodecLikelyBitmap` when JSON omits `vttEligible`. */
-private fun String.isBitmapEmbeddedSubtitleCodec(): Boolean =
-    when (this) {
-        "hdmv_pgs_subtitle",
-        "pgssub",
-        "pgs",
-        "dvd_subtitle",
-        "dvdsub",
-        "dvb_subtitle",
-        "xsub",
-        "dvb_teletext",
-        -> true
-        else -> false
-    }
-
-private fun EmbeddedSubtitleJson.effectiveVttEligible(): Boolean {
-    vttEligible?.let {
-        return it
-    }
-    val c = codec?.trim()?.lowercase(Locale.US).orEmpty()
-    return if (c.isEmpty()) {
-        true
-    } else {
-        !c.isBitmapEmbeddedSubtitleCodec()
-    }
-}
-
-/** True PGS only; excludes DVD/DVB bitmap subs handled differently from binary PGS sideloading. */
-private fun EmbeddedSubtitleJson.effectivePgsBinaryEligible(): Boolean {
-    pgsBinaryEligible?.let {
-        return it
-    }
-    val c = codec?.trim()?.lowercase(Locale.US).orEmpty()
-    return c == "hdmv_pgs_subtitle" || c == "pgssub" || c == "pgs"
-}
-
 /**
  * Core playback controller used by the TV app.
  *
@@ -249,6 +216,12 @@ class PlumPlayerController(
     private val navDisplayTitle: String? = null,
     private val navDisplaySubtitle: String? = null,
 ) {
+    /**
+     * Cancels all controller-scoped [applicationScope] work in [close] so preference writes and
+     * subtitle warm tasks do not outlive the player.
+     */
+    private val controllerJob = SupervisorJob()
+
     private var hlsSessionId: String? = null
     private var activeStreamUrl: String? = null
     private var lastDurationSec: Double = 0.0
@@ -833,7 +806,7 @@ class PlumPlayerController(
     private fun serverBurnInEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> {
         if (hlsSessionId == null) return emptyList()
         return embeddedSubtitleTracks.filter { sub ->
-            sub.supported != false && !sub.effectiveVttEligible() && !sub.effectivePgsBinaryEligible()
+            sub.supported != false && !sub.vttEligible && !sub.pgsBinaryEligible
         }
     }
 
@@ -1382,7 +1355,7 @@ class PlumPlayerController(
     }
 
     private fun persistManualSubtitlePreference(trackId: SubtitlePickerTrackId) {
-        applicationScope.launch {
+        applicationScope.launch(controllerJob) {
             val langHint =
                 when (trackId) {
                     SubtitlePickerTrackId.Off ->
@@ -1746,7 +1719,7 @@ class PlumPlayerController(
                         id.startsWith("s:") -> {
                             val stream = id.removePrefix("s:").toIntOrNull() ?: return@launch
                             val meta = embeddedAudioTracks.firstOrNull { it.streamIndex == stream }
-                            applicationScope.launch {
+                            applicationScope.launch(controllerJob) {
                                 val lang =
                                     TrackLanguagePreference.normalize(meta?.language).ifEmpty {
                                         TrackLanguagePreference.normalize(meta?.title)
@@ -1768,7 +1741,7 @@ class PlumPlayerController(
                             val j = rest[1].toIntOrNull() ?: return@launch
                             applyExoAudioSelection(gi, j)
                             val fmt = player.currentTracks.groups.getOrNull(gi)?.mediaTrackGroup?.getFormat(j)
-                            applicationScope.launch {
+                            applicationScope.launch(controllerJob) {
                                 val lang =
                                     TrackLanguagePreference.normalize(fmt?.language).ifEmpty {
                                         TrackLanguagePreference.normalize(fmt?.label)
@@ -1819,7 +1792,7 @@ class PlumPlayerController(
                     )
                     return@forEach
                 }
-                if (!subtitle.effectiveVttEligible()) {
+                if (!subtitle.vttEligible) {
                     return@forEach
                 }
                 val subtitleUrl =
@@ -1845,7 +1818,7 @@ class PlumPlayerController(
             if (subtitle.supported == false) {
                 return@forEach
             }
-            if (!subtitle.effectivePgsBinaryEligible()) {
+            if (!subtitle.pgsBinaryEligible) {
                 return@forEach
             }
             val subtitleUrl =
@@ -1870,7 +1843,7 @@ class PlumPlayerController(
     }
 
     private suspend fun createAndLoadMedia(mediaId: Int, resumeSec: Float) {
-        applicationScope.launch(Dispatchers.IO) {
+        applicationScope.launch(controllerJob + Dispatchers.IO) {
             runCatching { playbackRepository.warmEmbeddedSubtitleCaches(mediaId) }
         }
         val audioIndex = serverAudioIndex.takeIf { it >= 0 }
@@ -2258,8 +2231,8 @@ class PlumPlayerController(
     }
 
     /**
-     * Reads position/duration/state then [androidx.media3.exoplayer.ExoPlayer.release]. Call only
-     * on the main thread unless using the [runBlocking] fallback below.
+     * Reads position/duration/state then [androidx.media3.exoplayer.ExoPlayer.release].
+     * Must run on the main thread (caller uses [withContext] with [Dispatchers.Main]).
      */
     private fun snapshotForCloseAndRelease(): Triple<Long, Long, Int> {
         val posMs = player.currentPosition
@@ -2270,12 +2243,13 @@ class PlumPlayerController(
     }
 
     /**
-     * Cleanup that snapshots playback, releases ExoPlayer immediately (frees decoders/audio for
-     * other apps), then persists progress + closes the server session in the background.
+     * Cleanup that snapshots playback and releases ExoPlayer before returning (frees decoders/audio
+     * promptly on teardown), then persists progress + closes the server session in the background.
      */
     fun close() {
         if (!controllerClosed.compareAndSet(false, true)) return
 
+        controllerJob.cancel()
         progressJob?.cancel()
         wsCollectJob?.cancel()
         queueLoadJob?.cancel()
@@ -2291,10 +2265,12 @@ class PlumPlayerController(
             if (Looper.myLooper() == Looper.getMainLooper()) {
                 snapshotForCloseAndRelease()
             } else {
-                runBlocking(Dispatchers.Main) { snapshotForCloseAndRelease() }
+                runBlocking {
+                    withContext(Dispatchers.Main) { snapshotForCloseAndRelease() }
+                }
             }
 
-        applicationScope.launch(Dispatchers.Default) {
+        applicationScope.launch {
             try {
                 withTimeoutOrNull(5_000) {
                     val durSec = durMs / 1000.0

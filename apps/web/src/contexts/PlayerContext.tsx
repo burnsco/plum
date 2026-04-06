@@ -154,29 +154,46 @@ function playbackStatusMessage(status: VideoSessionState["status"]): string {
   return status === "ready" ? "Stream ready" : "Preparing stream...";
 }
 
-type PlayerContextValue = {
+/** Track / stream / dock chrome — updates on item switch, WS, duration, etc. */
+export type PlayerSessionContextValue = {
   playbackSession: PlaybackSession | null;
   activeItem: MediaItem | null;
   activeMode: PlaybackKind | null;
   isDockOpen: boolean;
   viewMode: PlayerViewMode;
-  queue: MediaItem[];
-  queueIndex: number;
-  shuffle: boolean;
-  repeatMode: MusicRepeatMode;
-  volume: number;
-  muted: boolean;
   videoSourceUrl: string;
   playbackDurationSeconds: number;
   /** Active video session delivery; null when not playing video. */
   videoDelivery: ApiPlaybackSession["delivery"] | null;
   videoAudioIndex: number;
+  /** Active burned-in embedded subtitle stream, or null. */
+  burnEmbeddedSubtitleStreamIndex: number | null;
+  dismissDock: () => void;
+  wsConnected: boolean;
+  lastEvent: string;
+};
+
+/** Queue shape and navigation — updates when queue index or list changes. */
+export type PlayerQueueContextValue = {
+  queue: MediaItem[];
+  queueIndex: number;
+  shuffle: boolean;
+  repeatMode: MusicRepeatMode;
   playMedia: (item: MediaItem) => void;
   playMovie: (item: MediaItem) => void;
   playEpisode: (item: MediaItem, options?: { showKey?: string }) => void;
   playShowGroup: (items: MediaItem[], startItem?: MediaItem) => void;
   playMusicCollection: (items: MediaItem[], startItem?: MediaItem) => void;
-  dismissDock: () => void;
+  playNextInQueue: () => void;
+  playPreviousInQueue: () => void;
+  toggleShuffle: () => void;
+  cycleRepeatMode: () => void;
+};
+
+/** High-frequency controls — volume, seek, play/pause; avoids queue/session churn. */
+export type PlayerTransportContextValue = {
+  volume: number;
+  muted: boolean;
   togglePlayPause: () => void;
   seekTo: (seconds: number) => void;
   setMuted: (muted: boolean) => void;
@@ -187,19 +204,21 @@ type PlayerContextValue = {
     slot: MediaElementSlot,
     element: HTMLMediaElement | null,
   ) => void;
-  playNextInQueue: () => void;
-  playPreviousInQueue: () => void;
-  toggleShuffle: () => void;
-  cycleRepeatMode: () => void;
   changeAudioTrack: (audioIndex: number) => Promise<void>;
-  /** Active burned-in embedded subtitle stream, or null. */
-  burnEmbeddedSubtitleStreamIndex: number | null;
   changeEmbeddedSubtitleBurn: (streamIndex: number | null) => Promise<void>;
-  wsConnected: boolean;
-  lastEvent: string;
 };
 
-const PlayerContext = createContext<PlayerContextValue | null>(null);
+export type PlayerContextValue = PlayerSessionContextValue &
+  PlayerQueueContextValue &
+  PlayerTransportContextValue;
+
+const PlayerSessionContext = createContext<PlayerSessionContextValue | null>(
+  null,
+);
+const PlayerQueueContext = createContext<PlayerQueueContextValue | null>(null);
+const PlayerTransportContext = createContext<PlayerTransportContextValue | null>(
+  null,
+);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const { data: libraries = [] } = useLibraries();
@@ -958,43 +977,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLastEvent("Preparing stream...");
   }, [eventSequence, latestEvent]);
 
-  const value = useMemo<PlayerContextValue>(
+  const sessionValue = useMemo<PlayerSessionContextValue>(
     () => ({
       playbackSession,
       activeItem,
       activeMode,
       isDockOpen,
       viewMode,
-      queue,
-      queueIndex,
-      shuffle,
-      repeatMode,
-      volume,
-      muted,
       videoSourceUrl,
       playbackDurationSeconds,
       videoDelivery,
       videoAudioIndex,
       burnEmbeddedSubtitleStreamIndex,
-      playMedia,
-      playMovie,
-      playEpisode,
-      playShowGroup,
-      playMusicCollection,
       dismissDock,
-      togglePlayPause,
-      seekTo,
-      setMuted,
-      setVolume,
-      enterFullscreen,
-      exitFullscreen,
-      registerMediaElement,
-      playNextInQueue,
-      playPreviousInQueue,
-      toggleShuffle,
-      cycleRepeatMode,
-      changeAudioTrack,
-      changeEmbeddedSubtitleBurn,
       wsConnected,
       lastEvent,
     }),
@@ -1004,23 +999,54 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       activeMode,
       isDockOpen,
       viewMode,
-      queue,
-      queueIndex,
-      shuffle,
-      repeatMode,
-      volume,
-      muted,
       videoSourceUrl,
       playbackDurationSeconds,
       videoDelivery,
       videoAudioIndex,
       burnEmbeddedSubtitleStreamIndex,
+      dismissDock,
+      wsConnected,
+      lastEvent,
+    ],
+  );
+
+  const queueValue = useMemo<PlayerQueueContextValue>(
+    () => ({
+      queue,
+      queueIndex,
+      shuffle,
+      repeatMode,
       playMedia,
       playMovie,
       playEpisode,
       playShowGroup,
       playMusicCollection,
-      dismissDock,
+      playNextInQueue,
+      playPreviousInQueue,
+      toggleShuffle,
+      cycleRepeatMode,
+    }),
+    [
+      queue,
+      queueIndex,
+      shuffle,
+      repeatMode,
+      playMedia,
+      playMovie,
+      playEpisode,
+      playShowGroup,
+      playMusicCollection,
+      playNextInQueue,
+      playPreviousInQueue,
+      toggleShuffle,
+      cycleRepeatMode,
+    ],
+  );
+
+  const transportValue = useMemo<PlayerTransportContextValue>(
+    () => ({
+      volume,
+      muted,
       togglePlayPause,
       seekTo,
       setMuted,
@@ -1028,24 +1054,64 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       enterFullscreen,
       exitFullscreen,
       registerMediaElement,
-      playNextInQueue,
-      playPreviousInQueue,
-      toggleShuffle,
-      cycleRepeatMode,
       changeAudioTrack,
       changeEmbeddedSubtitleBurn,
-      wsConnected,
-      lastEvent,
+    }),
+    [
+      volume,
+      muted,
+      togglePlayPause,
+      seekTo,
+      setMuted,
+      setVolume,
+      enterFullscreen,
+      exitFullscreen,
+      registerMediaElement,
+      changeAudioTrack,
+      changeEmbeddedSubtitleBurn,
     ],
   );
 
   return (
-    <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
+    <PlayerSessionContext.Provider value={sessionValue}>
+      <PlayerQueueContext.Provider value={queueValue}>
+        <PlayerTransportContext.Provider value={transportValue}>
+          {children}
+        </PlayerTransportContext.Provider>
+      </PlayerQueueContext.Provider>
+    </PlayerSessionContext.Provider>
   );
 }
 
-export function usePlayer() {
-  const ctx = useContext(PlayerContext);
-  if (!ctx) throw new Error("usePlayer must be used within PlayerProvider");
+export function usePlayerSession(): PlayerSessionContextValue {
+  const ctx = useContext(PlayerSessionContext);
+  if (!ctx) {
+    throw new Error("usePlayerSession must be used within PlayerProvider");
+  }
   return ctx;
+}
+
+export function usePlayerQueue(): PlayerQueueContextValue {
+  const ctx = useContext(PlayerQueueContext);
+  if (!ctx) {
+    throw new Error("usePlayerQueue must be used within PlayerProvider");
+  }
+  return ctx;
+}
+
+export function usePlayerTransport(): PlayerTransportContextValue {
+  const ctx = useContext(PlayerTransportContext);
+  if (!ctx) {
+    throw new Error("usePlayerTransport must be used within PlayerProvider");
+  }
+  return ctx;
+}
+
+/** Subscribes to all player slices; prefer `usePlayerSession` / `usePlayerQueue` / `usePlayerTransport` to limit re-renders. */
+export function usePlayer(): PlayerContextValue {
+  return {
+    ...usePlayerSession(),
+    ...usePlayerQueue(),
+    ...usePlayerTransport(),
+  };
 }

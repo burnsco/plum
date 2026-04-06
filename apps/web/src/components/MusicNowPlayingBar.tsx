@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Volume2, VolumeX, X } from "lucide-react";
 import { resolvePosterUrl } from "@plum/shared";
 import { BASE_URL } from "../api";
-import { usePlayer } from "../contexts/PlayerContext";
+import {
+  usePlayerQueue,
+  usePlayerSession,
+  usePlayerTransport,
+} from "../contexts/PlayerContext";
 import { formatClock, getMusicMetadata } from "../lib/playback/playerMedia";
 
 type Props = {
@@ -10,26 +14,19 @@ type Props = {
 };
 
 export function MusicNowPlayingBar({ visible }: Props) {
+  const { activeItem, activeMode, isDockOpen, dismissDock } = usePlayerSession();
   const {
-    activeItem,
-    activeMode,
-    isDockOpen,
     queue,
     queueIndex,
     shuffle,
     repeatMode,
-    volume,
-    muted,
-    togglePlayPause,
-    seekTo,
-    setMuted,
-    setVolume,
-    dismissDock,
     playNextInQueue,
     playPreviousInQueue,
     toggleShuffle,
     cycleRepeatMode,
-  } = usePlayer();
+  } = usePlayerQueue();
+  const { volume, muted, togglePlayPause, seekTo, setMuted, setVolume } =
+    usePlayerTransport();
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);

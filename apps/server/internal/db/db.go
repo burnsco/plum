@@ -280,8 +280,8 @@ func InitDB(conn string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	db.SetMaxOpenConns(5)
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(4)
 	if err := createSchema(db); err != nil {
 		db.Close()
 		return nil, err
@@ -523,7 +523,7 @@ CREATE TABLE IF NOT EXISTS embedded_subtitles (
   language TEXT NOT NULL,
   title TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_embedded_subtitles_media_id ON embedded_subtitles(media_id);
+CREATE INDEX IF NOT EXISTS idx_embedded_subtitles_media_stream ON embedded_subtitles(media_id, stream_index);
 
 CREATE TABLE IF NOT EXISTS embedded_audio_tracks (
   media_id INTEGER NOT NULL,
@@ -1365,6 +1365,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHER
 		version: 29,
 		name:    "quick_connect_codes_unix_timestamps",
 		apply:   migrateQuickConnectCodesToUnixTx,
+	},
+	{
+		version: 30,
+		name:    "embedded_subtitles_composite_index",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS idx_embedded_subtitles_media_id`); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_embedded_subtitles_media_stream ON embedded_subtitles(media_id, stream_index)`)
+			return err
+		},
 	},
 }
 
@@ -2970,7 +2981,7 @@ func queryMediaByShowIDs(db *sql.DB, libraryID int, kind string, showIDs []int) 
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(m.show_id, 0), COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
@@ -2993,7 +3004,7 @@ ORDER BY m.show_id, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.ti
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
 		var metadataConfirmed sql.NullBool
-		err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg, &showImdbAvg)
+		err = rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &m.ShowID, &showPosterPath, &showVoteAvg, &showImdbAvg)
 		if err != nil {
 			return nil, err
 		}

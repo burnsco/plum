@@ -40,11 +40,15 @@ object NetworkModule {
                 }
             chain.proceed(req)
         }
-        // /api/home aggregates the full library server-side and can be slow on large collections;
+        // /api/home and discover shelf/browse aggregate server-side and can be slow on large libraries;
         // all other endpoints should fail fast at 30s so the UI doesn't appear hung.
         val slowEndpoints = Interceptor { chain ->
             val path = chain.request().url.encodedPath
-            val isSlowEndpoint = path.endsWith("/home") || path.contains("/home?")
+            val isSlowEndpoint =
+                path.endsWith("/home") ||
+                    path.contains("/home?") ||
+                    path.endsWith("/discover") ||
+                    path.startsWith("/api/discover/browse")
             if (isSlowEndpoint) {
                 chain.withReadTimeout(90, TimeUnit.SECONDS).proceed(chain.request())
             } else {

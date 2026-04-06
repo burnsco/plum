@@ -35,7 +35,13 @@ class PlaybackRepository @Inject constructor(
         )
         val res = api.createPlaybackSession(mediaId, payload)
         if (!res.isSuccessful) {
-            error(PlumHttpMessages.preferBody("Create playback session", res.code(), res.errorBody()?.string()))
+            error(
+                PlumHttpMessages.userFacingHttpError(
+                    "Create playback session",
+                    res.code(),
+                    res.errorBody()?.string(),
+                ),
+            )
         }
         res.body() ?: error("Empty playback session")
     }
@@ -52,7 +58,7 @@ class PlaybackRepository @Inject constructor(
         )
         if (!res.isSuccessful) {
             throw IllegalStateException(
-                PlumHttpMessages.preferBody("Progress", res.code(), res.errorBody()?.string()),
+                PlumHttpMessages.userFacingHttpError("Progress", res.code(), res.errorBody()?.string()),
             )
         }
     }
@@ -61,7 +67,13 @@ class PlaybackRepository @Inject constructor(
         val api = sessionRepository.getPlumApi()
         val res = api.updatePlaybackSessionAudio(sessionId, UpdatePlaybackSessionAudioPayloadJson(audioIndex))
         if (!res.isSuccessful) {
-            error(PlumHttpMessages.preferBody("Update playback session audio", res.code(), res.errorBody()?.string()))
+            error(
+                PlumHttpMessages.userFacingHttpError(
+                    "Update playback session audio",
+                    res.code(),
+                    res.errorBody()?.string(),
+                ),
+            )
         }
         res.body() ?: error("Empty session")
     }

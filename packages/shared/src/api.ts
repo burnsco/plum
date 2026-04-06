@@ -228,6 +228,8 @@ export class ApiHttpError extends Data.TaggedError("ApiHttpError")<{
   readonly status: number;
   readonly body: string;
   readonly message: string;
+  /** Machine key from JSON `error` when the server uses `httputil.WritePlumJSONError`. */
+  readonly code?: string;
 }> {}
 
 export class ApiJsonError extends Data.TaggedError("ApiJsonError")<{
@@ -305,6 +307,47 @@ function isAbortError(cause: unknown): boolean {
   return cause instanceof DOMException
     ? cause.name === "AbortError"
     : cause instanceof Error && cause.name === "AbortError";
+}
+
+/** Parses Plum JSON error bodies (`error` + `message`); aligns with Android `PlumHttpMessages.parseJsonErrorHuman`. */
+function parsePlumStructuredErrorBody(body: string): {
+  readonly displayMessage: string;
+  readonly machineCode?: string;
+} | null {
+  const trimmed = body.trim();
+  if (!trimmed.startsWith("{")) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    return null;
+  }
+  const o = parsed as Record<string, unknown>;
+  const errRaw = typeof o.error === "string" ? o.error.trim() : "";
+  const machineCode =
+    errRaw !== "" && /^[a-z][a-z0-9_]*$/.test(errRaw) ? errRaw : undefined;
+  const message =
+    typeof o.message === "string" && o.message.trim() !== ""
+      ? o.message.trim()
+      : null;
+  if (message) {
+    return { displayMessage: message, machineCode };
+  }
+  const details =
+    typeof o.details === "string" && o.details.trim() !== ""
+      ? o.details.trim()
+      : typeof o.detail === "string" && o.detail.trim() !== ""
+        ? o.detail.trim()
+        : null;
+  if (details) {
+    return { displayMessage: details, machineCode };
+  }
+  return null;
 }
 
 function combineAbortSignals(primary: AbortSignal, secondary?: AbortSignal): RequestSignal {
@@ -530,19 +573,25 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
   ): Effect.Effect<never, ApiAbortedError | ApiHttpError | ApiJsonError> =>
     readTextEffect(response, method, url).pipe(
       Effect.catchTag("ApiJsonError", () => Effect.succeed("")),
-      Effect.flatMap((body) =>
-        Effect.fail(
+      Effect.flatMap((body) => {
+        const structured = parsePlumStructuredErrorBody(body);
+        const message =
+          structured?.displayMessage ??
+          errorMessage?.({ status: response.status, body }) ??
+          `${method} ${url} failed with status ${response.status}.`;
+        return Effect.fail(
           new ApiHttpError({
             method,
             url,
             status: response.status,
             body,
-            message:
-              errorMessage?.({ status: response.status, body }) ??
-              `${method} ${url} failed with status ${response.status}.`,
+            message,
+            ...(structured?.machineCode !== undefined
+              ? { code: structured.machineCode }
+              : {}),
           }),
-        ),
-      ),
+        );
+      }),
     );
 
   const jsonRequestEffect = <S extends Schema.Top & { readonly DecodingServices: never }>(

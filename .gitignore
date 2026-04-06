@@ -27,6 +27,9 @@ apps/server/data/
 .gocache/
 .tmp/
 
+# TypeScript incremental cache (keep out of version control)
+*.tsbuildinfo
+
 # General
 .env
 .env.local

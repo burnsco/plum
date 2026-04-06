@@ -107,6 +107,87 @@ function normalizeLibraryMediaPage(
   return response;
 }
 
+/** Library browse lists do not render sidecar / embedded subtitle rows; playback merges tracks from the session response. */
+function stripLibraryBrowseMediaItem(item: MediaItem): MediaItem {
+  return { ...item, subtitles: undefined, embeddedSubtitles: undefined };
+}
+
+/** Fields read by `ShowDetail` from `useShowDetails` (avoids caching unused counts/runtime/ids). */
+export type ShowDetailsPage = Pick<
+  ShowDetails,
+  | "name"
+  | "poster_path"
+  | "poster_url"
+  | "backdrop_path"
+  | "backdrop_url"
+  | "first_air_date"
+  | "overview"
+  | "genres"
+  | "cast"
+  | "vote_average"
+  | "imdb_rating"
+>;
+
+function selectShowDetailsForPage(data: ShowDetails | null): ShowDetailsPage | null {
+  if (data == null) return null;
+  return {
+    name: data.name,
+    poster_path: data.poster_path,
+    poster_url: data.poster_url,
+    backdrop_path: data.backdrop_path,
+    backdrop_url: data.backdrop_url,
+    first_air_date: data.first_air_date,
+    overview: data.overview,
+    genres: data.genres,
+    cast: data.cast,
+    vote_average: data.vote_average,
+    imdb_rating: data.imdb_rating,
+  };
+}
+
+/** Fields `MovieDetail` reads from the details query (IDs come from the route). */
+export type MovieDetailsPage = Pick<
+  MovieDetails,
+  | "title"
+  | "overview"
+  | "poster_path"
+  | "poster_url"
+  | "backdrop_path"
+  | "backdrop_url"
+  | "release_date"
+  | "vote_average"
+  | "imdb_id"
+  | "imdb_rating"
+  | "runtime"
+  | "subtitles"
+  | "embeddedSubtitles"
+  | "embeddedAudioTracks"
+  | "genres"
+  | "cast"
+>;
+
+function selectMovieDetailsForPage(data: MovieDetails | null): MovieDetailsPage | null {
+  if (data == null) return null;
+  return {
+    title: data.title,
+    overview: data.overview,
+    poster_path: data.poster_path,
+    poster_url: data.poster_url,
+    backdrop_path: data.backdrop_path,
+    backdrop_url: data.backdrop_url,
+    release_date: data.release_date,
+    vote_average: data.vote_average,
+    imdb_id: data.imdb_id,
+    imdb_rating: data.imdb_rating,
+    runtime: data.runtime,
+    subtitles: data.subtitles,
+    embeddedSubtitles: data.embeddedSubtitles,
+    embeddedAudioTracks: data.embeddedAudioTracks,
+    genres: data.genres,
+    cast: data.cast,
+  };
+}
+
 /** Deduped merge for LibraryReadyNotifier (TV episodes → shows → movies → anime episodes → anime shows). */
 function mergeDashboardRecentlyAddedForNotifier(
   tvEpisodes: RecentlyAddedEntry[],
@@ -175,10 +256,13 @@ export const queryKeys = {
   metadataArtworkSettings: ["metadata-artwork-settings"] as const,
   mediaStackSettings: ["media-stack-settings"] as const,
   serverEnvSettings: ["server-env-settings"] as const,
-  search: (query: string, libraryId: number | null, type: string, genre: string) =>
-    ["search", query, libraryId ?? 0, type, genre] as const,
+  /** Library id first so `searchByLibrary(id)` invalidates scoped results without touching other libraries. */
+  search: (libraryId: number, query: string, type: string, genre: string) =>
+    ["search", libraryId, query, type, genre] as const,
   /** Prefix: invalidates all `useLibrarySearch` queries. */
   searchAll: ["search"] as const,
+  /** Prefix: scoped library search + global search (`libraryId` 0 = all libraries). */
+  searchByLibrary: (libraryId: number) => ["search", libraryId] as const,
   series: (tmdbId: number) => ["series", tmdbId] as const,
   showPosterCandidates: (libraryId: number, showKey: string) =>
     ["show-poster-candidates", libraryId, showKey] as const,
@@ -187,6 +271,14 @@ export const queryKeys = {
   showEpisodes: (libraryId: number, showKey: string) => ["library", libraryId, "show-episodes", showKey] as const,
   transcodingSettings: ["transcoding-settings"] as const,
 };
+
+function invalidateSearchAfterLibraryDataChange(
+  queryClient: QueryClient,
+  libraryId: number,
+): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.searchByLibrary(libraryId) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.searchByLibrary(0) });
+}
 
 /**
  * Refetch library browse, home, and per-title movie/show detail caches for one library.
@@ -385,6 +477,13 @@ export function useLibraryMedia(
           await fetchLibraryMedia(libraryId!, { offset: Number(pageParam ?? 0), limit: pageSize }),
         ),
       ),
+    select: (data) => ({
+      pages: data.pages.map((page) => ({
+        ...page,
+        items: page.items.map(stripLibraryBrowseMediaItem),
+      })),
+      pageParams: data.pageParams,
+    }),
     enabled: (options?.enabled ?? true) && libraryId != null,
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.next_offset,
@@ -460,11 +559,12 @@ export function useMovieDetails(
   libraryId: number | null,
   mediaId: number | null,
   options?: { enabled?: boolean },
-): UseQueryResult<MovieDetails | null, Error> {
+): UseQueryResult<MovieDetailsPage | null, Error> {
   return useQuery({
     queryKey: queryKeys.movieDetails(libraryId ?? 0, mediaId ?? 0),
     queryFn: async () =>
       contractsView<MovieDetails | null>(await getMovieDetails(libraryId!, mediaId!)),
+    select: selectMovieDetailsForPage,
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
     staleTime: METADATA_DETAIL_STALE_MS,
   });
@@ -474,11 +574,12 @@ export function useShowDetails(
   libraryId: number | null,
   showKey: string | null,
   options?: { enabled?: boolean },
-): UseQueryResult<ShowDetails | null, Error> {
+): UseQueryResult<ShowDetailsPage | null, Error> {
   return useQuery({
     queryKey: queryKeys.showDetails(libraryId ?? 0, showKey ?? ""),
     queryFn: async () =>
       contractsView<ShowDetails | null>(await getShowDetails(libraryId!, showKey!)),
+    select: selectShowDetailsForPage,
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: METADATA_DETAIL_STALE_MS,
   });
@@ -546,8 +647,8 @@ export function useLibrarySearch(
   const normalizedLibraryId = options?.libraryId ?? null;
   return useQuery({
     queryKey: queryKeys.search(
+      normalizedLibraryId ?? 0,
       normalizedQuery,
-      normalizedLibraryId,
       normalizedType,
       normalizedGenre,
     ),
@@ -578,7 +679,7 @@ export function useRefreshShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -594,7 +695,7 @@ export function useRefreshLibraryPlaybackTracks(): UseMutationResult<
     mutationFn: ({ libraryId }) => refreshLibraryPlaybackTracks(libraryId),
     onSuccess: (_, { libraryId }) => {
       invalidateLibraryCatalogQueries(queryClient, libraryId);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -614,7 +715,7 @@ export function useRefreshPlaybackTrackMetadata(): UseMutationResult<
     },
     onSuccess: (_, { libraryId }) => {
       invalidateLibraryCatalogQueries(queryClient, libraryId);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -632,7 +733,7 @@ export function useConfirmShow(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.unidentifiedSummary });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -790,7 +891,7 @@ export function useSetMoviePosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -808,7 +909,7 @@ export function useResetMoviePosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -828,7 +929,7 @@ export function useSetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }
@@ -847,7 +948,7 @@ export function useResetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
   });
 }

@@ -51,6 +51,7 @@ data class PlaybackSessionJson(
     @Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,
 )
 
+/** Must match `PlaybackSessionUpdateEvent` / `PlaybackSessionUpdateEventSchema` in @plum/contracts. */
 @JsonClass(generateAdapter = true)
 data class PlaybackSessionUpdateEventJson(
     @Json(name = "type") val type: String,
@@ -63,6 +64,7 @@ data class PlaybackSessionUpdateEventJson(
     @Json(name = "streamUrl") val streamUrl: String,
     @Json(name = "durationSeconds") val durationSeconds: Double,
     @Json(name = "error") val error: String? = null,
+    @Json(name = "burnEmbeddedSubtitleStreamIndex") val burnEmbeddedSubtitleStreamIndex: Int? = null,
     @Json(name = "intro_skip_mode") val introSkipMode: String? = null,
     @Json(name = "intro_start_seconds") val introStartSeconds: Double? = null,
     @Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,

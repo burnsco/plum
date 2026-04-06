@@ -6,11 +6,22 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadAuthSessionEffect } from "@plum/shared";
 import type { MediaItem } from "../api";
 import * as api from "../api";
+import { AuthProvider } from "./AuthContext";
 import { PlayerProvider, usePlayer } from "./PlayerContext";
 import { WsProvider } from "./WsContext";
+
+vi.mock("@plum/shared", async () => {
+  const actual = await import("@plum/shared");
+  return {
+    ...actual,
+    loadAuthSessionEffect: vi.fn(),
+  };
+});
 
 type MockWebSocketHandle = {
   close: (code?: number, reason?: string) => void;
@@ -248,6 +259,16 @@ describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.mocked(loadAuthSessionEffect).mockReturnValue(
+      Effect.succeed({
+        hasAdmin: true,
+        user: {
+          id: 1,
+          email: "admin@example.com",
+          is_admin: true,
+        },
+      }),
+    );
     vi.spyOn(api, "getMe").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
@@ -293,11 +314,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <PlayerHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <PlayerHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -390,11 +413,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <PlayerHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <PlayerHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -456,11 +481,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <PlayerHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <PlayerHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -514,11 +541,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <VideoQueueHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <VideoQueueHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -554,11 +583,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <VideoQueueHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <VideoQueueHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -618,11 +649,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <VideoQueueHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <VideoQueueHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -668,11 +701,13 @@ describe("PlayerContext playback session updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <PlayerProvider>
-            <PlaybackTrackHydrationHarness />
-          </PlayerProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <PlaybackTrackHydrationHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
