@@ -4,6 +4,7 @@ import { ignorePromise } from "@/lib/ignorePromise";
 import {
   findHlsSubtitleTrackIndexForPlumKey,
   formatHlsErrorMessage,
+  plumHlsSubtitlePlaylistFileForTrackKey,
 } from "@/lib/playback/playerMedia";
 import type { HlsErrorData, SubtitleTrackOption } from "@/lib/playback/playerMedia";
 
@@ -92,6 +93,9 @@ export function useHlsAttachment({
       setHlsStatusMessage("");
       mediaRecoveryAttemptsRef.current = 0;
       networkRecoveryAttemptsRef.current = 0;
+      markSubtitleReady();
+    });
+    hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
       markSubtitleReady();
     });
     hls.on(Hls.Events.ERROR, (_event, data: HlsErrorData) => {
@@ -188,6 +192,20 @@ export function useHlsAttachment({
       hls.subtitleTrack = idx;
       hls.subtitleDisplay = true;
     } else {
+      const wantFile = plumHlsSubtitlePlaylistFileForTrackKey(selectedSubtitleKey);
+      const prev = hls.subtitleTrack;
+      if (wantFile != null && prev >= 0) {
+        const tracks = hls.subtitleTracks ?? [];
+        if (tracks.length === 0) {
+          return;
+        }
+        const prevUrl = tracks[prev]?.url ?? "";
+        if (prevUrl.includes(wantFile)) {
+          hls.subtitleTrack = prev;
+          hls.subtitleDisplay = true;
+          return;
+        }
+      }
       hls.subtitleTrack = -1;
     }
   }, [

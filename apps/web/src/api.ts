@@ -46,6 +46,7 @@ export type {
   LibraryScanActivityEntry,
   LibraryScanStatus,
   LibraryType,
+  MarkShowWatchedPayload,
   MetadataArtworkProvider,
   MetadataArtworkProviderStatus,
   MetadataArtworkSettings,
@@ -184,6 +185,7 @@ export const {
   updateMediaProgress,
   clearMediaProgress,
   clearShowProgress,
+  markShowWatched,
   setContinueWatchingVisibility,
 } = client;
 

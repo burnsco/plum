@@ -1454,7 +1454,8 @@ export function PlaybackDock() {
       maybeRecoverInitialBufferGap(element);
       syncPlaybackState(element);
       syncVideoProgressSnapshot(element);
-      markSubtitleReady();
+      // Do not call markSubtitleReady() here: `canplay` can fire repeatedly during HLS buffering,
+      // which re-ran subtitle effects, briefly saw no HLS subtitle tracks, and set subtitleTrack -1.
       setIsVideoLoading(false);
       if (
         !suppressVideoAutoplayOnCanPlayRef.current &&
@@ -1463,7 +1464,7 @@ export function PlaybackDock() {
         ignorePromise(element.play(), "PlaybackDock:canPlayKickstart");
       }
     },
-    [maybeRecoverInitialBufferGap, markSubtitleReady, syncPlaybackState, syncVideoProgressSnapshot],
+    [maybeRecoverInitialBufferGap, syncPlaybackState, syncVideoProgressSnapshot],
   );
 
   useEffect(() => {

@@ -31,6 +31,7 @@ import {
   useConfirmShow,
   useLibraryMedia,
   useLibraries,
+  useMarkShowWatched,
   useRefreshPlaybackTrackMetadata,
   useRefreshShow,
 } from "../queries";
@@ -165,6 +166,7 @@ export function Home() {
       ? selectedLibraryScanStatus.error
       : undefined;
   const refreshShowMutation = useRefreshShow();
+  const markShowWatchedMutation = useMarkShowWatched();
   const refreshPlaybackTrackMetadataMutation = useRefreshPlaybackTrackMetadata();
   const confirmShowMutation = useConfirmShow();
   const {
@@ -248,6 +250,25 @@ export function Home() {
           <ShowLibraryCardContextMenu
             refreshShowDisabled={refreshShowMutation.isPending}
             refreshTracksDisabled={refreshPlaybackTrackMetadataMutation.isPending}
+            markShowWatchedDisabled={
+              markShowWatchedMutation.isPending || group.episodes.length === 0
+            }
+            onMarkShowWatchedAll={() => {
+              void markShowWatchedMutation
+                .mutateAsync({
+                  libraryId: lid,
+                  showKey: group.showKey,
+                  payload: { mode: "all" },
+                })
+                .then(() => {
+                  toast.success(
+                    `Every episode of “${group.showTitle}” is now marked as watched.`,
+                  );
+                })
+                .catch(() => {
+                  /* onError handled by mutation */
+                });
+            }}
             onChangePoster={() =>
               setPosterPicker({
                 kind: "show",
@@ -291,6 +312,7 @@ export function Home() {
     confirmShowMutation,
     setIdentifyGroup,
     refreshShowMutation,
+    markShowWatchedMutation,
     refreshPlaybackTrackMetadataMutation,
     navigate,
     setPosterPicker,

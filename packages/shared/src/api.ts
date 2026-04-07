@@ -95,6 +95,7 @@ import type {
     UnidentifiedLibrariesResponse,
     UnidentifiedLibrarySummary,
     PatchMediaIntroPayload,
+    MarkShowWatchedPayload,
     UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload,
     UpdatePlaybackSessionAudioPayload,
@@ -160,6 +161,7 @@ import {
     TranscodingSettingsSchema,
     UnidentifiedLibrariesResponseSchema,
     PatchMediaIntroPayloadSchema,
+    MarkShowWatchedPayloadSchema,
     UpdateLibraryPlaybackPreferencesPayloadSchema,
     UpdateMediaProgressPayloadSchema,
     UpdatePlaybackSessionAudioPayloadSchema,
@@ -239,6 +241,7 @@ export type {
     UnidentifiedLibrariesResponse,
     UnidentifiedLibrarySummary,
     PatchMediaIntroPayload,
+    MarkShowWatchedPayload,
     UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload, UpdatePlaybackSessionAudioPayload, User,
     VaapiDecodeCodec
@@ -1102,6 +1105,23 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/progress`,
         errorMessage: ({ status, body }) => body || `Clear show progress: ${status}`,
       }),
+    markShowWatched: (libraryId: number, showKey: string, payload: MarkShowWatchedPayload) =>
+      decodeSchemaEffect(
+        MarkShowWatchedPayloadSchema,
+        payload,
+        "PUT",
+        `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/watched`,
+        "Invalid mark watched payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          voidRequestEffect({
+            method: "PUT",
+            path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/watched`,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Mark watched: ${status}`,
+          }),
+        ),
+      ),
     setContinueWatchingVisibility: (id: number, payload: SetContinueWatchingVisibilityPayload) =>
       decodeSchemaEffect(
         SetContinueWatchingVisibilityPayloadSchema,
@@ -1597,6 +1617,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     clearMediaProgress: (id: number) => run(effects.clearMediaProgress(id)),
     clearShowProgress: (libraryId: number, showKey: string) =>
       run(effects.clearShowProgress(libraryId, showKey)),
+    markShowWatched: (libraryId: number, showKey: string, payload: MarkShowWatchedPayload) =>
+      run(effects.markShowWatched(libraryId, showKey, payload)),
     setContinueWatchingVisibility: (id: number, payload: SetContinueWatchingVisibilityPayload) =>
       run(effects.setContinueWatchingVisibility(id, payload)),
     createPlaybackSession: (id: number, payload?: CreatePlaybackSessionPayload) =>

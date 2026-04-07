@@ -95,22 +95,47 @@ fun ShowDetailRoute(
         is ShowDetailUiState.Ready -> {
             val d = s.details
             val selectedEpisodes = s.seasons.getOrNull(s.selectedSeasonIndex)?.episodes.orEmpty()
+            val returnFocusEpisodeId by viewModel.returnFocusEpisodeMediaId.collectAsState()
+            val activeReturnMediaId = returnFocusEpisodeId.takeIf { it > 0 }
             val focusEpisodeIndex =
-                if (s.selectedSeasonIndex == s.resumeSeasonIndex && selectedEpisodes.isNotEmpty()) {
-                    s.resumeEpisodeIndex.coerceIn(0, selectedEpisodes.lastIndex)
-                } else if (selectedEpisodes.isNotEmpty()) {
-                    0
-                } else {
-                    0
+                remember(selectedEpisodes, activeReturnMediaId, s.selectedSeasonIndex, s.resumeSeasonIndex, s.resumeEpisodeIndex) {
+                    val fromReturn = activeReturnMediaId?.let { id -> selectedEpisodes.indexOfFirst { it.id == id } }
+                    when {
+                        fromReturn != null && fromReturn >= 0 -> fromReturn
+                        s.selectedSeasonIndex == s.resumeSeasonIndex && selectedEpisodes.isNotEmpty() ->
+                            s.resumeEpisodeIndex.coerceIn(0, selectedEpisodes.lastIndex)
+                        selectedEpisodes.isNotEmpty() -> 0
+                        else -> 0
+                    }
                 }
             val listState = rememberLazyListState()
             val episodeFocus = remember { FocusRequester() }
             val seasonFocus = remember { FocusRequester() }
             val backFocus = remember { FocusRequester() }
             LaunchedEffect(d.showKey) {
+                val skipHeroFocus = returnFocusEpisodeId > 0
                 delay(48)
+                if (skipHeroFocus) return@LaunchedEffect
                 backFocus.requestFocus()
                 listState.scrollToItem(0)
+            }
+            LaunchedEffect(returnFocusEpisodeId, d.showKey) {
+                if (returnFocusEpisodeId <= 0) return@LaunchedEffect
+                val mediaId = returnFocusEpisodeId
+                viewModel.ensureSeasonSelectedForMediaId(mediaId)
+                delay(48)
+                val ready = viewModel.state.value as? ShowDetailUiState.Ready ?: return@LaunchedEffect
+                val eps = ready.seasons.getOrNull(ready.selectedSeasonIndex)?.episodes.orEmpty()
+                val epIdx = eps.indexOfFirst { it.id == mediaId }
+                if (epIdx < 0) {
+                    viewModel.clearReturnFocusEpisodeRequest()
+                    return@LaunchedEffect
+                }
+                val lazyIdx = firstEpisodeRowLazyIndex(ready, eps) ?: return@LaunchedEffect
+                val target = lazyIdx + epIdx
+                listState.scrollToItem(target.coerceAtLeast(0))
+                episodeFocus.requestFocus()
+                viewModel.clearReturnFocusEpisodeRequest()
             }
             val backdropUrl =
                 resolveArtworkUrl(serverBase, d.backdropUrl, d.backdropPath, PlumImageSizes.BACKDROP_HERO)
@@ -269,6 +294,14 @@ fun ShowDetailRoute(
             }
         }
     }
+}
+
+/** LazyColumn index of the first episode row for the current season (after hero + season strip + section header). */
+private fun firstEpisodeRowLazyIndex(s: ShowDetailUiState.Ready, selectedEpisodes: List<LibraryBrowseItemJson>): Int? {
+    if (selectedEpisodes.isEmpty()) return null
+    var nextIndex = 1
+    if (s.seasons.isNotEmpty()) nextIndex += 2
+    return nextIndex + 1
 }
 
 @Composable

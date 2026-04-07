@@ -60,7 +60,7 @@ export function MovieDetail() {
     id: mediaId,
     library_id: libraryId,
     title: details.title,
-    path: "",
+    path: details.source_path?.trim() ?? "",
     duration: details.runtime != null && details.runtime > 0 ? details.runtime * 60 : 0,
     type: "movie",
     overview: details.overview,
@@ -75,6 +75,9 @@ export function MovieDetail() {
     subtitles: details.subtitles,
     embeddedSubtitles: details.embeddedSubtitles,
     embeddedAudioTracks: details.embeddedAudioTracks,
+    progress_seconds: details.progress_seconds,
+    progress_percent: details.progress_percent,
+    completed: details.completed,
   };
   const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path, "w342", BASE_URL);
   const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w1280", BASE_URL);

@@ -1402,6 +1402,54 @@ func ClearShowPlaybackProgressForUser(db *sql.DB, userID int, libraryID int, lib
 	return err
 }
 
+func episodeMatchesMarkWatchedScope(item MediaItem, mode string, seasonOrUpToSeason, upToEpisode int) bool {
+	s, e := item.Season, item.Episode
+	switch mode {
+	case "all":
+		return true
+	case "season":
+		return s == seasonOrUpToSeason
+	case "up_to":
+		// Strictly before (seasonOrUpToSeason, upToEpisode); the referenced episode is not marked.
+		if s < seasonOrUpToSeason {
+			return true
+		}
+		if s > seasonOrUpToSeason {
+			return false
+		}
+		return e < upToEpisode
+	default:
+		return false
+	}
+}
+
+// MarkShowPlaybackWatched marks episode files in a library show as fully watched for the user.
+// mode is "all", "season", or "up_to". For "season", seasonOrUpToSeason is the season number (0 allowed).
+// For "up_to", seasonOrUpToSeason and upToEpisode name the pivot episode; everything strictly before it in
+// (season, episode) order is marked, not the pivot episode itself.
+func MarkShowPlaybackWatched(db *sql.DB, userID, libraryID int, libraryType, showKey, mode string, seasonOrUpToSeason, upToEpisode int) error {
+	if db == nil || userID <= 0 || libraryID <= 0 || showKey == "" || mode == "" {
+		return fmt.Errorf("invalid mark show watched args")
+	}
+	items, err := GetMediaByLibraryIDAndShowKey(db, libraryID, libraryType, showKey)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if !episodeMatchesMarkWatchedScope(item, mode, seasonOrUpToSeason, upToEpisode) {
+			continue
+		}
+		dur := float64(item.Duration)
+		if dur < 0 {
+			dur = 0
+		}
+		if err := UpsertPlaybackProgress(db, userID, item.ID, 0, dur, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func attachPlaybackProgressBatch(db *sql.DB, userID int, items []MediaItem) ([]MediaItem, error) {
 	if userID <= 0 || len(items) == 0 {
 		return items, nil

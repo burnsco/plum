@@ -542,6 +542,9 @@ class PlumPlayerController(
             }
     }
 
+    /** Media id for the episode or movie currently loaded (updates after next/prev in a show queue). */
+    fun currentPlaybackMediaId(): Int = mediaId
+
     private fun updateStatus(value: String) {
         _status.value = value
         refreshUiState(statusOverride = value)

@@ -66,6 +66,7 @@ export type {
   LibraryScanActivityEntry,
   LibraryScanStatus,
   LibraryType,
+  MarkShowWatchedPayload,
   MatchStatus,
   MediaItem,
   PatchMediaIntroPayload,

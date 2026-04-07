@@ -93,6 +93,9 @@ export type MovieDetailsPage = Pick<
   | "imdb_id"
   | "imdb_rating"
   | "runtime"
+  | "progress_seconds"
+  | "progress_percent"
+  | "completed"
   | "subtitles"
   | "embeddedSubtitles"
   | "embeddedAudioTracks"
@@ -115,6 +118,9 @@ export function selectMovieDetailsForPage(data: MovieDetails | null): MovieDetai
     imdb_id: data.imdb_id,
     imdb_rating: data.imdb_rating,
     runtime: data.runtime,
+    progress_seconds: data.progress_seconds,
+    progress_percent: data.progress_percent,
+    completed: data.completed,
     subtitles: data.subtitles,
     embeddedSubtitles: data.embeddedSubtitles,
     embeddedAudioTracks: data.embeddedAudioTracks,

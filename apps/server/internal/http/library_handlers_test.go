@@ -5627,6 +5627,133 @@ func TestClearShowProgressDeletesProgressForShowEpisodes(t *testing.T) {
 	}
 }
 
+func TestMarkShowWatched_ScopesEpisodes(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"mark-show@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"TV",
+		db.LibraryTypeTV,
+		"/tv",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	insertEpisode := func(title string, season, episodeNum int) int {
+		t.Helper()
+		var episodeID int
+		if err := dbConn.QueryRow(
+			`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tmdb_id, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			libraryID,
+			title,
+			"/tv/"+title+".mkv",
+			1800,
+			db.MatchStatusLocal,
+			888,
+			season,
+			episodeNum,
+		).Scan(&episodeID); err != nil {
+			t.Fatalf("insert episode: %v", err)
+		}
+		var mediaID int
+		if err := dbConn.QueryRow(
+			`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`,
+			db.LibraryTypeTV,
+			episodeID,
+		).Scan(&mediaID); err != nil {
+			t.Fatalf("insert media_global: %v", err)
+		}
+		return mediaID
+	}
+
+	s1e1 := insertEpisode("Mark Show S01E01", 1, 1)
+	s1e2 := insertEpisode("Mark Show S01E02", 1, 2)
+	s2e1 := insertEpisode("Mark Show S02E01", 2, 1)
+	s2e10 := insertEpisode("Mark Show S02E10", 2, 10)
+
+	handler := &LibraryHandler{DB: dbConn}
+
+	putMark := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/tmdb-888/watched", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+		rctx.URLParams.Add("showKey", "tmdb-888")
+		req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+		rec := httptest.NewRecorder()
+		handler.MarkShowWatched(rec, req)
+		return rec
+	}
+
+	completed := func(mediaID int) bool {
+		t.Helper()
+		var done int
+		err := dbConn.QueryRow(
+			`SELECT COALESCE(completed, 0) FROM playback_progress WHERE user_id = ? AND media_id = ?`,
+			userID,
+			mediaID,
+		).Scan(&done)
+		if err == sql.ErrNoRows {
+			return false
+		}
+		if err != nil {
+			t.Fatalf("query completed: %v", err)
+		}
+		return done != 0
+	}
+
+	rec := putMark(`{"mode":"season","season":1}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("mark season: status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !completed(s1e1) || !completed(s1e2) || completed(s2e1) || completed(s2e10) {
+		t.Fatalf("season scope: got %v %v %v %v want true,true,false,false", completed(s1e1), completed(s1e2), completed(s2e1), completed(s2e10))
+	}
+
+	if _, err := dbConn.Exec(`DELETE FROM playback_progress WHERE user_id = ?`, userID); err != nil {
+		t.Fatalf("clear progress: %v", err)
+	}
+
+	rec = putMark(`{"mode":"up_to","season":2,"episode":1}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("mark up_to: status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	// Pivot S02E01 is excluded; only season 1 episodes are before it.
+	if !completed(s1e1) || !completed(s1e2) || completed(s2e1) || completed(s2e10) {
+		t.Fatalf("up_to scope: got %v %v %v %v want true,true,false,false", completed(s1e1), completed(s1e2), completed(s2e1), completed(s2e10))
+	}
+
+	if _, err := dbConn.Exec(`DELETE FROM playback_progress WHERE user_id = ?`, userID); err != nil {
+		t.Fatalf("clear progress: %v", err)
+	}
+
+	rec = putMark(`{"mode":"all"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("mark all: status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !completed(s1e1) || !completed(s1e2) || !completed(s2e1) || !completed(s2e10) {
+		t.Fatalf("all scope: expected all completed")
+	}
+}
+
 func TestParseDiscoverOriginCountry(t *testing.T) {
 	cases := []struct {
 		raw  string

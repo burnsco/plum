@@ -60,6 +60,7 @@ import plum.tv.feature.discover.DiscoverRoute
 import plum.tv.feature.discover.DownloadsRoute
 import plum.tv.feature.details.MovieDetailRoute
 import plum.tv.feature.details.ShowDetailRoute
+import plum.tv.feature.details.ShowDetailViewModel
 import plum.tv.feature.home.HomeRoute
 import plum.tv.feature.auth.AuthViewModel
 import plum.tv.feature.library.LibraryBrowseRoute
@@ -527,14 +528,32 @@ fun MainNavHost(
             }
 
             navBackStackEntry?.takeIf { hideSideRail }?.let { playEntry ->
+                val playerVm = hiltViewModel<PlayerViewModel>(playEntry)
                 Box(
                     Modifier
                         .fillMaxSize()
                         .zIndex(1f),
                 ) {
                     PlayerRoute(
-                        onClose = { navController.popBackStack() },
-                        viewModel = hiltViewModel(playEntry),
+                        onClose = {
+                            val prev = navController.previousBackStackEntry
+                            if (prev?.destination?.route == Routes.SHOW) {
+                                val playShowKey =
+                                    playEntry.arguments?.getString("showKey")?.trim().orEmpty().let { k ->
+                                        if (k.isEmpty()) "" else Uri.decode(k)
+                                    }
+                                val prevShowKey =
+                                    prev.arguments?.getString("showKey")?.trim().orEmpty().let { k ->
+                                        if (k.isEmpty()) "" else Uri.decode(k)
+                                    }
+                                if (playShowKey.isNotEmpty() && playShowKey == prevShowKey) {
+                                    prev.savedStateHandle[ShowDetailViewModel.RETURN_FOCUS_EPISODE_MEDIA_ID] =
+                                        playerVm.currentPlaybackMediaId()
+                                }
+                            }
+                            navController.popBackStack()
+                        },
+                        viewModel = playerVm,
                     )
                 }
             }

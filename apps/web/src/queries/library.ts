@@ -46,11 +46,13 @@ import {
   type SearchResponse,
   clearMediaProgress,
   clearShowProgress,
+  markShowWatched,
   setContinueWatchingVisibility,
   type SeriesDetails,
   type ShowActionResult,
   type ShowDetails,
   type ShowEpisodesResponse,
+  type MarkShowWatchedPayload,
   type UnidentifiedLibrariesResponse,
   type UpdateLibraryPlaybackPreferencesPayload,
   type UpdateMediaProgressPayload,
@@ -351,6 +353,25 @@ export function useClearShowProgress(): UseMutationResult<
       }
       notifyMutationError(err, "Could not clear show progress");
     },
+  });
+}
+
+export function useMarkShowWatched(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; showKey: string; payload: MarkShowWatchedPayload }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ libraryId, showKey, payload }) => markShowWatched(libraryId, showKey, payload),
+    onSuccess: (_, { libraryId, showKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
+      invalidateLibraryCatalogQueries(queryClient, libraryId);
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
+    },
+    onError: (err) => notifyMutationError(err, "Could not mark episodes as watched"),
   });
 }
 

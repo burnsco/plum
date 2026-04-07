@@ -3399,6 +3399,84 @@ func (h *LibraryHandler) ClearShowProgress(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *LibraryHandler) MarkShowWatched(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || libraryID <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	showKey := chi.URLParam(r, "showKey")
+	if strings.TrimSpace(showKey) == "" {
+		http.Error(w, "invalid show key", http.StatusBadRequest)
+		return
+	}
+	var ownerID int
+	var libraryType string
+	if err := h.DB.QueryRow(`SELECT user_id, type FROM libraries WHERE id = ?`, libraryID).Scan(&ownerID, &libraryType); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if libraryType != db.LibraryTypeTV && libraryType != db.LibraryTypeAnime {
+		http.Error(w, "invalid media type", http.StatusBadRequest)
+		return
+	}
+	var payload markShowWatchedRequest
+	if !decodeRequestJSON(w, r, &payload) {
+		return
+	}
+	mode := strings.TrimSpace(payload.Mode)
+	switch mode {
+	case "all":
+		if err := db.MarkShowPlaybackWatched(h.DB, u.ID, libraryID, libraryType, showKey, mode, 0, 0); err != nil {
+			if errors.Is(err, db.ErrShowNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	case "season":
+		if payload.Season == nil {
+			http.Error(w, "season required", http.StatusBadRequest)
+			return
+		}
+		if err := db.MarkShowPlaybackWatched(h.DB, u.ID, libraryID, libraryType, showKey, mode, *payload.Season, 0); err != nil {
+			if errors.Is(err, db.ErrShowNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	case "up_to":
+		if payload.Season == nil || payload.Episode == nil {
+			http.Error(w, "season and episode required", http.StatusBadRequest)
+			return
+		}
+		if err := db.MarkShowPlaybackWatched(h.DB, u.ID, libraryID, libraryType, showKey, mode, *payload.Season, *payload.Episode); err != nil {
+			if errors.Is(err, db.ErrShowNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	default:
+		http.Error(w, "invalid mode", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *LibraryHandler) GetMovieSearch(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -3810,6 +3888,12 @@ type updateMediaProgressRequest struct {
 
 type setContinueWatchingVisibilityRequest struct {
 	Hidden bool `json:"hidden"`
+}
+
+type markShowWatchedRequest struct {
+	Mode    string `json:"mode"`
+	Season  *int   `json:"season,omitempty"`
+	Episode *int   `json:"episode,omitempty"`
 }
 
 type playbackRefreshProgress struct {

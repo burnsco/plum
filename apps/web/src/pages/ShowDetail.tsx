@@ -1,12 +1,21 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Image, ListChecks } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
+import { LibraryMediaContextMenu } from "@/components/LibraryMediaContextMenu";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { RatingBadge } from "../components/RatingBadge";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { usePlayerQueue } from "../contexts/PlayerContext";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
-import { useShowDetails, useShowEpisodes } from "../queries";
+import { useMarkShowWatched, useShowDetails, useShowEpisodes, useUpdateMediaProgress } from "../queries";
 
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "";
@@ -37,6 +46,8 @@ export function ShowDetail() {
   const { data: episodesData, isLoading: loading, error } = useShowEpisodes(libraryId, showKey);
   const { data: details } = useShowDetails(libraryId, showKey);
   const { playShowGroup } = usePlayerQueue();
+  const markShowWatchedMutation = useMarkShowWatched();
+  const updateProgressMutation = useUpdateMediaProgress();
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<number | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
@@ -102,6 +113,12 @@ export function ShowDetail() {
   const activeSeasonEpisodes =
     activeSeason == null ? [] : (episodesBySeason.map.get(activeSeason) ?? []);
   const activeSeasonLabel = activeSeason == null ? "" : (episodesBySeason.labels.get(activeSeason) ?? "");
+
+  const markActionsDisabled =
+    libraryId == null ||
+    showKey == null ||
+    markShowWatchedMutation.isPending ||
+    sortedEpisodes.length === 0;
 
   const showTitle =
     details?.name ??
@@ -190,15 +207,46 @@ export function ShowDetail() {
 
           <div className="detail-hero-body">
             {posterUrl ? (
-              <div
-                className="detail-hero-poster"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setPosterPickerOpen(true);
-                }}
+              <LibraryMediaContextMenu
+                menu={
+                  <>
+                    <ContextMenuItem
+                      disabled={markActionsDisabled}
+                      onSelect={() => {
+                        if (libraryId == null || showKey == null) return;
+                        const n = sortedEpisodes.length;
+                        void markShowWatchedMutation
+                          .mutateAsync({
+                            libraryId,
+                            showKey,
+                            payload: { mode: "all" },
+                          })
+                          .then(() => {
+                            toast.success(
+                              n === 1
+                                ? "Marked one episode as watched."
+                                : `Marked all ${n} episodes as watched.`,
+                            );
+                          })
+                          .catch(() => {
+                            /* mutation onError */
+                          });
+                      }}
+                    >
+                      <ListChecks className="size-4 text-(--plum-muted)" />
+                      Mark show as watched
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => setPosterPickerOpen(true)}>
+                      <Image className="size-4 text-(--plum-muted)" />
+                      Change poster…
+                    </ContextMenuItem>
+                  </>
+                }
               >
-                <img src={posterUrl} alt="" />
-              </div>
+                <div className="detail-hero-poster">
+                  <img src={posterUrl} alt="" />
+                </div>
+              </LibraryMediaContextMenu>
             ) : null}
 
             <div className="detail-hero-meta">
@@ -271,24 +319,49 @@ export function ShowDetail() {
         <p className="auth-muted">No episodes found for this show.</p>
       ) : (
         <div className="show-detail-seasons">
-          <div className="show-detail-season-picker" role="tablist" aria-label="Select season">
+          <div className="show-detail-season-picker" role="group" aria-label="Select season">
             {episodesBySeason.seasons.map((seasonNum: number) => {
               const label = episodesBySeason.labels.get(seasonNum) ?? "";
               const count = episodesBySeason.map.get(seasonNum)?.length ?? 0;
               const isActive = activeSeason === seasonNum;
               return (
-                <button
-                  key={seasonNum}
-                  ref={isActive ? activeSeasonPillRef : undefined}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  className={`show-detail-season-pill${isActive ? " is-active" : ""}`}
-                  onClick={() => setSelectedSeason(seasonNum)}
-                >
-                  <span>{label}</span>
-                  <span className="show-detail-season-pill__count">{count}</span>
-                </button>
+                <ContextMenu key={seasonNum}>
+                  <ContextMenuTrigger asChild>
+                    <button
+                      ref={isActive ? activeSeasonPillRef : undefined}
+                      type="button"
+                      aria-current={isActive ? "true" : undefined}
+                      className={`show-detail-season-pill${isActive ? " is-active" : ""}`}
+                      onClick={() => setSelectedSeason(seasonNum)}
+                    >
+                      <span>{label}</span>
+                      <span className="show-detail-season-pill__count">{count}</span>
+                    </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      disabled={markActionsDisabled}
+                      onSelect={() => {
+                        if (libraryId == null || showKey == null) return;
+                        void markShowWatchedMutation
+                          .mutateAsync({
+                            libraryId,
+                            showKey,
+                            payload: { mode: "season", season: seasonNum },
+                          })
+                          .then(() => {
+                            toast.success(`Marked “${label || `Season ${seasonNum}`}” as watched.`);
+                          })
+                          .catch(() => {
+                            /* mutation onError */
+                          });
+                      }}
+                    >
+                      <ListChecks className="size-4 text-(--plum-muted)" />
+                      Mark season as watched
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               );
             })}
           </div>
@@ -303,74 +376,139 @@ export function ShowDetail() {
             <ul className="episodes-list show-detail-episodes">
               {activeSeasonEpisodes.map((ep) => (
                 <li key={ep.id} className="episode-row episode-row-detail">
-                  <div className="episode-thumbnail-wrap">
-                    <img
-                      src={
-                        resolvePosterUrl(ep.poster_url, ep.poster_path, "w200", BASE_URL) ||
-                        ep.thumbnail_url ||
-                        `${BASE_URL}/api/media/${ep.id}/thumbnail`
-                      }
-                      alt=""
-                      className="episode-thumbnail"
-                    />
-                  </div>
-                  <span className="episode-season-ep" title={ep.title}>
-                    {seasonEpisodeLabel(ep)}
-                  </span>
-                  <div className="episode-info">
-                    <span className="episode-title" title={ep.title}>
-                      {ep.title}
-                    </span>
-                    {ep.match_status && ep.match_status !== "identified" && (
-                      <span className="episode-release-date">{ep.match_status}</span>
-                    )}
-                    {ep.release_date && <span className="episode-release-date">{ep.release_date}</span>}
-                    {ep.overview && (
-                      <button
-                        type="button"
-                        className="episode-overview-toggle"
-                        onClick={() => setExpandedEpisodeId((id) => (id === ep.id ? null : ep.id))}
-                      >
-                        {expandedEpisodeId === ep.id ? "Hide" : "Show"} summary
-                      </button>
-                    )}
-                    {ep.path.trim() ? (
-                      <div className="mt-2 rounded-md border border-(--plum-border) bg-(--plum-panel-alt) p-2">
-                        <div className="text-[11px] font-medium text-(--plum-text)">
-                          Source file: {fileNameFromPath(ep.path)}
-                        </div>
-                        <div className="break-all font-mono text-[11px] text-(--plum-muted)">
-                          {ep.path}
-                        </div>
-                      </div>
-                    ) : null}
-                    {expandedEpisodeId === ep.id && ep.overview && (
-                      <p className="episode-overview">{ep.overview}</p>
-                    )}
-                    {shouldShowProgress(ep) && (
-                      <div className="mt-2 flex flex-col gap-1">
-                        <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-[#f7c44f]"
-                            style={{ width: `${ep.progress_percent ?? 0}%` }}
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div className="contents">
+                        <div className="episode-thumbnail-wrap">
+                          <img
+                            src={
+                              resolvePosterUrl(ep.poster_url, ep.poster_path, "w200", BASE_URL) ||
+                              ep.thumbnail_url ||
+                              `${BASE_URL}/api/media/${ep.id}/thumbnail`
+                            }
+                            alt=""
+                            className="episode-thumbnail"
                           />
                         </div>
-                        <span className="text-xs text-(--plum-muted)">
-                          {formatRemainingTime(ep.remaining_seconds)}
+                        <span className="episode-season-ep" title={ep.title}>
+                          {seasonEpisodeLabel(ep)}
                         </span>
+                        <div className="episode-info">
+                          <span className="episode-title" title={ep.title}>
+                            {ep.title}
+                          </span>
+                          {ep.match_status && ep.match_status !== "identified" && (
+                            <span className="episode-release-date">{ep.match_status}</span>
+                          )}
+                          {ep.release_date && (
+                            <span className="episode-release-date">{ep.release_date}</span>
+                          )}
+                          {ep.overview && (
+                            <button
+                              type="button"
+                              className="episode-overview-toggle"
+                              onClick={() =>
+                                setExpandedEpisodeId((id) => (id === ep.id ? null : ep.id))
+                              }
+                            >
+                              {expandedEpisodeId === ep.id ? "Hide" : "Show"} summary
+                            </button>
+                          )}
+                          {ep.path.trim() ? (
+                            <div className="mt-2 rounded-md border border-(--plum-border) bg-(--plum-panel-alt) p-2">
+                              <div className="text-[11px] font-medium text-(--plum-text)">
+                                Source file: {fileNameFromPath(ep.path)}
+                              </div>
+                              <div className="break-all font-mono text-[11px] text-(--plum-muted)">
+                                {ep.path}
+                              </div>
+                            </div>
+                          ) : null}
+                          {expandedEpisodeId === ep.id && ep.overview && (
+                            <p className="episode-overview">{ep.overview}</p>
+                          )}
+                          {shouldShowProgress(ep) && (
+                            <div className="mt-2 flex flex-col gap-1">
+                              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                                <div
+                                  className="h-full rounded-full bg-[#f7c44f]"
+                                  style={{ width: `${ep.progress_percent ?? 0}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-(--plum-muted)">
+                                {formatRemainingTime(ep.remaining_seconds)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        {ep.duration > 0 && (
+                          <span className="episode-duration">{formatDuration(ep.duration)}</span>
+                        )}
+                        <button
+                          type="button"
+                          className="play-button small"
+                          onClick={() => playShowGroup(episodes, ep)}
+                        >
+                          Play
+                        </button>
                       </div>
-                    )}
-                  </div>
-                  {ep.duration > 0 && (
-                    <span className="episode-duration">{formatDuration(ep.duration)}</span>
-                  )}
-                  <button
-                    type="button"
-                    className="play-button small"
-                    onClick={() => playShowGroup(episodes, ep)}
-                  >
-                    Play
-                  </button>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        disabled={updateProgressMutation.isPending}
+                        onSelect={() => {
+                          if (libraryId == null) return;
+                          void updateProgressMutation
+                            .mutateAsync({
+                              mediaId: ep.id,
+                              payload: {
+                                position_seconds: 0,
+                                duration_seconds: ep.duration > 0 ? ep.duration : 1,
+                                completed: true,
+                              },
+                              libraryId,
+                            })
+                            .then(() => {
+                              toast.success(`Marked ${formatEpisodeLabel(ep)} as watched.`);
+                            })
+                            .catch(() => {
+                              /* mutation onError */
+                            });
+                        }}
+                      >
+                        <ListChecks className="size-4 text-(--plum-muted)" />
+                        Mark as watched
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={markActionsDisabled}
+                        onSelect={() => {
+                          if (libraryId == null || showKey == null) return;
+                          const s = ep.season ?? 0;
+                          const e = ep.episode ?? 0;
+                          void markShowWatchedMutation
+                            .mutateAsync({
+                              libraryId,
+                              showKey,
+                              payload: { mode: "up_to", season: s, episode: e },
+                            })
+                            .then(() => {
+                              const label = formatEpisodeLabel(ep);
+                              toast.success(
+                                label
+                                  ? `Marked every episode before ${label} as watched.`
+                                  : "Marked earlier episodes as watched.",
+                              );
+                            })
+                            .catch(() => {
+                              /* mutation onError */
+                            });
+                        }}
+                      >
+                        <ListChecks className="size-4 text-(--plum-muted)" />
+                        Mark earlier episodes as watched
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 </li>
               ))}
             </ul>

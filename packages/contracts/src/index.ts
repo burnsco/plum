@@ -342,6 +342,24 @@ export const UpdateMediaProgressPayloadSchema = Schema.Struct({
   completed: Schema.optional(Schema.Boolean),
 });
 
+/** Body for `PUT /api/libraries/{id}/shows/{showKey}/watched`. */
+export const MarkShowWatchedPayloadSchema = Schema.Union([
+  Schema.Struct({
+    mode: Schema.Literal("all"),
+  }),
+  Schema.Struct({
+    mode: Schema.Literal("season"),
+    season: Schema.Number,
+  }),
+  Schema.Struct({
+    mode: Schema.Literal("up_to"),
+    season: Schema.Number,
+    episode: Schema.Number,
+  }),
+]);
+
+export type MarkShowWatchedPayload = Schema.Schema.Type<typeof MarkShowWatchedPayloadSchema>;
+
 export interface SetContinueWatchingVisibilityPayload {
   hidden: boolean;
 }
@@ -925,6 +943,10 @@ export interface MovieDetails {
   imdb_id?: string;
   imdb_rating?: number;
   runtime?: number;
+  /** From `playback_progress`; drives resume in the player when starting from the detail page. */
+  progress_seconds?: number;
+  progress_percent?: number;
+  completed?: boolean;
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
@@ -947,6 +969,9 @@ export const MovieDetailsSchema = Schema.Struct({
   imdb_id: Schema.optional(Schema.String),
   imdb_rating: Schema.optional(Schema.Number),
   runtime: Schema.optional(Schema.Number),
+  progress_seconds: Schema.optional(Schema.Number),
+  progress_percent: Schema.optional(Schema.Number),
+  completed: Schema.optional(Schema.Boolean),
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),

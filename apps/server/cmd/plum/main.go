@@ -336,6 +336,7 @@ func buildRouter(
 		protected.Get("/api/libraries/{id}/shows/{showKey}/details", libHandler.GetLibraryShowDetails)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/episodes", libHandler.GetLibraryShowEpisodes)
 		protected.Delete("/api/libraries/{id}/shows/{showKey}/progress", libHandler.ClearShowProgress)
+		protected.Put("/api/libraries/{id}/shows/{showKey}/watched", libHandler.MarkShowWatched)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster/candidates", libHandler.GetShowPosterCandidates)
 		protected.Put("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.SetShowPosterSelection)
 		protected.Delete("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.ResetShowPosterSelection)

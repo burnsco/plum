@@ -97,6 +97,9 @@ class PlayerViewModel @Inject constructor(
         controller.togglePlayPause()
     }
 
+    /** Episode or movie currently loaded (for navigation return focus). */
+    fun currentPlaybackMediaId(): Int = controller.currentPlaybackMediaId()
+
     fun pauseWhenBackgrounded() {
         controller.pauseWhenBackgrounded()
     }

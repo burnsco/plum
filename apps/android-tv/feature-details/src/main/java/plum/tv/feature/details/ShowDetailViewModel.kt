@@ -36,8 +36,16 @@ sealed interface ShowDetailUiState {
 class ShowDetailViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
     catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    companion object {
+        const val RETURN_FOCUS_EPISODE_MEDIA_ID = "plum_return_focus_episode_media_id"
+    }
+
+    /** Set on the nav back stack when closing the player from this show; `<= 0` means none. */
+    val returnFocusEpisodeMediaId: StateFlow<Int> =
+        savedStateHandle.getStateFlow(RETURN_FOCUS_EPISODE_MEDIA_ID, -1)
 
     private val libraryId: Int = savedStateHandle.get<Int>("libraryId")!!
     private val showKeyEncoded: String = savedStateHandle.get<String>("showKey")!!
@@ -97,5 +105,19 @@ class ShowDetailViewModel @Inject constructor(
                     selectedSeasonIndex = index,
                 )
         }
+    }
+
+    /** Selects the season row that contains [mediaId] (e.g. after prev/next episode in the player). */
+    fun ensureSeasonSelectedForMediaId(mediaId: Int) {
+        val cur = _state.value
+        if (cur !is ShowDetailUiState.Ready) return
+        val idx = cur.seasons.indexOfFirst { se -> se.episodes.any { it.id == mediaId } }
+        if (idx >= 0 && idx != cur.selectedSeasonIndex) {
+            _state.value = cur.copy(selectedSeasonIndex = idx)
+        }
+    }
+
+    fun clearReturnFocusEpisodeRequest() {
+        savedStateHandle[RETURN_FOCUS_EPISODE_MEDIA_ID] = -1
     }
 }
