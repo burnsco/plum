@@ -98,6 +98,7 @@ export type {
   SearchResponse,
   SeriesDetails,
   SeriesSearchResult,
+  SetContinueWatchingVisibilityPayload,
   AdminActivePlaybackResponse,
   AdminLogsResponse,
   AdminMaintenanceRunRequest,

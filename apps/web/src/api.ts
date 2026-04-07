@@ -79,6 +79,7 @@ export type {
   ServerEnvSettingsResponse,
   ServerEnvSettingsUpdate,
   SetPosterSelectionPayload,
+  SetContinueWatchingVisibilityPayload,
   ShowMetadataArtworkFetchers,
   SeriesDetails,
   SeriesSearchResult,
@@ -181,6 +182,9 @@ export const {
   identifyShow,
   identifyMovie,
   updateMediaProgress,
+  clearMediaProgress,
+  clearShowProgress,
+  setContinueWatchingVisibility,
 } = client;
 
 export function fetchLibraryMedia(

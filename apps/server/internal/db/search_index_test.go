@@ -105,4 +105,7 @@ func TestGetLibraryMovieDetails_ConvertsRuntimeToMinutes(t *testing.T) {
 	if details.VoteAverage != 7.4 {
 		t.Fatalf("expected vote average 7.4, got %.1f", details.VoteAverage)
 	}
+	if details.SourcePath != "/movies/runtime-test.mp4" {
+		t.Fatalf("expected source path to be populated, got %q", details.SourcePath)
+	}
 }

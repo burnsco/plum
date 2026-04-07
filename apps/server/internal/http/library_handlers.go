@@ -3286,6 +3286,119 @@ func (h *LibraryHandler) UpdateMediaProgress(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *LibraryHandler) SetContinueWatchingVisibility(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	mediaID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || mediaID <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	item, err := db.GetMediaByID(h.DB, mediaID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if item == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	var ownerID int
+	if err := h.DB.QueryRow(`SELECT user_id FROM libraries WHERE id = ?`, item.LibraryID).Scan(&ownerID); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var payload setContinueWatchingVisibilityRequest
+	if !decodeRequestJSON(w, r, &payload) {
+		return
+	}
+	if err := db.SetPlaybackProgressContinueWatchingHidden(h.DB, u.ID, mediaID, payload.Hidden); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *LibraryHandler) ClearMediaProgress(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	mediaID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || mediaID <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	item, err := db.GetMediaByID(h.DB, mediaID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if item == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	var ownerID int
+	if err := h.DB.QueryRow(`SELECT user_id FROM libraries WHERE id = ?`, item.LibraryID).Scan(&ownerID); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := db.ResetPlaybackProgressForUser(h.DB, u.ID, mediaID); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *LibraryHandler) ClearShowProgress(w http.ResponseWriter, r *http.Request) {
+	u := UserFromContext(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	libraryID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || libraryID <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	showKey := chi.URLParam(r, "showKey")
+	if strings.TrimSpace(showKey) == "" {
+		http.Error(w, "invalid show key", http.StatusBadRequest)
+		return
+	}
+	var ownerID int
+	var libraryType string
+	if err := h.DB.QueryRow(`SELECT user_id, type FROM libraries WHERE id = ?`, libraryID).Scan(&ownerID, &libraryType); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != u.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if libraryType != db.LibraryTypeTV && libraryType != db.LibraryTypeAnime {
+		http.Error(w, "invalid media type", http.StatusBadRequest)
+		return
+	}
+	if err := db.ClearShowPlaybackProgressForUser(h.DB, u.ID, libraryID, libraryType, showKey); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *LibraryHandler) GetMovieSearch(w http.ResponseWriter, r *http.Request) {
 	u := UserFromContext(r.Context())
 	if u == nil {
@@ -3693,6 +3806,10 @@ type updateMediaProgressRequest struct {
 	PositionSeconds float64 `json:"position_seconds"`
 	DurationSeconds float64 `json:"duration_seconds"`
 	Completed       bool    `json:"completed"`
+}
+
+type setContinueWatchingVisibilityRequest struct {
+	Hidden bool `json:"hidden"`
 }
 
 type playbackRefreshProgress struct {

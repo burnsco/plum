@@ -185,6 +185,7 @@ JOIN media_global g ON g.id = pp.media_id AND g.kind = 'movie'
 JOIN movies m ON g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
 WHERE pp.user_id = ? AND pp.completed = 0 AND pp.progress_percent > 0
+  AND COALESCE(pp.hide_from_continue_watching, 0) = 0
   AND COALESCE(m.missing_since, '') = ''`
 	rows, err := db.Query(q, userID, userID)
 	if err != nil {
@@ -259,7 +260,7 @@ FROM playback_progress pp
 JOIN media_global g ON g.id = pp.media_id AND g.kind = 'tv'
 JOIN tv_episodes m ON g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
-WHERE pp.user_id = ? AND COALESCE(m.missing_since, '') = ''`
+WHERE pp.user_id = ? AND COALESCE(pp.hide_from_continue_watching, 0) = 0 AND COALESCE(m.missing_since, '') = ''`
 	if err := collectDistinctShowKeys(db, tvQ, userID, userID, LibraryTypeTV, seen, &keys); err != nil {
 		return nil, err
 	}
@@ -268,7 +269,7 @@ FROM playback_progress pp
 JOIN media_global g ON g.id = pp.media_id AND g.kind = 'anime'
 JOIN anime_episodes m ON g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
-WHERE pp.user_id = ? AND COALESCE(m.missing_since, '') = ''`
+WHERE pp.user_id = ? AND COALESCE(pp.hide_from_continue_watching, 0) = 0 AND COALESCE(m.missing_since, '') = ''`
 	if err := collectDistinctShowKeys(db, animeQ, userID, userID, LibraryTypeAnime, seen, &keys); err != nil {
 		return nil, err
 	}
@@ -1293,8 +1294,8 @@ func UpsertPlaybackProgress(db *sql.DB, userID, mediaID int, positionSeconds, du
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(`
 INSERT INTO playback_progress (
-  user_id, media_id, position_seconds, duration_seconds, progress_percent, completed, last_watched_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  user_id, media_id, position_seconds, duration_seconds, progress_percent, completed, hide_from_continue_watching, last_watched_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 ON CONFLICT(user_id, media_id) DO UPDATE SET
   position_seconds = excluded.position_seconds,
   duration_seconds = excluded.duration_seconds,
@@ -1312,6 +1313,91 @@ ON CONFLICT(user_id, media_id) DO UPDATE SET
 		now,
 		now,
 		now,
+	)
+	return err
+}
+
+func SetPlaybackProgressContinueWatchingHidden(db *sql.DB, userID int, mediaID int, hidden bool) error {
+	if db == nil || userID <= 0 || mediaID <= 0 {
+		return fmt.Errorf("invalid playback hide args")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	hiddenInt := 0
+	if hidden {
+		hiddenInt = 1
+	}
+	_, err := db.Exec(`
+INSERT INTO playback_progress (
+  user_id, media_id, position_seconds, duration_seconds, progress_percent, completed, hide_from_continue_watching, last_watched_at, created_at, updated_at
+) VALUES (?, ?, 0, 0, 0, 0, ?, NULL, ?, ?)
+ON CONFLICT(user_id, media_id) DO UPDATE SET
+  hide_from_continue_watching = excluded.hide_from_continue_watching,
+  updated_at = excluded.updated_at
+`,
+		userID,
+		mediaID,
+		hiddenInt,
+		now,
+		now,
+	)
+	return err
+}
+
+func DeletePlaybackProgress(db *sql.DB, userID int, mediaID int) error {
+	if db == nil || userID <= 0 || mediaID <= 0 {
+		return fmt.Errorf("invalid playback delete args")
+	}
+	_, err := db.Exec(`DELETE FROM playback_progress WHERE user_id = ? AND media_id = ?`, userID, mediaID)
+	return err
+}
+
+func ResetPlaybackProgressForUser(db *sql.DB, userID int, mediaID int) error {
+	if db == nil || userID <= 0 || mediaID <= 0 {
+		return fmt.Errorf("invalid playback reset args")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.Exec(`
+INSERT INTO playback_progress (
+  user_id, media_id, position_seconds, duration_seconds, progress_percent, completed, hide_from_continue_watching, last_watched_at, created_at, updated_at
+) VALUES (?, ?, 0, 0, 0, 0, 1, NULL, ?, ?)
+ON CONFLICT(user_id, media_id) DO UPDATE SET
+  position_seconds = 0,
+  duration_seconds = 0,
+  progress_percent = 0,
+  completed = 0,
+  hide_from_continue_watching = 1,
+  last_watched_at = NULL,
+  updated_at = excluded.updated_at
+`,
+		userID,
+		mediaID,
+		now,
+		now,
+	)
+	return err
+}
+
+func ClearShowPlaybackProgressForUser(db *sql.DB, userID int, libraryID int, libraryType string, showKey string) error {
+	if db == nil || userID <= 0 || libraryID <= 0 || showKey == "" {
+		return fmt.Errorf("invalid clear show progress args")
+	}
+	items, err := GetMediaByLibraryIDAndShowKey(db, libraryID, libraryType, showKey)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	placeholders := make([]string, 0, len(items))
+	args := make([]any, 0, len(items)+1)
+	args = append(args, userID)
+	for _, item := range items {
+		placeholders = append(placeholders, "?")
+		args = append(args, item.ID)
+	}
+	_, err = db.Exec(
+		`DELETE FROM playback_progress WHERE user_id = ? AND media_id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...,
 	)
 	return err
 }

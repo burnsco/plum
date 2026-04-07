@@ -110,6 +110,14 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	if err := db.SetPlaybackProgressContinueWatchingHidden(h.DB, user.ID, media.ID, false); err != nil {
+		slog.Warn(
+			"playback: failed to mark continue-watching visible on session start",
+			"user_id", user.ID,
+			"media_id", media.ID,
+			"error", err,
+		)
+	}
 	if _, err := db.RefreshPlaybackTrackMetadata(r.Context(), h.DB, media); err != nil {
 		writePlaybackError(w, err)
 		return

@@ -19,6 +19,13 @@ function formatRuntime(minutes?: number): string {
   return `${hours}h ${mins}m`;
 }
 
+function fileNameFromPath(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed === "") return "";
+  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+}
+
 export function MovieDetail() {
   const { libraryId: libraryIdParam, mediaId: mediaIdParam } = useParams();
   const libraryId = libraryIdParam ? Number(libraryIdParam) : null;
@@ -144,6 +151,14 @@ export function MovieDetail() {
                   Change poster…
                 </button>
               </div>
+              {details.source_path?.trim() ? (
+                <div className="space-y-1 rounded-lg border border-white/15 bg-black/20 p-3 text-xs text-white/80">
+                  <div className="font-medium text-white/90">
+                    Source file: {fileNameFromPath(details.source_path)}
+                  </div>
+                  <div className="break-all font-mono text-white/65">{details.source_path}</div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

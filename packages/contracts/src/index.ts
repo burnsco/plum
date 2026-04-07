@@ -342,6 +342,14 @@ export const UpdateMediaProgressPayloadSchema = Schema.Struct({
   completed: Schema.optional(Schema.Boolean),
 });
 
+export interface SetContinueWatchingVisibilityPayload {
+  hidden: boolean;
+}
+
+export const SetContinueWatchingVisibilityPayloadSchema = Schema.Struct({
+  hidden: Schema.Boolean,
+});
+
 export type PlaybackSessionStatus = "starting" | "ready" | "error" | "closed";
 
 export const PlaybackSessionStatusSchema = Schema.Literals([
@@ -906,6 +914,7 @@ export interface MovieDetails {
   media_id: number;
   library_id: number;
   title: string;
+  source_path?: string;
   overview: string;
   poster_path?: string;
   poster_url?: string;
@@ -927,6 +936,7 @@ export const MovieDetailsSchema = Schema.Struct({
   media_id: Schema.Number,
   library_id: Schema.Number,
   title: Schema.String,
+  source_path: Schema.optional(Schema.String),
   overview: Schema.String,
   poster_path: Schema.optional(Schema.String),
   poster_url: Schema.optional(Schema.String),

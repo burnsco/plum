@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { buildBackendUrl } from "@plum/shared";
+import { embeddedSubtitleNeedsWebBurnIn } from "@plum/shared";
 import {
   BASE_URL,
   PLAYBACK_STREAM_BASE_URL,
@@ -32,12 +33,21 @@ import {
 import {
   clampVideoSeekSeconds,
   detectClientPlaybackCapabilities,
+  formatTrackLabel,
+  getPreferredSubtitleKey,
+  type SubtitleTrackOption,
 } from "../lib/playback/playerMedia";
 import { ignorePromise, ignorePromiseAlwaysLogUnexpected } from "../lib/ignorePromise";
 import { sortMusicTracks } from "../lib/musicGrouping";
 import { getShowKey, sortEpisodes } from "../lib/showGrouping";
 import { useLibraries } from "../queries";
 import { useWs } from "./WsContext";
+import {
+  normalizeLanguagePreference,
+  PLAYER_WEB_TRACK_LANGUAGE_NONE,
+  readStoredPlayerWebDefaults,
+  resolveEffectiveWebTrackDefaults,
+} from "../lib/playbackPreferences";
 
 export type PlaybackKind = "video" | "music";
 /** Video is always `window` (theater: fixed overlay filling the viewport). Display fullscreen uses the Fullscreen API separately. Music ignores layout and uses the in-page bar on the music library view. */
@@ -155,6 +165,68 @@ function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState 
 
 function playbackStatusMessage(status: VideoSessionState["status"]): string {
   return status === "ready" ? "Stream ready" : "Preparing stream...";
+}
+
+function buildInitialSubtitleTrackOptions(item: MediaItem): SubtitleTrackOption[] {
+  const embedded =
+    item.embeddedSubtitles?.map((subtitle, index) => {
+      const requiresBurn = embeddedSubtitleNeedsWebBurnIn(subtitle);
+      return {
+        key: `emb-${subtitle.streamIndex}`,
+        label: formatTrackLabel(
+          subtitle.title,
+          subtitle.language,
+          `Embedded subtitle ${index + 1}`,
+        ),
+        src: "",
+        srcLang: subtitle.language || "und",
+        supported: subtitle.supported !== false,
+        requiresBurn,
+      };
+    }) ?? [];
+  return embedded;
+}
+
+function resolveInitialBurnSubtitleStreamIndex(
+  item: MediaItem,
+  libraryPrefs: ReturnType<typeof resolveLibraryPlaybackPreferences>,
+): number | null {
+  const effectiveDefaults = resolveEffectiveWebTrackDefaults(
+    item,
+    readStoredPlayerWebDefaults(),
+  );
+  const subtitlesDisabledByClient =
+    effectiveDefaults.defaultSubtitleLanguage.trim() === PLAYER_WEB_TRACK_LANGUAGE_NONE;
+  const subtitlesEnabled =
+    !subtitlesDisabledByClient && libraryPrefs.subtitlesEnabledByDefault;
+  if (!subtitlesEnabled) return null;
+
+  const preferredSubtitleLanguageRaw =
+    effectiveDefaults.defaultSubtitleLanguage.trim() !== ""
+      ? effectiveDefaults.defaultSubtitleLanguage
+      : libraryPrefs.preferredSubtitleLanguage;
+  const preferredSubtitleLanguage =
+    normalizeLanguagePreference(preferredSubtitleLanguageRaw);
+  if (preferredSubtitleLanguage === "") return null;
+
+  const subtitleLabelHint =
+    effectiveDefaults.defaultSubtitleLanguage.trim() !== ""
+      ? effectiveDefaults.defaultSubtitleLabelHint.trim()
+      : "";
+  const preferredSubtitleKey = getPreferredSubtitleKey(
+    buildInitialSubtitleTrackOptions(item),
+    preferredSubtitleLanguage,
+    true,
+    subtitleLabelHint,
+  );
+  if (!preferredSubtitleKey.startsWith("emb-")) return null;
+  const streamIndex = Number(preferredSubtitleKey.slice(4));
+  if (!Number.isFinite(streamIndex)) return null;
+  const selected = item.embeddedSubtitles?.find((track) => track.streamIndex === streamIndex);
+  if (!selected || !embeddedSubtitleNeedsWebBurnIn(selected)) {
+    return null;
+  }
+  return streamIndex;
 }
 
 /** Track / stream / dock chrome — updates on item switch, WS, duration, etc. */
@@ -460,10 +532,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         activeLibrary ?? { type: nextItem.type },
       );
       const preferredAudioLanguage = resolveEffectivePreferredAudioLanguage(nextItem, libraryPrefs);
-      createClientPlaybackSession(
+      const burnEmbeddedSubtitleStreamIndex = resolveInitialBurnSubtitleStreamIndex(
         nextItem,
-        preferredInitialAudioIndex(nextItem, preferredAudioLanguage),
-      )
+        libraryPrefs,
+      );
+      createClientPlaybackSession(nextItem, preferredInitialAudioIndex(nextItem, preferredAudioLanguage), {
+        burnEmbeddedSubtitleStreamIndex: burnEmbeddedSubtitleStreamIndex ?? undefined,
+      })
         .then((session) => {
           if (!mountedRef.current) return;
           applyPlaybackSession(session);
@@ -510,19 +585,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const activeLibrary =
         libraries.find((library) => library.id === nextItem.library_id) ?? null;
       const libraryPrefs = resolveLibraryPlaybackPreferences(activeLibrary ?? { type: nextItem.type });
+      const activeAudioTrack =
+        activeItem?.embeddedAudioTracks?.find(
+          (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
+        ) ?? null;
       const preferredAudioLanguage =
-        activeItem?.embeddedAudioTracks?.find(
-          (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
-        )?.language ||
-        activeItem?.embeddedAudioTracks?.find(
-          (track) => track.streamIndex === videoSessionRef.current?.audioIndex,
-        )?.title ||
+        activeAudioTrack?.language ||
+        activeAudioTrack?.title ||
         resolveEffectivePreferredAudioLanguage(nextItem, libraryPrefs);
+      const burnEmbeddedSubtitleStreamIndex =
+        videoSessionRef.current?.burnEmbeddedSubtitleStreamIndex ??
+        resolveInitialBurnSubtitleStreamIndex(nextItem, libraryPrefs);
       ignorePromiseAlwaysLogUnexpected(warmEmbeddedSubtitleCaches(nextItem.id), "Player:warmEmbeddedSubtitles");
-      createClientPlaybackSession(
-        nextItem,
-        preferredInitialAudioIndex(nextItem, preferredAudioLanguage),
-      )
+      createClientPlaybackSession(nextItem, preferredInitialAudioIndex(nextItem, preferredAudioLanguage), {
+        burnEmbeddedSubtitleStreamIndex: burnEmbeddedSubtitleStreamIndex ?? undefined,
+      })
         .then((session) => {
           if (!mountedRef.current) return;
           applyPlaybackSession(session);

@@ -3825,6 +3825,73 @@ func TestLibraryScanManager_StartEnrichmentMarksQueuedBeforeWorkerSlotOpens(t *t
 	}
 }
 
+func TestLibraryScanManager_StartEnrichmentUsesPriorityLaneForTargetedScan(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	originalEnrichment := enrichLibraryTasks
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	enrichLibraryTasks = func(
+		ctx context.Context,
+		dbConn *sql.DB,
+		root, mediaType string,
+		libraryID int,
+		tasks []db.EnrichmentTask,
+		options db.ScanOptions,
+	) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return nil
+	}
+	t.Cleanup(func() {
+		enrichLibraryTasks = originalEnrichment
+		close(release)
+	})
+
+	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
+	manager.mu.Lock()
+	manager.jobs[2] = libraryScanStatus{
+		LibraryID:       2,
+		Phase:           libraryScanPhaseCompleted,
+		IdentifyPhase:   libraryIdentifyPhaseIdle,
+		MaxRetries:      3,
+		StartedAt:       time.Now().UTC().Format(time.RFC3339),
+		FinishedAt:      time.Now().UTC().Format(time.RFC3339),
+		EnrichmentPhase: libraryEnrichmentPhaseIdle,
+	}
+	manager.paths[2] = "/library"
+	manager.types[2] = db.LibraryTypeTV
+	manager.mu.Unlock()
+
+	// Keep the standard lane occupied; targeted scans should still run via the priority lane.
+	manager.enrichSem <- struct{}{}
+	defer func() { <-manager.enrichSem }()
+
+	manager.startEnrichment(2, db.LibraryTypeTV, "/library", []string{"Show A"}, []db.EnrichmentTask{{
+		LibraryID: 2,
+		Kind:      db.LibraryTypeTV,
+		Path:      "/library/Show A/episode.mkv",
+	}}, false)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected targeted enrichment to start while standard lane is blocked")
+	}
+
+	status := manager.status(2)
+	if !status.Enriching || status.EnrichmentPhase != libraryEnrichmentPhaseRunning {
+		t.Fatalf("expected priority enrichment running, got %+v", status)
+	}
+}
+
 func TestLibraryScanManager_EnrichmentFailureMarksJobFailedAndSchedulesRetry(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {
@@ -5303,6 +5370,260 @@ func TestRefreshLibraryPlaybackTracks_ForbiddenWrongUser(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSetContinueWatchingVisibilityUpdatesProgressRow(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"cw@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var movieID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Visibility Movie",
+		"/movies/visibility.mkv",
+		3600,
+		db.MatchStatusLocal,
+	).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`,
+		db.LibraryTypeMovie,
+		movieID,
+	).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if err := db.UpsertPlaybackProgress(dbConn, userID, mediaID, 600, 3600, false); err != nil {
+		t.Fatalf("seed progress: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/media/"+strconv.Itoa(mediaID)+"/continue-watching",
+		strings.NewReader(`{"hidden":true}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(mediaID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.SetContinueWatchingVisibility(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var hidden int
+	if err := dbConn.QueryRow(
+		`SELECT COALESCE(hide_from_continue_watching, 0) FROM playback_progress WHERE user_id = ? AND media_id = ?`,
+		userID,
+		mediaID,
+	).Scan(&hidden); err != nil {
+		t.Fatalf("query progress visibility: %v", err)
+	}
+	if hidden != 1 {
+		t.Fatalf("expected hidden=1, got %d", hidden)
+	}
+}
+
+func TestClearMediaProgressResetsAndHidesContinueWatching(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"clear-media@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"Movies",
+		db.LibraryTypeMovie,
+		"/movies",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var movieID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		libraryID,
+		"Clear Progress Movie",
+		"/movies/clear-progress.mkv",
+		5400,
+		db.MatchStatusLocal,
+	).Scan(&movieID); err != nil {
+		t.Fatalf("insert movie: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`,
+		db.LibraryTypeMovie,
+		movieID,
+	).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if err := db.UpsertPlaybackProgress(dbConn, userID, mediaID, 1200, 5400, false); err != nil {
+		t.Fatalf("seed progress: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(http.MethodDelete, "/api/media/"+strconv.Itoa(mediaID)+"/progress", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(mediaID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ClearMediaProgress(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var position, percent float64
+	var completed, hidden int
+	if err := dbConn.QueryRow(
+		`SELECT position_seconds, progress_percent, completed, COALESCE(hide_from_continue_watching, 0) FROM playback_progress WHERE user_id = ? AND media_id = ?`,
+		userID,
+		mediaID,
+	).Scan(&position, &percent, &completed, &hidden); err != nil {
+		t.Fatalf("query reset progress: %v", err)
+	}
+	if position != 0 || percent != 0 || completed != 0 || hidden != 1 {
+		t.Fatalf("unexpected reset row: position=%.2f percent=%.2f completed=%d hidden=%d", position, percent, completed, hidden)
+	}
+}
+
+func TestClearShowProgressDeletesProgressForShowEpisodes(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`,
+		"clear-show@test.com",
+		"hash",
+		now,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(
+		`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID,
+		"TV",
+		db.LibraryTypeTV,
+		"/tv",
+		now,
+	).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	insertEpisode := func(title string, episodeNum int) int {
+		t.Helper()
+		var episodeID int
+		if err := dbConn.QueryRow(
+			`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, tmdb_id, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			libraryID,
+			title,
+			"/tv/"+title,
+			1800,
+			db.MatchStatusLocal,
+			777,
+			1,
+			episodeNum,
+		).Scan(&episodeID); err != nil {
+			t.Fatalf("insert episode: %v", err)
+		}
+		var mediaID int
+		if err := dbConn.QueryRow(
+			`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`,
+			db.LibraryTypeTV,
+			episodeID,
+		).Scan(&mediaID); err != nil {
+			t.Fatalf("insert media_global: %v", err)
+		}
+		return mediaID
+	}
+
+	mediaA := insertEpisode("Clear Show - S01E01", 1)
+	mediaB := insertEpisode("Clear Show - S01E02", 2)
+	if err := db.UpsertPlaybackProgress(dbConn, userID, mediaA, 300, 1800, false); err != nil {
+		t.Fatalf("seed progress A: %v", err)
+	}
+	if err := db.UpsertPlaybackProgress(dbConn, userID, mediaB, 450, 1800, false); err != nil {
+		t.Fatalf("seed progress B: %v", err)
+	}
+
+	handler := &LibraryHandler{DB: dbConn}
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/libraries/"+strconv.Itoa(libraryID)+"/shows/tmdb-777/progress",
+		nil,
+	)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	rctx.URLParams.Add("showKey", "tmdb-777")
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ClearShowProgress(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var remaining int
+	if err := dbConn.QueryRow(
+		`SELECT COUNT(*) FROM playback_progress WHERE user_id = ? AND media_id IN (?, ?)`,
+		userID,
+		mediaA,
+		mediaB,
+	).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining progress: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected no remaining show progress rows, got %d", remaining)
 	}
 }
 

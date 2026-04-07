@@ -1,10 +1,13 @@
 import type { HomeDashboard, RecentlyAddedEntry } from "@/api";
+import { DashboardCardContextMenu } from "@/components/home/DashboardCardContextMenu";
 import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
 import { usePlayerQueue } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
 import { getPreferredMovieRating, getPreferredShowRatingFromBrowseEpisode } from "@/lib/ratings";
-import { useHomeDashboard } from "@/queries";
+import { useClearMediaProgress, useClearShowProgress, useHomeDashboard } from "@/queries";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 type DashboardEntry =
   | HomeDashboard["continueWatching"][number]
@@ -171,12 +174,55 @@ const RECENT_RAILS: RecentRailConfig[] = [
 ];
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const { data, error, isLoading, refetch } = useHomeDashboard();
   const { playEpisode, playMovie } = usePlayerQueue();
+  const clearMediaProgressMutation = useClearMediaProgress();
+  const clearShowProgressMutation = useClearShowProgress();
+
+  const buildDashboardCard = (entry: DashboardEntry, shelf: DashboardShelf): PosterGridItem => {
+    const card = toPosterGridItem(entry, shelf, playMovie, playEpisode);
+    const detailHref = dashboardDetailHref(entry);
+    return {
+      ...card,
+      contextMenuContent: (
+        <DashboardCardContextMenu
+          canOpenDetails={Boolean(detailHref)}
+          canRemoveFromContinueWatching={shelf === "continueWatching"}
+          removeDisabled={clearMediaProgressMutation.isPending || clearShowProgressMutation.isPending}
+          onPlay={() => card.onPlay?.()}
+          onOpenDetails={() => {
+            if (detailHref) navigate(detailHref);
+          }}
+          onRemoveFromContinueWatching={() => {
+            const isShowEntry = (entry.kind === "show" || entry.kind === "episode") && !!entry.show_key;
+            const clearOp = isShowEntry && entry.media.library_id
+              ? clearShowProgressMutation.mutateAsync({
+                  libraryId: entry.media.library_id,
+                  showKey: entry.show_key!,
+                })
+              : clearMediaProgressMutation.mutateAsync({
+                  mediaId: entry.media.id,
+                  libraryId: entry.media.library_id ?? undefined,
+                });
+            void clearOp
+              .then(() => {
+                toast.success(`Removed “${getDashboardEntryTitle(entry)}” from continue watching.`);
+              })
+              .catch((err: unknown) => {
+                toast.error(
+                  err instanceof Error ? err.message : "Could not remove item from continue watching.",
+                );
+              });
+          }}
+        />
+      ),
+    };
+  };
 
   const continueWatchingCards: PosterGridItem[] =
     data?.continueWatching.map((entry) =>
-      toPosterGridItem(entry, "continueWatching", playMovie, playEpisode),
+      buildDashboardCard(entry, "continueWatching"),
     ) ?? [];
 
   const railData = RECENT_RAILS.map((rail) => ({
@@ -240,7 +286,7 @@ export function Dashboard() {
 
           {railData.map((rail) => {
             const cards: PosterGridItem[] = rail.entries.map((entry) =>
-              toPosterGridItem(entry, rail.shelf, playMovie, playEpisode),
+              buildDashboardCard(entry, rail.shelf),
             );
             const n = rail.entries.length;
             const plural = n === 1 ? "" : "s";

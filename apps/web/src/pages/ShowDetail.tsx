@@ -22,6 +22,13 @@ function seasonEpisodeLabel(item: MediaItem): string {
   return "";
 }
 
+function fileNameFromPath(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed === "") return "";
+  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+}
+
 export function ShowDetail() {
   const { libraryId: libraryIdParam, showKey: showKeyEncoded } = useParams();
   const libraryId = libraryIdParam ? parseInt(libraryIdParam, 10) : null;
@@ -327,6 +334,16 @@ export function ShowDetail() {
                         {expandedEpisodeId === ep.id ? "Hide" : "Show"} summary
                       </button>
                     )}
+                    {ep.path.trim() ? (
+                      <div className="mt-2 rounded-md border border-(--plum-border) bg-(--plum-panel-alt) p-2">
+                        <div className="text-[11px] font-medium text-(--plum-text)">
+                          Source file: {fileNameFromPath(ep.path)}
+                        </div>
+                        <div className="break-all font-mono text-[11px] text-(--plum-muted)">
+                          {ep.path}
+                        </div>
+                      </div>
+                    ) : null}
                     {expandedEpisodeId === ep.id && ep.overview && (
                       <p className="episode-overview">{ep.overview}</p>
                     )}

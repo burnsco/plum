@@ -15,6 +15,7 @@ type LibraryMovieDetails struct {
 	MediaID             int                  `json:"media_id"`
 	LibraryID           int                  `json:"library_id"`
 	Title               string               `json:"title"`
+	SourcePath          string               `json:"source_path,omitempty"`
 	Overview            string               `json:"overview"`
 	PosterPath          string               `json:"poster_path,omitempty"`
 	PosterURL           string               `json:"poster_url,omitempty"`
@@ -596,15 +597,15 @@ WHERE library_id = ? AND kind = ?`
 func GetLibraryMovieDetails(db *sql.DB, libraryID int, mediaID int) (*LibraryMovieDetails, error) {
 	var details LibraryMovieDetails
 	var refID int
-	err := db.QueryRow(`SELECT m.id, m.library_id, g.ref_id, m.title, COALESCE(m.overview, ''), COALESCE(m.poster_path, ''), COALESCE(m.poster_url, ''), COALESCE(m.backdrop_path, ''), COALESCE(m.backdrop_url, ''), COALESCE(m.release_date, ''), COALESCE(m.vote_average, 0), COALESCE(m.imdb_id, ''), COALESCE(m.imdb_rating, 0), COALESCE(m.duration, 0)
+	err := db.QueryRow(`SELECT m.id, m.library_id, g.ref_id, m.title, COALESCE(m.path, ''), COALESCE(m.overview, ''), COALESCE(m.poster_path, ''), COALESCE(m.poster_url, ''), COALESCE(m.backdrop_path, ''), COALESCE(m.backdrop_url, ''), COALESCE(m.release_date, ''), COALESCE(m.vote_average, 0), COALESCE(m.imdb_id, ''), COALESCE(m.imdb_rating, 0), COALESCE(m.duration, 0)
 FROM (
-  SELECT mg.id, movies.id AS ref_id, movies.library_id, movies.title, movies.overview, movies.poster_path, '' AS poster_url, movies.backdrop_path, '' AS backdrop_url, movies.release_date, movies.vote_average, movies.imdb_id, movies.imdb_rating, movies.duration
+  SELECT mg.id, movies.id AS ref_id, movies.library_id, movies.title, movies.path, movies.overview, movies.poster_path, '' AS poster_url, movies.backdrop_path, '' AS backdrop_url, movies.release_date, movies.vote_average, movies.imdb_id, movies.imdb_rating, movies.duration
   FROM media_global mg
   JOIN movies ON mg.kind = 'movie' AND mg.ref_id = movies.id
 ) m
 JOIN media_global g ON g.id = m.id
 WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
-		Scan(&details.MediaID, &details.LibraryID, &refID, &details.Title, &details.Overview, &details.PosterPath, &details.PosterURL, &details.BackdropPath, &details.BackdropURL, &details.ReleaseDate, &details.VoteAverage, &details.IMDbID, &details.IMDbRating, &details.Runtime)
+		Scan(&details.MediaID, &details.LibraryID, &refID, &details.Title, &details.SourcePath, &details.Overview, &details.PosterPath, &details.PosterURL, &details.BackdropPath, &details.BackdropURL, &details.ReleaseDate, &details.VoteAverage, &details.IMDbID, &details.IMDbRating, &details.Runtime)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil

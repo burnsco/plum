@@ -335,6 +335,7 @@ func buildRouter(
 		protected.Post("/api/libraries/{id}/movies/identify", libHandler.IdentifyMovie)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/details", libHandler.GetLibraryShowDetails)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/episodes", libHandler.GetLibraryShowEpisodes)
+		protected.Delete("/api/libraries/{id}/shows/{showKey}/progress", libHandler.ClearShowProgress)
 		protected.Get("/api/libraries/{id}/shows/{showKey}/artwork/poster/candidates", libHandler.GetShowPosterCandidates)
 		protected.Put("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.SetShowPosterSelection)
 		protected.Delete("/api/libraries/{id}/shows/{showKey}/artwork/poster", libHandler.ResetShowPosterSelection)
@@ -348,6 +349,8 @@ func buildRouter(
 
 		protected.Get("/api/media", playbackHandler.ListMedia)
 		protected.Put("/api/media/{id}/progress", libHandler.UpdateMediaProgress)
+		protected.Delete("/api/media/{id}/progress", libHandler.ClearMediaProgress)
+		protected.Put("/api/media/{id}/continue-watching", libHandler.SetContinueWatchingVisibility)
 		protected.Post("/api/media/{id}/playback-tracks/refresh", playbackHandler.RefreshPlaybackTracks)
 		protected.Patch("/api/media/{id}/intro", playbackHandler.PatchMediaIntro)
 		protected.Post("/api/media/{id}/embedded-subtitles/warm-cache", playbackHandler.WarmEmbeddedSubtitleCaches)

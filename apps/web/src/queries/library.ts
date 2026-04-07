@@ -44,13 +44,18 @@ import {
   type PosterCandidatesResponse,
   type ScanLibraryResult,
   type SearchResponse,
+  clearMediaProgress,
+  clearShowProgress,
+  setContinueWatchingVisibility,
   type SeriesDetails,
   type ShowActionResult,
   type ShowDetails,
   type ShowEpisodesResponse,
   type UnidentifiedLibrariesResponse,
   type UpdateLibraryPlaybackPreferencesPayload,
+  type UpdateMediaProgressPayload,
   updateLibraryPlaybackPreferences,
+  updateMediaProgress,
 } from "@/api";
 import {
   buildHomeDashboard,
@@ -198,6 +203,153 @@ export function useUpdateLibraryPlaybackPreferences(): UseMutationResult<
             { ...library },
           ],
       );
+    },
+  });
+}
+
+export function useUpdateMediaProgress(): UseMutationResult<
+  void,
+  Error,
+  { mediaId: number; payload: UpdateMediaProgressPayload; libraryId?: number }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mediaId, payload }) => updateMediaProgress(mediaId, payload),
+    onMutate: async ({ mediaId, payload }) => {
+      if (payload.completed !== true) return { previousHome: undefined as HomeDashboard | undefined };
+      await queryClient.cancelQueries({ queryKey: queryKeys.home });
+      const previousHome = queryClient.getQueryData<HomeDashboard>(queryKeys.home);
+      if (previousHome != null) {
+        queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
+          ...previousHome,
+          continueWatching: previousHome.continueWatching.filter((entry) => entry.media.id !== mediaId),
+        });
+      }
+      return { previousHome };
+    },
+    onSuccess: (_, { libraryId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      if (libraryId != null) {
+        invalidateLibraryCatalogQueries(queryClient, libraryId);
+        invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
+      }
+    },
+    onError: (err, _vars, context) => {
+      if (context?.previousHome != null) {
+        queryClient.setQueryData(queryKeys.home, context.previousHome);
+      }
+      notifyMutationError(err, "Could not update media progress");
+    },
+  });
+}
+
+export function useSetContinueWatchingVisibility(): UseMutationResult<
+  void,
+  Error,
+  { mediaId: number; hidden: boolean; libraryId?: number }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mediaId, hidden }) => setContinueWatchingVisibility(mediaId, { hidden }),
+    onMutate: async ({ mediaId, hidden }) => {
+      if (!hidden) return { previousHome: undefined as HomeDashboard | undefined };
+      await queryClient.cancelQueries({ queryKey: queryKeys.home });
+      const previousHome = queryClient.getQueryData<HomeDashboard>(queryKeys.home);
+      if (previousHome != null) {
+        queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
+          ...previousHome,
+          continueWatching: previousHome.continueWatching.filter((entry) => entry.media.id !== mediaId),
+        });
+      }
+      return { previousHome };
+    },
+    onSuccess: (_, { libraryId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      if (libraryId != null) {
+        invalidateLibraryCatalogQueries(queryClient, libraryId);
+        invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
+      }
+    },
+    onError: (err, _vars, context) => {
+      if (context?.previousHome != null) {
+        queryClient.setQueryData(queryKeys.home, context.previousHome);
+      }
+      notifyMutationError(err, "Could not update continue watching visibility");
+    },
+  });
+}
+
+export function useClearMediaProgress(): UseMutationResult<
+  void,
+  Error,
+  { mediaId: number; libraryId?: number }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mediaId }) => clearMediaProgress(mediaId),
+    onMutate: async ({ mediaId }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.home });
+      const previousHome = queryClient.getQueryData<HomeDashboard>(queryKeys.home);
+      if (previousHome != null) {
+        queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
+          ...previousHome,
+          continueWatching: previousHome.continueWatching.filter((entry) => entry.media.id !== mediaId),
+        });
+      }
+      return { previousHome };
+    },
+    onSuccess: (_, { libraryId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      if (libraryId != null) {
+        invalidateLibraryCatalogQueries(queryClient, libraryId);
+        invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
+      }
+    },
+    onError: (err, _vars, context) => {
+      if (context?.previousHome != null) {
+        queryClient.setQueryData(queryKeys.home, context.previousHome);
+      }
+      notifyMutationError(err, "Could not clear media progress");
+    },
+  });
+}
+
+export function useClearShowProgress(): UseMutationResult<
+  void,
+  Error,
+  { libraryId: number; showKey: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ libraryId, showKey }) => clearShowProgress(libraryId, showKey),
+    onMutate: async ({ libraryId, showKey }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.home });
+      const previousHome = queryClient.getQueryData<HomeDashboard>(queryKeys.home);
+      if (previousHome != null) {
+        queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
+          ...previousHome,
+          continueWatching: previousHome.continueWatching.filter(
+            (entry) =>
+              !(
+                entry.show_key?.trim() &&
+                entry.show_key === showKey &&
+                entry.media.library_id === libraryId
+              ),
+          ),
+        });
+      }
+      return { previousHome };
+    },
+    onSuccess: (_, { libraryId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      invalidateLibraryCatalogQueries(queryClient, libraryId);
+      invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
+    },
+    onError: (err, _vars, context) => {
+      if (context?.previousHome != null) {
+        queryClient.setQueryData(queryKeys.home, context.previousHome);
+      }
+      notifyMutationError(err, "Could not clear show progress");
     },
   });
 }

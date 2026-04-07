@@ -82,6 +82,7 @@ export function selectShowDetailsForPage(data: ShowDetails | null): ShowDetailsP
 export type MovieDetailsPage = Pick<
   MovieDetails,
   | "title"
+  | "source_path"
   | "overview"
   | "poster_path"
   | "poster_url"
@@ -103,6 +104,7 @@ export function selectMovieDetailsForPage(data: MovieDetails | null): MovieDetai
   if (data == null) return null;
   return {
     title: data.title,
+    source_path: data.source_path,
     overview: data.overview,
     poster_path: data.poster_path,
     poster_url: data.poster_url,

@@ -292,6 +292,13 @@ export function PlaybackDock() {
   const dispatchedAudioTrackRef = useRef<{ mediaId: number; key: string } | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(0);
+  const resetHideTimer = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      setControlsVisible(false);
+    }, CONTROLS_HIDE_DELAY);
+  }, []);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const seekToAfterReloadRef = useRef<number | null>(null);
   const resumePlaybackAfterReloadRef = useRef(false);
@@ -2074,14 +2081,10 @@ export function PlaybackDock() {
     if (p) ignorePromise(p, "PlaybackDock:requestFullscreen");
   }, []);
 
-  /* ── Auto-hide controls in fullscreen ── */
-  const resetHideTimer = useCallback(() => {
-    setControlsVisible(true);
-    clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => {
-      setControlsVisible(false);
-    }, CONTROLS_HIDE_DELAY);
-  }, []);
+  const handleVideoDoubleClick = useCallback(() => {
+    void toggleBrowserFullscreen();
+    resetHideTimer();
+  }, [resetHideTimer, toggleBrowserFullscreen]);
 
   useEffect(() => {
     if (!isWindowPlayer) {
@@ -2435,6 +2438,7 @@ export function PlaybackDock() {
           videoSubtitleStyle={videoSubtitleStyle}
           jassubVideoElement={jassubVideoElement}
           activeAssSource={activeAssSource}
+          onVideoDoubleClick={handleVideoDoubleClick}
           onLoadStart={() => {
             if (!videoPlaybackStartedRef.current) {
               setIsVideoLoading(true);

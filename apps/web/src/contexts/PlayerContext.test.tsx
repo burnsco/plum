@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAuthSessionEffect } from "@plum/shared";
 import type { MediaItem } from "../api";
 import * as api from "../api";
+import { playerWebDefaultsStorageKey } from "../lib/playbackPreferences";
 import { AuthProvider } from "./AuthContext";
 import { PlayerProvider, usePlayer } from "./PlayerContext";
 import { WsProvider } from "./WsContext";
@@ -166,6 +167,27 @@ const episodeTwo: MediaItem = {
   ],
 };
 
+const preferredTracksMovie: MediaItem = {
+  id: 303,
+  title: "Preferred Tracks Movie",
+  path: "/movies/Preferred Tracks Movie (2026)/Preferred Tracks Movie.mkv",
+  duration: 5400,
+  type: "movie",
+  library_id: 9,
+  embeddedAudioTracks: [
+    { streamIndex: 1, language: "eng", title: "English" },
+    { streamIndex: 5, language: "jpn", title: "Japanese" },
+  ],
+  embeddedSubtitles: [
+    {
+      streamIndex: 7,
+      language: "eng",
+      title: "English PGS",
+      codec: "hdmv_pgs_subtitle",
+    },
+  ],
+};
+
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
@@ -255,6 +277,15 @@ function PlaybackTrackHydrationHarness() {
   );
 }
 
+function PreferredTracksHarness() {
+  const { playMovie } = usePlayer();
+  return (
+    <button type="button" onClick={() => playMovie(preferredTracksMovie)}>
+      Play Preferred Tracks Movie
+    </button>
+  );
+}
+
 describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -297,6 +328,7 @@ describe("PlayerContext playback session updates", () => {
       streamUrl: "/api/playback/sessions/session-99/revisions/2/index.m3u8",
       durationSeconds: 7200,
     });
+    window.localStorage.removeItem(playerWebDefaultsStorageKey);
     (globalThis.WebSocket as unknown as MockWebSocketClass).reset();
   });
 
@@ -716,6 +748,71 @@ describe("PlayerContext playback session updates", () => {
     await waitFor(() => {
       expect(screen.getByTestId("hydrated-audio-count")).toHaveTextContent("1");
       expect(screen.getByTestId("hydrated-subtitle-count")).toHaveTextContent("1");
+    });
+  });
+
+  it("starts playback session with preferred audio and burn-in subtitle", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    window.localStorage.setItem(
+      playerWebDefaultsStorageKey,
+      JSON.stringify({
+        defaultAudioLanguage: "jpn",
+        defaultSubtitleLanguage: "eng",
+        defaultSubtitleLabelHint: "English PGS",
+        subtitleMenuEnglishOnly: false,
+      }),
+    );
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      {
+        id: 9,
+        name: "Movies",
+        type: "movie",
+        path: "/movies",
+        user_id: 1,
+        preferred_audio_language: "en",
+        preferred_subtitle_language: "en",
+        subtitles_enabled_by_default: true,
+      },
+    ]);
+    vi.spyOn(api, "createPlaybackSession").mockImplementation(async (mediaId) => ({
+      sessionId: `session-${mediaId}`,
+      delivery: "transcode",
+      mediaId,
+      revision: 1,
+      audioIndex: 5,
+      status: "starting",
+      streamUrl: `/api/playback/sessions/session-${mediaId}/revisions/1/index.m3u8`,
+      durationSeconds: 5400,
+    }));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <PreferredTracksHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Preferred Tracks Movie" }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(
+        303,
+        expect.objectContaining({
+          audioIndex: 5,
+          burnEmbeddedSubtitleStreamIndex: 7,
+          clientCapabilities: expect.any(Object),
+        }),
+      );
     });
   });
 });

@@ -7,6 +7,7 @@ type PlaybackVideoStageProps = {
   videoSubtitleStyle: CSSProperties;
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
+  onVideoDoubleClick: () => void;
   onLoadStart: () => void;
   onLoadedMetadata: (element: HTMLVideoElement) => void;
   onCanPlay: (element: HTMLVideoElement) => void;
@@ -28,6 +29,7 @@ export function PlaybackVideoStage({
   videoSubtitleStyle,
   jassubVideoElement,
   activeAssSource,
+  onVideoDoubleClick,
   onLoadStart,
   onLoadedMetadata,
   onCanPlay,
@@ -52,6 +54,7 @@ export function PlaybackVideoStage({
           crossOrigin="use-credentials"
           autoPlay
           playsInline
+          onDoubleClick={onVideoDoubleClick}
           onLoadStart={onLoadStart}
           onLoadedMetadata={(event) => onLoadedMetadata(event.currentTarget)}
           onCanPlay={(event) => onCanPlay(event.currentTarget)}

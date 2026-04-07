@@ -104,30 +104,31 @@ type LibraryScanManager struct {
 	hub          *ws.Hub
 	meta         metadata.Identifier
 
-	mu               sync.Mutex
-	jobs             map[int]libraryScanStatus
-	types            map[int]string
-	paths            map[int]string
-	owners           map[int]int
-	subpaths         map[int][]string
-	activities       map[int]libraryScanActivity
-	reruns           map[int]scanStartRequest
-	debounceReady    map[int]bool
-	debounceTimers   map[int]*time.Timer
-	activityTimers   map[int]*time.Timer
-	retryTimers      map[int]*time.Timer
-	enrichCancels    map[int]context.CancelFunc
-	watcherStops     map[int]context.CancelFunc
-	schedulerStops   map[int]context.CancelFunc
-	enrichSem        chan struct{}
-	identifySem      chan struct{}
-	thumbnailSem     chan struct{}
-	thumbnailCancels map[int]context.CancelFunc
-	thumbDir         string
-	handler          *LibraryHandler
-	lastFlushed      map[int]libraryScanFlushState
-	lastActivityAt   map[int]time.Time
-	activeScanID     int
+	mu                sync.Mutex
+	jobs              map[int]libraryScanStatus
+	types             map[int]string
+	paths             map[int]string
+	owners            map[int]int
+	subpaths          map[int][]string
+	activities        map[int]libraryScanActivity
+	reruns            map[int]scanStartRequest
+	debounceReady     map[int]bool
+	debounceTimers    map[int]*time.Timer
+	activityTimers    map[int]*time.Timer
+	retryTimers       map[int]*time.Timer
+	enrichCancels     map[int]context.CancelFunc
+	watcherStops      map[int]context.CancelFunc
+	schedulerStops    map[int]context.CancelFunc
+	enrichSem         chan struct{}
+	priorityEnrichSem chan struct{}
+	identifySem       chan struct{}
+	thumbnailSem      chan struct{}
+	thumbnailCancels  map[int]context.CancelFunc
+	thumbDir          string
+	handler           *LibraryHandler
+	lastFlushed       map[int]libraryScanFlushState
+	lastActivityAt    map[int]time.Time
+	activeScanID      int
 }
 
 type libraryScanFlushState struct {
@@ -195,28 +196,29 @@ func NewLibraryScanManager(lifecycleCtx context.Context, sqlDB *sql.DB, meta met
 		lifecycleCtx = context.Background()
 	}
 	return &LibraryScanManager{
-		lifecycleCtx:     lifecycleCtx,
-		db:               sqlDB,
-		hub:              hub,
-		meta:             meta,
-		thumbDir:         thumbDir,
-		jobs:             make(map[int]libraryScanStatus),
-		types:            make(map[int]string),
-		paths:            make(map[int]string),
-		owners:           make(map[int]int),
-		subpaths:         make(map[int][]string),
-		activities:       make(map[int]libraryScanActivity),
-		reruns:           make(map[int]scanStartRequest),
-		debounceReady:    make(map[int]bool),
-		debounceTimers:   make(map[int]*time.Timer),
-		activityTimers:   make(map[int]*time.Timer),
-		retryTimers:      make(map[int]*time.Timer),
-		enrichCancels:    make(map[int]context.CancelFunc),
-		thumbnailCancels: make(map[int]context.CancelFunc),
-		watcherStops:     make(map[int]context.CancelFunc),
-		schedulerStops:   make(map[int]context.CancelFunc),
-		enrichSem:        make(chan struct{}, 1),
-		thumbnailSem:     make(chan struct{}, 1),
+		lifecycleCtx:      lifecycleCtx,
+		db:                sqlDB,
+		hub:               hub,
+		meta:              meta,
+		thumbDir:          thumbDir,
+		jobs:              make(map[int]libraryScanStatus),
+		types:             make(map[int]string),
+		paths:             make(map[int]string),
+		owners:            make(map[int]int),
+		subpaths:          make(map[int][]string),
+		activities:        make(map[int]libraryScanActivity),
+		reruns:            make(map[int]scanStartRequest),
+		debounceReady:     make(map[int]bool),
+		debounceTimers:    make(map[int]*time.Timer),
+		activityTimers:    make(map[int]*time.Timer),
+		retryTimers:       make(map[int]*time.Timer),
+		enrichCancels:     make(map[int]context.CancelFunc),
+		thumbnailCancels:  make(map[int]context.CancelFunc),
+		watcherStops:      make(map[int]context.CancelFunc),
+		schedulerStops:    make(map[int]context.CancelFunc),
+		enrichSem:         make(chan struct{}, 1),
+		priorityEnrichSem: make(chan struct{}, 1),
+		thumbnailSem:      make(chan struct{}, 1),
 		// More than one library can identify at a time so a long TV pass does not
 		// block movie libraries (each run still has its own rate limiter).
 		identifySem:    make(chan struct{}, 2),
@@ -1059,15 +1061,20 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 	m.mu.Unlock()
 	m.flushStatus(libraryID, true)
 
+	usePriorityLane := len(subpaths) > 0
+	laneName := "standard"
+	if usePriorityLane {
+		laneName = "priority"
+	}
 	log.Printf(
-		"library scan enrichment queued library_id=%d type=%s tasks=%d identify_requested=%v (global enrichment slot: max 1 library at a time; workers per library=%d)",
-		libraryID, libraryType, len(tasks), identifyRequested, db.EnrichmentWorkerCount,
+		"library scan enrichment queued library_id=%d type=%s tasks=%d identify_requested=%v lane=%s (workers per library=%d)",
+		libraryID, libraryType, len(tasks), identifyRequested, laneName, db.EnrichmentWorkerCount,
 	)
 
 	go func() {
 		waitStart := time.Now()
 		select {
-		case m.enrichSem <- struct{}{}:
+		case laneAcquireChan(m.enrichSem, m.priorityEnrichSem, usePriorityLane) <- struct{}{}:
 		case <-ctx.Done():
 			m.finishEnrichment(libraryID, false)
 			return
@@ -1075,11 +1082,11 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		waitElapsed := time.Since(waitStart).Round(time.Millisecond)
 		if waitElapsed > 0 {
 			log.Printf(
-				"library scan enrichment acquired_slot library_id=%d type=%s waited=%s",
-				libraryID, libraryType, waitElapsed,
+				"library scan enrichment acquired_slot library_id=%d type=%s lane=%s waited=%s",
+				libraryID, libraryType, laneName, waitElapsed,
 			)
 		}
-		defer func() { <-m.enrichSem }()
+		defer func() { <-laneAcquireChan(m.enrichSem, m.priorityEnrichSem, usePriorityLane) }()
 
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
@@ -1112,8 +1119,8 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 
 		runStart := time.Now()
 		log.Printf(
-			"library scan enrichment running library_id=%d type=%s tasks=%d music_identify=%v subpaths=%d",
-			libraryID, libraryType, len(tasks), musicIdentify, len(subpaths),
+			"library scan enrichment running library_id=%d type=%s tasks=%d music_identify=%v lane=%s subpaths=%d",
+			libraryID, libraryType, len(tasks), musicIdentify, laneName, len(subpaths),
 		)
 		err := enrichLibraryTasks(ctx, m.db, path, libraryType, libraryID, tasks, options)
 		runElapsed := time.Since(runStart).Round(time.Millisecond)
@@ -1135,6 +1142,13 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		)
 		m.finishEnrichment(libraryID, true)
 	}()
+}
+
+func laneAcquireChan(standard, priority chan struct{}, usePriorityLane bool) chan struct{} {
+	if usePriorityLane {
+		return priority
+	}
+	return standard
 }
 
 func (m *LibraryScanManager) canIdentifyLibrary(libraryType string) bool {

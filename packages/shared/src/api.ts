@@ -77,6 +77,7 @@ import type {
     RecentlyAddedEntry,
     ScanLibraryResult,
     SearchResponse,
+    SetContinueWatchingVisibilityPayload,
     SeriesDetails,
     SeriesSearchResult,
     SetPosterSelectionPayload,
@@ -146,6 +147,7 @@ import {
     QuickConnectCodeResponseSchema,
     ScanLibraryResultSchema,
     SearchResponseSchema,
+    SetContinueWatchingVisibilityPayloadSchema,
     SeriesDetailsSchema,
     SeriesSearchResultSchema,
     SetPosterSelectionPayloadSchema,
@@ -224,7 +226,7 @@ export type {
     MovieSearchResult, PlaybackDelivery, PlaybackSession, PlaybackTrackMetadata, PlumWebSocketCommand,
     PlumWebSocketEvent, PosterCandidate,
     PosterCandidatesResponse, RecentlyAddedEntry,
-    ScanLibraryResult, SearchResponse, SeriesDetails,
+    ScanLibraryResult, SearchResponse, SetContinueWatchingVisibilityPayload, SeriesDetails,
     SeriesSearchResult, SetPosterSelectionPayload, SetupStatus,
     ShowActionResult,
     ShowConfirmPayload,
@@ -1088,6 +1090,35 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
+    clearMediaProgress: (id: number) =>
+      voidRequestEffect({
+        method: "DELETE",
+        path: `/api/media/${id}/progress`,
+        errorMessage: ({ status, body }) => body || `Clear progress: ${status}`,
+      }),
+    clearShowProgress: (libraryId: number, showKey: string) =>
+      voidRequestEffect({
+        method: "DELETE",
+        path: `/api/libraries/${libraryId}/shows/${encodeURIComponent(showKey)}/progress`,
+        errorMessage: ({ status, body }) => body || `Clear show progress: ${status}`,
+      }),
+    setContinueWatchingVisibility: (id: number, payload: SetContinueWatchingVisibilityPayload) =>
+      decodeSchemaEffect(
+        SetContinueWatchingVisibilityPayloadSchema,
+        payload,
+        "PUT",
+        `/api/media/${id}/continue-watching`,
+        "Invalid continue watching payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          voidRequestEffect({
+            method: "PUT",
+            path: `/api/media/${id}/continue-watching`,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Continue watching: ${status}`,
+          }),
+        ),
+      ),
     createPlaybackSession: (id: number, payload?: CreatePlaybackSessionPayload) =>
       (payload
         ? decodeSchemaEffect(
@@ -1563,6 +1594,11 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     fetchMediaList: () => run(effects.fetchMediaList()),
     updateMediaProgress: (id: number, payload: UpdateMediaProgressPayload) =>
       run(effects.updateMediaProgress(id, payload)),
+    clearMediaProgress: (id: number) => run(effects.clearMediaProgress(id)),
+    clearShowProgress: (libraryId: number, showKey: string) =>
+      run(effects.clearShowProgress(libraryId, showKey)),
+    setContinueWatchingVisibility: (id: number, payload: SetContinueWatchingVisibilityPayload) =>
+      run(effects.setContinueWatchingVisibility(id, payload)),
     createPlaybackSession: (id: number, payload?: CreatePlaybackSessionPayload) =>
       run(effects.createPlaybackSession(id, payload)),
     refreshPlaybackTracks: (id: number) => run(effects.refreshPlaybackTracks(id)),
