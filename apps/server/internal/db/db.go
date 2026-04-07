@@ -581,6 +581,7 @@ CREATE TABLE IF NOT EXISTS media_files (
   is_primary INTEGER NOT NULL DEFAULT 1,
   intro_start_sec REAL,
   intro_end_sec REAL,
+  intro_probed_at TEXT,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL
 );
@@ -1409,6 +1410,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHER
 			}
 			_, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_embedded_subtitles_media_stream ON embedded_subtitles(media_id, stream_index)`)
 			return err
+		},
+	},
+	{
+		version: 31,
+		name:    "media_files_intro_probed_at",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			return addColumnIfMissingTx(ctx, tx, "media_files", "intro_probed_at", "TEXT")
 		},
 	},
 }
@@ -3949,9 +3957,11 @@ func findRelocatedTVEpisodeRow(ctx context.Context, dbConn *sql.DB, table, kind 
 	if newShowRoot == "" || newShowRoot == "." {
 		return zero, false, nil
 	}
-	query := `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0)
+	query := `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0),
+CASE WHEN mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '' THEN 1 ELSE 0 END
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+LEFT JOIN media_files mf ON mf.media_id = g.id AND mf.is_primary = 1
 WHERE m.library_id = ? AND COALESCE(m.season, 0) = ? AND COALESCE(m.episode, 0) = ?`
 	rows, err := dbConn.QueryContext(ctx, query, kind, libraryID, season, episode)
 	if err != nil {
@@ -3963,9 +3973,11 @@ WHERE m.library_id = ? AND COALESCE(m.season, 0) = ? AND COALESCE(m.episode, 0) 
 	for rows.Next() {
 		var row existingMediaRow
 		var tvdbID, imdbID sql.NullString
-		if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed); err != nil {
+		var introProbeDone int
+		if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &tvdbID, &imdbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed, &introProbeDone); err != nil {
 			return zero, false, err
 		}
+		row.PrimaryIntroProbed = introProbeDone != 0
 		if tvdbID.Valid {
 			row.TVDBID = tvdbID.String
 		}
@@ -4185,6 +4197,15 @@ func ScanLibraryDiscovery(
 						FileHashKind:  existing.FileHashKind,
 					}, true); err != nil {
 						return err
+					}
+					if kind != LibraryTypeMusic && !existing.PrimaryIntroProbed {
+						delta.TouchedFiles = append(delta.TouchedFiles, EnrichmentTask{
+							LibraryID: libraryID,
+							Kind:      kind,
+							RefID:     existing.RefID,
+							GlobalID:  existing.GlobalID,
+							Path:      candidate.Path,
+						})
 					}
 				}
 				delta.Result.Updated++
@@ -4660,6 +4681,20 @@ func HandleScanLibraryWithOptions(
 						FileHashKind:  existing.FileHashKind,
 					}, true); err != nil {
 						return err
+					}
+					if probeMedia && !SkipFFprobeInScan && kind != LibraryTypeMusic && !existing.PrimaryIntroProbed {
+						var embeddedSubs []EmbeddedSubtitle
+						var embeddedAudioTracks []EmbeddedAudioTrack
+						if probed, err := readVideoMetadata(ctx, path); err == nil {
+							if probeEmbeddedSubtitleStreams {
+								embeddedSubs = probed.EmbeddedSubtitles
+							}
+							embeddedAudioTracks = probed.EmbeddedAudioTracks
+							if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, existing.GlobalID, path, probed); err != nil {
+								slog.Warn("persist intro chapters", "media_id", existing.GlobalID, "path", path, "error", err)
+							}
+							persistEmbeddedStreams(ctx, dbConn, existing.GlobalID, embeddedSubs, embeddedAudioTracks)
+						}
 					}
 				}
 				result.Updated++
@@ -5145,6 +5180,9 @@ type existingMediaRow struct {
 	MatchStatus               string
 	MetadataReviewNeeded      bool
 	MetadataConfirmed         bool
+	// PrimaryIntroProbed is true when the primary media_files row has intro_probed_at set (chapter probe completed).
+	// Always true for music libraries. Loaded by preloadExistingMediaByPath for video rows.
+	PrimaryIntroProbed bool
 }
 
 func allowedExtensions(kind string) map[string]struct{} {
@@ -5215,19 +5253,23 @@ func preloadExistingMediaByPath(dbConn *sql.DB, table, kind string, libraryID in
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ?`
 	if table == "music_tracks" {
-		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.match_status, 'local'), COALESCE(m.poster_path, ''), COALESCE(m.musicbrainz_artist_id, ''), COALESCE(m.musicbrainz_release_group_id, ''), COALESCE(m.musicbrainz_release_id, ''), COALESCE(m.musicbrainz_recording_id, '') FROM music_tracks m
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.match_status, 'local'), COALESCE(m.poster_path, ''), COALESCE(m.musicbrainz_artist_id, ''), COALESCE(m.musicbrainz_release_group_id, ''), COALESCE(m.musicbrainz_release_id, ''), COALESCE(m.musicbrainz_recording_id, ''), 1 FROM music_tracks m
 LEFT JOIN media_global g ON g.kind = 'music' AND g.ref_id = m.id
 WHERE m.library_id = ?`
 	}
 	if table == "tv_episodes" || table == "anime_episodes" {
-		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0)
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0),
+CASE WHEN mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '' THEN 1 ELSE 0 END
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+LEFT JOIN media_files mf ON mf.media_id = g.id AND mf.is_primary = 1
 WHERE m.library_id = ?`
 	} else if table != "music_tracks" {
-		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local')
+		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'),
+CASE WHEN mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '' THEN 1 ELSE 0 END
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
+LEFT JOIN media_files mf ON mf.media_id = g.id AND mf.is_primary = 1
 WHERE m.library_id = ?`
 	}
 
@@ -5250,17 +5292,23 @@ WHERE m.library_id = ?`
 		var row existingMediaRow
 		switch table {
 		case "music_tracks":
-			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID); err != nil {
+			var musicIntroFlag int
+			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.MatchStatus, &row.PosterPath, &row.MusicBrainzArtistID, &row.MusicBrainzReleaseGroupID, &row.MusicBrainzReleaseID, &row.MusicBrainzRecordingID, &musicIntroFlag); err != nil {
 				return nil, err
 			}
+			row.PrimaryIntroProbed = musicIntroFlag != 0
 		case "tv_episodes", "anime_episodes":
-			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed); err != nil {
+			var introProbeDone int
+			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &row.MetadataReviewNeeded, &row.MetadataConfirmed, &introProbeDone); err != nil {
 				return nil, err
 			}
+			row.PrimaryIntroProbed = introProbeDone != 0
 		default:
-			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus); err != nil {
+			var introProbeDone int
+			if err := rows.Scan(&row.Path, &row.RefID, &row.GlobalID, &row.FileSizeBytes, &row.FileModTime, &row.FileHash, &row.FileHashKind, &row.Duration, &row.LastSeenAt, &row.MissingSince, &row.TMDBID, &row.TVDBID, &row.IMDbID, &row.MatchStatus, &introProbeDone); err != nil {
 				return nil, err
 			}
+			row.PrimaryIntroProbed = introProbeDone != 0
 		}
 		out[row.Path] = row
 	}

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -368,14 +369,35 @@ fun PlumActionButton(
                 disabledContainerColor = palette.surface,
                 disabledContentColor = palette.muted,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        scale =
+            ClickableSurfaceDefaults.scale(
+                focusedScale = if (variant == PlumButtonVariant.Primary) 1.06f else 1f,
+            ),
         border =
             ClickableSurfaceDefaults.border(
                 border = plumBorder(if (variant == PlumButtonVariant.Ghost) Color.Transparent else palette.border, if (variant == PlumButtonVariant.Ghost) 0.dp else 1.dp, shape),
-                focusedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
-                pressedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
+                focusedBorder =
+                    if (variant == PlumButtonVariant.Primary) {
+                        plumBorder(PosterFocusRing, 3.dp, shape)
+                    } else {
+                        plumBorder(palette.borderStrong, 2.dp, shape)
+                    },
+                pressedBorder =
+                    if (variant == PlumButtonVariant.Primary) {
+                        plumBorder(PosterFocusRing, 3.dp, shape)
+                    } else {
+                        plumBorder(palette.borderStrong, 2.dp, shape)
+                    },
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow =
+            ClickableSurfaceDefaults.glow(
+                focusedGlow =
+                    if (variant == PlumButtonVariant.Primary) {
+                        Glow(palette.accent.copy(alpha = 0.45f), 10.dp)
+                    } else {
+                        Glow(Color.Transparent, 0.dp)
+                    },
+            ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
@@ -387,8 +409,8 @@ fun PlumActionButton(
                     Icon(
                         imageVector = leadingIcon,
                         contentDescription = null,
-                        tint = palette.textSecondary,
-                        modifier = Modifier.size(17.dp),
+                        tint = LocalContentColor.current,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
                 leadingBadge != null -> {

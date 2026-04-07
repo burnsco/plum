@@ -46,35 +46,43 @@ const (
 	libraryIdentifyPhaseIdentifying = "identifying"
 	libraryIdentifyPhaseCompleted   = "completed"
 	libraryIdentifyPhaseFailed      = "failed"
+
+	libraryThumbnailPhaseIdle    = "idle"
+	libraryThumbnailPhaseQueued  = "queued"
+	libraryThumbnailPhaseRunning = "running"
 )
 
 type libraryScanStatus struct {
-	LibraryID         int                  `json:"libraryId"`
-	Phase             string               `json:"phase"`
-	EnrichmentPhase   string               `json:"enrichmentPhase"`
-	Enriching         bool                 `json:"enriching"`
-	IdentifyPhase     string               `json:"identifyPhase"`
-	Identified        int                  `json:"identified"`
-	IdentifyFailed    int                  `json:"identifyFailed"`
-	Processed         int                  `json:"processed"`
-	Added             int                  `json:"added"`
-	Updated           int                  `json:"updated"`
-	Removed           int                  `json:"removed"`
-	Unmatched         int                  `json:"unmatched"`
-	Skipped           int                  `json:"skipped"`
-	IdentifyRequested bool                 `json:"identifyRequested"`
-	QueuedAt          string               `json:"queuedAt,omitempty"`
-	EstimatedItems    int                  `json:"estimatedItems"`
-	QueuePosition     int                  `json:"queuePosition"`
-	Error             string               `json:"error,omitempty"`
-	RetryCount        int                  `json:"retryCount"`
-	MaxRetries        int                  `json:"maxRetries"`
-	NextRetryAt       string               `json:"nextRetryAt,omitempty"`
-	LastError         string               `json:"lastError,omitempty"`
-	NextScheduledAt   string               `json:"nextScheduledAt,omitempty"`
-	StartedAt         string               `json:"startedAt,omitempty"`
-	FinishedAt        string               `json:"finishedAt,omitempty"`
-	Activity          *libraryScanActivity `json:"activity,omitempty"`
+	LibraryID          int                  `json:"libraryId"`
+	Phase              string               `json:"phase"`
+	EnrichmentPhase    string               `json:"enrichmentPhase"`
+	Enriching          bool                 `json:"enriching"`
+	ThumbnailPhase     string               `json:"thumbnailPhase"`
+	ThumbnailGenerated int                  `json:"thumbnailGenerated"`
+	ThumbnailFailed    int                  `json:"thumbnailFailed"`
+	ThumbnailTotal     int                  `json:"thumbnailTotal"`
+	IdentifyPhase      string               `json:"identifyPhase"`
+	Identified         int                  `json:"identified"`
+	IdentifyFailed     int                  `json:"identifyFailed"`
+	Processed          int                  `json:"processed"`
+	Added              int                  `json:"added"`
+	Updated            int                  `json:"updated"`
+	Removed            int                  `json:"removed"`
+	Unmatched          int                  `json:"unmatched"`
+	Skipped            int                  `json:"skipped"`
+	IdentifyRequested  bool                 `json:"identifyRequested"`
+	QueuedAt           string               `json:"queuedAt,omitempty"`
+	EstimatedItems     int                  `json:"estimatedItems"`
+	QueuePosition      int                  `json:"queuePosition"`
+	Error              string               `json:"error,omitempty"`
+	RetryCount         int                  `json:"retryCount"`
+	MaxRetries         int                  `json:"maxRetries"`
+	NextRetryAt        string               `json:"nextRetryAt,omitempty"`
+	LastError          string               `json:"lastError,omitempty"`
+	NextScheduledAt    string               `json:"nextScheduledAt,omitempty"`
+	StartedAt          string               `json:"startedAt,omitempty"`
+	FinishedAt         string               `json:"finishedAt,omitempty"`
+	Activity           *libraryScanActivity `json:"activity,omitempty"`
 }
 
 type libraryScanActivity struct {
@@ -96,27 +104,30 @@ type LibraryScanManager struct {
 	hub          *ws.Hub
 	meta         metadata.Identifier
 
-	mu             sync.Mutex
-	jobs           map[int]libraryScanStatus
-	types          map[int]string
-	paths          map[int]string
-	owners         map[int]int
-	subpaths       map[int][]string
-	activities     map[int]libraryScanActivity
-	reruns         map[int]scanStartRequest
-	debounceReady  map[int]bool
-	debounceTimers map[int]*time.Timer
-	activityTimers map[int]*time.Timer
-	retryTimers    map[int]*time.Timer
-	enrichCancels  map[int]context.CancelFunc
-	watcherStops   map[int]context.CancelFunc
-	schedulerStops map[int]context.CancelFunc
-	enrichSem      chan struct{}
-	identifySem    chan struct{}
-	handler        *LibraryHandler
-	lastFlushed    map[int]libraryScanFlushState
-	lastActivityAt map[int]time.Time
-	activeScanID   int
+	mu               sync.Mutex
+	jobs             map[int]libraryScanStatus
+	types            map[int]string
+	paths            map[int]string
+	owners           map[int]int
+	subpaths         map[int][]string
+	activities       map[int]libraryScanActivity
+	reruns           map[int]scanStartRequest
+	debounceReady    map[int]bool
+	debounceTimers   map[int]*time.Timer
+	activityTimers   map[int]*time.Timer
+	retryTimers      map[int]*time.Timer
+	enrichCancels    map[int]context.CancelFunc
+	watcherStops     map[int]context.CancelFunc
+	schedulerStops   map[int]context.CancelFunc
+	enrichSem        chan struct{}
+	identifySem      chan struct{}
+	thumbnailSem     chan struct{}
+	thumbnailCancels map[int]context.CancelFunc
+	thumbDir         string
+	handler          *LibraryHandler
+	lastFlushed      map[int]libraryScanFlushState
+	lastActivityAt   map[int]time.Time
+	activeScanID     int
 }
 
 type libraryScanFlushState struct {
@@ -153,6 +164,15 @@ func normalizeEnrichmentPhase(phase string, enriching bool) string {
 	}
 }
 
+func normalizeThumbnailPhase(phase string) string {
+	switch phase {
+	case libraryThumbnailPhaseQueued, libraryThumbnailPhaseRunning:
+		return phase
+	default:
+		return libraryThumbnailPhaseIdle
+	}
+}
+
 func cloneLibraryScanActivity(activity libraryScanActivity) *libraryScanActivity {
 	cloned := activity
 	if activity.Current != nil {
@@ -167,32 +187,36 @@ func cloneLibraryScanActivity(activity libraryScanActivity) *libraryScanActivity
 }
 
 // NewLibraryScanManager creates a scan queue manager. lifecycleCtx should be the app shutdown
-// context (e.g. from main) so discovery, identify, enrichment, and DB helpers cancel on shutdown.
+// context (e.g. from main) so discovery, identify, enrichment, thumbnails, and DB helpers cancel on shutdown.
+// thumbDir is the directory for episode JPEG thumbnails (proactive batch and on-demand generation).
 // If lifecycleCtx is nil, context.Background() is used (tests).
-func NewLibraryScanManager(lifecycleCtx context.Context, sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub) *LibraryScanManager {
+func NewLibraryScanManager(lifecycleCtx context.Context, sqlDB *sql.DB, meta metadata.Identifier, hub *ws.Hub, thumbDir string) *LibraryScanManager {
 	if lifecycleCtx == nil {
 		lifecycleCtx = context.Background()
 	}
 	return &LibraryScanManager{
-		lifecycleCtx:   lifecycleCtx,
-		db:             sqlDB,
-		hub:            hub,
-		meta:           meta,
-		jobs:           make(map[int]libraryScanStatus),
-		types:          make(map[int]string),
-		paths:          make(map[int]string),
-		owners:         make(map[int]int),
-		subpaths:       make(map[int][]string),
-		activities:     make(map[int]libraryScanActivity),
-		reruns:         make(map[int]scanStartRequest),
-		debounceReady:  make(map[int]bool),
-		debounceTimers: make(map[int]*time.Timer),
-		activityTimers: make(map[int]*time.Timer),
-		retryTimers:    make(map[int]*time.Timer),
-		enrichCancels:  make(map[int]context.CancelFunc),
-		watcherStops:   make(map[int]context.CancelFunc),
-		schedulerStops: make(map[int]context.CancelFunc),
-		enrichSem:      make(chan struct{}, 1),
+		lifecycleCtx:     lifecycleCtx,
+		db:               sqlDB,
+		hub:              hub,
+		meta:             meta,
+		thumbDir:         thumbDir,
+		jobs:             make(map[int]libraryScanStatus),
+		types:            make(map[int]string),
+		paths:            make(map[int]string),
+		owners:           make(map[int]int),
+		subpaths:         make(map[int][]string),
+		activities:       make(map[int]libraryScanActivity),
+		reruns:           make(map[int]scanStartRequest),
+		debounceReady:    make(map[int]bool),
+		debounceTimers:   make(map[int]*time.Timer),
+		activityTimers:   make(map[int]*time.Timer),
+		retryTimers:      make(map[int]*time.Timer),
+		enrichCancels:    make(map[int]context.CancelFunc),
+		thumbnailCancels: make(map[int]context.CancelFunc),
+		watcherStops:     make(map[int]context.CancelFunc),
+		schedulerStops:   make(map[int]context.CancelFunc),
+		enrichSem:        make(chan struct{}, 1),
+		thumbnailSem:     make(chan struct{}, 1),
 		// More than one library can identify at a time so a long TV pass does not
 		// block movie libraries (each run still has its own rate limiter).
 		identifySem:    make(chan struct{}, 2),
@@ -225,6 +249,9 @@ func (m *LibraryScanManager) Recover() error {
 	m.mu.Lock()
 	for _, persisted := range statuses {
 		status := persistedLibraryStatusToRuntime(persisted)
+		if status.ThumbnailPhase == libraryThumbnailPhaseQueued || status.ThumbnailPhase == libraryThumbnailPhaseRunning {
+			status.ThumbnailPhase = libraryThumbnailPhaseIdle
+		}
 		m.jobs[status.LibraryID] = status
 		m.types[status.LibraryID] = persisted.Type
 		m.paths[status.LibraryID] = persisted.Path
@@ -235,6 +262,7 @@ func (m *LibraryScanManager) Recover() error {
 			status.Phase = libraryScanPhaseQueued
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
+			status.ThumbnailPhase = libraryThumbnailPhaseIdle
 			if status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying {
 				status.IdentifyPhase = libraryIdentifyPhaseIdle
 				status.Identified = 0
@@ -249,6 +277,7 @@ func (m *LibraryScanManager) Recover() error {
 				status.EnrichmentPhase == libraryEnrichmentPhaseRunning):
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
+			status.ThumbnailPhase = libraryThumbnailPhaseIdle
 			m.jobs[status.LibraryID] = status
 			enrichmentsToResume = append(enrichmentsToResume, recoveredEnrichmentRun{
 				libraryID:         status.LibraryID,
@@ -259,6 +288,7 @@ func (m *LibraryScanManager) Recover() error {
 		case status.Enriching || status.EnrichmentPhase == libraryEnrichmentPhaseQueued || status.EnrichmentPhase == libraryEnrichmentPhaseRunning:
 			status.Enriching = false
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
+			status.ThumbnailPhase = libraryThumbnailPhaseIdle
 			status.Phase = libraryScanPhaseQueued
 			status.FinishedAt = ""
 			m.jobs[status.LibraryID] = status
@@ -337,16 +367,23 @@ func (m *LibraryScanManager) resumeRecoveredEnrichment(
 		return
 	}
 	if len(tasks) == 0 {
+		var shouldThumb bool
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
 		if ok {
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
 			m.jobs[libraryID] = status
-			m.finalizeActivityLocked(libraryID, status)
+			shouldThumb = libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime
+			if !shouldThumb {
+				m.finalizeActivityLocked(libraryID, status)
+			}
 		}
 		m.mu.Unlock()
 		m.flushStatus(libraryID, true)
+		if shouldThumb {
+			go m.StartThumbnails(libraryID)
+		}
 		return
 	}
 	m.startEnrichment(libraryID, libraryType, path, nil, tasks, identifyRequested)
@@ -363,8 +400,17 @@ func (m *LibraryScanManager) start(libraryID int, path, libraryType string, iden
 		cancel()
 		delete(m.enrichCancels, libraryID)
 	}
+	if cancel, ok := m.thumbnailCancels[libraryID]; ok {
+		cancel()
+		delete(m.thumbnailCancels, libraryID)
+	}
 
 	status, ok := m.jobs[libraryID]
+	status.ThumbnailPhase = libraryThumbnailPhaseIdle
+	status.ThumbnailGenerated = 0
+	status.ThumbnailFailed = 0
+	status.ThumbnailTotal = 0
+
 	if ok && status.Phase == libraryScanPhaseScanning {
 		request := mergeScanStartRequest(m.reruns[libraryID], scanStartRequest{identify: identify, subpaths: normalizedSubpaths})
 		m.reruns[libraryID] = request
@@ -534,6 +580,8 @@ func (m *LibraryScanManager) recordActivity(libraryID int, phase string, target 
 		activity.Stage = "enrichment"
 	case "identify":
 		activity.Stage = "identify"
+	case "thumbnail":
+		activity.Stage = "thumbnail"
 	}
 	activity.Current = &entry
 	activity.Recent = append([]libraryScanActivityEntry{entry}, activity.Recent...)
@@ -552,11 +600,12 @@ func (m *LibraryScanManager) RecordIdentifyActivity(libraryID int, path string) 
 func (m *LibraryScanManager) finalizeActivityLocked(libraryID int, status libraryScanStatus) {
 	status.EnrichmentPhase = normalizeEnrichmentPhase(status.EnrichmentPhase, status.Enriching)
 	identifyActive := status.IdentifyPhase == libraryIdentifyPhaseQueued || status.IdentifyPhase == libraryIdentifyPhaseIdentifying
+	thumbActive := status.ThumbnailPhase == libraryThumbnailPhaseQueued || status.ThumbnailPhase == libraryThumbnailPhaseRunning
 	if status.Phase == libraryScanPhaseFailed || (!identifyActive && status.IdentifyPhase == libraryIdentifyPhaseFailed) {
 		m.setActivityStageLocked(libraryID, "failed", true, true)
 		return
 	}
-	if status.EnrichmentPhase != libraryEnrichmentPhaseIdle || identifyActive || status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning {
+	if status.EnrichmentPhase != libraryEnrichmentPhaseIdle || identifyActive || thumbActive || status.Phase == libraryScanPhaseQueued || status.Phase == libraryScanPhaseScanning {
 		return
 	}
 	m.clearActivityLocked(libraryID)
@@ -638,6 +687,7 @@ func (m *LibraryScanManager) scanSubpaths(libraryID int) []string {
 func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 	if status, ok := m.jobs[libraryID]; ok {
 		status.EnrichmentPhase = normalizeEnrichmentPhase(status.EnrichmentPhase, status.Enriching)
+		status.ThumbnailPhase = normalizeThumbnailPhase(status.ThumbnailPhase)
 		if status.MaxRetries <= 0 {
 			status.MaxRetries = 3
 		}
@@ -655,6 +705,7 @@ func (m *LibraryScanManager) statusLocked(libraryID int) libraryScanStatus {
 		Phase:           libraryScanPhaseIdle,
 		EnrichmentPhase: libraryEnrichmentPhaseIdle,
 		Enriching:       false,
+		ThumbnailPhase:  libraryThumbnailPhaseIdle,
 		IdentifyPhase:   libraryIdentifyPhaseIdle,
 		EstimatedItems:  0,
 		MaxRetries:      3,
@@ -972,15 +1023,23 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 
 func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path string, subpaths []string, tasks []db.EnrichmentTask, identifyRequested bool) {
 	if len(tasks) == 0 {
+		var shouldThumb bool
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
 		if ok {
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
 			m.jobs[libraryID] = status
-			m.finalizeActivityLocked(libraryID, status)
+			shouldThumb = libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime
+			if !shouldThumb {
+				m.finalizeActivityLocked(libraryID, status)
+			}
 		}
 		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
+		if shouldThumb {
+			go m.StartThumbnails(libraryID)
+		}
 		return
 	}
 	ctx, cancel := context.WithCancel(m.lifecycleCtx)
@@ -1010,7 +1069,7 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		select {
 		case m.enrichSem <- struct{}{}:
 		case <-ctx.Done():
-			m.finishEnrichment(libraryID)
+			m.finishEnrichment(libraryID, false)
 			return
 		}
 		waitElapsed := time.Since(waitStart).Round(time.Millisecond)
@@ -1067,14 +1126,14 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 				m.failEnrichment(libraryID, err.Error())
 				return
 			}
-			m.finishEnrichment(libraryID)
+			m.finishEnrichment(libraryID, false)
 			return
 		}
 		log.Printf(
 			"library scan enrichment finished library_id=%d type=%s elapsed=%s ok",
 			libraryID, libraryType, runElapsed,
 		)
-		m.finishEnrichment(libraryID)
+		m.finishEnrichment(libraryID, true)
 	}()
 }
 
@@ -1089,7 +1148,9 @@ func (m *LibraryScanManager) canIdentifyLibrary(libraryType string) bool {
 	return ok
 }
 
-func (m *LibraryScanManager) finishEnrichment(libraryID int) {
+// finishEnrichment marks enrichment idle and optionally queues proactive thumbnails (TV/anime only).
+// queueThumbnails should be false when enrichment stopped due to cancellation or before the enrich worker ran.
+func (m *LibraryScanManager) finishEnrichment(libraryID int, queueThumbnails bool) {
 	m.mu.Lock()
 	status, ok := m.jobs[libraryID]
 	if !ok {
@@ -1103,9 +1164,16 @@ func (m *LibraryScanManager) finishEnrichment(libraryID int) {
 		cancel()
 		delete(m.enrichCancels, libraryID)
 	}
-	m.finalizeActivityLocked(libraryID, status)
+	libraryType := m.types[libraryID]
+	shouldThumb := queueThumbnails && (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime)
+	if !shouldThumb {
+		m.finalizeActivityLocked(libraryID, status)
+	}
 	m.mu.Unlock()
 	m.flushStatus(libraryID, true)
+	if shouldThumb {
+		go m.StartThumbnails(libraryID)
+	}
 }
 
 func (m *LibraryScanManager) failEnrichment(libraryID int, errText string) {
@@ -1321,4 +1389,115 @@ func libraryScanUpdatePayload(status libraryScanStatus) ([]byte, error) {
 		"type": "library_scan_update",
 		"scan": status,
 	})
+}
+
+// StartThumbnails queues background thumbnail generation for a TV or anime library (no-op for other types or unknown ids).
+func (m *LibraryScanManager) StartThumbnails(libraryID int) {
+	m.mu.Lock()
+	libraryType := m.types[libraryID]
+	if libraryType != db.LibraryTypeTV && libraryType != db.LibraryTypeAnime {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+
+	tasks, err := db.ListEpisodesMissingThumbnails(m.lifecycleCtx, m.db, libraryID)
+	if err != nil {
+		log.Printf("list thumbnail tasks library=%d: %v", libraryID, err)
+		m.mu.Lock()
+		if status, ok := m.jobs[libraryID]; ok {
+			m.finalizeActivityLocked(libraryID, status)
+		}
+		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
+		return
+	}
+	if len(tasks) == 0 {
+		m.mu.Lock()
+		if status, ok := m.jobs[libraryID]; ok {
+			m.finalizeActivityLocked(libraryID, status)
+		}
+		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
+	m.mu.Lock()
+	status, ok := m.jobs[libraryID]
+	if !ok {
+		m.mu.Unlock()
+		cancel()
+		return
+	}
+	if status.ThumbnailPhase == libraryThumbnailPhaseQueued || status.ThumbnailPhase == libraryThumbnailPhaseRunning {
+		m.mu.Unlock()
+		cancel()
+		return
+	}
+	status.ThumbnailPhase = libraryThumbnailPhaseQueued
+	status.ThumbnailTotal = len(tasks)
+	status.ThumbnailGenerated = 0
+	status.ThumbnailFailed = 0
+	m.jobs[libraryID] = status
+	m.thumbnailCancels[libraryID] = cancel
+	m.setActivityStageLocked(libraryID, "thumbnail", true, false)
+	m.mu.Unlock()
+	m.flushStatus(libraryID, true)
+
+	go func() {
+		defer m.finishThumbnails(libraryID)
+		select {
+		case m.thumbnailSem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		defer func() { <-m.thumbnailSem }()
+
+		m.mu.Lock()
+		status, ok := m.jobs[libraryID]
+		if !ok {
+			m.mu.Unlock()
+			return
+		}
+		status.ThumbnailPhase = libraryThumbnailPhaseRunning
+		m.jobs[libraryID] = status
+		m.mu.Unlock()
+		m.flushStatus(libraryID, true)
+
+		_, _ = db.GenerateThumbnailsBatch(ctx, m.db, m.thumbDir, tasks, func(_completed, _total int, task db.ThumbnailTask, err error) {
+			m.mu.Lock()
+			if s, ok := m.jobs[libraryID]; ok {
+				if err != nil {
+					s.ThumbnailFailed++
+				} else {
+					s.ThumbnailGenerated++
+				}
+				m.jobs[libraryID] = s
+			}
+			m.mu.Unlock()
+			if task.Path != "" {
+				m.recordActivity(libraryID, "thumbnail", "episode", task.Path)
+			}
+			m.flushStatus(libraryID, false)
+		})
+	}()
+}
+
+func (m *LibraryScanManager) finishThumbnails(libraryID int) {
+	m.mu.Lock()
+	if status, ok := m.jobs[libraryID]; ok {
+		status.ThumbnailPhase = libraryThumbnailPhaseIdle
+		status.ThumbnailTotal = 0
+		status.ThumbnailGenerated = 0
+		status.ThumbnailFailed = 0
+		m.jobs[libraryID] = status
+		m.finalizeActivityLocked(libraryID, status)
+	}
+	if cancel, ok := m.thumbnailCancels[libraryID]; ok {
+		cancel()
+		delete(m.thumbnailCancels, libraryID)
+	}
+	m.mu.Unlock()
+	m.flushStatus(libraryID, true)
 }

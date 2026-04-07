@@ -574,6 +574,60 @@ func adminTaskDue(s db.AdminMaintenanceSchedule, task db.AdminMaintenanceTaskID,
 	return now.Sub(last) >= time.Duration(cfg.IntervalHours)*time.Hour
 }
 
+func (h *AdminHandler) PostRegenerateThumbnails(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.ScanJobs == nil || h.DB == nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	libraryID := 0
+	if q := strings.TrimSpace(r.URL.Query().Get("libraryId")); q != "" {
+		v, err := strconv.Atoi(q)
+		if err != nil || v < 0 {
+			http.Error(w, "invalid libraryId", http.StatusBadRequest)
+			return
+		}
+		libraryID = v
+	} else {
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		var body struct {
+			LibraryID int `json:"libraryId"`
+		}
+		if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		libraryID = body.LibraryID
+	}
+	if libraryID == 0 {
+		ids, err := db.ListTVAndAnimeLibraryIDs(h.DB)
+		if err != nil {
+			http.Error(w, "failed to list libraries", http.StatusInternalServerError)
+			return
+		}
+		for _, id := range ids {
+			go h.ScanJobs.StartThumbnails(id)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	var libType string
+	if err := h.DB.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&libType); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "library not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load library", http.StatusInternalServerError)
+		return
+	}
+	if libType != db.LibraryTypeTV && libType != db.LibraryTypeAnime {
+		http.Error(w, "library type does not support episode thumbnails", http.StatusBadRequest)
+		return
+	}
+	go h.ScanJobs.StartThumbnails(libraryID)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 // MountAdminRoutes registers /api/admin/* on the given router (caller must apply RequireAdmin).
 func MountAdminRoutes(r chi.Router, h *AdminHandler) {
 	if h == nil {
@@ -582,6 +636,7 @@ func MountAdminRoutes(r chi.Router, h *AdminHandler) {
 	r.Get("/api/admin/maintenance/schedule", h.GetMaintenanceSchedule)
 	r.Put("/api/admin/maintenance/schedule", h.PutMaintenanceSchedule)
 	r.Post("/api/admin/maintenance/run", h.PostMaintenanceRun)
+	r.Post("/api/admin/thumbnails/regenerate", h.PostRegenerateThumbnails)
 	r.Get("/api/admin/playback/active", h.GetActivePlayback)
 	r.Get("/api/admin/logs", h.GetLogs)
 }

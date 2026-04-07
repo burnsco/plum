@@ -304,10 +304,11 @@ export function IntroSkipperPluginTab() {
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
             Plum detects intros by reading chapter markers embedded in your
-            media files (titles like "Intro", "Opening", "OP", etc.). New media
-            is analyzed automatically during library scans. Use re-scan to
-            detect intros in files that were added before this feature or that
-            have been re-muxed with new chapters.
+            media files (titles like "Intro", "Opening", "OP", etc.). Library
+            scans analyze new and changed files, and run a one-time chapter
+            pass on existing files until each has been checked. Use Re-scan
+            intros to force ffprobe on every item in a library (for example
+            after re-muxing with new chapters).
           </p>
         </div>
       </div>

@@ -111,6 +111,44 @@ func TestGetHomeDashboardForUser_PrefersActiveEpisodeOverNextUp(t *testing.T) {
 	}
 }
 
+// Regression: a leftover partial in an early season must not beat a later season completed more recently;
+// continue-watching should be next-up after the latest touch (hero + rail ordering use the same list).
+func TestGetHomeDashboardForUser_ContinueWatchingStalePartialLosesToLaterSeason(t *testing.T) {
+	dbConn := newTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	userID := getSingleUserID(t, dbConn)
+	tvLibraryID := getLibraryID(t, dbConn, LibraryTypeTV)
+
+	stalePartialID := insertEpisodeForDashboardTest(t, dbConn, tvLibraryID, "Jump Show - S01E01 - Old", "/tv/Jump/S01E01.mkv", 1, 1)
+	lateCompletedID := insertEpisodeForDashboardTest(t, dbConn, tvLibraryID, "Jump Show - S05E01 - New", "/tv/Jump/S05E01.mkv", 5, 1)
+	nextUpID := insertEpisodeForDashboardTest(t, dbConn, tvLibraryID, "Jump Show - S05E02 - Next", "/tv/Jump/S05E02.mkv", 5, 2)
+
+	if err := UpsertPlaybackProgress(dbConn, userID, stalePartialID, 60, 1800, false); err != nil {
+		t.Fatalf("stale partial: %v", err)
+	}
+	if err := UpsertPlaybackProgress(dbConn, userID, lateCompletedID, 1800, 1800, true); err != nil {
+		t.Fatalf("complete later season: %v", err)
+	}
+	setPlaybackTimestamp(t, dbConn, userID, stalePartialID, "2026-01-01T10:00:00Z")
+	setPlaybackTimestamp(t, dbConn, userID, lateCompletedID, "2026-04-01T10:00:00Z")
+
+	dashboard, err := GetHomeDashboardForUser(dbConn, userID)
+	if err != nil {
+		t.Fatalf("get home dashboard: %v", err)
+	}
+	if len(dashboard.ContinueWatching) != 1 {
+		t.Fatalf("entries = %+v", dashboard.ContinueWatching)
+	}
+	entry := dashboard.ContinueWatching[0]
+	if entry.Kind != "show" || entry.Media.ID != nextUpID {
+		t.Fatalf("expected next-up S05E02 after latest activity on S05E01, got %+v", entry)
+	}
+	if entry.EpisodeLabel != "S05E02" {
+		t.Fatalf("expected S05E02, got %q", entry.EpisodeLabel)
+	}
+}
+
 // Regression: continue-watching for a TMDB show key must include all episodes linked to that show row,
 // including tmdb_id=0 episodes whose per-file showKey is title-* (bucket by show_id, not showKeyFromItem).
 func TestGetHomeDashboardForUser_ContinueWatchingMixedTMDBAndTitleKeyEpisodesOnSameShow(t *testing.T) {

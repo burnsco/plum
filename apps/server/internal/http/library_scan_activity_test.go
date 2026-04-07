@@ -54,7 +54,7 @@ func seedLibraryForScanActivityTest(t *testing.T) (*sql.DB, int, int) {
 func TestGetLibraryScanStatus_IncludesActivityDetails(t *testing.T) {
 	dbConn, userID, libraryID := seedLibraryForScanActivityTest(t)
 
-	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	manager.mu.Lock()
 	manager.jobs[libraryID] = libraryScanStatus{
 		LibraryID:      libraryID,
@@ -116,7 +116,7 @@ func TestGetLibraryScanStatus_IncludesActivityDetails(t *testing.T) {
 }
 
 func TestLibraryScanManager_TracksRelativeActivityAndCapsRecent(t *testing.T) {
-	manager := NewLibraryScanManager(context.Background(), nil, nil, nil)
+	manager := NewLibraryScanManager(context.Background(), nil, nil, nil, "")
 	manager.mu.Lock()
 	manager.jobs[7] = libraryScanStatus{
 		LibraryID:     7,
@@ -158,7 +158,7 @@ func TestLibraryScanManager_TracksRelativeActivityAndCapsRecent(t *testing.T) {
 }
 
 func TestLibraryScanManager_FinalizeActivityClearsOnSuccessAndKeepsFailureWithoutPaths(t *testing.T) {
-	manager := NewLibraryScanManager(context.Background(), nil, nil, nil)
+	manager := NewLibraryScanManager(context.Background(), nil, nil, nil, "")
 
 	manager.mu.Lock()
 	manager.jobs[9] = libraryScanStatus{

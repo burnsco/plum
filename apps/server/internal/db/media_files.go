@@ -6,15 +6,18 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 )
 
-// UpdateMediaFileIntroFromProbe persists chapter-derived intro range for a concrete file path.
-// Call after a successful ffprobe when intro columns exist; clears intro when probe found no intro chapter.
+// UpdateMediaFileIntroFromProbe persists chapter-derived intro range on the primary media_files row.
+// Call after a successful ffprobe when intro columns exist; clears intro columns when the probe found no intro chapter.
+// Always sets intro_probed_at so "never probed" can be distinguished from "probed, no intro chapters".
 func UpdateMediaFileIntroFromProbe(ctx context.Context, dbConn *sql.DB, mediaID int, path string, probed VideoProbeResult) error {
-	if mediaID <= 0 || strings.TrimSpace(path) == "" {
+	_ = path // retained for API stability; row is targeted by media_id + primary selection
+	if mediaID <= 0 {
 		return nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -25,11 +28,76 @@ func UpdateMediaFileIntroFromProbe(ctx context.Context, dbConn *sql.DB, mediaID 
 	if probed.IntroEndSeconds != nil {
 		end = *probed.IntroEndSeconds
 	}
-	_, err := dbConn.ExecContext(ctx,
-		`UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, updated_at = ? WHERE media_id = ? AND path = ?`,
-		start, end, now, mediaID, path,
+	res, err := dbConn.ExecContext(ctx,
+		`UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, intro_probed_at = ?, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+		start, end, now, now, mediaID,
 	)
-	return err
+	if err != nil {
+		if isMissingMediaFilesSchemaError(err) {
+			return updateMediaFileIntroFromProbeWithoutProbedAtColumn(ctx, dbConn, mediaID, start, end, now)
+		}
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	res2, err := dbConn.ExecContext(ctx, `
+UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, intro_probed_at = ?, updated_at = ?
+WHERE id = (
+  SELECT id FROM media_files WHERE media_id = ?
+  ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC
+  LIMIT 1
+)`, start, end, now, now, mediaID)
+	if err != nil {
+		return err
+	}
+	n2, err := res2.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n2 == 0 {
+		slog.Warn("persist intro chapters matched no media_files row", "media_id", mediaID)
+	}
+	return nil
+}
+
+func updateMediaFileIntroFromProbeWithoutProbedAtColumn(ctx context.Context, dbConn *sql.DB, mediaID int, start, end interface{}, now string) error {
+	res, err := dbConn.ExecContext(ctx,
+		`UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+		start, end, now, mediaID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	res2, err := dbConn.ExecContext(ctx, `
+UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, updated_at = ?
+WHERE id = (
+  SELECT id FROM media_files WHERE media_id = ?
+  ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC
+  LIMIT 1
+)`, start, end, now, mediaID)
+	if err != nil {
+		return err
+	}
+	n2, err := res2.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n2 == 0 {
+		slog.Warn("persist intro chapters matched no media_files row", "media_id", mediaID)
+	}
+	return nil
 }
 
 // posterURLRevisionQuery returns a v=… query so poster URLs change when poster_source changes,

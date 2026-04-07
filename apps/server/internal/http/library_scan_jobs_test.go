@@ -12,7 +12,7 @@ import (
 func TestNewLibraryScanManager_StoresLifecycleContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	m := NewLibraryScanManager(ctx, nil, nil, nil)
+	m := NewLibraryScanManager(ctx, nil, nil, nil, "")
 	if m.lifecycleCtx != ctx {
 		t.Fatalf("lifecycleCtx = %v want %v", m.lifecycleCtx, ctx)
 	}
@@ -20,7 +20,7 @@ func TestNewLibraryScanManager_StoresLifecycleContext(t *testing.T) {
 
 func TestNewLibraryScanManager_NilLifecycleUsesBackground(t *testing.T) {
 	t.Parallel()
-	m := NewLibraryScanManager(nil, nil, nil, nil)
+	m := NewLibraryScanManager(nil, nil, nil, nil, "")
 	if m.lifecycleCtx == nil {
 		t.Fatal("expected non-nil fallback lifecycle context")
 	}
@@ -42,7 +42,7 @@ func TestLibraryScanManager_RunPassesLifecycleContextToDiscovery(t *testing.T) {
 	t.Cleanup(func() { scanLibraryDiscovery = old })
 
 	lifecycle := context.WithValue(context.Background(), libraryScanTestCtxKey{}, "lifecycle")
-	m := NewLibraryScanManager(lifecycle, dbConn, nil, nil)
+	m := NewLibraryScanManager(lifecycle, dbConn, nil, nil, "")
 	st := libraryScanStatus{LibraryID: 1, Phase: libraryScanPhaseScanning}
 	m.run(1, st, db.LibraryTypeMovie, "/movies")
 

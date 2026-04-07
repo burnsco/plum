@@ -2155,6 +2155,73 @@ func TestScanLibraryDiscovery_TargetedEnrichmentTouchesOnlyChangedFiles(t *testi
 	}
 }
 
+func TestScanLibraryDiscovery_UnchangedQueuesIntroProbeUntilProbed(t *testing.T) {
+	dbConn := newTestDB(t)
+	tvLibID := getLibraryID(t, dbConn, "tv")
+
+	tmp := t.TempDir()
+	showDir := filepath.Join(tmp, "Show", "Season 1")
+	if err := os.MkdirAll(showDir, 0o755); err != nil {
+		t.Fatalf("mkdir show dir: %v", err)
+	}
+	episodeFile := filepath.Join(showDir, "Show - S01E01.mkv")
+	if err := os.WriteFile(episodeFile, []byte("video-bytes"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	prevHash := computeMediaHash
+	computeMediaHash = func(_ context.Context, path string) (string, error) {
+		return filepath.Base(path), nil
+	}
+	t.Cleanup(func() { computeMediaHash = prevHash })
+
+	delta1, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	})
+	if err != nil {
+		t.Fatalf("first discovery: %v", err)
+	}
+	if len(delta1.TouchedFiles) != 1 {
+		t.Fatalf("first touched = %d, want 1", len(delta1.TouchedFiles))
+	}
+
+	delta2, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	})
+	if err != nil {
+		t.Fatalf("second discovery: %v", err)
+	}
+	if len(delta2.TouchedFiles) != 1 {
+		t.Fatalf("second scan should queue intro backfill for unchanged file; touched = %d, want 1", len(delta2.TouchedFiles))
+	}
+	if delta2.TouchedFiles[0].Path != episodeFile {
+		t.Fatalf("second touched path = %q, want %q", delta2.TouchedFiles[0].Path, episodeFile)
+	}
+
+	prevVideoProbe := readVideoMetadata
+	readVideoMetadata = func(_ context.Context, path string) (VideoProbeResult, error) {
+		return VideoProbeResult{Duration: 42}, nil
+	}
+	t.Cleanup(func() { readVideoMetadata = prevVideoProbe })
+
+	if err := EnrichLibraryTasks(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, delta2.TouchedFiles, ScanOptions{
+		ProbeMedia:             true,
+		ProbeEmbeddedSubtitles: false,
+	}); err != nil {
+		t.Fatalf("enrichment: %v", err)
+	}
+
+	delta3, err := ScanLibraryDiscovery(context.Background(), dbConn, tmp, LibraryTypeTV, tvLibID, ScanOptions{
+		HashMode: ScanHashModeDefer,
+	})
+	if err != nil {
+		t.Fatalf("third discovery: %v", err)
+	}
+	if len(delta3.TouchedFiles) != 0 {
+		t.Fatalf("after intro probe, unchanged file should not re-queue; touched = %d, want 0", len(delta3.TouchedFiles))
+	}
+}
+
 func TestHandleScanLibrary_PartialScanMarksOnlyScopedRowsMissing(t *testing.T) {
 	dbConn := newTestDB(t)
 	tvLibID := getLibraryID(t, dbConn, "tv")

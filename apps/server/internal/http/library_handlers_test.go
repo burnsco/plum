@@ -2056,7 +2056,7 @@ func TestLibraryScanManager_FailedMovieNoMatchReindexesAfterTerminalState(t *tes
 			atomic.AddInt32(&calls, 1)
 			return nil, nil
 		},
-	}, nil)
+	}, nil, "")
 	scanJobs.handler = &LibraryHandler{
 		DB:          dbConn,
 		Meta:        scanJobs.meta,
@@ -2977,7 +2977,7 @@ func TestLibraryScanManager_FinishSkipsSearchIndexQueueWhenIdentifyRequested(t *
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	searchIndex := NewSearchIndexManager(context.Background(), dbConn, nil, nil)
 	var queueCalls int32
 	searchIndex.onQueue = func(gotLibraryID int, full bool) {
@@ -3067,7 +3067,7 @@ func TestLibraryScanManager_StartIdentifyQueuesSearchIndexOnceAtTerminalState(t 
 				ExternalID: "686",
 			}, nil
 		},
-	}, nil)
+	}, nil, "")
 	manager.handler = &LibraryHandler{
 		DB:          dbConn,
 		Meta:        manager.meta,
@@ -3131,7 +3131,7 @@ func TestLibraryScanStatus_ReturnsIdleWhenNoScanHasStarted(t *testing.T) {
 
 	handler := &LibraryHandler{
 		DB:       dbConn,
-		ScanJobs: NewLibraryScanManager(context.Background(), dbConn, nil, nil),
+		ScanJobs: NewLibraryScanManager(context.Background(), dbConn, nil, nil, ""),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/libraries/"+strconv.Itoa(libraryID)+"/scan", nil)
@@ -3184,7 +3184,7 @@ func TestStartLibraryScan_ImportsMediaInBackground(t *testing.T) {
 		t.Fatalf("insert library: %v", err)
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	handler := &LibraryHandler{
 		DB:       dbConn,
 		ScanJobs: scanJobs,
@@ -3265,7 +3265,7 @@ func TestLibraryScanManager_RecoverResumesQueuedScan(t *testing.T) {
 		t.Fatalf("seed library job status: %v", err)
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	if err := scanJobs.Recover(); err != nil {
 		t.Fatalf("recover scan jobs: %v", err)
 	}
@@ -3365,7 +3365,7 @@ func TestLibraryScanManager_RecoverPreservesFIFOOrder(t *testing.T) {
 		}
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	if err := scanJobs.Recover(); err != nil {
 		t.Fatalf("recover scan jobs: %v", err)
 	}
@@ -3483,7 +3483,7 @@ func TestLibraryScanManager_RecoverResumesEnrichmentWithoutRescanning(t *testing
 		music: func(context.Context, metadata.MusicInfo) *metadata.MusicMatchResult {
 			return &metadata.MusicMatchResult{Artist: "Recovered Artist"}
 		},
-	}, nil)
+	}, nil, "")
 	if err := scanJobs.Recover(); err != nil {
 		t.Fatalf("recover scan jobs: %v", err)
 	}
@@ -3596,7 +3596,7 @@ func TestLibraryScanManager_RecoverSkipsEnrichmentWhenNothingPending(t *testing.
 		enrichLibraryTasks = originalEnrichment
 	})
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	if err := scanJobs.Recover(); err != nil {
 		t.Fatalf("recover scan jobs: %v", err)
 	}
@@ -3656,7 +3656,7 @@ func TestLibraryScanManager_RequeueDoesNotDuplicateQueuedJob(t *testing.T) {
 		t.Fatalf("write small file: %v", err)
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	bigStatus := scanJobs.start(1, bigRoot, db.LibraryTypeTV, false, nil)
 	if bigStatus.Phase == "" {
 		t.Fatal("expected big status")
@@ -3740,7 +3740,7 @@ func TestLibraryScanManager_CompletedScanAdvancesQueueWhileFirstLibraryEnriches(
 		})
 	})
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.start(1, firstRoot, db.LibraryTypeTV, false, nil)
 	scanJobs.start(2, secondRoot, db.LibraryTypeTV, false, nil)
 
@@ -3789,7 +3789,7 @@ func TestLibraryScanManager_StartEnrichmentMarksQueuedBeforeWorkerSlotOpens(t *t
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	manager := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	manager.mu.Lock()
 	manager.jobs[2] = libraryScanStatus{
 		LibraryID:       2,
@@ -3866,7 +3866,7 @@ func TestLibraryScanManager_EnrichmentFailureMarksJobFailedAndSchedulesRetry(t *
 		enrichLibraryTasks = originalEnrichment
 	})
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.start(1, "/tv", db.LibraryTypeTV, false, nil)
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -3939,7 +3939,7 @@ func TestLibraryScanManager_RunUsesOriginalIdentifyRequestForMusicEnrichment(t *
 		enrichLibraryTasks = originalEnrichment
 	})
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, &identifyMusicStub{}, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, &identifyMusicStub{}, nil, "")
 	scanJobs.mu.Lock()
 	scanJobs.jobs[1] = libraryScanStatus{
 		LibraryID:         1,
@@ -3978,7 +3978,7 @@ func TestLibraryScanManager_PreservesRerunPartialSubpathsWhileScanning(t *testin
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.mu.Lock()
 	scanJobs.jobs[1] = libraryScanStatus{LibraryID: 1, Phase: libraryScanPhaseScanning}
 	scanJobs.mu.Unlock()
@@ -4011,7 +4011,7 @@ func TestLibraryScanManager_QueueAutomatedScanUsesSeriesFolderForTV(t *testing.T
 		t.Fatalf("remove episode: %v", err)
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.queueAutomatedScan(1, root, db.LibraryTypeTV, episodePath)
 
 	got := scanJobs.scanSubpaths(1)
@@ -4095,7 +4095,7 @@ func TestStartLibraryScan_RejectsInvalidSubpath(t *testing.T) {
 
 	handler := &LibraryHandler{
 		DB:       dbConn,
-		ScanJobs: NewLibraryScanManager(context.Background(), dbConn, nil, nil),
+		ScanJobs: NewLibraryScanManager(context.Background(), dbConn, nil, nil, ""),
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/scan/start?subpath=../outside", nil)
 	rctx := chi.NewRouteContext()
@@ -4134,7 +4134,7 @@ func TestLibraryScanManager_StartDoesNotBlockOnEstimate(t *testing.T) {
 		t.Fatalf("insert library: %v", err)
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	startedAt := time.Now()
 	status := scanJobs.start(7, root, db.LibraryTypeTV, false, nil)
 	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
@@ -4168,7 +4168,7 @@ func TestLibraryScanManager_StartClearsPendingRetryState(t *testing.T) {
 	t.Cleanup(func() { _ = dbConn.Close() })
 
 	root := t.TempDir()
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.mu.Lock()
 	scanJobs.jobs[7] = libraryScanStatus{
 		LibraryID:   7,
@@ -4199,7 +4199,7 @@ func TestLibraryScanManager_FinishSuccessResetsRetryCount(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.mu.Lock()
 	scanJobs.jobs[9] = libraryScanStatus{
 		LibraryID:   9,
@@ -4232,7 +4232,7 @@ func TestLibraryScanManager_StatusWarnsWhenCompletedScanFindsNoFiles(t *testing.
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	scanJobs.jobs[7] = libraryScanStatus{
 		LibraryID: 7,
 		Phase:     libraryScanPhaseCompleted,

@@ -1189,38 +1189,40 @@ func continueWatchingEntryForShow(showKey string, episodes []MediaItem) (Continu
 		return episodes[i].Title < episodes[j].Title
 	})
 
-	var partial *MediaItem
+	// Anchor on the single episode with the most recent watch activity (in progress or completed).
+	// Otherwise a stale partial in an early season wins over a binge continued later — wrong for home/hero ordering.
+	refIdx := -1
+	var refAt string
 	for i := range episodes {
-		if episodes[i].Completed || episodes[i].ProgressPercent <= 0 {
+		e := episodes[i]
+		if !e.Completed && e.ProgressPercent <= 0 {
 			continue
 		}
-		if partial == nil || partial.LastWatchedAt < episodes[i].LastWatchedAt {
-			partial = &episodes[i]
+		if refIdx < 0 || refAt < e.LastWatchedAt || (refAt == e.LastWatchedAt && i > refIdx) {
+			refIdx = i
+			refAt = e.LastWatchedAt
 		}
 	}
-	if partial != nil {
-		return buildShowContinueWatchingEntry(showKey, *partial, partial.LastWatchedAt), true
-	}
-
-	var latestCompletedIndex = -1
-	var latestCompletedAt string
-	for i := range episodes {
-		if !episodes[i].Completed || episodes[i].LastWatchedAt == "" {
-			continue
-		}
-		if latestCompletedIndex < 0 || latestCompletedAt < episodes[i].LastWatchedAt {
-			latestCompletedIndex = i
-			latestCompletedAt = episodes[i].LastWatchedAt
-		}
-	}
-	if latestCompletedIndex < 0 {
+	if refIdx < 0 {
 		return ContinueWatchingEntry{}, false
 	}
-	for i := latestCompletedIndex + 1; i < len(episodes); i++ {
-		if episodes[i].Completed {
-			continue
+
+	ref := episodes[refIdx]
+	activityAt := ref.LastWatchedAt
+	if activityAt == "" {
+		activityAt = refAt
+	}
+
+	if !ref.Completed && ref.ProgressPercent > 0 {
+		return buildShowContinueWatchingEntry(showKey, ref, activityAt), true
+	}
+	if ref.Completed {
+		for i := refIdx + 1; i < len(episodes); i++ {
+			if episodes[i].Completed {
+				continue
+			}
+			return buildShowContinueWatchingEntry(showKey, episodes[i], activityAt), true
 		}
-		return buildShowContinueWatchingEntry(showKey, episodes[i], latestCompletedAt), true
 	}
 	return ContinueWatchingEntry{}, false
 }

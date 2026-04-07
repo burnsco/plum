@@ -93,7 +93,7 @@ func TestRunMaintenanceTask_ScanAllMedia_QueuesRows(t *testing.T) {
 		t.Fatalf("insert library: %v", err)
 	}
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	h := &AdminHandler{
 		DB:       dbConn,
 		ScanJobs: scanJobs,
@@ -116,7 +116,7 @@ func TestRunMaintenanceTask_ScanAllMedia_EmptyLibraryTable(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = dbConn.Close() })
 
-	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil)
+	scanJobs := NewLibraryScanManager(context.Background(), dbConn, nil, nil, "")
 	h := &AdminHandler{DB: dbConn, ScanJobs: scanJobs, Lib: &LibraryHandler{DB: dbConn}}
 	accepted, status, payload := h.runMaintenanceTask(context.Background(), db.AdminTaskScanAllMedia, true)
 	if !accepted || status != 200 {
