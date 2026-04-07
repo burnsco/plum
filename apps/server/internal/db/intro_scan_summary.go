@@ -4,6 +4,10 @@ import (
 	"database/sql"
 )
 
+// introDetectedCondition matches rows with a usable skip target: chapter intros set both
+// start/end; silence fallback sets intro_end_sec only (start may be NULL).
+const introDetectedCondition = `mf.intro_end_sec IS NOT NULL AND mf.intro_end_sec > 0`
+
 // IntroScanLibrarySummary reports per-library intro detection coverage.
 type IntroScanLibrarySummary struct {
 	LibraryID     int    `json:"library_id"`
@@ -21,7 +25,7 @@ func ListIntroScanSummaries(dbConn *sql.DB, userID int) ([]IntroScanLibrarySumma
 	const q = `
 SELECT l.id, l.name, l.type, COALESCE(l.intro_skip_mode, 'manual'),
        COUNT(DISTINCT e.id),
-       COUNT(DISTINCT CASE WHEN mf.intro_start_sec IS NOT NULL THEN e.id END)
+       COUNT(DISTINCT CASE WHEN ` + introDetectedCondition + ` THEN e.id END)
 FROM libraries l
 JOIN tv_episodes e ON e.library_id = l.id AND e.missing_since IS NULL
 JOIN media_global mg ON mg.kind = 'tv' AND mg.ref_id = e.id
@@ -33,7 +37,7 @@ UNION ALL
 
 SELECT l.id, l.name, l.type, COALESCE(l.intro_skip_mode, 'manual'),
        COUNT(DISTINCT e.id),
-       COUNT(DISTINCT CASE WHEN mf.intro_start_sec IS NOT NULL THEN e.id END)
+       COUNT(DISTINCT CASE WHEN ` + introDetectedCondition + ` THEN e.id END)
 FROM libraries l
 JOIN anime_episodes e ON e.library_id = l.id AND e.missing_since IS NULL
 JOIN media_global mg ON mg.kind = 'anime' AND mg.ref_id = e.id
@@ -45,7 +49,7 @@ UNION ALL
 
 SELECT l.id, l.name, l.type, COALESCE(l.intro_skip_mode, 'manual'),
        COUNT(DISTINCT m.id),
-       COUNT(DISTINCT CASE WHEN mf.intro_start_sec IS NOT NULL THEN m.id END)
+       COUNT(DISTINCT CASE WHEN ` + introDetectedCondition + ` THEN m.id END)
 FROM libraries l
 JOIN movies m ON m.library_id = l.id AND m.missing_since IS NULL
 JOIN media_global mg ON mg.kind = 'movie' AND mg.ref_id = m.id
@@ -87,7 +91,7 @@ func ListIntroScanShowSummaries(dbConn *sql.DB, libraryID int) ([]IntroScanShowS
 	const q = `
 SELECT s.title_key, s.title,
        COUNT(DISTINCT e.id),
-       COUNT(DISTINCT CASE WHEN mf.intro_start_sec IS NOT NULL THEN e.id END)
+       COUNT(DISTINCT CASE WHEN ` + introDetectedCondition + ` THEN e.id END)
 FROM shows s
 JOIN tv_episodes e ON e.show_id = s.id AND e.missing_since IS NULL
 JOIN media_global mg ON mg.kind = 'tv' AND mg.ref_id = e.id
@@ -99,7 +103,7 @@ UNION ALL
 
 SELECT s.title_key, s.title,
        COUNT(DISTINCT e.id),
-       COUNT(DISTINCT CASE WHEN mf.intro_start_sec IS NOT NULL THEN e.id END)
+       COUNT(DISTINCT CASE WHEN ` + introDetectedCondition + ` THEN e.id END)
 FROM shows s
 JOIN anime_episodes e ON e.show_id = s.id AND e.missing_since IS NULL
 JOIN media_global mg ON mg.kind = 'anime' AND mg.ref_id = e.id

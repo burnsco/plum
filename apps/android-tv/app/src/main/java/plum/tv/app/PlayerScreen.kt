@@ -191,6 +191,12 @@ fun PlayerRoute(
         }
     }
 
+    LaunchedEffect(ui.showSkipCredits) {
+        if (ui.showSkipCredits) {
+            showControls()
+        }
+    }
+
     LaunchedEffect(upNext) {
         if (upNext != null) {
             showControls()
@@ -556,8 +562,21 @@ fun PlayerRoute(
                         )
                         if (ui.showSkipIntro) {
                             SkipIntroControl(
+                                label = "Skip intro",
+                                contentDescription = "Skip intro",
                                 onClick = {
                                     viewModel.skipIntro()
+                                    showControls()
+                                },
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            )
+                        }
+                        if (ui.showSkipCredits) {
+                            SkipIntroControl(
+                                label = "Skip credits",
+                                contentDescription = "Skip credits",
+                                onClick = {
+                                    viewModel.skipCredits()
                                     showControls()
                                 },
                                 modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
@@ -1530,6 +1549,8 @@ private fun PlexSeekBar(
 
 @Composable
 private fun SkipIntroControl(
+    label: String,
+    contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1541,7 +1562,7 @@ private fun SkipIntroControl(
             modifier
                 .height(50.dp)
                 .widthIn(min = 128.dp)
-                .semantics { contentDescription = "Skip intro" },
+                .semantics { this.contentDescription = contentDescription },
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(
@@ -1566,7 +1587,7 @@ private fun SkipIntroControl(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "Skip intro",
+                text = label,
                 style = PlumTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )

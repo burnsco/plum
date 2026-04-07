@@ -93,6 +93,7 @@ import type {
     TranscodingSettingsWarning,
     UnidentifiedLibrariesResponse,
     UnidentifiedLibrarySummary,
+    PatchMediaIntroPayload,
     UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload,
     UpdatePlaybackSessionAudioPayload,
@@ -156,6 +157,7 @@ import {
     TranscodingSettingsResponseSchema,
     TranscodingSettingsSchema,
     UnidentifiedLibrariesResponseSchema,
+    PatchMediaIntroPayloadSchema,
     UpdateLibraryPlaybackPreferencesPayloadSchema,
     UpdateMediaProgressPayloadSchema,
     UpdatePlaybackSessionAudioPayloadSchema,
@@ -234,6 +236,7 @@ export type {
     TranscodingSettingsWarning,
     UnidentifiedLibrariesResponse,
     UnidentifiedLibrarySummary,
+    PatchMediaIntroPayload,
     UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload, UpdatePlaybackSessionAudioPayload, User,
     VaapiDecodeCodec
@@ -1127,6 +1130,46 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         errorMessage: ({ status, body }) =>
           body || `Refresh library playback tracks: ${status}`,
       }),
+    refreshLibraryIntroOnly: (libraryId: number) =>
+      jsonRequestEffect({
+        method: "POST",
+        path: `/api/libraries/${libraryId}/intro/refresh`,
+        schema: LibraryPlaybackTracksRefreshResultSchema,
+        errorMessage: ({ status, body }) =>
+          body || `Refresh library intro metadata: ${status}`,
+      }),
+    postLibraryIntroChromaprintScan: (
+      libraryId: number,
+      options?: { readonly showKey?: string },
+    ) =>
+      jsonRequestEffect({
+        method: "POST",
+        path: `/api/libraries/${libraryId}/intro/chromaprint-scan`,
+        body:
+          options?.showKey != null && options.showKey.trim() !== ""
+            ? { show_key: options.showKey.trim() }
+            : {},
+        schema: LibraryPlaybackTracksRefreshResultSchema,
+        errorMessage: ({ status, body }) =>
+          body || `Chromaprint intro scan: ${status}`,
+      }),
+    patchMediaIntro: (mediaId: number, payload: PatchMediaIntroPayload) =>
+      decodeSchemaEffect(
+        PatchMediaIntroPayloadSchema,
+        payload,
+        "PATCH",
+        `/api/media/${mediaId}/intro`,
+        "Invalid intro/credits payload.",
+      ).pipe(
+        Effect.flatMap((body) =>
+          voidRequestEffect({
+            method: "PATCH",
+            path: `/api/media/${mediaId}/intro`,
+            body,
+            errorMessage: ({ status, body: b }) => b || `Update intro bounds: ${status}`,
+          }),
+        ),
+      ),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       decodeSchemaEffect(
         UpdatePlaybackSessionAudioPayloadSchema,
@@ -1526,6 +1569,13 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     warmEmbeddedSubtitleCaches: (id: number) => run(effects.warmEmbeddedSubtitleCaches(id)),
     refreshLibraryPlaybackTracks: (libraryId: number) =>
       run(effects.refreshLibraryPlaybackTracks(libraryId)),
+    refreshLibraryIntroOnly: (libraryId: number) => run(effects.refreshLibraryIntroOnly(libraryId)),
+    postLibraryIntroChromaprintScan: (
+      libraryId: number,
+      options?: { readonly showKey?: string },
+    ) => run(effects.postLibraryIntroChromaprintScan(libraryId, options)),
+    patchMediaIntro: (mediaId: number, payload: PatchMediaIntroPayload) =>
+      run(effects.patchMediaIntro(mediaId, payload)),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       run(effects.updatePlaybackSessionAudio(sessionId, payload)),
     closePlaybackSession: (sessionId: string) => run(effects.closePlaybackSession(sessionId)),

@@ -1424,6 +1424,24 @@ func episodeLabel(item MediaItem) string {
 // ErrShowNotFound is returned when the library is not TV/anime or the show key does not resolve to a show row.
 var ErrShowNotFound = errors.New("show not found")
 
+// GetMediaByLibraryIDAndShowKey returns episode media rows for a library show key (no progress attachment).
+func GetMediaByLibraryIDAndShowKey(db *sql.DB, libraryID int, libraryType string, showKey string) ([]MediaItem, error) {
+	if libraryType != LibraryTypeTV && libraryType != LibraryTypeAnime {
+		return nil, ErrShowNotFound
+	}
+	if err := ensureLibraryShowsAndSeasons(db, libraryID, libraryType); err != nil {
+		return nil, err
+	}
+	showID, _, _, _, _, _, _, _, _, _, _, err := getShowCanonicalMetadata(db, libraryID, libraryType, showKey)
+	if err != nil {
+		return nil, err
+	}
+	if showID == 0 {
+		return nil, ErrShowNotFound
+	}
+	return queryMediaByShowID(db, libraryID, libraryType, showID)
+}
+
 // GetLibraryShowEpisodesForUser returns all episode media rows for a show key, with progress and files attached.
 func GetLibraryShowEpisodesForUser(db *sql.DB, libraryID, userID int, showKey string) ([]MediaItem, error) {
 	var libraryType string

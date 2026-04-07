@@ -49,6 +49,8 @@ data class PlaybackSessionJson(
     @Json(name = "intro_skip_mode") val introSkipMode: String? = null,
     @Json(name = "intro_start_seconds") val introStartSeconds: Double? = null,
     @Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,
+    @Json(name = "credits_start_seconds") val creditsStartSeconds: Double? = null,
+    @Json(name = "credits_end_seconds") val creditsEndSeconds: Double? = null,
 )
 
 /** Must match `PlaybackSessionUpdateEvent` / `PlaybackSessionUpdateEventSchema` in @plum/contracts. */
@@ -68,6 +70,8 @@ data class PlaybackSessionUpdateEventJson(
     @Json(name = "intro_skip_mode") val introSkipMode: String? = null,
     @Json(name = "intro_start_seconds") val introStartSeconds: Double? = null,
     @Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,
+    @Json(name = "credits_start_seconds") val creditsStartSeconds: Double? = null,
+    @Json(name = "credits_end_seconds") val creditsEndSeconds: Double? = null,
 )
 
 @JsonClass(generateAdapter = true)

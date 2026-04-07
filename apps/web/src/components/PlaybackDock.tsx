@@ -619,9 +619,35 @@ export function PlaybackDock() {
   const introSkipStateRef = useRef({ consumedAuto: false, suppressed: false, lastTime: 0 });
   const [introButtonDismissed, setIntroButtonDismissed] = useState(false);
 
+  const creditsEndSec = useMemo(() => {
+    const end = activeItem?.credits_end_seconds;
+    if (end == null || !Number.isFinite(end) || end <= 0) {
+      return null;
+    }
+    return end;
+  }, [activeItem?.credits_end_seconds]);
+
+  const creditsStartSec = useMemo(() => {
+    const s = activeItem?.credits_start_seconds;
+    if (s != null && Number.isFinite(s) && s >= 0) {
+      return s;
+    }
+    return null;
+  }, [activeItem?.credits_start_seconds]);
+
+  const creditsWindowOk =
+    creditsStartSec != null &&
+    creditsEndSec != null &&
+    creditsEndSec > creditsStartSec;
+
+  const creditsSkipStateRef = useRef({ consumedAuto: false, suppressed: false, lastTime: 0 });
+  const [creditsButtonDismissed, setCreditsButtonDismissed] = useState(false);
+
   useEffect(() => {
     introSkipStateRef.current = { consumedAuto: false, suppressed: false, lastTime: 0 };
     setIntroButtonDismissed(false);
+    creditsSkipStateRef.current = { consumedAuto: false, suppressed: false, lastTime: 0 };
+    setCreditsButtonDismissed(false);
   }, [activeItemId]);
 
   const handleSkipIntroClick = useCallback(() => {
@@ -629,6 +655,12 @@ export function PlaybackDock() {
     seekTo(introEndSec);
     setIntroButtonDismissed(true);
   }, [introEndSec, seekTo]);
+
+  const handleSkipCreditsClick = useCallback(() => {
+    if (creditsEndSec == null) return;
+    seekTo(creditsEndSec);
+    setCreditsButtonDismissed(true);
+  }, [creditsEndSec, seekTo]);
 
   const INTRO_END_MARGIN_SEC = 0.5;
 
@@ -662,6 +694,42 @@ export function PlaybackDock() {
     [introEndSec, introStartSec, isVideo, libraryPlaybackPreferences.introSkipMode, seekTo],
   );
 
+  const processCreditsSkip = useCallback(
+    (video: HTMLVideoElement) => {
+      const mode = libraryPlaybackPreferences.introSkipMode;
+      if (mode === "off" || !creditsWindowOk || !isVideo || creditsStartSec == null || creditsEndSec == null) {
+        return;
+      }
+      const st = creditsStartSec;
+      const end = creditsEndSec;
+      const t = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const state = creditsSkipStateRef.current;
+      if (t < state.lastTime - 1.0 && t < end) {
+        state.consumedAuto = false;
+        state.suppressed = false;
+      }
+      if (state.lastTime >= end && t < end - 0.25) {
+        state.suppressed = true;
+      }
+      state.lastTime = t;
+      if (t < st || t >= end - INTRO_END_MARGIN_SEC) {
+        return;
+      }
+      if (mode === "auto" && !state.consumedAuto && !state.suppressed && video.readyState >= 2) {
+        state.consumedAuto = true;
+        seekTo(end);
+      }
+    },
+    [
+      creditsEndSec,
+      creditsStartSec,
+      creditsWindowOk,
+      isVideo,
+      libraryPlaybackPreferences.introSkipMode,
+      seekTo,
+    ],
+  );
+
   const showSkipIntroControl =
     isVideo &&
     introEndSec != null &&
@@ -669,6 +737,16 @@ export function PlaybackDock() {
     !introButtonDismissed &&
     playbackState.currentTime >= introStartSec &&
     playbackState.currentTime < introEndSec - INTRO_END_MARGIN_SEC;
+
+  const showSkipCreditsControl =
+    isVideo &&
+    creditsWindowOk &&
+    creditsStartSec != null &&
+    creditsEndSec != null &&
+    libraryPlaybackPreferences.introSkipMode !== "off" &&
+    !creditsButtonDismissed &&
+    playbackState.currentTime >= creditsStartSec &&
+    playbackState.currentTime < creditsEndSec - INTRO_END_MARGIN_SEC;
 
   useEffect(() => {
     const previousUrl = previousVideoSourceUrlRef.current;
@@ -2372,6 +2450,7 @@ export function PlaybackDock() {
             syncVideoProgressSnapshot(event.currentTarget);
             persistInitialPlaybackProgress(event.currentTarget);
             processIntroSkip(event.currentTarget);
+            processCreditsSkip(event.currentTarget);
           }}
           onPlay={(event) => {
             if (event.currentTarget.currentTime > 1) {
@@ -2383,6 +2462,7 @@ export function PlaybackDock() {
             syncVideoProgressSnapshot(event.currentTarget);
             persistInitialPlaybackProgress(event.currentTarget);
             processIntroSkip(event.currentTarget);
+            processCreditsSkip(event.currentTarget);
           }}
           onPlaying={() => {
             kickstartVideoPlaybackRef.current = false;
@@ -2413,17 +2493,33 @@ export function PlaybackDock() {
             handleVideoEnded(event);
           }}
         />
-        {showSkipIntroControl && (
-          <button
-            type="button"
-            className="fullscreen-player__skip-intro"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleSkipIntroClick();
-            }}
-          >
-            Skip intro
-          </button>
+        {(showSkipIntroControl || showSkipCreditsControl) && (
+          <div className="fullscreen-player__skip-actions">
+            {showSkipIntroControl ? (
+              <button
+                type="button"
+                className="fullscreen-player__skip-intro"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleSkipIntroClick();
+                }}
+              >
+                Skip intro
+              </button>
+            ) : null}
+            {showSkipCreditsControl ? (
+              <button
+                type="button"
+                className="fullscreen-player__skip-credits"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleSkipCreditsClick();
+                }}
+              >
+                Skip credits
+              </button>
+            ) : null}
+          </div>
         )}
         {showPlayerLoadingOverlay && (
           <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />

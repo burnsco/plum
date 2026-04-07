@@ -68,6 +68,7 @@ export type {
   LibraryType,
   MatchStatus,
   MediaItem,
+  PatchMediaIntroPayload,
   MediaStackQualityProfileOption,
   MediaStackRootFolderOption,
   MediaStackServiceKind,

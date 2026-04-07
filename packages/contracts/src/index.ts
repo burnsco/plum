@@ -133,6 +133,9 @@ export interface MediaItem {
   /** From container chapter metadata (ffprobe), when present. */
   intro_start_seconds?: number;
   intro_end_seconds?: number;
+  intro_locked?: boolean;
+  credits_start_seconds?: number;
+  credits_end_seconds?: number;
 }
 
 export const MediaItemSchema = Schema.Struct({
@@ -185,6 +188,9 @@ export const MediaItemSchema = Schema.Struct({
   duplicate_count: Schema.optional(Schema.Number),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
+  intro_locked: Schema.optional(Schema.Boolean),
+  credits_start_seconds: Schema.optional(Schema.Number),
+  credits_end_seconds: Schema.optional(Schema.Number),
 });
 
 export interface LibraryBrowseItem {
@@ -233,6 +239,9 @@ export interface LibraryBrowseItem {
   missing_since?: string;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
+  intro_locked?: boolean;
+  credits_start_seconds?: number;
+  credits_end_seconds?: number;
 }
 
 export const LibraryBrowseItemSchema = Schema.Struct({
@@ -280,6 +289,9 @@ export const LibraryBrowseItemSchema = Schema.Struct({
   missing_since: Schema.optional(Schema.String),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
+  intro_locked: Schema.optional(Schema.Boolean),
+  credits_start_seconds: Schema.optional(Schema.Number),
+  credits_end_seconds: Schema.optional(Schema.Number),
 });
 
 export interface LibraryMediaPage {
@@ -399,6 +411,8 @@ export interface DirectPlaybackSession {
   intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
+  credits_start_seconds?: number;
+  credits_end_seconds?: number;
 }
 
 export interface HlsPlaybackSession {
@@ -418,6 +432,8 @@ export interface HlsPlaybackSession {
   intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
+  credits_start_seconds?: number;
+  credits_end_seconds?: number;
 }
 
 export type PlaybackSession = DirectPlaybackSession | HlsPlaybackSession;
@@ -437,6 +453,8 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
+  credits_start_seconds: Schema.optional(Schema.Number),
+  credits_end_seconds: Schema.optional(Schema.Number),
 });
 
 export const HlsPlaybackSessionSchema = Schema.Struct({
@@ -456,6 +474,8 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
+  credits_start_seconds: Schema.optional(Schema.Number),
+  credits_end_seconds: Schema.optional(Schema.Number),
 });
 
 export const PlaybackSessionSchema = Schema.Union([
@@ -1568,15 +1588,26 @@ export const IntroRefreshLibraryStatusSchema = Schema.Struct({
   library_id: Schema.Number,
   total: Schema.Number,
   processed: Schema.Number,
-  current_path: Schema.String,
+  current_path: Schema.optional(Schema.String),
 });
 
 export interface IntroRefreshStatusResponse {
+  /** Full playback-tracks refresh (embedded audio/subtitle re-probe). */
   libraries: IntroRefreshLibraryStatus[];
+  /** Intro-only chapter/silence re-probe. */
+  intro_only_libraries?: IntroRefreshLibraryStatus[];
+  /** Chromaprint season clustering (TV/anime). */
+  chromaprint_libraries?: IntroRefreshLibraryStatus[];
 }
 
 export const IntroRefreshStatusResponseSchema = Schema.Struct({
   libraries: Schema.Array(IntroRefreshLibraryStatusSchema),
+  intro_only_libraries: Schema.optional(
+    Schema.Array(IntroRefreshLibraryStatusSchema),
+  ),
+  chromaprint_libraries: Schema.optional(
+    Schema.Array(IntroRefreshLibraryStatusSchema),
+  ),
 });
 
 export interface ShowRefreshPayload {
@@ -1906,6 +1937,8 @@ export interface PlaybackSessionUpdateEvent {
   intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
+  credits_start_seconds?: number;
+  credits_end_seconds?: number;
 }
 
 export interface LibraryScanUpdateEvent {
@@ -1962,6 +1995,28 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
+  credits_start_seconds: Schema.optional(Schema.Number),
+  credits_end_seconds: Schema.optional(Schema.Number),
+});
+
+export interface PatchMediaIntroPayload {
+  intro_start_seconds?: number;
+  intro_end_seconds?: number;
+  intro_locked?: boolean;
+  clear_intro?: boolean;
+  credits_start_seconds?: number;
+  credits_end_seconds?: number;
+  clear_credits?: boolean;
+}
+
+export const PatchMediaIntroPayloadSchema = Schema.Struct({
+  intro_start_seconds: Schema.optional(Schema.Number),
+  intro_end_seconds: Schema.optional(Schema.Number),
+  intro_locked: Schema.optional(Schema.Boolean),
+  clear_intro: Schema.optional(Schema.Boolean),
+  credits_start_seconds: Schema.optional(Schema.Number),
+  credits_end_seconds: Schema.optional(Schema.Number),
+  clear_credits: Schema.optional(Schema.Boolean),
 });
 
 export const LibraryScanUpdateEventSchema = Schema.Struct({

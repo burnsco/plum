@@ -188,6 +188,11 @@ type MediaItem struct {
 	// IntroStartSeconds/IntroEndSeconds come from the primary media file's chapter metadata (ffprobe).
 	IntroStartSeconds *float64 `json:"intro_start_seconds,omitempty"`
 	IntroEndSeconds   *float64 `json:"intro_end_seconds,omitempty"`
+	// IntroLocked when true: automatic intro probes must not overwrite intro bounds.
+	IntroLocked bool `json:"intro_locked,omitempty"`
+	// CreditsStartSeconds/CreditsEndSeconds mark an end-credits window (manual or detector).
+	CreditsStartSeconds *float64 `json:"credits_start_seconds,omitempty"`
+	CreditsEndSeconds   *float64 `json:"credits_end_seconds,omitempty"`
 
 	FileSizeBytes int64  `json:"-"`
 	FileModTime   string `json:"-"`
@@ -296,10 +301,44 @@ func RetryOnBusy(ctx context.Context, maxAttempts int, baseDelay time.Duration, 
 const sqlitePragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)" +
 	"&_pragma=cache_size(-65536)&_pragma=mmap_size(67108864)"
 
+// plumSQLitePath stores the configured DB path (before DSN query params) for ancillary dirs (e.g. intro fingerprint cache).
+var (
+	plumSQLitePathMu sync.RWMutex
+	plumSQLitePath   string
+)
+
+func plumAuxDBFilePath() string {
+	plumSQLitePathMu.RLock()
+	defer plumSQLitePathMu.RUnlock()
+	return plumSQLitePath
+}
+
+func sqlitePathForAuxFiles(conn string) string {
+	s := strings.TrimSpace(conn)
+	if s == "" || s == ":memory:" {
+		return ""
+	}
+	if strings.HasPrefix(s, "file:") {
+		s = strings.TrimPrefix(s, "file:")
+		if i := strings.IndexAny(s, "?"); i >= 0 {
+			s = s[:i]
+		}
+		// file:///path or file:path
+		s = strings.TrimPrefix(s, "//")
+	}
+	if i := strings.IndexAny(s, "?"); i >= 0 {
+		s = s[:i]
+	}
+	return s
+}
+
 func InitDB(conn string) (*sql.DB, error) {
 	if conn == "" {
 		conn = "./data/plum.db"
 	}
+	plumSQLitePathMu.Lock()
+	plumSQLitePath = sqlitePathForAuxFiles(conn)
+	plumSQLitePathMu.Unlock()
 	dsn := conn
 	if strings.Contains(dsn, "?") {
 		dsn += "&" + sqlitePragmas
@@ -582,6 +621,9 @@ CREATE TABLE IF NOT EXISTS media_files (
   intro_start_sec REAL,
   intro_end_sec REAL,
   intro_probed_at TEXT,
+  intro_locked INTEGER NOT NULL DEFAULT 0,
+  credits_start_sec REAL,
+  credits_end_sec REAL,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL
 );
@@ -1417,6 +1459,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHER
 		name:    "media_files_intro_probed_at",
 		apply: func(ctx context.Context, tx *sql.Tx) error {
 			return addColumnIfMissingTx(ctx, tx, "media_files", "intro_probed_at", "TEXT")
+		},
+	},
+	{
+		version: 32,
+		name:    "media_files_intro_locked",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			return addColumnIfMissingTx(ctx, tx, "media_files", "intro_locked", "INTEGER NOT NULL DEFAULT 0")
+		},
+	},
+	{
+		version: 33,
+		name:    "media_files_credits_bounds",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			if err := addColumnIfMissingTx(ctx, tx, "media_files", "credits_start_sec", "REAL"); err != nil {
+				return err
+			}
+			return addColumnIfMissingTx(ctx, tx, "media_files", "credits_end_sec", "REAL")
 		},
 	},
 }
@@ -2409,17 +2468,27 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		if err := UpdateMediaFileIntroFromProbe(ctx, db, item.ID, sourcePath, probed); err != nil {
 			slog.Warn("persist intro chapters", "media_id", item.ID, "path", sourcePath, "error", err)
 		}
-		if probed.IntroStartSeconds != nil {
-			v := *probed.IntroStartSeconds
-			item.IntroStartSeconds = &v
-		} else {
-			item.IntroStartSeconds = nil
+		locked, lockErr := MediaFileIntroLocked(ctx, db, item.ID)
+		if lockErr != nil {
+			slog.Warn("intro lock read", "media_id", item.ID, "error", lockErr)
 		}
-		if probed.IntroEndSeconds != nil {
-			v := *probed.IntroEndSeconds
-			item.IntroEndSeconds = &v
+		if locked {
+			if err := ApplyPrimaryMediaIntroCreditsToItem(db, item); err != nil {
+				slog.Warn("reload intro after locked probe", "media_id", item.ID, "error", err)
+			}
 		} else {
-			item.IntroEndSeconds = nil
+			if probed.IntroStartSeconds != nil {
+				v := *probed.IntroStartSeconds
+				item.IntroStartSeconds = &v
+			} else {
+				item.IntroStartSeconds = nil
+			}
+			if probed.IntroEndSeconds != nil {
+				v := *probed.IntroEndSeconds
+				item.IntroEndSeconds = &v
+			} else {
+				item.IntroEndSeconds = nil
+			}
 		}
 	}
 
@@ -2449,6 +2518,74 @@ func RefreshPlaybackTrackMetadataForLibrary(ctx context.Context, dbConn *sql.DB,
 		_, rerr := RefreshPlaybackTrackMetadata(ctx, dbConn, &it)
 		if rerr != nil {
 			slog.Warn("refresh playback tracks", "library_id", libraryID, "media_id", it.ID, "error", rerr)
+			failed++
+		} else {
+			refreshed++
+		}
+	}
+	return refreshed, failed, nil
+}
+
+// RefreshIntroProbeOnly runs ffprobe/chapter/silence intro detection and persists results (unless intro_locked).
+// Does not refresh embedded subtitle/audio track rows or sidecar subtitle scan.
+func RefreshIntroProbeOnly(ctx context.Context, dbConn *sql.DB, item *MediaItem) error {
+	if item == nil || item.ID <= 0 || item.Type == LibraryTypeMusic {
+		return nil
+	}
+	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
+	if err != nil {
+		return err
+	}
+	probed, err := readVideoMetadata(ctx, sourcePath)
+	if err != nil {
+		return err
+	}
+	if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, item.ID, sourcePath, probed); err != nil {
+		return err
+	}
+	locked, err := MediaFileIntroLocked(ctx, dbConn, item.ID)
+	if err != nil {
+		return err
+	}
+	if locked {
+		return ApplyPrimaryMediaIntroCreditsToItem(dbConn, item)
+	}
+	if probed.IntroStartSeconds != nil {
+		v := *probed.IntroStartSeconds
+		item.IntroStartSeconds = &v
+	} else {
+		item.IntroStartSeconds = nil
+	}
+	if probed.IntroEndSeconds != nil {
+		v := *probed.IntroEndSeconds
+		item.IntroEndSeconds = &v
+	} else {
+		item.IntroEndSeconds = nil
+	}
+	return nil
+}
+
+// RefreshIntroProbeOnlyForLibrary runs RefreshIntroProbeOnly for every non-missing item in the library.
+func RefreshIntroProbeOnlyForLibrary(ctx context.Context, dbConn *sql.DB, libraryID int) (refreshed int, failed int, err error) {
+	var typ string
+	if err := dbConn.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&typ); err != nil {
+		return 0, 0, err
+	}
+	if typ == LibraryTypeMusic {
+		return 0, 0, nil
+	}
+	items, err := GetMediaByLibraryID(dbConn, libraryID)
+	if err != nil {
+		return 0, 0, err
+	}
+	for i := range items {
+		it := items[i]
+		if it.Missing {
+			continue
+		}
+		rerr := RefreshIntroProbeOnly(ctx, dbConn, &it)
+		if rerr != nil {
+			slog.Warn("intro probe refresh", "library_id", libraryID, "media_id", it.ID, "error", rerr)
 			failed++
 		} else {
 			refreshed++
@@ -2696,6 +2833,15 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 		if file.IntroEndSec.Valid {
 			v := file.IntroEndSec.Float64
 			m.IntroEndSeconds = &v
+		}
+		m.IntroLocked = file.IntroLocked != 0
+		if file.CreditsStartSec.Valid {
+			v := file.CreditsStartSec.Float64
+			m.CreditsStartSeconds = &v
+		}
+		if file.CreditsEndSec.Valid {
+			v := file.CreditsEndSec.Float64
+			m.CreditsEndSeconds = &v
 		}
 	}
 	decorateMediaItemURLs(&m)
@@ -3535,6 +3681,14 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 			result.IntroEndSeconds = &e
 		}
 	}
+	if result.IntroEndSeconds == nil {
+		if end, ok := probeIntroEndViaSilenceDetect(ctx, path, result.Duration); ok {
+			e := end
+			z := 0.0
+			result.IntroStartSeconds = &z
+			result.IntroEndSeconds = &e
+		}
+	}
 	return result, nil
 }
 
@@ -3958,7 +4112,7 @@ func findRelocatedTVEpisodeRow(ctx context.Context, dbConn *sql.DB, table, kind 
 		return zero, false, nil
 	}
 	query := `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), m.tvdb_id, m.imdb_id, COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0),
-CASE WHEN mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '' THEN 1 ELSE 0 END
+CASE WHEN (mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '') OR COALESCE(mf.intro_locked, 0) != 0 THEN 1 ELSE 0 END
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN media_files mf ON mf.media_id = g.id AND mf.is_primary = 1
@@ -5180,7 +5334,7 @@ type existingMediaRow struct {
 	MatchStatus               string
 	MetadataReviewNeeded      bool
 	MetadataConfirmed         bool
-	// PrimaryIntroProbed is true when the primary media_files row has intro_probed_at set (chapter probe completed).
+	// PrimaryIntroProbed is true when the primary media_files row has intro_probed_at set (intro detection pass completed).
 	// Always true for music libraries. Loaded by preloadExistingMediaByPath for video rows.
 	PrimaryIntroProbed bool
 }
@@ -5259,14 +5413,14 @@ WHERE m.library_id = ?`
 	}
 	if table == "tv_episodes" || table == "anime_episodes" {
 		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0),
-CASE WHEN mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '' THEN 1 ELSE 0 END
+CASE WHEN (mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '') OR COALESCE(mf.intro_locked, 0) != 0 THEN 1 ELSE 0 END
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN media_files mf ON mf.media_id = g.id AND mf.is_primary = 1
 WHERE m.library_id = ?`
 	} else if table != "music_tracks" {
 		query = `SELECT m.path, m.id, COALESCE(g.id, 0), COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.duration, 0), COALESCE(m.last_seen_at, ''), COALESCE(m.missing_since, ''), COALESCE(m.tmdb_id, 0), COALESCE(m.tvdb_id, ''), COALESCE(m.imdb_id, ''), COALESCE(m.match_status, 'local'),
-CASE WHEN mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '' THEN 1 ELSE 0 END
+CASE WHEN (mf.intro_probed_at IS NOT NULL AND TRIM(mf.intro_probed_at) != '') OR COALESCE(mf.intro_locked, 0) != 0 THEN 1 ELSE 0 END
 FROM ` + table + ` m
 LEFT JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN media_files mf ON mf.media_id = g.id AND mf.is_primary = 1

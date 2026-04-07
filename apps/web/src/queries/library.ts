@@ -23,6 +23,8 @@ import {
   identifyLibrary,
   listLibraries,
   refreshLibraryPlaybackTracks,
+  refreshLibraryIntroOnly,
+  postLibraryIntroChromaprintScan,
   refreshPlaybackTracks,
   refreshShow,
   resetMoviePosterSelection,
@@ -562,7 +564,7 @@ export function useIntroRefreshStatus(
   });
 }
 
-export function useRefreshLibraryIntros(): UseMutationResult<
+export function useRefreshLibraryIntroOnly(): UseMutationResult<
   LibraryPlaybackTracksRefreshResult,
   Error,
   { libraryId: number }
@@ -571,11 +573,29 @@ export function useRefreshLibraryIntros(): UseMutationResult<
   return useMutation({
     mutationFn: async ({ libraryId }) =>
       contractsView<LibraryPlaybackTracksRefreshResult>(
-        await refreshLibraryPlaybackTracks(libraryId),
+        await refreshLibraryIntroOnly(libraryId),
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.introScanSummary });
     },
-    onError: (err) => notifyMutationError(err, "Could not refresh library intros"),
+    onError: (err) => notifyMutationError(err, "Could not re-scan library intros"),
+  });
+}
+
+export function usePostLibraryIntroChromaprintScan(): UseMutationResult<
+  LibraryPlaybackTracksRefreshResult,
+  Error,
+  { libraryId: number; showKey?: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, showKey }) =>
+      contractsView<LibraryPlaybackTracksRefreshResult>(
+        await postLibraryIntroChromaprintScan(libraryId, { showKey }),
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.introScanSummary });
+    },
+    onError: (err) => notifyMutationError(err, "Chromaprint intro scan failed"),
   });
 }

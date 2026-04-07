@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -12,12 +13,42 @@ import (
 	"time"
 )
 
-// UpdateMediaFileIntroFromProbe persists chapter-derived intro range on the primary media_files row.
-// Call after a successful ffprobe when intro columns exist; clears intro columns when the probe found no intro chapter.
-// Always sets intro_probed_at so "never probed" can be distinguished from "probed, no intro chapters".
+// MediaFileIntroLocked is true when the primary media_files row has intro_locked set (user-defined bounds).
+func MediaFileIntroLocked(ctx context.Context, dbConn *sql.DB, mediaID int) (bool, error) {
+	if mediaID <= 0 {
+		return false, nil
+	}
+	var n int
+	err := dbConn.QueryRowContext(ctx,
+		`SELECT COALESCE(intro_locked, 0) FROM media_files WHERE media_id = ? AND is_primary = 1`,
+		mediaID,
+	).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		if isMissingMediaFilesSchemaError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return n != 0, nil
+}
+
+// UpdateMediaFileIntroFromProbe persists intro range (chapter markers and/or silence detection) on the primary media_files row.
+// Call after a successful metadata probe; clears intro columns when no intro window was found.
+// Always sets intro_probed_at so "never probed" can be distinguished from "probed, no intro".
+// Skips updates when intro_locked is set so manual bounds are preserved.
 func UpdateMediaFileIntroFromProbe(ctx context.Context, dbConn *sql.DB, mediaID int, path string, probed VideoProbeResult) error {
 	_ = path // retained for API stability; row is targeted by media_id + primary selection
 	if mediaID <= 0 {
+		return nil
+	}
+	locked, err := MediaFileIntroLocked(ctx, dbConn, mediaID)
+	if err != nil {
+		return err
+	}
+	if locked {
 		return nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -159,6 +190,249 @@ type mediaFileRow struct {
 	IsPrimary       bool
 	IntroStartSec   sql.NullFloat64
 	IntroEndSec     sql.NullFloat64
+	IntroLocked     int
+	CreditsStartSec sql.NullFloat64
+	CreditsEndSec   sql.NullFloat64
+}
+
+// ApplyPrimaryMediaIntroCreditsToItem copies intro/credits fields from the primary media_files row onto item.
+func ApplyPrimaryMediaIntroCreditsToItem(dbConn *sql.DB, item *MediaItem) error {
+	if item == nil || item.ID <= 0 {
+		return nil
+	}
+	row, err := lookupPrimaryMediaFile(dbConn, item.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	applyMediaFileRowIntroCredits(item, row)
+	return nil
+}
+
+func applyMediaFileRowIntroCredits(item *MediaItem, row mediaFileRow) {
+	item.IntroLocked = row.IntroLocked != 0
+	if row.IntroStartSec.Valid {
+		v := row.IntroStartSec.Float64
+		item.IntroStartSeconds = &v
+	} else {
+		item.IntroStartSeconds = nil
+	}
+	if row.IntroEndSec.Valid {
+		v := row.IntroEndSec.Float64
+		item.IntroEndSeconds = &v
+	} else {
+		item.IntroEndSeconds = nil
+	}
+	if row.CreditsStartSec.Valid {
+		v := row.CreditsStartSec.Float64
+		item.CreditsStartSeconds = &v
+	} else {
+		item.CreditsStartSeconds = nil
+	}
+	if row.CreditsEndSec.Valid {
+		v := row.CreditsEndSec.Float64
+		item.CreditsEndSeconds = &v
+	} else {
+		item.CreditsEndSeconds = nil
+	}
+}
+
+// PatchMediaPlaybackSegments updates intro/credits bounds on the primary media_files row.
+// When clear_intro is true, intro columns and lock are cleared and intro_probed_at is cleared.
+// When intro_start_seconds or intro_end_seconds are sent, intro_locked defaults to true unless intro_locked is explicitly false.
+func PatchMediaPlaybackSegments(ctx context.Context, dbConn *sql.DB, mediaID int, introStart, introEnd *float64, introLocked *bool, clearIntro bool, creditsStart, creditsEnd *float64, clearCredits bool) error {
+	if mediaID <= 0 {
+		return fmt.Errorf("invalid media id")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if clearIntro {
+		res, err := dbConn.ExecContext(ctx,
+			`UPDATE media_files SET intro_start_sec = NULL, intro_end_sec = NULL, intro_probed_at = NULL, intro_locked = 0, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+			now, mediaID,
+		)
+		if err != nil {
+			return err
+		}
+		n, raErr := res.RowsAffected()
+		if raErr != nil {
+			return raErr
+		}
+		if n == 0 {
+			_, err = dbConn.ExecContext(ctx, `
+UPDATE media_files SET intro_start_sec = NULL, intro_end_sec = NULL, intro_probed_at = NULL, intro_locked = 0, updated_at = ?
+WHERE id = (SELECT id FROM media_files WHERE media_id = ? ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC LIMIT 1)`,
+				now, mediaID,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	} else if introStart != nil || introEnd != nil || introLocked != nil {
+		row, err := lookupPrimaryMediaFile(dbConn, mediaID)
+		if err != nil {
+			return err
+		}
+		var s, e sql.NullFloat64
+		if introStart != nil {
+			s = sql.NullFloat64{Float64: *introStart, Valid: true}
+		} else if row.IntroStartSec.Valid {
+			s = row.IntroStartSec
+		}
+		if introEnd != nil {
+			e = sql.NullFloat64{Float64: *introEnd, Valid: true}
+		} else if row.IntroEndSec.Valid {
+			e = row.IntroEndSec
+		}
+		if s.Valid && e.Valid && !(e.Float64 > s.Float64) {
+			return fmt.Errorf("intro_end_seconds must be greater than intro_start_seconds")
+		}
+		locked := row.IntroLocked
+		if introLocked != nil {
+			if *introLocked {
+				locked = 1
+			} else {
+				locked = 0
+			}
+		} else if introStart != nil || introEnd != nil {
+			locked = 1
+		}
+		var startArg, endArg interface{}
+		if s.Valid {
+			startArg = s.Float64
+		}
+		if e.Valid {
+			endArg = e.Float64
+		}
+		res, err := dbConn.ExecContext(ctx,
+			`UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, intro_locked = ?, intro_probed_at = ?, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+			startArg, endArg, locked, now, now, mediaID,
+		)
+		if err != nil {
+			return err
+		}
+		n, raErr := res.RowsAffected()
+		if raErr != nil {
+			return raErr
+		}
+		if n == 0 {
+			_, err = dbConn.ExecContext(ctx, `
+UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, intro_locked = ?, intro_probed_at = ?, updated_at = ?
+WHERE id = (SELECT id FROM media_files WHERE media_id = ? ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC LIMIT 1)`,
+				startArg, endArg, locked, now, now, mediaID,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if clearCredits {
+		res, err := dbConn.ExecContext(ctx,
+			`UPDATE media_files SET credits_start_sec = NULL, credits_end_sec = NULL, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+			now, mediaID,
+		)
+		if err != nil {
+			return err
+		}
+		n, raErr := res.RowsAffected()
+		if raErr != nil {
+			return raErr
+		}
+		if n == 0 {
+			_, err = dbConn.ExecContext(ctx, `
+UPDATE media_files SET credits_start_sec = NULL, credits_end_sec = NULL, updated_at = ?
+WHERE id = (SELECT id FROM media_files WHERE media_id = ? ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC LIMIT 1)`,
+				now, mediaID,
+			)
+			return err
+		}
+		return nil
+	}
+	if creditsStart != nil || creditsEnd != nil {
+		row, err := lookupPrimaryMediaFile(dbConn, mediaID)
+		if err != nil {
+			return err
+		}
+		var cs, ce sql.NullFloat64
+		if creditsStart != nil {
+			cs = sql.NullFloat64{Float64: *creditsStart, Valid: true}
+		} else if row.CreditsStartSec.Valid {
+			cs = row.CreditsStartSec
+		}
+		if creditsEnd != nil {
+			ce = sql.NullFloat64{Float64: *creditsEnd, Valid: true}
+		} else if row.CreditsEndSec.Valid {
+			ce = row.CreditsEndSec
+		}
+		if cs.Valid && ce.Valid && !(ce.Float64 > cs.Float64) {
+			return fmt.Errorf("credits_end_seconds must be greater than credits_start_seconds")
+		}
+		var csa, cea interface{}
+		if cs.Valid {
+			csa = cs.Float64
+		}
+		if ce.Valid {
+			cea = ce.Float64
+		}
+		res, err := dbConn.ExecContext(ctx,
+			`UPDATE media_files SET credits_start_sec = ?, credits_end_sec = ?, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+			csa, cea, now, mediaID,
+		)
+		if err != nil {
+			return err
+		}
+		n, raErr := res.RowsAffected()
+		if raErr != nil {
+			return raErr
+		}
+		if n == 0 {
+			_, err = dbConn.ExecContext(ctx, `
+UPDATE media_files SET credits_start_sec = ?, credits_end_sec = ?, updated_at = ?
+WHERE id = (SELECT id FROM media_files WHERE media_id = ? ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC LIMIT 1)`,
+				csa, cea, now, mediaID,
+			)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
+// UpdateMediaFileIntroFromChromaprint writes probe-derived intro bounds unless intro_locked is set.
+func UpdateMediaFileIntroFromChromaprint(ctx context.Context, dbConn *sql.DB, mediaID int, startSec, endSec float64) error {
+	if mediaID <= 0 || !(endSec > startSec) {
+		return nil
+	}
+	locked, err := MediaFileIntroLocked(ctx, dbConn, mediaID)
+	if err != nil || locked {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := dbConn.ExecContext(ctx,
+		`UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, intro_probed_at = ?, updated_at = ? WHERE media_id = ? AND is_primary = 1`,
+		startSec, endSec, now, now, mediaID,
+	)
+	if err != nil {
+		return err
+	}
+	n, raErr := res.RowsAffected()
+	if raErr != nil {
+		return raErr
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err = dbConn.ExecContext(ctx, `
+UPDATE media_files SET intro_start_sec = ?, intro_end_sec = ?, intro_probed_at = ?, updated_at = ?
+WHERE id = (SELECT id FROM media_files WHERE media_id = ? ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC LIMIT 1)`,
+		startSec, endSec, now, now, mediaID,
+	)
+	return err
 }
 
 func decorateMediaItemURLs(item *MediaItem) {
@@ -197,7 +471,7 @@ func attachMediaFilesBatch(dbConn *sql.DB, items []MediaItem) ([]MediaItem, erro
 	}
 	query := `SELECT media_id, path, COALESCE(file_size_bytes, 0), COALESCE(file_mod_time, ''), COALESCE(file_hash, ''),
 COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0),
-intro_start_sec, intro_end_sec
+intro_start_sec, intro_end_sec, COALESCE(intro_locked, 0), credits_start_sec, credits_end_sec
 FROM media_files
 WHERE media_id IN (` + strings.Join(ids, ",") + `)
 ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC`
@@ -227,6 +501,9 @@ ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC`
 			&isPrimary,
 			&row.IntroStartSec,
 			&row.IntroEndSec,
+			&row.IntroLocked,
+			&row.CreditsStartSec,
+			&row.CreditsEndSec,
 		); err != nil {
 			return nil, err
 		}
@@ -255,6 +532,15 @@ ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC`
 		if row.IntroEndSec.Valid {
 			v := row.IntroEndSec.Float64
 			items[idx].IntroEndSeconds = &v
+		}
+		items[idx].IntroLocked = row.IntroLocked != 0
+		if row.CreditsStartSec.Valid {
+			v := row.CreditsStartSec.Float64
+			items[idx].CreditsStartSeconds = &v
+		}
+		if row.CreditsEndSec.Valid {
+			v := row.CreditsEndSec.Float64
+			items[idx].CreditsEndSeconds = &v
 		}
 	}
 	for i := range items {
@@ -374,7 +660,7 @@ func lookupPrimaryMediaFile(dbConn *sql.DB, mediaID int) (mediaFileRow, error) {
 	err := dbConn.QueryRow(
 		`SELECT media_id, path, COALESCE(file_size_bytes, 0), COALESCE(file_mod_time, ''), COALESCE(file_hash, ''),
 		        COALESCE(file_hash_kind, ''), COALESCE(duration, 0), COALESCE(missing_since, ''), COALESCE(last_seen_at, ''), COALESCE(is_primary, 0),
-		        intro_start_sec, intro_end_sec
+		        intro_start_sec, intro_end_sec, COALESCE(intro_locked, 0), credits_start_sec, credits_end_sec
 		   FROM media_files
 		  WHERE media_id = ?
 		  ORDER BY is_primary DESC, COALESCE(missing_since, '') = '', id ASC
@@ -393,6 +679,9 @@ func lookupPrimaryMediaFile(dbConn *sql.DB, mediaID int) (mediaFileRow, error) {
 		&row.IsPrimary,
 		&row.IntroStartSec,
 		&row.IntroEndSec,
+		&row.IntroLocked,
+		&row.CreditsStartSec,
+		&row.CreditsEndSec,
 	)
 	if err != nil {
 		if isMissingMediaFilesSchemaError(err) {

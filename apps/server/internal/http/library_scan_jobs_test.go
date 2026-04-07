@@ -10,19 +10,21 @@ import (
 )
 
 func TestNewLibraryScanManager_StoresLifecycleContext(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	m := NewLibraryScanManager(ctx, nil, nil, nil, "")
-	if m.lifecycleCtx != ctx {
-		t.Fatalf("lifecycleCtx = %v want %v", m.lifecycleCtx, ctx)
+	cases := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"background", context.Background()},
+		{"todo", context.TODO()},
 	}
-}
-
-func TestNewLibraryScanManager_NilLifecycleUsesBackground(t *testing.T) {
-	t.Parallel()
-	m := NewLibraryScanManager(nil, nil, nil, nil, "")
-	if m.lifecycleCtx == nil {
-		t.Fatal("expected non-nil fallback lifecycle context")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := NewLibraryScanManager(tc.ctx, nil, nil, nil, "")
+			if m.lifecycleCtx != tc.ctx {
+				t.Fatalf("lifecycleCtx = %v want %v", m.lifecycleCtx, tc.ctx)
+			}
+		})
 	}
 }
 

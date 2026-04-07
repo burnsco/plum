@@ -61,6 +61,8 @@ type PlaybackSessionState struct {
 	IntroSkipMode                   string                         `json:"intro_skip_mode,omitempty"`
 	IntroStartSeconds               *float64                       `json:"intro_start_seconds,omitempty"`
 	IntroEndSeconds                 *float64                       `json:"intro_end_seconds,omitempty"`
+	CreditsStartSeconds             *float64                       `json:"credits_start_seconds,omitempty"`
+	CreditsEndSeconds               *float64                       `json:"credits_end_seconds,omitempty"`
 }
 
 // MarshalWSPayload serialises the state fields that belong in a
@@ -86,6 +88,8 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		IntroSkipMode                   string   `json:"intro_skip_mode,omitempty"`
 		IntroStartSeconds               *float64 `json:"intro_start_seconds,omitempty"`
 		IntroEndSeconds                 *float64 `json:"intro_end_seconds,omitempty"`
+		CreditsStartSeconds             *float64 `json:"credits_start_seconds,omitempty"`
+		CreditsEndSeconds               *float64 `json:"credits_end_seconds,omitempty"`
 	}
 	return json.Marshal(wsPayload{
 		Type:                            "playback_session_update",
@@ -102,6 +106,8 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		IntroSkipMode:                   s.IntroSkipMode,
 		IntroStartSeconds:               s.IntroStartSeconds,
 		IntroEndSeconds:                 s.IntroEndSeconds,
+		CreditsStartSeconds:             s.CreditsStartSeconds,
+		CreditsEndSeconds:               s.CreditsEndSeconds,
 	})
 }
 
@@ -148,6 +154,14 @@ func attachIntroFields(state *PlaybackSessionState, media db.MediaItem, introSki
 	if media.IntroEndSeconds != nil {
 		v := *media.IntroEndSeconds
 		state.IntroEndSeconds = &v
+	}
+	if media.CreditsStartSeconds != nil {
+		v := *media.CreditsStartSeconds
+		state.CreditsStartSeconds = &v
+	}
+	if media.CreditsEndSeconds != nil {
+		v := *media.CreditsEndSeconds
+		state.CreditsEndSeconds = &v
 	}
 }
 

@@ -212,6 +212,46 @@ func (h *PlaybackHandler) RefreshPlaybackTracks(w http.ResponseWriter, r *http.R
 	_ = json.NewEncoder(w).Encode(metadata)
 }
 
+// PatchMediaIntro updates manual intro/credits bounds on the primary media file row.
+func (h *PlaybackHandler) PatchMediaIntro(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
+	var payload struct {
+		IntroStartSeconds   *float64 `json:"intro_start_seconds"`
+		IntroEndSeconds     *float64 `json:"intro_end_seconds"`
+		IntroLocked         *bool    `json:"intro_locked"`
+		ClearIntro          bool     `json:"clear_intro"`
+		CreditsStartSeconds *float64 `json:"credits_start_seconds"`
+		CreditsEndSeconds   *float64 `json:"credits_end_seconds"`
+		ClearCredits        bool     `json:"clear_credits"`
+	}
+	if !decodeRequestJSON(w, r, &payload) {
+		return
+	}
+	if !payload.ClearIntro && !payload.ClearCredits && payload.IntroStartSeconds == nil &&
+		payload.IntroEndSeconds == nil && payload.IntroLocked == nil &&
+		payload.CreditsStartSeconds == nil && payload.CreditsEndSeconds == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+	err := db.PatchMediaPlaybackSegments(
+		r.Context(), h.DB, id,
+		payload.IntroStartSeconds, payload.IntroEndSeconds, payload.IntroLocked, payload.ClearIntro,
+		payload.CreditsStartSeconds, payload.CreditsEndSeconds, payload.ClearCredits,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *PlaybackHandler) UpdateSessionAudio(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionId")
 	user := UserFromContext(r.Context())

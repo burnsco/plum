@@ -2850,12 +2850,26 @@
   max-height: 100%;
 }
 
-.fullscreen-player__skip-intro {
+.fullscreen-player__skip-actions {
   position: absolute;
   z-index: 4;
   bottom: 5.5rem;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  pointer-events: none;
+}
+
+.fullscreen-player__skip-actions > button {
+  pointer-events: auto;
+}
+
+.fullscreen-player__skip-intro,
+.fullscreen-player__skip-credits {
+  position: relative;
   padding: 0.55rem 1.15rem;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -2873,12 +2887,13 @@
     opacity 0.35s ease;
 }
 
-.fullscreen-player__skip-intro:hover {
+.fullscreen-player__skip-intro:hover,
+.fullscreen-player__skip-credits:hover {
   background: rgba(40, 40, 48, 0.96);
   border-color: rgba(255, 255, 255, 0.35);
 }
 
-.fullscreen-player--hidden .fullscreen-player__skip-intro {
+.fullscreen-player--hidden .fullscreen-player__skip-actions {
   opacity: 0;
   pointer-events: none;
 }
