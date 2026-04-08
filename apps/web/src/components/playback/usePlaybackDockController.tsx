@@ -590,6 +590,9 @@ export function usePlaybackDockController(): ReactNode {
       embeddedAudioTracks:
         refreshedPlaybackTracks?.embeddedAudioTracks ??
         activeItem.embeddedAudioTracks,
+      embeddedFontAttachments:
+        refreshedPlaybackTracks?.embeddedFontAttachments ??
+        activeItem.embeddedFontAttachments,
     };
   }, [activeItem, isVideo, refreshedPlaybackTracks]);
 
@@ -709,6 +712,7 @@ export function usePlaybackDockController(): ReactNode {
   });
   const subtitleRenderer = subtitleSelection.renderer;
   const activeAssSource = subtitleSelection.activeAssSource;
+  const activeAssFontUrls = subtitleSelection.selectedTrack?.fontUrls ?? null;
   const manualSubtitleTrackKey = subtitleSelection.manualTrackKey;
 
   useEffect(() => {
@@ -1531,6 +1535,9 @@ export function usePlaybackDockController(): ReactNode {
         subtitles: metadata?.subtitles ?? playbackTrackSource?.subtitles,
         embeddedSubtitles:
           metadata?.embeddedSubtitles ?? playbackTrackSource?.embeddedSubtitles,
+        embeddedFontAttachments:
+          metadata?.embeddedFontAttachments ??
+          playbackTrackSource?.embeddedFontAttachments,
       }).find((candidate) => candidate.key === key);
       if (!refreshedTrack || refreshedTrack.supported === false) {
         setPendingSubtitleKey(null);
@@ -2198,6 +2205,7 @@ export function usePlaybackDockController(): ReactNode {
           videoSubtitleStyle={videoSubtitleStyle}
           jassubVideoElement={jassubVideoElement}
           activeAssSource={activeAssSource}
+          activeAssFontUrls={activeAssFontUrls}
           onAssStatusChange={handleAssStatusChange}
           onVideoDoubleClick={handleVideoDoubleClick}
           onLoadStart={() => {

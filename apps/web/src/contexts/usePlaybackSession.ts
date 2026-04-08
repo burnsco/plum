@@ -63,6 +63,8 @@ export type PlaybackSessionSource =
       burnEmbeddedSubtitleStreamIndex?: number;
     };
 
+const playbackSessionReplayIntervalMs = 1000;
+
 function mergePlaybackTracks(item: MediaItem, session: ApiPlaybackSession): MediaItem {
   return {
     ...item,
@@ -71,6 +73,9 @@ function mergePlaybackTracks(item: MediaItem, session: ApiPlaybackSession): Medi
       session.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })) ?? item.embeddedSubtitles,
     embeddedAudioTracks:
       session.embeddedAudioTracks?.map((track) => ({ ...track })) ?? item.embeddedAudioTracks,
+    embeddedFontAttachments:
+      session.embeddedFontAttachments?.map((attachment) => ({ ...attachment })) ??
+      item.embeddedFontAttachments,
     intro_start_seconds: item.intro_start_seconds ?? session.intro_start_seconds,
     intro_end_seconds: item.intro_end_seconds ?? session.intro_end_seconds,
     credits_start_seconds: item.credits_start_seconds ?? session.credits_start_seconds,
@@ -191,6 +196,8 @@ export function usePlaybackSession({
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
   const burnEmbeddedSubtitleStreamIndex =
     activeMode === "video" ? (videoSession?.burnEmbeddedSubtitleStreamIndex ?? null) : null;
+  const videoSessionId = videoSession?.sessionId ?? null;
+  const videoSessionStatus = videoSession?.status ?? null;
 
   const sendPlaybackCommand = useCallback(
     (command: PlumWebSocketCommand) => {
@@ -255,10 +262,23 @@ export function usePlaybackSession({
 
   useEffect(() => {
     if (!wsConnected) return;
-    const sid = videoSession?.sessionId;
-    if (!sid) return;
-    sendPlaybackCommand({ action: "attach_playback_session", sessionId: sid });
-  }, [sendPlaybackCommand, videoSession?.sessionId, wsConnected]);
+    if (!videoSessionId) return;
+    sendPlaybackCommand({ action: "attach_playback_session", sessionId: videoSessionId });
+  }, [sendPlaybackCommand, videoSessionId, wsConnected]);
+
+  useEffect(() => {
+    if (!wsConnected || !videoSessionId || videoSessionStatus !== "starting") return;
+    const replayIntervalId = window.setInterval(() => {
+      const latestSession = videoSessionRef.current;
+      if (latestSession?.sessionId !== videoSessionId || latestSession.status !== "starting") {
+        return;
+      }
+      sendPlaybackCommand({ action: "attach_playback_session", sessionId: videoSessionId });
+    }, playbackSessionReplayIntervalMs);
+    return () => {
+      window.clearInterval(replayIntervalId);
+    };
+  }, [sendPlaybackCommand, videoSessionId, videoSessionStatus, wsConnected]);
 
   const changeAudioTrack = useCallback(
     async (audioIndex: number) => {

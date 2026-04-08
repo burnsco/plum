@@ -56,6 +56,7 @@ type PlaybackSessionState struct {
 	Subtitles                       []db.Subtitle                  `json:"subtitles,omitempty"`
 	EmbeddedSubtitles               []PlaybackEmbeddedSubtitleJSON `json:"embeddedSubtitles,omitempty"`
 	EmbeddedAudioTracks             []db.EmbeddedAudioTrack        `json:"embeddedAudioTracks,omitempty"`
+	EmbeddedFontAttachments         []db.EmbeddedFontAttachment    `json:"embeddedFontAttachments,omitempty"`
 	BurnEmbeddedSubtitleStreamIndex *int                           `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
 	Error                           string                         `json:"error,omitempty"`
 	IntroStartSeconds               *float64                       `json:"intro_start_seconds,omitempty"`
@@ -73,21 +74,22 @@ type PlaybackSessionState struct {
 // @plum/contracts (packages/contracts) and Android PlaybackSessionUpdateEventJson.
 func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 	type wsPayload struct {
-		Type                            string   `json:"type"`
-		SessionID                       string   `json:"sessionId"`
-		Delivery                        string   `json:"delivery"`
-		MediaID                         int      `json:"mediaId"`
-		Revision                        int      `json:"revision"`
-		AudioIndex                      int      `json:"audioIndex"`
-		Status                          string   `json:"status"`
-		StreamURL                       string   `json:"streamUrl"`
-		DurationSeconds                 int      `json:"durationSeconds"`
-		Error                           string   `json:"error,omitempty"`
-		BurnEmbeddedSubtitleStreamIndex *int     `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
-		IntroStartSeconds               *float64 `json:"intro_start_seconds,omitempty"`
-		IntroEndSeconds                 *float64 `json:"intro_end_seconds,omitempty"`
-		CreditsStartSeconds             *float64 `json:"credits_start_seconds,omitempty"`
-		CreditsEndSeconds               *float64 `json:"credits_end_seconds,omitempty"`
+		Type                            string                      `json:"type"`
+		SessionID                       string                      `json:"sessionId"`
+		Delivery                        string                      `json:"delivery"`
+		MediaID                         int                         `json:"mediaId"`
+		Revision                        int                         `json:"revision"`
+		AudioIndex                      int                         `json:"audioIndex"`
+		Status                          string                      `json:"status"`
+		StreamURL                       string                      `json:"streamUrl"`
+		DurationSeconds                 int                         `json:"durationSeconds"`
+		EmbeddedFontAttachments         []db.EmbeddedFontAttachment `json:"embeddedFontAttachments,omitempty"`
+		Error                           string                      `json:"error,omitempty"`
+		BurnEmbeddedSubtitleStreamIndex *int                        `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
+		IntroStartSeconds               *float64                    `json:"intro_start_seconds,omitempty"`
+		IntroEndSeconds                 *float64                    `json:"intro_end_seconds,omitempty"`
+		CreditsStartSeconds             *float64                    `json:"credits_start_seconds,omitempty"`
+		CreditsEndSeconds               *float64                    `json:"credits_end_seconds,omitempty"`
 	}
 	return json.Marshal(wsPayload{
 		Type:                            "playback_session_update",
@@ -99,6 +101,7 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		Status:                          s.Status,
 		StreamURL:                       s.StreamURL,
 		DurationSeconds:                 s.DurationSeconds,
+		EmbeddedFontAttachments:         s.EmbeddedFontAttachments,
 		Error:                           s.Error,
 		BurnEmbeddedSubtitleStreamIndex: s.BurnEmbeddedSubtitleStreamIndex,
 		IntroStartSeconds:               s.IntroStartSeconds,
@@ -370,6 +373,7 @@ func (m *PlaybackSessionManager) Create(
 			Subtitles:                       media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(media, decision.Delivery),
 			EmbeddedAudioTracks:             media.EmbeddedAudioTracks,
+			EmbeddedFontAttachments:         media.EmbeddedFontAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnStored),
 		}
 		attachIntroFields(&state, media)
@@ -459,6 +463,7 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 			Subtitles:                       session.media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, decision.Delivery),
 			EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+			EmbeddedFontAttachments:         session.media.EmbeddedFontAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnPtr),
 		}
 		attachIntroFields(&state, session.media)
@@ -591,6 +596,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		EmbeddedFontAttachments:         session.media.EmbeddedFontAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnClosed),
 	}
 	attachIntroFields(&closed, session.media)
@@ -627,6 +633,7 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			Subtitles:                       s.media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(s.media, revision.delivery),
 			EmbeddedAudioTracks:             s.media.EmbeddedAudioTracks,
+			EmbeddedFontAttachments:         s.media.EmbeddedFontAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(s.burnEmbeddedSubtitleStream),
 			Error:                           revision.err,
 		}
@@ -841,6 +848,7 @@ func (m *PlaybackSessionManager) startRevision(
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		EmbeddedFontAttachments:         session.media.EmbeddedFontAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
 	attachIntroFields(&starting, session.media)
@@ -923,6 +931,7 @@ func (m *PlaybackSessionManager) runRevision(
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		EmbeddedFontAttachments:         session.media.EmbeddedFontAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
 	attachIntroFields(&finalState, session.media)

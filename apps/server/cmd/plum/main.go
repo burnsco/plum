@@ -361,6 +361,8 @@ func buildRouter(
 		protected.Head("/api/media/{id}/subtitles/embedded/{index}/sup", playbackHandler.StreamEmbeddedSubtitleSup)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}/ass", playbackHandler.StreamEmbeddedSubtitleAss)
 		protected.Head("/api/media/{id}/subtitles/embedded/{index}/ass", playbackHandler.StreamEmbeddedSubtitleAss)
+		protected.Get("/api/media/{id}/attachments/{index}", playbackHandler.StreamEmbeddedFontAttachment)
+		protected.Head("/api/media/{id}/attachments/{index}", playbackHandler.StreamEmbeddedFontAttachment)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}", playbackHandler.StreamEmbeddedSubtitle)
 		protected.Head("/api/media/{id}/subtitles/embedded/{index}", playbackHandler.StreamEmbeddedSubtitle)
 		protected.Get("/api/subtitles/{id}/ass", playbackHandler.StreamSubtitleAss)

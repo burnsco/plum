@@ -86,19 +86,6 @@ export function resolveWebSubtitleSelection({
     };
   }
 
-  if (selectedTrack.assEligible && selectedTrack.assSrc) {
-    return {
-      selectedTrack,
-      logicalId: selectedTrack.logicalId ?? null,
-      origin: selectedTrack.origin ?? null,
-      renderer: "ass",
-      selectedDeliveryMode: "ass",
-      loadState,
-      activeAssSource: selectedTrack.assSrc,
-      manualTrackKey: null,
-    };
-  }
-
   if (
     videoSourceIsHls &&
     hls != null &&
@@ -112,6 +99,19 @@ export function resolveWebSubtitleSelection({
       selectedDeliveryMode: "hls_vtt",
       loadState,
       activeAssSource: null,
+      manualTrackKey: null,
+    };
+  }
+
+  if (selectedTrack.assEligible && selectedTrack.assSrc) {
+    return {
+      selectedTrack,
+      logicalId: selectedTrack.logicalId ?? null,
+      origin: selectedTrack.origin ?? null,
+      renderer: "ass",
+      selectedDeliveryMode: "ass",
+      loadState,
+      activeAssSource: selectedTrack.assSrc,
       manualTrackKey: null,
     };
   }

@@ -116,6 +116,20 @@ export interface EmbeddedAudioTrack {
   title: string;
 }
 
+export interface EmbeddedFontAttachment {
+  index: number;
+  streamIndex: number;
+  filename: string;
+  mimeType?: string;
+}
+
+export const EmbeddedFontAttachmentSchema = Schema.Struct({
+  index: Schema.Number,
+  streamIndex: Schema.Number,
+  filename: Schema.String,
+  mimeType: Schema.optional(Schema.String),
+});
+
 export const EmbeddedAudioTrackSchema = Schema.Struct({
   streamIndex: Schema.Number,
   language: Schema.String,
@@ -134,6 +148,7 @@ export interface MediaItem {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  embeddedFontAttachments?: ReadonlyArray<EmbeddedFontAttachment>;
   tmdb_id?: number;
   tvdb_id?: string;
   overview?: string;
@@ -194,6 +209,7 @@ export const MediaItemSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  embeddedFontAttachments: Schema.optional(Schema.Array(EmbeddedFontAttachmentSchema)),
   tmdb_id: Schema.optional(Schema.Number),
   tvdb_id: Schema.optional(Schema.String),
   overview: Schema.optional(Schema.String),
@@ -470,6 +486,7 @@ export interface DirectPlaybackSession {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  embeddedFontAttachments?: ReadonlyArray<EmbeddedFontAttachment>;
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_start_seconds?: number;
@@ -490,6 +507,7 @@ export interface HlsPlaybackSession {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  embeddedFontAttachments?: ReadonlyArray<EmbeddedFontAttachment>;
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_start_seconds?: number;
@@ -547,12 +565,14 @@ export interface PlaybackTrackMetadata {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  embeddedFontAttachments?: ReadonlyArray<EmbeddedFontAttachment>;
 }
 
 export const PlaybackTrackMetadataSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  embeddedFontAttachments: Schema.optional(Schema.Array(EmbeddedFontAttachmentSchema)),
 });
 
 export interface ContinueWatchingEntry {
@@ -1912,6 +1932,7 @@ export interface PlaybackSessionUpdateEvent {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  embeddedFontAttachments?: ReadonlyArray<EmbeddedFontAttachment>;
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_start_seconds?: number;
@@ -1969,6 +1990,7 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  embeddedFontAttachments: Schema.optional(Schema.Array(EmbeddedFontAttachmentSchema)),
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_start_seconds: Schema.optional(Schema.Number),

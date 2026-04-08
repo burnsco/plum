@@ -1,6 +1,7 @@
 export {
   buildBackendUrl,
   embeddedSubtitleAssUrl,
+  embeddedFontAttachmentUrl,
   embeddedSubtitleNeedsWebBurnIn,
   embeddedSubtitleUrl,
   ensureBaseUrl,
@@ -47,6 +48,7 @@ export type {
   DownloadItem,
   DownloadsResponse,
   EmbeddedAudioTrack,
+  EmbeddedFontAttachment,
   EmbeddedSubtitleDeliveryMode,
   EmbeddedSubtitleDeliveryOption,
   EmbeddedSubtitle,

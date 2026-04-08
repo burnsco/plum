@@ -18,6 +18,8 @@ interface JassubRendererProps {
   videoElement: HTMLVideoElement | null;
   /** URL of the raw ASS/SSA file to render. Null disables the renderer. */
   assSrc: string | null;
+  /** Font URLs extracted from the media container and preloaded for ASS styling. */
+  fontUrls?: string[] | null;
   onStatusChange?: (status: "loading" | "ready" | "error" | "timeout") => void;
 }
 
@@ -32,6 +34,7 @@ const EMBEDDED_ASS_LOAD_TIMEOUT_MS = 600_000;
 export function JassubRenderer({
   videoElement,
   assSrc,
+  fontUrls,
   onStatusChange,
 }: JassubRendererProps) {
   useEffect(() => {
@@ -99,6 +102,8 @@ export function JassubRenderer({
           subContent,
           workerUrl,
           wasmUrl,
+          fonts: fontUrls?.length ? fontUrls : undefined,
+          queryFonts: "localandremote",
         });
         onStatusChange?.("ready");
       } catch (err) {
@@ -123,7 +128,7 @@ export function JassubRenderer({
       ac.abort();
       void instance?.destroy();
     };
-  }, [assSrc, onStatusChange, videoElement]);
+  }, [assSrc, fontUrls, onStatusChange, videoElement]);
 
   // JASSUB manages its own canvas; no DOM output from this component.
   return null;

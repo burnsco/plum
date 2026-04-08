@@ -1,5 +1,6 @@
 import {
   embeddedSubtitleAssUrl,
+  embeddedFontAttachmentUrl,
   embeddedSubtitleNeedsWebBurnIn,
   embeddedSubtitleUrl,
   externalSubtitleAssUrl,
@@ -8,6 +9,7 @@ import {
 import {
   BASE_URL,
   type EmbeddedAudioTrack,
+  type EmbeddedFontAttachment,
   type EmbeddedSubtitle,
   type EmbeddedSubtitleDeliveryMode,
   type EmbeddedSubtitleDeliveryOption,
@@ -25,6 +27,7 @@ export type PlaybackTrackMetadataInput = {
   subtitles?: readonly Subtitle[];
   embeddedSubtitles?: readonly EmbeddedSubtitle[];
   embeddedAudioTracks?: readonly EmbeddedAudioTrack[];
+  embeddedFontAttachments?: readonly EmbeddedFontAttachment[];
 };
 
 export type PlaybackTrackSource = PlaybackTrackMetadataInput & {
@@ -125,6 +128,11 @@ export function buildSubtitleTrackRequests(
         preferredWebDeliveryMode,
         assEligible,
         assSrc: assEligible ? externalSubtitleAssUrl(BASE_URL, subtitle.id) : undefined,
+        fontUrls: assEligible
+          ? source.embeddedFontAttachments?.map((attachment) =>
+              embeddedFontAttachmentUrl(BASE_URL, source.mediaId, attachment.index),
+            )
+          : undefined,
       };
     }) ?? [];
   const embedded =
@@ -168,6 +176,11 @@ export function buildSubtitleTrackRequests(
         assSrc: assEligible
           ? embeddedSubtitleAssUrl(BASE_URL, source.mediaId, subtitle.streamIndex)
           : undefined,
+        fontUrls: assEligible
+          ? source.embeddedFontAttachments?.map((attachment) =>
+              embeddedFontAttachmentUrl(BASE_URL, source.mediaId, attachment.index),
+            )
+          : undefined,
       };
     }) ?? [];
   return sortSubtitleTrackOptions([...external, ...embedded]);
@@ -183,6 +196,9 @@ export function clonePlaybackTrackMetadata(
     })),
     embeddedAudioTracks: metadata.embeddedAudioTracks?.map((track) => ({
       ...track,
+    })),
+    embeddedFontAttachments: metadata.embeddedFontAttachments?.map((attachment) => ({
+      ...attachment,
     })),
   };
 }

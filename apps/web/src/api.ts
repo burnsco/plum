@@ -28,6 +28,7 @@ export type {
   DownloadsResponse,
   DetachPlaybackSessionCommand,
   EmbeddedAudioTrack,
+  EmbeddedFontAttachment,
   EmbeddedSubtitleDeliveryMode,
   EmbeddedSubtitleDeliveryOption,
   EmbeddedSubtitle,

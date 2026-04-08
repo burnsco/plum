@@ -457,6 +457,31 @@ func (h *PlaybackHandler) StreamSubtitleAss(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+func (h *PlaybackHandler) StreamEmbeddedFontAttachment(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
+	index, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
+	if !ok {
+		return
+	}
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamEmbeddedFontAttachment(tw, r, h.DB, id, index); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			slog.Error("font attachment stream ended after response started", "media_id", id, "index", index, "error", err)
+		}
+	}
+}
+
 func (h *PlaybackHandler) ServeThumbnail(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
 	if !ok {

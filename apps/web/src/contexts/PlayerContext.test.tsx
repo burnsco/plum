@@ -504,6 +504,93 @@ describe("PlayerContext playback session updates", () => {
     );
   });
 
+  it("keeps requesting playback session replay while the stream is still starting", async () => {
+    vi.useFakeTimers();
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <WsProvider>
+            <PlayerProvider>
+              <PlayerHarness />
+            </PlayerProvider>
+          </WsProvider>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    const MockWebSocket = globalThis.WebSocket as unknown as MockWebSocketClass;
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    const socket = MockWebSocket.instances[0];
+    if (!socket) {
+      throw new Error("Expected a mock WebSocket instance");
+    }
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Play" }));
+      await flushMicrotasks();
+    });
+
+    const attachMessage = JSON.stringify({
+      action: "attach_playback_session",
+      sessionId: "session-99",
+    });
+
+    expect(
+      socket.sentMessages.filter((message) => message === attachMessage),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(
+      socket.sentMessages.filter((message) => message === attachMessage),
+    ).toHaveLength(2);
+
+    act(() => {
+      socket.mockMessage(
+        JSON.stringify({
+          type: "playback_session_update",
+          sessionId: "session-99",
+          delivery: "transcode",
+          mediaId: 99,
+          revision: 1,
+          audioIndex: -1,
+          status: "ready",
+          streamUrl:
+            "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+          durationSeconds: 7200,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(screen.getByTestId("last-event")).toHaveTextContent("Stream ready");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(
+      socket.sentMessages.filter((message) => message === attachMessage),
+    ).toHaveLength(2);
+  });
+
   it("detaches the playback session before closing it from the player", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

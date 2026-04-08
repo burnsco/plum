@@ -288,6 +288,146 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 	return nil
 }
 
+// HandleStreamEmbeddedFontAttachment extracts a font attachment stream and serves it to ASS
+// renderers such as JASSUB.
+func HandleStreamEmbeddedFontAttachment(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, index int) error {
+	item, err := GetMediaByID(dbConn, mediaID)
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return ErrNotFound
+	}
+	attachment := findEmbeddedFontAttachment(item.EmbeddedFontAttachments, index)
+	if attachment == nil {
+		if _, refreshErr := RefreshPlaybackTrackMetadata(r.Context(), dbConn, item); refreshErr != nil {
+			return refreshErr
+		}
+		attachment = findEmbeddedFontAttachment(item.EmbeddedFontAttachments, index)
+	}
+	if attachment == nil {
+		return fmt.Errorf("embedded font attachment %d not found for media %d: %w", index, mediaID, ErrNotFound)
+	}
+	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
+	if err != nil {
+		return err
+	}
+
+	cachePath, cacheErr := embeddedFontAttachmentCachePath(sourcePath, index, attachment.Filename)
+	if cacheErr == nil && tryServeEmbeddedFontAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
+		return nil
+	}
+
+	lockKey := cachePath
+	if lockKey == "" {
+		lockKey = fmt.Sprintf("%s|%d", sourcePath, index)
+	}
+	mu := lockEmbeddedSubtitle(lockKey)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if cacheErr == nil && tryServeEmbeddedFontAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
+		return nil
+	}
+	if cacheErr != nil {
+		return cacheErr
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr != nil {
+		return mkErr
+	}
+	partialPath := cachePath + ".partial"
+	if err := extractEmbeddedFontAttachmentToFile(r.Context(), sourcePath, index, partialPath); err != nil {
+		_ = os.Remove(partialPath)
+		return err
+	}
+	if ren := os.Rename(partialPath, cachePath); ren != nil {
+		_ = os.Remove(partialPath)
+		return ren
+	}
+	if !tryServeEmbeddedFontAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
+		return fmt.Errorf("failed to serve cached embedded font attachment %d", index)
+	}
+	return nil
+}
+
+func findEmbeddedFontAttachment(attachments []EmbeddedFontAttachment, index int) *EmbeddedFontAttachment {
+	for i := range attachments {
+		if attachments[i].Index == index {
+			return &attachments[i]
+		}
+	}
+	return nil
+}
+
+func embeddedFontAttachmentCachePath(sourcePath string, index int, filename string) (string, error) {
+	st, err := os.Stat(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	payload := fmt.Sprintf(
+		"%s\x1e%d\x1e%d\x1e%d\x1e%s",
+		filepath.Clean(sourcePath),
+		st.Size(),
+		st.ModTime().UnixNano(),
+		index,
+		strings.ToLower(strings.TrimSpace(filename)),
+	)
+	sum := sha256.Sum256([]byte(payload))
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filename)))
+	if ext == "" {
+		ext = ".font"
+	}
+	return filepath.Join(fontAttachmentCacheRoot(), hex.EncodeToString(sum[:])+ext), nil
+}
+
+func fontAttachmentCacheRoot() string {
+	if d := strings.TrimSpace(os.Getenv("PLUM_FONT_ATTACHMENT_CACHE_DIR")); d != "" {
+		return d
+	}
+	return filepath.Join(os.TempDir(), "plum_font_attachment_cache")
+}
+
+func tryServeEmbeddedFontAttachmentFromCache(w http.ResponseWriter, r *http.Request, cachePath string, mimeType string) bool {
+	fi, err := os.Stat(cachePath)
+	if err != nil || fi.Size() == 0 {
+		return false
+	}
+	contentType := strings.TrimSpace(mimeType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
+	http.ServeFile(w, r, cachePath)
+	return true
+}
+
+func extractEmbeddedFontAttachmentToFile(ctx context.Context, sourcePath string, index int, outPath string) error {
+	args := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
+	args = append(args, ffopts.InputProbeBeforeI...)
+	args = append(args,
+		fmt.Sprintf("-dump_attachment:t:%d", index),
+		outPath,
+		"-i", sourcePath,
+		"-f", "null",
+		"-",
+	)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	return nil
+}
+
 func transcodeEmbeddedSubtitleToWebVTT(
 	w http.ResponseWriter,
 	r *http.Request,

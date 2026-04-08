@@ -152,48 +152,57 @@ type EmbeddedAudioTrack struct {
 	Title       string `json:"title"`
 }
 
+type EmbeddedFontAttachment struct {
+	MediaID     int    `json:"-"`
+	Index       int    `json:"index"`
+	StreamIndex int    `json:"streamIndex"`
+	Filename    string `json:"filename"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
 type MediaItem struct {
-	ID                        int                  `json:"id"`
-	LibraryID                 int                  `json:"library_id"`
-	Title                     string               `json:"title"`
-	Path                      string               `json:"path"`
-	Duration                  int                  `json:"duration"`
-	Type                      string               `json:"type"`
-	MatchStatus               string               `json:"match_status,omitempty"`
-	IdentifyState             string               `json:"identify_state,omitempty"`
-	Subtitles                 []Subtitle           `json:"subtitles"`
-	EmbeddedSubtitles         []EmbeddedSubtitle   `json:"embeddedSubtitles"`
-	EmbeddedAudioTracks       []EmbeddedAudioTrack `json:"embeddedAudioTracks"`
-	TMDBID                    int                  `json:"tmdb_id"`
-	TVDBID                    string               `json:"tvdb_id,omitempty"`
-	Overview                  string               `json:"overview"`
-	PosterPath                string               `json:"poster_path"`
-	BackdropPath              string               `json:"backdrop_path"`
-	PosterURL                 string               `json:"poster_url,omitempty"`
-	BackdropURL               string               `json:"backdrop_url,omitempty"`
-	ShowPosterPath            string               `json:"show_poster_path,omitempty"`
-	ShowPosterURL             string               `json:"show_poster_url,omitempty"`
-	ReleaseDate               string               `json:"release_date"`
-	ShowVoteAverage           float64              `json:"show_vote_average,omitempty"`
-	ShowIMDbRating            float64              `json:"show_imdb_rating,omitempty"`
-	VoteAverage               float64              `json:"vote_average"`
-	IMDbID                    string               `json:"imdb_id,omitempty"`
-	IMDbRating                float64              `json:"imdb_rating,omitempty"`
-	Artist                    string               `json:"artist,omitempty"`
-	Album                     string               `json:"album,omitempty"`
-	AlbumArtist               string               `json:"album_artist,omitempty"`
-	DiscNumber                int                  `json:"disc_number,omitempty"`
-	TrackNumber               int                  `json:"track_number,omitempty"`
-	ReleaseYear               int                  `json:"release_year,omitempty"`
-	MusicBrainzArtistID       string               `json:"-"`
-	MusicBrainzReleaseGroupID string               `json:"-"`
-	MusicBrainzReleaseID      string               `json:"-"`
-	MusicBrainzRecordingID    string               `json:"-"`
-	ProgressSeconds           float64              `json:"progress_seconds,omitempty"`
-	ProgressPercent           float64              `json:"progress_percent,omitempty"`
-	RemainingSeconds          float64              `json:"remaining_seconds,omitempty"`
-	Completed                 bool                 `json:"completed,omitempty"`
-	LastWatchedAt             string               `json:"last_watched_at,omitempty"`
+	ID                        int                      `json:"id"`
+	LibraryID                 int                      `json:"library_id"`
+	Title                     string                   `json:"title"`
+	Path                      string                   `json:"path"`
+	Duration                  int                      `json:"duration"`
+	Type                      string                   `json:"type"`
+	MatchStatus               string                   `json:"match_status,omitempty"`
+	IdentifyState             string                   `json:"identify_state,omitempty"`
+	Subtitles                 []Subtitle               `json:"subtitles"`
+	EmbeddedSubtitles         []EmbeddedSubtitle       `json:"embeddedSubtitles"`
+	EmbeddedAudioTracks       []EmbeddedAudioTrack     `json:"embeddedAudioTracks"`
+	EmbeddedFontAttachments   []EmbeddedFontAttachment `json:"embeddedFontAttachments"`
+	TMDBID                    int                      `json:"tmdb_id"`
+	TVDBID                    string                   `json:"tvdb_id,omitempty"`
+	Overview                  string                   `json:"overview"`
+	PosterPath                string                   `json:"poster_path"`
+	BackdropPath              string                   `json:"backdrop_path"`
+	PosterURL                 string                   `json:"poster_url,omitempty"`
+	BackdropURL               string                   `json:"backdrop_url,omitempty"`
+	ShowPosterPath            string                   `json:"show_poster_path,omitempty"`
+	ShowPosterURL             string                   `json:"show_poster_url,omitempty"`
+	ReleaseDate               string                   `json:"release_date"`
+	ShowVoteAverage           float64                  `json:"show_vote_average,omitempty"`
+	ShowIMDbRating            float64                  `json:"show_imdb_rating,omitempty"`
+	VoteAverage               float64                  `json:"vote_average"`
+	IMDbID                    string                   `json:"imdb_id,omitempty"`
+	IMDbRating                float64                  `json:"imdb_rating,omitempty"`
+	Artist                    string                   `json:"artist,omitempty"`
+	Album                     string                   `json:"album,omitempty"`
+	AlbumArtist               string                   `json:"album_artist,omitempty"`
+	DiscNumber                int                      `json:"disc_number,omitempty"`
+	TrackNumber               int                      `json:"track_number,omitempty"`
+	ReleaseYear               int                      `json:"release_year,omitempty"`
+	MusicBrainzArtistID       string                   `json:"-"`
+	MusicBrainzReleaseGroupID string                   `json:"-"`
+	MusicBrainzReleaseID      string                   `json:"-"`
+	MusicBrainzRecordingID    string                   `json:"-"`
+	ProgressSeconds           float64                  `json:"progress_seconds,omitempty"`
+	ProgressPercent           float64                  `json:"progress_percent,omitempty"`
+	RemainingSeconds          float64                  `json:"remaining_seconds,omitempty"`
+	Completed                 bool                     `json:"completed,omitempty"`
+	LastWatchedAt             string                   `json:"last_watched_at,omitempty"`
 	// Season and Episode are set for tv/anime episodes; 0 when not applicable.
 	Season  int `json:"season,omitempty"`
 	Episode int `json:"episode,omitempty"`
@@ -233,9 +242,10 @@ type LibraryMediaPage struct {
 }
 
 type PlaybackTrackMetadata struct {
-	Subtitles           []Subtitle           `json:"subtitles"`
-	EmbeddedSubtitles   []EmbeddedSubtitle   `json:"embeddedSubtitles"`
-	EmbeddedAudioTracks []EmbeddedAudioTrack `json:"embeddedAudioTracks"`
+	Subtitles               []Subtitle               `json:"subtitles"`
+	EmbeddedSubtitles       []EmbeddedSubtitle       `json:"embeddedSubtitles"`
+	EmbeddedAudioTracks     []EmbeddedAudioTrack     `json:"embeddedAudioTracks"`
+	EmbeddedFontAttachments []EmbeddedFontAttachment `json:"embeddedFontAttachments"`
 }
 
 type User struct {

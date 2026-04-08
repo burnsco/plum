@@ -104,6 +104,38 @@ describe("resolveWebSubtitleSelection", () => {
     });
   });
 
+  it("prefers hls_native when HLS already exposes the same ASS track", () => {
+    const hls = {
+      subtitleTracks: [{ url: "/api/playback/sessions/s/revisions/1/plum_subs_6578743a31.m3u8" }],
+    } as { subtitleTracks: Array<{ url: string }> };
+    expect(
+      resolveWebSubtitleSelection({
+        selectedSubtitleKey: "ext:1",
+        subtitleTrackRequests: [
+          track({
+            assEligible: true,
+            assSrc: "/api/subtitles/1/ass",
+            deliveryModes: [
+              { mode: "direct_vtt", requiresReload: false },
+              { mode: "ass", requiresReload: false },
+            ],
+            preferredWebDeliveryMode: "ass",
+          }),
+        ],
+        subtitleLoadStateByKey: {},
+        burnEmbeddedSubtitleStreamIndex: null,
+        videoSourceIsHls: true,
+        hls: hls as never,
+        resolutionVersion: 1,
+      }),
+    ).toMatchObject({
+      renderer: "hls_native",
+      selectedDeliveryMode: "hls_vtt",
+      activeAssSource: null,
+      manualTrackKey: null,
+    });
+  });
+
   it("selects burn_in for burn-only embedded tracks", () => {
     expect(
       resolveWebSubtitleSelection({

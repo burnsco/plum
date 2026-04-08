@@ -188,7 +188,8 @@ CREATE TABLE IF NOT EXISTS movies (
   release_date TEXT,
   vote_average REAL DEFAULT 0,
   imdb_id TEXT,
-  imdb_rating REAL DEFAULT 0
+  imdb_rating REAL DEFAULT 0,
+  updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_movies_library_id ON movies(library_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_library_path ON movies(library_id, path);
@@ -1267,6 +1268,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHER
 				}
 			}
 			return nil
+		},
+	},
+	{
+		version: 36,
+		name:    "movies_updated_at",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			// SetMoviePosterSelection updates this column; it was missing from movies while shows already had it.
+			return addColumnIfMissingTx(ctx, tx, "movies", "updated_at", "TEXT")
 		},
 	},
 }

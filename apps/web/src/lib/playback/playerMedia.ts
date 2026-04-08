@@ -54,6 +54,8 @@ export type SubtitleTrackOption = TrackMenuOption & {
   assEligible?: boolean;
   /** Raw ASS/SSA URL served by the /ass endpoint; only set when assEligible is true. */
   assSrc?: string;
+  /** Font attachment URLs to preload into JASSUB for styled ASS tracks. */
+  fontUrls?: string[];
 };
 
 export function isEmbeddedSubtitleLogicalId(logicalId: string): boolean {

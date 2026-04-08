@@ -41,6 +41,10 @@ export function embeddedSubtitleAssUrl(base: string, mediaId: number, streamInde
   return buildBackendUrl(base, `/api/media/${mediaId}/subtitles/embedded/${streamIndex}/ass`);
 }
 
+export function embeddedFontAttachmentUrl(base: string, mediaId: number, index: number): string {
+  return buildBackendUrl(base, `/api/media/${mediaId}/attachments/${index}`);
+}
+
 /**
  * Bitmap / image-based embedded subtitle codecs that Plum does not serve as WebVTT
  * (mirrors `EmbeddedSubtitleCodecLikelyBitmap` in the Go server).

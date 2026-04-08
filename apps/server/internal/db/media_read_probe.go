@@ -55,6 +55,7 @@ func attachSubtitlesBatch(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
 		} else {
 			items[i].EmbeddedAudioTracks = []EmbeddedAudioTrack{}
 		}
+		items[i].EmbeddedFontAttachments = []EmbeddedFontAttachment{}
 	}
 	return items, nil
 }
@@ -66,9 +67,10 @@ func EnsurePlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIte
 
 func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaItem) (PlaybackTrackMetadata, error) {
 	metadata := PlaybackTrackMetadata{
-		Subtitles:           []Subtitle{},
-		EmbeddedSubtitles:   []EmbeddedSubtitle{},
-		EmbeddedAudioTracks: []EmbeddedAudioTrack{},
+		Subtitles:               []Subtitle{},
+		EmbeddedSubtitles:       []EmbeddedSubtitle{},
+		EmbeddedAudioTracks:     []EmbeddedAudioTrack{},
+		EmbeddedFontAttachments: []EmbeddedFontAttachment{},
 	}
 	if item == nil || item.ID <= 0 {
 		return metadata, nil
@@ -103,6 +105,13 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 	if canReusePersistedPlaybackTracks(item, sourcePath, embeddedSubtitles, embeddedAudioTracks) {
 		metadata.EmbeddedSubtitles = embeddedSubtitles
 		metadata.EmbeddedAudioTracks = embeddedAudioTracks
+		if playbackTrackMetadataNeedsEmbeddedFonts(metadata.Subtitles, embeddedSubtitles) {
+			if fontAttachments, fontErr := probeEmbeddedFontAttachments(ctx, sourcePath); fontErr != nil {
+				slog.Warn("refresh playback embedded font attachments", "media_id", item.ID, "path", sourcePath, "error", fontErr)
+			} else {
+				metadata.EmbeddedFontAttachments = fontAttachments
+			}
+		}
 	} else if probed, err := readVideoMetadata(ctx, sourcePath); err != nil {
 		slog.Warn("refresh playback embedded tracks", "media_id", item.ID, "path", sourcePath, "error", err)
 		metadata.EmbeddedSubtitles = embeddedSubtitles
@@ -111,6 +120,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks)
 		metadata.EmbeddedSubtitles = append(metadata.EmbeddedSubtitles, probed.EmbeddedSubtitles...)
 		metadata.EmbeddedAudioTracks = append(metadata.EmbeddedAudioTracks, probed.EmbeddedAudioTracks...)
+		metadata.EmbeddedFontAttachments = append(metadata.EmbeddedFontAttachments, probed.EmbeddedFontAttachments...)
 		if err := UpdateMediaFileIntroFromProbe(ctx, db, item.ID, sourcePath, probed); err != nil {
 			slog.Warn("persist intro chapters", "media_id", item.ID, "path", sourcePath, "error", err)
 		}
@@ -141,6 +151,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 	item.Subtitles = append([]Subtitle{}, metadata.Subtitles...)
 	item.EmbeddedSubtitles = append([]EmbeddedSubtitle{}, metadata.EmbeddedSubtitles...)
 	item.EmbeddedAudioTracks = append([]EmbeddedAudioTrack{}, metadata.EmbeddedAudioTracks...)
+	item.EmbeddedFontAttachments = append([]EmbeddedFontAttachment{}, metadata.EmbeddedFontAttachments...)
 	return metadata, nil
 }
 
@@ -270,6 +281,29 @@ func canReusePersistedPlaybackTracks(item *MediaItem, sourcePath string, embedde
 		return false
 	}
 	return fi.Size() == item.FileSizeBytes && fi.ModTime().UTC().Format(time.RFC3339Nano) == item.FileModTime
+}
+
+func hasAssEligibleEmbeddedSubtitle(subtitles []EmbeddedSubtitle) bool {
+	for _, subtitle := range subtitles {
+		if EmbeddedSubtitleAssDeliveryEligible(subtitle) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAssSidecarSubtitle(subtitles []Subtitle) bool {
+	for _, subtitle := range subtitles {
+		switch strings.ToLower(strings.TrimSpace(subtitle.Format)) {
+		case "ass", "ssa":
+			return true
+		}
+	}
+	return false
+}
+
+func playbackTrackMetadataNeedsEmbeddedFonts(subtitles []Subtitle, embeddedSubtitles []EmbeddedSubtitle) bool {
+	return hasAssSidecarSubtitle(subtitles) || hasAssEligibleEmbeddedSubtitle(embeddedSubtitles)
 }
 
 func getSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Subtitle, error) {
@@ -540,6 +574,7 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 	} else {
 		m.EmbeddedAudioTracks = []EmbeddedAudioTrack{}
 	}
+	m.EmbeddedFontAttachments = []EmbeddedFontAttachment{}
 	dupSlice := []MediaItem{m}
 	dupSlice, err = attachDuplicateState(db, dupSlice)
 	if err != nil {
@@ -1082,11 +1117,12 @@ func getMediaDuration(ctx context.Context, path string) (int, error) {
 }
 
 type VideoProbeResult struct {
-	Duration            int
-	EmbeddedSubtitles   []EmbeddedSubtitle
-	EmbeddedAudioTracks []EmbeddedAudioTrack
-	IntroStartSeconds   *float64
-	IntroEndSeconds     *float64
+	Duration                int
+	EmbeddedSubtitles       []EmbeddedSubtitle
+	EmbeddedAudioTracks     []EmbeddedAudioTrack
+	EmbeddedFontAttachments []EmbeddedFontAttachment
+	IntroStartSeconds       *float64
+	IntroEndSeconds         *float64
 }
 
 func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, error) {
@@ -1097,7 +1133,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 	args := []string{"-v", "error"}
 	args = append(args, ffopts.InputProbeBeforeI...)
 	args = append(args,
-		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
+		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title,filename,mimetype:stream_disposition=default,forced,hearing_impaired",
 		"-show_entries", "chapter=start_time,end_time:chapter_tags=title",
 		"-of", "json",
 		path,
@@ -1124,6 +1160,8 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 			Tags struct {
 				Language string `json:"language"`
 				Title    string `json:"title"`
+				Filename string `json:"filename"`
+				MimeType string `json:"mimetype"`
 			} `json:"tags"`
 		} `json:"streams"`
 		Chapters []struct {
@@ -1145,6 +1183,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 			result.Duration = int(f)
 		}
 	}
+	attachmentIndex := 0
 	for _, stream := range parsed.Streams {
 		lang := stream.Tags.Language
 		if lang == "" {
@@ -1188,6 +1227,11 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 				Language:    audioLang,
 				Title:       title,
 			})
+		case "attachment":
+			if attachment, ok := parseFontAttachment(attachmentIndex, stream.Index, stream.CodecName, stream.Tags.Filename, stream.Tags.MimeType); ok {
+				result.EmbeddedFontAttachments = append(result.EmbeddedFontAttachments, attachment)
+			}
+			attachmentIndex++
 		}
 	}
 	chProbes := make([]chapterProbe, 0, len(parsed.Chapters))
@@ -1223,6 +1267,55 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 		}
 	}
 	return result, nil
+}
+
+func parseFontAttachment(index int, streamIndex int, codecName string, filename string, mimeType string) (EmbeddedFontAttachment, bool) {
+	if !isFontAttachmentName(codecName, filename, mimeType) {
+		return EmbeddedFontAttachment{}, false
+	}
+	name := strings.TrimSpace(filename)
+	if name == "" {
+		name = fmt.Sprintf("attachment-%d", streamIndex)
+	}
+	return EmbeddedFontAttachment{
+		Index:       index,
+		StreamIndex: streamIndex,
+		Filename:    name,
+		MimeType:    strings.TrimSpace(mimeType),
+	}, true
+}
+
+func isFontAttachmentName(codecName string, filename string, mimeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "application/x-truetype-font",
+		"application/x-font-ttf",
+		"application/x-font-otf",
+		"application/vnd.ms-opentype",
+		"font/ttf",
+		"font/otf",
+		"font/collection",
+		"font/woff",
+		"font/woff2":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(codecName)) {
+	case "ttf", "otf", "ttc", "woff", "woff2":
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filename))) {
+	case ".ttf", ".otf", ".ttc", ".woff", ".woff2":
+		return true
+	default:
+		return false
+	}
+}
+
+func probeEmbeddedFontAttachments(ctx context.Context, path string) ([]EmbeddedFontAttachment, error) {
+	result, err := probeVideoMetadata(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return result.EmbeddedFontAttachments, nil
 }
 
 func isSupportedEmbeddedSubtitleCodec(codec string) bool {
