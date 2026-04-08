@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import type { DiscoverBrowseCategory, DiscoverGenre, DiscoverItem, DiscoverResponse } from "@/api";
 import { LibraryPosterGrid } from "@/components/LibraryPosterGrid";
+import { MediaGridSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
 import { Button } from "@/components/ui/button";
@@ -178,7 +179,7 @@ function DiscoverContent() {
           onOpenSettings={() => navigate("/settings")}
         />
       ) : discoverLoading ? (
-        <p className="text-sm text-(--plum-muted)">Loading discover shelves...</p>
+        <MediaGridSkeleton count={12} />
       ) : (
         <DiscoverShelves
           discover={discover}

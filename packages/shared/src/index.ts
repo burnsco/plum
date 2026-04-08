@@ -19,6 +19,8 @@ export {
   tmdbProfileUrl,
 } from "./media";
 
+export { normalizeDiscoverOriginKey } from "./discover";
+
 export type {
   AttachPlaybackSessionCommand,
   AuthSessionSnapshot,

@@ -18,12 +18,12 @@ const (
 )
 
 type AuthRateLimiter struct {
-	mu             sync.Mutex
-	attempts       map[string][]time.Time
-	maxAttempts    int
-	window         time.Duration
-	lastFullPrune  time.Time
-	pruneInterval  time.Duration
+	mu            sync.Mutex
+	attempts      map[string][]time.Time
+	maxAttempts   int
+	window        time.Duration
+	lastFullPrune time.Time
+	pruneInterval time.Duration
 }
 
 var defaultAuthLimiter = NewAuthRateLimiter(defaultAuthRateLimitMax, defaultAuthRateLimitWindow)
@@ -170,7 +170,7 @@ func isLoopbackHTTPOrigin(origin string) bool {
 }
 
 var (
-	trustProxyOnce      sync.Once
+	trustProxyOnce     sync.Once
 	trustProxyEnabled  bool
 	trustProxyNetworks []*net.IPNet
 )

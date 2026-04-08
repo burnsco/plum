@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { normalizeDiscoverOriginKey } from "@/lib/discover";
+import { normalizeDiscoverOriginKey } from "@plum/shared";
 
 export type DiscoverOriginContextValue = {
   originCountry: string;

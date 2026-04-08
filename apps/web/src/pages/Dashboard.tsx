@@ -1,5 +1,6 @@
 import type { HomeDashboard, RecentlyAddedEntry } from "@/api";
 import { DashboardCardContextMenu } from "@/components/home/DashboardCardContextMenu";
+import { PageRouteSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { PosterScrollRail } from "@/components/PosterScrollRail";
 import type { PosterGridItem } from "@/components/types";
 import { usePlayerQueue } from "@/contexts/PlayerContext";
@@ -253,7 +254,7 @@ export function Dashboard() {
       ) : null}
 
       {isLoading ? (
-        <p className="text-sm text-(--plum-muted)">Loading your library…</p>
+        <PageRouteSkeleton />
       ) : null}
 
       {!isLoading && !error ? (

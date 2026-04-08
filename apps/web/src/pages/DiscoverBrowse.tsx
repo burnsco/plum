@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { DiscoverBrowseCategory, DiscoverGenre, DiscoverMediaType } from "@/api";
 import { Button } from "@/components/ui/button";
+import { MediaGridSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { useAuthState } from "@/contexts/AuthContext";
 import { DiscoverOriginProvider, useDiscoverOrigin } from "@/contexts/DiscoverOriginContext";
 import {
@@ -244,7 +245,7 @@ function DiscoverBrowseContent() {
       </section>
 
       {browse.isLoading && items.length === 0 ? (
-        <p className="text-sm text-(--plum-muted)">Loading browse results...</p>
+        <MediaGridSkeleton count={12} />
       ) : items.length === 0 ? (
         <DiscoverMessage
           title="No titles found"

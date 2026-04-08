@@ -5,6 +5,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
 import { LibrarySectionLayout } from "./components/LibrarySectionLayout";
 import { MainLayout } from "./components/MainLayout";
+import { AuthScreenSkeleton } from "./components/loading/PlumLoadingSkeletons";
 import { ignorePromiseAlwaysLogUnexpected } from "./lib/ignorePromise";
 import { AuthProvider, useAuthActions, useAuthState } from "./contexts/AuthContext";
 import { IdentifyQueueProvider } from "./contexts/IdentifyQueueContext";
@@ -79,7 +80,7 @@ function AppRouter() {
 
   if (!hasAdmin) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<AuthScreenSkeleton />}>
         <Onboarding onGoToHome={handleGoToHome} />
       </Suspense>
     );
@@ -87,7 +88,7 @@ function AppRouter() {
 
   if (!user) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<AuthScreenSkeleton />}>
         <Login />
       </Suspense>
     );
@@ -99,24 +100,22 @@ function AppRouter() {
         <ScanQueueProvider>
           <IdentifyQueueProvider>
             <PlayerProvider>
-              <Suspense fallback={null}>
-                <Routes>
-                  <Route path="/" element={<MainLayout />}>
-                    <Route index element={<Dashboard />} />
-                    <Route path="discover" element={<Discover />} />
-                    <Route path="discover/browse" element={<DiscoverBrowse />} />
-                    <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
-                    <Route path="downloads" element={<Downloads />} />
-                    <Route path="search" element={<SearchPage />} />
-                    <Route path="library/:libraryId" element={<LibrarySectionLayout />}>
-                      <Route index element={<Home />} />
-                      <Route path="movie/:mediaId" element={<MovieDetail />} />
-                      <Route path="show/:showKey" element={<ShowDetail />} />
-                    </Route>
-                    <Route path="settings" element={<Settings />} />
+              <Routes>
+                <Route path="/" element={<MainLayout />}>
+                  <Route index element={<Dashboard />} />
+                  <Route path="discover" element={<Discover />} />
+                  <Route path="discover/browse" element={<DiscoverBrowse />} />
+                  <Route path="discover/:mediaType/:tmdbId" element={<DiscoverDetail />} />
+                  <Route path="downloads" element={<Downloads />} />
+                  <Route path="search" element={<SearchPage />} />
+                  <Route path="library/:libraryId" element={<LibrarySectionLayout />}>
+                    <Route index element={<Home />} />
+                    <Route path="movie/:mediaId" element={<MovieDetail />} />
+                    <Route path="show/:showKey" element={<ShowDetail />} />
                   </Route>
-                </Routes>
-              </Suspense>
+                  <Route path="settings" element={<Settings />} />
+                </Route>
+              </Routes>
             </PlayerProvider>
           </IdentifyQueueProvider>
         </ScanQueueProvider>

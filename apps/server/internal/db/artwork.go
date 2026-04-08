@@ -448,4 +448,3 @@ func resizeImage(src image.Image, width, height int) image.Image {
 	}
 	return dst
 }
-

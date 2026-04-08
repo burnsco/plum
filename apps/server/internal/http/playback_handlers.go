@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -545,15 +544,6 @@ func (t *trackStreamBody) Flush() {
 	if fl, ok := t.ResponseWriter.(http.Flusher); ok {
 		fl.Flush()
 	}
-}
-
-func parsePathInt(w http.ResponseWriter, raw string, message string) (int, bool) {
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		http.Error(w, message, http.StatusBadRequest)
-		return 0, false
-	}
-	return value, true
 }
 
 func writePlaybackError(w http.ResponseWriter, err error) {

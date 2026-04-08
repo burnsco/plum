@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
 import { BASE_URL, type MediaItem } from "@/api";
+import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { PosterPickerDialog } from "@/components/PosterPickerDialog";
 import { RatingBadge } from "@/components/RatingBadge";
 import { usePlayerQueue } from "@/contexts/PlayerContext";
@@ -45,7 +46,7 @@ export function MovieDetail() {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-(--plum-muted)">Loading movie…</p>;
+    return <DetailViewSkeleton />;
   }
 
   if (error) {

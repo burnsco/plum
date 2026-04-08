@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search as SearchIcon, User } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
+import { MediaGridSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { Input } from "@/components/ui/input";
 import { useLibrarySearch } from "@/queries";
 
@@ -120,7 +121,7 @@ export function SearchPage() {
       ) : error ? (
         <SearchMessage title="Search is unavailable" copy={error.message} />
       ) : isLoading && !data ? (
-        <p className="text-sm text-(--plum-muted)">Searching library…</p>
+        <MediaGridSkeleton count={8} />
       ) : data && data.results.length === 0 ? (
         <SearchMessage
           title={`No results for "${query}"`}

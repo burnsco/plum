@@ -1164,6 +1164,17 @@ export const DiscoverBrowseCategorySchema = Schema.Literals([
   "top-rated",
 ]);
 
+/** Canonical browse shelf order for Discover; IDs match server TMDB browse routes. */
+export const DISCOVER_BROWSE_CATEGORY_ORDER: readonly DiscoverBrowseCategory[] = [
+  "trending",
+  "popular-movies",
+  "now-playing",
+  "upcoming",
+  "popular-tv",
+  "on-the-air",
+  "top-rated",
+];
+
 export type MediaStackServiceKind = "radarr" | "sonarr-tv";
 
 export const MediaStackServiceKindSchema = Schema.Literals(["radarr", "sonarr-tv"]);

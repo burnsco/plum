@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useParams } from "react-router-dom";
+import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { useLibraries } from "@/queries";
 
 /**
@@ -14,7 +15,7 @@ export function LibrarySectionLayout() {
   const idValid = Number.isFinite(parsed) && libs.some((l) => l.id === parsed);
 
   if (isPending && libs.length === 0) {
-    return <p className="text-sm text-(--plum-muted)">Loading…</p>;
+    return <DetailViewSkeleton />;
   }
 
   if (libs.length > 0) {

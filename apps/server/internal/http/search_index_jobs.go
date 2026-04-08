@@ -36,10 +36,10 @@ func NewSearchIndexManager(shutdownCtx context.Context, sqlDB *sql.DB, movies me
 		db:          sqlDB,
 		movies:      movies,
 		series:      series,
-		sem:      make(chan struct{}, 1),
-		queued:   make(map[int]bool),
-		running:  make(map[int]bool),
-		needFull: make(map[int]bool),
+		sem:         make(chan struct{}, 1),
+		queued:      make(map[int]bool),
+		running:     make(map[int]bool),
+		needFull:    make(map[int]bool),
 	}
 }
 

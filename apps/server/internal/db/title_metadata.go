@@ -148,7 +148,7 @@ func replaceTitleCastTx(ctx context.Context, tx *sql.Tx, titleKind string, title
 
 	type castRow struct {
 		name, nameKey, provider, providerID, profilePath, character string
-		order                                                        int
+		order                                                       int
 	}
 	rows := make([]castRow, 0, len(cast))
 	for _, m := range cast {

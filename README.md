@@ -40,6 +40,41 @@ Plum is built with modern, efficient technologies:
 - `packages/contracts`: Shared TypeScript types and API definitions.
 - `packages/shared`: Common utilities used across the monorepo.
 
+## Architecture (overview)
+
+The **server** owns domain logic: SQLite persistence, library scanning, metadata providers (TMDB, TVDB, etc.), transcoding, and authorization. It exposes REST and WebSocket APIs.
+
+**Clients** (web and Android TV) are thin: they render UI, call the API, and stream media. They should not reimplement server-side aggregation or business rules.
+
+- **`packages/contracts`** — Wire shapes and Effect schemas used by the server and TypeScript clients (requests, responses, WebSocket enums). Canonical string unions and shared constants for those unions (for example discover browse categories) live here.
+- **`packages/shared`** — Cross-client runtime: typed API client, WebSocket command/event parsing, URL helpers, and small pure functions that must match server behavior (for example discover origin normalization).
+
+For ownership rules and cross-platform alignment (discover, home dashboard, playback), see [`docs/cross-platform-alignment.md`](docs/cross-platform-alignment.md).
+
+## Development workflow
+
+1. **Install:** `bun install` at the repo root (workspaces install `apps/*` and `packages/*`).
+2. **Environment:** Copy `.env.example` to `.env` and set keys as needed (see [Environment](#environment) below).
+3. **Run everything:** `bun run dev` starts the web app and Go server together (`concurrently`). Alternatively `make dev` if you use the Makefile helpers described under [Useful Commands](#useful-commands).
+4. **Run one app:** `bun run dev:web` or `bun run dev:server`.
+5. **Android TV:** See [ANDROID_TV.md](ANDROID_TV.md) and [apps/android-tv/AGENT_DEPLOY.md](apps/android-tv/AGENT_DEPLOY.md).
+
+More detail for the web app: [`apps/web/README.md`](apps/web/README.md).
+
+## Validation commands
+
+These run from the **repo root** (`package.json` scripts).
+
+| Command | What it runs |
+|---------|----------------|
+| `bun run validate` or `bun run validate:fast` | Lint and typecheck (web, `@plum/shared`, `@plum/contracts`) plus `go test ./...` in `apps/server`. Fast default for day-to-day work. |
+| `bun run validate:full` | Everything in `validate:fast`, plus full web Vitest suite, web production build, Go build, Android `:app:lintDebug` and `:app:assembleDebug`. |
+| `bun run validate:web` | Web-only: lint/typecheck for web + shared + contracts, web tests, web build. |
+| `bun run validate:server` | `go test` + `go build` for `apps/server`. |
+| `bun run validate:android` | Android lint + debug assemble. |
+
+CI and pre-merge gates should use at least `validate:fast`; use `validate:full` when you need the full surface (builds + Android).
+
 ## Quick Start
 
 ### Prerequisites
@@ -148,9 +183,9 @@ Other useful runtime env vars:
 - `make docker-dev-clean` — Recreate the Docker dev stack from scratch.
 - `bun run dev:web` — Start only the web client.
 - `bun run dev:server` — Start only the Go backend.
-- `bun run typecheck` — Run TypeScript type checking across the project.
-- `bun run lint` — Run the workspace lint checks.
-- `bun run validate` — Run linting, type checking, and backend tests.
+- `bun run typecheck` — TypeScript typecheck for web, shared, and contracts.
+- `bun run lint` — Lint web, shared, and contracts.
+- `bun run validate` / `validate:fast` — Lint, typecheck, and Go tests (see [Validation commands](#validation-commands)).
 
 ### Docker
 

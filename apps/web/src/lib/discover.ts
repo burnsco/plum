@@ -1,13 +1,19 @@
+import {
+  DISCOVER_BROWSE_CATEGORY_ORDER,
+  type DiscoverBrowseCategory,
+  type DiscoverGenre,
+  type DiscoverMediaType,
+} from "@plum/contracts";
+import { normalizeDiscoverOriginKey } from "@plum/shared";
 import type {
   DiscoverAcquisition,
-  DiscoverBrowseCategory,
-  DiscoverGenre,
   DiscoverItem,
   DiscoverLibraryMatch,
-  DiscoverMediaType,
   DiscoverTitleDetails,
   DiscoverTitleVideo,
 } from "@/api";
+
+export { normalizeDiscoverOriginKey };
 
 type DiscoverDateSource = Pick<DiscoverItem, "release_date" | "first_air_date">;
 
@@ -21,15 +27,33 @@ export interface DiscoverCategoryOption {
   defaultMediaType: DiscoverMediaType | "";
 }
 
-export const DISCOVER_CATEGORY_OPTIONS: DiscoverCategoryOption[] = [
-  { id: "trending", label: "Trending Now", defaultMediaType: "" },
-  { id: "popular-movies", label: "Popular Movies", defaultMediaType: "movie" },
-  { id: "now-playing", label: "Now Playing", defaultMediaType: "movie" },
-  { id: "upcoming", label: "Upcoming Movies", defaultMediaType: "movie" },
-  { id: "popular-tv", label: "Popular TV", defaultMediaType: "tv" },
-  { id: "on-the-air", label: "On The Air", defaultMediaType: "tv" },
-  { id: "top-rated", label: "Top Rated Picks", defaultMediaType: "movie" },
-];
+const DISCOVER_CATEGORY_LABELS: Record<DiscoverBrowseCategory, string> = {
+  trending: "Trending Now",
+  "popular-movies": "Popular Movies",
+  "now-playing": "Now Playing",
+  upcoming: "Upcoming Movies",
+  "popular-tv": "Popular TV",
+  "on-the-air": "On The Air",
+  "top-rated": "Top Rated Picks",
+};
+
+const DISCOVER_CATEGORY_DEFAULT_MEDIA: Record<DiscoverBrowseCategory, DiscoverMediaType | ""> = {
+  trending: "",
+  "popular-movies": "movie",
+  "now-playing": "movie",
+  upcoming: "movie",
+  "popular-tv": "tv",
+  "on-the-air": "tv",
+  "top-rated": "movie",
+};
+
+export const DISCOVER_CATEGORY_OPTIONS: DiscoverCategoryOption[] = DISCOVER_BROWSE_CATEGORY_ORDER.map(
+  (id) => ({
+    id,
+    label: DISCOVER_CATEGORY_LABELS[id],
+    defaultMediaType: DISCOVER_CATEGORY_DEFAULT_MEDIA[id],
+  }),
+);
 
 /** ISO 3166-1 alpha-2 codes (TMDB `with_origin_country`). UK is `GB`. */
 export const DISCOVER_ORIGIN_PRESETS: ReadonlyArray<{ readonly code: string; readonly label: string }> = [
@@ -50,24 +74,6 @@ export const DISCOVER_ORIGIN_PRESETS: ReadonlyArray<{ readonly code: string; rea
   { code: "AU", label: "Australia" },
   { code: "IE", label: "Ireland" },
 ];
-
-/** ISO 3166-1 alpha-2 only; mirrors Go parseDiscoverOriginCountry + normalizeDiscoverOrigin. */
-export function normalizeDiscoverOriginKey(raw: string | undefined | null): string {
-  if (raw == null) {
-    return "";
-  }
-  const s = String(raw).trim().toUpperCase();
-  if (s.length !== 2) {
-    return "";
-  }
-  for (let i = 0; i < 2; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 65 || c > 90) {
-      return "";
-    }
-  }
-  return s;
-}
 
 export function discoverMediaLabel(mediaType: DiscoverMediaType): string {
   return mediaType === "movie" ? "Movie" : "TV";

@@ -22,13 +22,13 @@ const (
 )
 
 var managedEnvKeys = map[string]struct{}{
-	envTMDBAPIKey:            {},
-	envTVDBAPIKey:            {},
-	envOMDBAPIKey:            {},
-	envFanartAPIKey:          {},
-	envMusicBrainzContactURL: {},
-	envPLUMAddr:              {},
-	envPLUMDatabaseURL:       {},
+	envTMDBAPIKey:             {},
+	envTVDBAPIKey:             {},
+	envOMDBAPIKey:             {},
+	envFanartAPIKey:           {},
+	envMusicBrainzContactURL:  {},
+	envPLUMAddr:               {},
+	envPLUMDatabaseURL:        {},
 	envPLUMDatabaseLegacyPath: {},
 }
 

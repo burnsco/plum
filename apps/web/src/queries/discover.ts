@@ -25,7 +25,7 @@ import {
   type DiscoverTitleDetails,
   type DownloadsResponse,
 } from "@/api";
-import { normalizeDiscoverOriginKey } from "@/lib/discover";
+import { normalizeDiscoverOriginKey } from "@plum/shared";
 import {
   contractsView,
   DISCOVER_STALE_MS,

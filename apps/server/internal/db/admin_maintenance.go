@@ -14,8 +14,8 @@ const adminMaintenanceScheduleKey = "admin_maintenance_schedule_v1"
 type AdminMaintenanceTaskID string
 
 const (
-	AdminTaskOptimizeDatabase       AdminMaintenanceTaskID = "optimize_database"
-	AdminTaskCleanTranscode         AdminMaintenanceTaskID = "clean_transcode"
+	AdminTaskOptimizeDatabase     AdminMaintenanceTaskID = "optimize_database"
+	AdminTaskCleanTranscode       AdminMaintenanceTaskID = "clean_transcode"
 	AdminTaskCleanLogs            AdminMaintenanceTaskID = "clean_logs"
 	AdminTaskDeleteCache          AdminMaintenanceTaskID = "delete_cache"
 	AdminTaskScanAllMedia         AdminMaintenanceTaskID = "scan_all_media"

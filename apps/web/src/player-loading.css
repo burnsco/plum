@@ -1,0 +1,41 @@
+/* Player overlay spinner (used by PlayerLoadingOverlay; kept out of App.css). */
+.player-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: linear-gradient(180deg, rgba(5, 7, 14, 0.58), rgba(5, 7, 14, 0.72));
+  color: #f7f5ff;
+  pointer-events: none;
+}
+
+.player-loading-overlay--fullscreen {
+  z-index: 2;
+  background: radial-gradient(circle at center, rgba(8, 10, 18, 0.34), rgba(0, 0, 0, 0.76));
+}
+
+.player-loading-overlay__spinner {
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 0.22rem solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  animation: player-loading-spin 0.8s linear infinite;
+}
+
+.player-loading-overlay__label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes player-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

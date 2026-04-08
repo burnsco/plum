@@ -33,8 +33,8 @@ func TestServerEnvSettingsHandler_GetAndPut(t *testing.T) {
 		t.Fatalf("get status=%d %s", getRec.Code, getRec.Body.String())
 	}
 	var getBody struct {
-		PLUMAddr        string `json:"plum_addr"`
-		SecretsPresent  struct {
+		PLUMAddr       string `json:"plum_addr"`
+		SecretsPresent struct {
 			TMDB bool `json:"tmdb_api_key"`
 		} `json:"secrets_present"`
 		EnvFileWritable bool `json:"env_file_writable"`
@@ -53,9 +53,9 @@ func TestServerEnvSettingsHandler_GetAndPut(t *testing.T) {
 	}
 
 	putPayload := map[string]any{
-		"plum_addr":       ":8080",
-		"tmdb_api_key":    "newsecret",
-		"omdb_api_key":    "omdbval",
+		"plum_addr":          ":8080",
+		"tmdb_api_key":       "newsecret",
+		"omdb_api_key":       "omdbval",
 		"tvdb_api_key_clear": true,
 	}
 	putRaw, _ := json.Marshal(putPayload)

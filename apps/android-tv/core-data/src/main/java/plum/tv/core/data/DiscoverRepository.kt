@@ -15,8 +15,8 @@ import plum.tv.core.network.RemoveDownloadPayloadJson
 class DiscoverRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
 ) {
-    suspend fun discover(): Result<DiscoverResponseJson> = runCatching {
-        val res = sessionRepository.getPlumApi().discover()
+    suspend fun discover(originCountry: String? = null): Result<DiscoverResponseJson> = runCatching {
+        val res = sessionRepository.getPlumApi().discover(originCountry)
         if (!res.isSuccessful) {
             error(PlumHttpMessages.preferBody("Discover", res.code(), res.errorBody()?.string()))
         }
@@ -36,8 +36,10 @@ class DiscoverRepository @Inject constructor(
         mediaType: String? = null,
         genreId: Int? = null,
         page: Int? = null,
+        originCountry: String? = null,
     ): Result<DiscoverBrowseResponseJson> = runCatching {
-        val res = sessionRepository.getPlumApi().browseDiscover(category, mediaType, genreId, page)
+        val res =
+            sessionRepository.getPlumApi().browseDiscover(category, mediaType, genreId, page, originCountry)
         if (!res.isSuccessful) {
             error(PlumHttpMessages.preferBody("Discover browse", res.code(), res.errorBody()?.string()))
         }

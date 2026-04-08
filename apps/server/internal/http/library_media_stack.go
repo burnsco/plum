@@ -3,10 +3,8 @@ package httpapi
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -24,13 +22,13 @@ func loadMediaStackSettings(dbConn *sql.DB) db.MediaStackSettings {
 	return settings
 }
 
-func mediaTypeFromRoute(r *http.Request) (metadata.DiscoverMediaType, int, bool) {
+func mediaTypeFromRoute(w http.ResponseWriter, r *http.Request) (metadata.DiscoverMediaType, int, bool) {
 	mediaType := metadata.DiscoverMediaType(strings.TrimSpace(chi.URLParam(r, "mediaType")))
 	if mediaType != metadata.DiscoverMediaTypeMovie && mediaType != metadata.DiscoverMediaTypeTV {
 		return "", 0, false
 	}
-	tmdbID, err := strconv.Atoi(chi.URLParam(r, "tmdbId"))
-	if err != nil || tmdbID <= 0 {
+	tmdbID, ok := chiURLIntParam(w, r, "tmdbId", "tmdb id")
+	if !ok {
 		return "", 0, false
 	}
 	return mediaType, tmdbID, true
@@ -148,7 +146,7 @@ func (h *LibraryHandler) AddDiscoverTitle(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mediaType, tmdbID, ok := mediaTypeFromRoute(r)
+	mediaType, tmdbID, ok := mediaTypeFromRoute(w, r)
 	if !ok {
 		http.Error(w, "invalid media type or tmdb id", http.StatusBadRequest)
 		return
@@ -166,8 +164,7 @@ func (h *LibraryHandler) AddDiscoverTitle(w http.ResponseWriter, r *http.Request
 	}
 	acquisition := h.Arr.ResolveDiscoverAcquisition(mediaType, tmdbID, false, settings, snapshot)
 	if acquisition != nil && acquisition.State != metadata.DiscoverAcquisitionStateNotAdded {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(acquisition)
+		writeJSON(w, http.StatusOK, acquisition)
 		return
 	}
 
@@ -221,8 +218,7 @@ func (h *LibraryHandler) AddDiscoverTitle(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(acquisition)
+	writeJSON(w, http.StatusOK, acquisition)
 }
 
 func (h *LibraryHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
@@ -232,8 +228,7 @@ func (h *LibraryHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Arr == nil {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(arr.DownloadsResponse{
+		writeJSON(w, http.StatusOK, arr.DownloadsResponse{
 			Configured: false,
 			Items:      []arr.DownloadItem{},
 		})
@@ -251,8 +246,7 @@ func (h *LibraryHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 		log.Printf("media stack downloads partial response: %v", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(payload)
+	writeJSON(w, http.StatusOK, payload)
 }
 
 type removeDownloadRequest struct {

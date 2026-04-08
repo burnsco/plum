@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
 import { LibraryMediaContextMenu } from "@/components/LibraryMediaContextMenu";
+import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { RatingBadge } from "../components/RatingBadge";
 import {
@@ -163,7 +164,7 @@ export function ShowDetail() {
   }
 
   if (loading) {
-    return <p className="auth-muted">Loading…</p>;
+    return <DetailViewSkeleton />;
   }
 
   if (error) {

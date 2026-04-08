@@ -12,6 +12,7 @@ import { MediaDetailView, MediaTableView } from "../components/MediaListView";
 import { MusicLibraryView } from "../components/MusicLibraryView";
 import { MusicNowPlayingBar } from "../components/MusicNowPlayingBar";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
+import { MediaGridSkeleton, PageRouteSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import type { PosterGridItem } from "../components/types";
 import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
 import { usePlayerQueue } from "../contexts/PlayerContext";
@@ -411,7 +412,7 @@ export function Home() {
   return (
     <>
       {loadingLibs ? (
-        <p className="text-sm text-(--plum-muted)">Loading libraries…</p>
+        <PageRouteSkeleton />
       ) : loadLibsError ? (
         <p className="text-sm text-(--plum-muted)">
           Failed to load libraries: {loadLibsError.message}{" "}
@@ -432,7 +433,7 @@ export function Home() {
           {selectedLib && (
             <div className="flex min-h-0 flex-1 flex-col">
               {selectedLoading ? (
-                <p className="text-sm text-(--plum-muted)">Loading…</p>
+                <MediaGridSkeleton count={12} />
               ) : selectedError ? (
                 <p className="text-sm text-(--plum-muted)">
                   {selectedError.message}{" "}

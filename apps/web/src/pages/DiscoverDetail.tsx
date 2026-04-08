@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, Film, Tv } from "lucide-react";
 import { tmdbBackdropUrl, tmdbPosterUrl } from "@plum/shared";
 import { RatingBadge } from "@/components/RatingBadge";
+import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { Button } from "@/components/ui/button";
 import type { DiscoverMediaType } from "@/api";
 import { useAuthState } from "@/contexts/AuthContext";
@@ -49,7 +50,7 @@ export function DiscoverDetail() {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-(--plum-muted)">Loading discover title...</p>;
+    return <DetailViewSkeleton />;
   }
 
   if (isDiscoverConfigError(error)) {

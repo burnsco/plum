@@ -169,6 +169,7 @@ import {
 } from "@plum/contracts";
 import { Data, Effect, Option, Schedule, Schema } from "effect";
 import { buildBackendUrl, ensureBaseUrl } from "./backend";
+import { normalizeDiscoverOriginKey } from "./discover";
 
 export type {
     AttachPlaybackSessionCommand,
@@ -948,8 +949,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       }),
     getDiscover: (options?: { readonly originCountry?: string }) => {
       const params = new URLSearchParams();
-      const oc = options?.originCountry?.trim().toUpperCase();
-      if (oc != null && oc !== "") {
+      const oc = normalizeDiscoverOriginKey(options?.originCountry);
+      if (oc !== "") {
         params.set("origin_country", oc);
       }
       const q = params.size > 0 ? `?${params.toString()}` : "";
@@ -985,8 +986,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       if (options?.page != null) {
         params.set("page", String(options.page));
       }
-      const oc = options?.originCountry?.trim().toUpperCase();
-      if (oc != null && oc !== "") {
+      const oc = normalizeDiscoverOriginKey(options?.originCountry);
+      if (oc !== "") {
         params.set("origin_country", oc);
       }
       return jsonRequestEffect({

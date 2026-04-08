@@ -1,73 +1,50 @@
-# React + TypeScript + Vite
+# Plum Web Client
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite + TypeScript SPA for browsing libraries, discover, and playback. It talks to the Go server over HTTP and WebSockets using the shared API client in `@plum/shared` and wire types from `@plum/contracts`.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **UI:** React 19, React Router 7, TanStack Query
+- **Video:** `hls.js`, JASSUB for ASS subtitles
+- **Styling:** Tailwind CSS 4
+- **Tooling:** Vite, Vitest, oxlint
 
-## React Compiler
+## Scripts
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Run from **this directory** (`apps/web`) or via `bun run --cwd apps/web <script>` from the repo root.
 
-## Expanding the ESLint configuration
+| Script | Description |
+|--------|-------------|
+| `dev` | Vite dev server with HMR |
+| `build` | `tsc -b` then production bundle |
+| `preview` | Serve the production build locally |
+| `lint` | oxlint |
+| `typecheck` | Project references typecheck |
+| `test` | Vitest (all tests) |
+| `test:stable` | Excludes `App.test.tsx` (matches root `validate:full` web tests) |
+| `test:app` | Only `App.test.tsx` |
+| `test:watch` | Vitest watch mode |
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+From the **monorepo root**, `bun run dev:web` runs this app’s dev server; `bun run build` builds the web app.
 
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
+## Layout (high level)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| Path | Role |
+|------|------|
+| `src/pages/` | Route-level screens |
+| `src/components/` | Reusable UI, including `playback/` for the player shell |
+| `src/contexts/` | Player and app providers |
+| `src/queries/` | TanStack Query modules |
+| `src/lib/` | App-specific helpers (playback, routing, etc.) |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+Shared API types and the HTTP/WebSocket client live in `packages/contracts` and `packages/shared`, not under this app.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Configuration
 
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
+- Vite: `vite.config.ts`
+- TypeScript: `tsconfig.json`, `tsconfig.app.json`
+- Tests: `vitest.config.ts`
 
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+## Environment and backend
+
+The UI expects the Plum server (default `http://localhost:8080` in dev, depending on Vite proxy / env). See the [root README](../../README.md) for `.env` setup, metadata API keys, and Docker. Player and library behavior are documented in the repo-wide [AGENTS.md](../../AGENTS.md) for contributors.

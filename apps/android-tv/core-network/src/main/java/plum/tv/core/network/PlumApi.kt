@@ -115,7 +115,9 @@ interface PlumApi {
     ): Response<SearchResponseJson>
 
     @GET("/api/discover")
-    suspend fun discover(): Response<DiscoverResponseJson>
+    suspend fun discover(
+        @Query("origin_country") originCountry: String? = null,
+    ): Response<DiscoverResponseJson>
 
     @GET("/api/discover/genres")
     suspend fun discoverGenres(): Response<DiscoverGenresResponseJson>
@@ -126,6 +128,7 @@ interface PlumApi {
         @Query("media_type") mediaType: String? = null,
         @Query("genre") genreId: Int? = null,
         @Query("page") page: Int? = null,
+        @Query("origin_country") originCountry: String? = null,
     ): Response<DiscoverBrowseResponseJson>
 
     @GET("/api/discover/search")
