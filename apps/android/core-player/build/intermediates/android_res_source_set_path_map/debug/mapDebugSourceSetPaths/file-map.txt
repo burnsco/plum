@@ -1,9 +1,0 @@
-plum.tv.core.player.core-player-pngs-0 /home/cburns/apps/plum/apps/android-tv/core-player/build/generated/res/pngs/debug
-plum.tv.core.player.core-player-resValues-1 /home/cburns/apps/plum/apps/android-tv/core-player/build/generated/res/resValues/debug
-plum.tv.core.player.core-player-updated_navigation_xml-2 /home/cburns/apps/plum/apps/android-tv/core-player/build/generated/updated_navigation_xml/debug
-plum.tv.core.player.core-player-mergeDebugResources-3 /home/cburns/apps/plum/apps/android-tv/core-player/build/intermediates/incremental/debug/mergeDebugResources/merged.dir
-plum.tv.core.player.core-player-mergeDebugResources-4 /home/cburns/apps/plum/apps/android-tv/core-player/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir
-plum.tv.core.player.core-player-debug-5 /home/cburns/apps/plum/apps/android-tv/core-player/build/intermediates/merged_res/debug/mergeDebugResources
-plum.tv.core.player.core-player-debug-6 /home/cburns/apps/plum/apps/android-tv/core-player/build/intermediates/packaged_res/debug/packageDebugResources
-plum.tv.core.player.core-player-debug-7 /home/cburns/apps/plum/apps/android-tv/core-player/src/debug/res
-plum.tv.core.player.core-player-main-8 /home/cburns/apps/plum/apps/android-tv/core-player/src/main/res

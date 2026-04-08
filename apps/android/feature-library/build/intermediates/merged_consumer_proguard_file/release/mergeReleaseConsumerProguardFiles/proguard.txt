@@ -1,4 +1,0 @@
--keep,allowobfuscation,allowshrinking class plum.tv.feature.library.LibraryBrowseViewModel
--keep,allowobfuscation,allowshrinking class plum.tv.feature.library.LibraryBrowseViewModel
--keep,allowobfuscation,allowshrinking class plum.tv.feature.library.LibraryListViewModel
--keep,allowobfuscation,allowshrinking class plum.tv.feature.library.LibraryListViewModel

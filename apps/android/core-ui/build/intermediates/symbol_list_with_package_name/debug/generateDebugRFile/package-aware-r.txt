@@ -1,3 +1,0 @@
-plum.tv.core.ui
-font inter_variable
-font outfit_variable

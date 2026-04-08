@@ -1,4 +1,0 @@
--keep,allowobfuscation,allowshrinking class plum.tv.feature.details.MovieDetailViewModel
--keep,allowobfuscation,allowshrinking class plum.tv.feature.details.MovieDetailViewModel
--keep,allowobfuscation,allowshrinking class plum.tv.feature.details.ShowDetailViewModel
--keep,allowobfuscation,allowshrinking class plum.tv.feature.details.ShowDetailViewModel

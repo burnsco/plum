@@ -1,8 +1,0 @@
-plum.tv.app-pngs-0 /home/cburns/apps/plum/apps/android-tv/app/build/generated/res/pngs/debug
-plum.tv.app-resValues-1 /home/cburns/apps/plum/apps/android-tv/app/build/generated/res/resValues/debug
-plum.tv.app-updated_navigation_xml-2 /home/cburns/apps/plum/apps/android-tv/app/build/generated/updated_navigation_xml/debug
-plum.tv.app-packageDebugResources-3 /home/cburns/apps/plum/apps/android-tv/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
-plum.tv.app-packageDebugResources-4 /home/cburns/apps/plum/apps/android-tv/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
-plum.tv.app-debug-5 /home/cburns/apps/plum/apps/android-tv/app/build/intermediates/merged_res/debug/mergeDebugResources
-plum.tv.app-debug-6 /home/cburns/apps/plum/apps/android-tv/app/src/debug/res
-plum.tv.app-main-7 /home/cburns/apps/plum/apps/android-tv/app/src/main/res

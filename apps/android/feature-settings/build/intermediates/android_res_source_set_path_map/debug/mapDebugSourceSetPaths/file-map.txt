@@ -1,9 +1,0 @@
-plum.tv.feature.settings.feature-settings-pngs-0 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/generated/res/pngs/debug
-plum.tv.feature.settings.feature-settings-resValues-1 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/generated/res/resValues/debug
-plum.tv.feature.settings.feature-settings-updated_navigation_xml-2 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/generated/updated_navigation_xml/debug
-plum.tv.feature.settings.feature-settings-mergeDebugResources-3 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/intermediates/incremental/debug/mergeDebugResources/merged.dir
-plum.tv.feature.settings.feature-settings-mergeDebugResources-4 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir
-plum.tv.feature.settings.feature-settings-debug-5 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/intermediates/merged_res/debug/mergeDebugResources
-plum.tv.feature.settings.feature-settings-debug-6 /home/cburns/apps/plum/apps/android-tv/feature-settings/build/intermediates/packaged_res/debug/packageDebugResources
-plum.tv.feature.settings.feature-settings-debug-7 /home/cburns/apps/plum/apps/android-tv/feature-settings/src/debug/res
-plum.tv.feature.settings.feature-settings-main-8 /home/cburns/apps/plum/apps/android-tv/feature-settings/src/main/res

@@ -1,9 +1,0 @@
-plum.tv.core.model.core-model-pngs-0 /home/cburns/apps/plum/apps/android-tv/core-model/build/generated/res/pngs/release
-plum.tv.core.model.core-model-resValues-1 /home/cburns/apps/plum/apps/android-tv/core-model/build/generated/res/resValues/release
-plum.tv.core.model.core-model-updated_navigation_xml-2 /home/cburns/apps/plum/apps/android-tv/core-model/build/generated/updated_navigation_xml/release
-plum.tv.core.model.core-model-mergeReleaseResources-3 /home/cburns/apps/plum/apps/android-tv/core-model/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
-plum.tv.core.model.core-model-mergeReleaseResources-4 /home/cburns/apps/plum/apps/android-tv/core-model/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
-plum.tv.core.model.core-model-release-5 /home/cburns/apps/plum/apps/android-tv/core-model/build/intermediates/merged_res/release/mergeReleaseResources
-plum.tv.core.model.core-model-release-6 /home/cburns/apps/plum/apps/android-tv/core-model/build/intermediates/packaged_res/release/packageReleaseResources
-plum.tv.core.model.core-model-main-7 /home/cburns/apps/plum/apps/android-tv/core-model/src/main/res
-plum.tv.core.model.core-model-release-8 /home/cburns/apps/plum/apps/android-tv/core-model/src/release/res

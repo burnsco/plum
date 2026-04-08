@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="plum.tv.core.data.PlumWebSocketManagerTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-04-06T01:59:02.031Z" hostname="shire" time="1.378">
-  <properties/>
-  <testcase name="start_opensWebSocketWhenCredentialsPresent" classname="plum.tv.core.data.PlumWebSocketManagerTest" time="0.37"/>
-  <testcase name="start_connectsAfterCredentialsAppearFollowingMissingAuth" classname="plum.tv.core.data.PlumWebSocketManagerTest" time="1.008"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

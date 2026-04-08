@@ -1,9 +1,0 @@
-plum.tv.feature.auth.feature-auth-pngs-0 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/generated/res/pngs/release
-plum.tv.feature.auth.feature-auth-resValues-1 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/generated/res/resValues/release
-plum.tv.feature.auth.feature-auth-updated_navigation_xml-2 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/generated/updated_navigation_xml/release
-plum.tv.feature.auth.feature-auth-mergeReleaseResources-3 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
-plum.tv.feature.auth.feature-auth-mergeReleaseResources-4 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
-plum.tv.feature.auth.feature-auth-release-5 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/intermediates/merged_res/release/mergeReleaseResources
-plum.tv.feature.auth.feature-auth-release-6 /home/cburns/apps/plum/apps/android-tv/feature-auth/build/intermediates/packaged_res/release/packageReleaseResources
-plum.tv.feature.auth.feature-auth-main-7 /home/cburns/apps/plum/apps/android-tv/feature-auth/src/main/res
-plum.tv.feature.auth.feature-auth-release-8 /home/cburns/apps/plum/apps/android-tv/feature-auth/src/release/res

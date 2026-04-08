@@ -1,4 +1,4 @@
-/build
+**/build/
 /.kotlin
 build-logic/.gradle/
 buildSrc/.gradle/
