@@ -7,7 +7,8 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=24.0.0"
+    "node": "^20.19.0 || >=22.12.0",
+    "bun": ">=1.2.0"
   },
   "scripts": {
     "dev": "concurrently -n \"web,server\" -c \"blue,green\" \"./scripts/run-web-dev.sh\" \"./scripts/run-server-dev.sh\"",

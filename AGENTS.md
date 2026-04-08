@@ -1,5 +1,12 @@
 # AGENTS.md
 
+## Toolchain
+
+- **Node.js**: Root `package.json` sets `engines.node` to `^20.19.0 || >=22.12.0` so it matches **Vite 8**, **@vitejs/plugin-react**, and **oxlint**. Odd majors (e.g. 21.x) are outside that range; use **20.19+**, **22.12+**, or current **24** as appropriate. [`.nvmrc`](.nvmrc) is **`22`** as a default for `nvm use` (pick a 22.x release **≥ 22.12** if you pin an exact patch).
+- **Bun**: `engines.bun` is **`>=1.2.0`**. Use Bun at the repo root for installs and scripts (`bun install`, `bun run …`).
+- **Go** (backend): Follow the `go` version in [`apps/server/go.mod`](apps/server/go.mod) for `apps/server` builds and tests.
+- **`effect`**: **`effect@4.0.0-beta.43`** from the **npm** registry (Effect v4 beta line). Keep the same version in `apps/web`, `packages/contracts`, and `packages/shared`.
+
 ## Task Completion Requirements
 
 - `bun run validate` (same as `validate:fast`) must pass before considering tasks completed: root lint and typecheck across `apps/web`, `packages/shared`, and `packages/contracts`, plus `bun run server:test` in `apps/server`.
@@ -20,7 +27,7 @@ Root scripts in `package.json`:
 
 `validate:full` currently runs `bun run --cwd apps/web test` (full Vitest suite). For the subset that excludes `App.test.tsx`, use `bun run --cwd apps/web test:stable`; for that file alone, `bun run --cwd apps/web test:app`.
 
-Per [.plans/fix-up.md](.plans/fix-up.md) **Milestone A**, the fast path, full gate, and per-platform scripts above are implemented. Other items in that milestone (for example SQLite WAL/SHM ignores and toolchain auditing) may still be open—see the plan file.
+Per [.plans/fix-up.md](.plans/fix-up.md) **Milestone A**, the fast path, full gate, per-platform scripts, SQLite WAL/SHM ignores, and toolchain pinning (**Toolchain** above) are in place; see the plan file for remaining milestone items.
 
 ## Project Snapshot
 
