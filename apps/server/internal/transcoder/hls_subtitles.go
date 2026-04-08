@@ -1,9 +1,9 @@
 package transcoder
 
 import (
+	"encoding/hex"
 	"fmt"
 	"path"
-	"strconv"
 	"strings"
 
 	"plum/internal/db"
@@ -14,11 +14,32 @@ const hlsSubtitleGroupID = "subs"
 // HlsWebSubtitle describes one text subtitle track exposed as an HLS WebVTT rendition
 // (virtual media playlist under the playback revision directory).
 type HlsWebSubtitle struct {
-	PlaylistFile string // e.g. plum_subs_emb_3.m3u8
+	LogicalID    string
+	PlaylistFile string // e.g. plum_subs_656d623a33.m3u8
 	MediaID      int
 	VTTPath      string // root-relative URL to full WebVTT (e.g. /api/media/12/subtitles/embedded/3)
 	DisplayName  string
 	Language     string
+}
+
+func hlsSubtitlePlaylistFileForLogicalID(logicalID string) string {
+	return fmt.Sprintf("plum_subs_%s.m3u8", hex.EncodeToString([]byte(logicalID)))
+}
+
+func parseVirtualSubtitlePlaylistName(fileBase string) (logicalID string, ok bool) {
+	fileBase = path.Base(fileBase)
+	if !strings.HasSuffix(fileBase, ".m3u8") || !strings.HasPrefix(fileBase, "plum_subs_") {
+		return "", false
+	}
+	encoded := strings.TrimSuffix(strings.TrimPrefix(fileBase, "plum_subs_"), ".m3u8")
+	if encoded == "" {
+		return "", false
+	}
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil || len(decoded) == 0 {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 // CollectHlsWebSubtitles lists sidecar and embedded text subtitles suitable for WebVTT delivery.
@@ -34,7 +55,8 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 			name = subtitleDisplayLabel("", s.Language, fmt.Sprintf("Subtitle %d", s.ID))
 		}
 		out = append(out, HlsWebSubtitle{
-			PlaylistFile: fmt.Sprintf("plum_subs_ext_%d.m3u8", s.ID),
+			LogicalID:    db.SidecarSubtitleLogicalID(s.ID),
+			PlaylistFile: hlsSubtitlePlaylistFileForLogicalID(db.SidecarSubtitleLogicalID(s.ID)),
 			MediaID:      media.ID,
 			VTTPath:      fmt.Sprintf("/api/subtitles/%d", s.ID),
 			DisplayName:  name,
@@ -51,7 +73,8 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 			name = subtitleDisplayLabel("", e.Language, fmt.Sprintf("Embedded %d", e.StreamIndex))
 		}
 		out = append(out, HlsWebSubtitle{
-			PlaylistFile: fmt.Sprintf("plum_subs_emb_%d.m3u8", e.StreamIndex),
+			LogicalID:    db.EmbeddedSubtitleLogicalID(e.StreamIndex),
+			PlaylistFile: hlsSubtitlePlaylistFileForLogicalID(db.EmbeddedSubtitleLogicalID(e.StreamIndex)),
 			MediaID:      media.ID,
 			VTTPath:      fmt.Sprintf("/api/media/%d/subtitles/embedded/%d", media.ID, e.StreamIndex),
 			DisplayName:  name,
@@ -191,26 +214,7 @@ func BuildWebVttSubtitleMediaPlaylist(vttURL string, durationSeconds int) string
 	return b.String()
 }
 
-// ParseVirtualSubtitlePlaylistName returns (embedded|external, numeric id, true) for plum_subs_*.m3u8.
-func ParseVirtualSubtitlePlaylistName(fileBase string) (kind string, id int, ok bool) {
-	fileBase = path.Base(fileBase)
-	if !strings.HasSuffix(fileBase, ".m3u8") || !strings.HasPrefix(fileBase, "plum_subs_") {
-		return "", 0, false
-	}
-	rest := strings.TrimSuffix(strings.TrimPrefix(fileBase, "plum_subs_"), ".m3u8")
-	if strings.HasPrefix(rest, "emb_") {
-		n, err := strconv.Atoi(strings.TrimPrefix(rest, "emb_"))
-		if err != nil {
-			return "", 0, false
-		}
-		return "emb", n, true
-	}
-	if strings.HasPrefix(rest, "ext_") {
-		n, err := strconv.Atoi(strings.TrimPrefix(rest, "ext_"))
-		if err != nil {
-			return "", 0, false
-		}
-		return "ext", n, true
-	}
-	return "", 0, false
+// ParseVirtualSubtitlePlaylistName returns the logical subtitle id for plum_subs_*.m3u8.
+func ParseVirtualSubtitlePlaylistName(fileBase string) (logicalID string, ok bool) {
+	return parseVirtualSubtitlePlaylistName(fileBase)
 }

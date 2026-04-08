@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 )
 
@@ -11,6 +12,11 @@ func decodeRequestJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return false
+	}
+	var extra struct{}
+	if err := dec.Decode(&extra); err != io.EOF {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return false
 	}

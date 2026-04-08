@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        verifyReleaseBuildConfig()
         setContent {
             val serverUrl by sessionPreferences.serverUrl.collectAsState(initial = "")
             PlumTvTheme(serverBaseUrl = serverUrl ?: "") {
@@ -43,6 +44,18 @@ class MainActivity : ComponentActivity() {
                     defaultAdminPassword = BuildConfig.DEFAULT_ADMIN_PASSWORD,
                 )
             }
+        }
+    }
+
+    private fun verifyReleaseBuildConfig() {
+        if (BuildConfig.DEBUG) {
+            return
+        }
+        check(BuildConfig.DEFAULT_ADMIN_EMAIL.isBlank()) {
+            "Release builds must not include default admin email"
+        }
+        check(BuildConfig.DEFAULT_ADMIN_PASSWORD.isBlank()) {
+            "Release builds must not include default admin password"
         }
     }
 }

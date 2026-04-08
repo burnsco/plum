@@ -47,6 +47,8 @@ export type {
   DownloadItem,
   DownloadsResponse,
   EmbeddedAudioTrack,
+  EmbeddedSubtitleDeliveryMode,
+  EmbeddedSubtitleDeliveryOption,
   EmbeddedSubtitle,
   EpisodeMetadataArtworkFetchers,
   HardwareEncodeFormat,

@@ -31,7 +31,7 @@ Current areas of focus:
 | --- | --- |
 | `apps/server` | Go backend service |
 | `apps/web` | React + Vite web client |
-| `apps/android-tv` | Android TV application |
+| `apps/android` | Android TV application |
 | `packages/contracts` | Shared Effect schemas and API/WebSocket contracts |
 | `packages/shared` | Shared TypeScript runtime utilities |
 
@@ -149,13 +149,13 @@ Use the narrower platform-specific validation commands when your changes are cle
 
 ## Android TV
 
-The Android TV client lives in `apps/android-tv`.
+The Android TV client lives in `apps/android`.
 
 Useful entry points:
 
 - [ANDROID_TV.md](ANDROID_TV.md) for the main development guide
 - [ANDROID_TV_LOCAL.md](ANDROID_TV_LOCAL.md) for local setup notes
-- [apps/android-tv/AGENT_DEPLOY.md](apps/android-tv/AGENT_DEPLOY.md) for deployment details
+- [apps/android/AGENT_DEPLOY.md](apps/android/AGENT_DEPLOY.md) for deployment details
 
 Common Android commands:
 

@@ -118,6 +118,9 @@ type playbackRevision struct {
 	err        string
 	cancel     context.CancelFunc
 	readySent  bool
+	// Frozen subtitle rendition set for this revision, captured at revision creation.
+	subtitleTracksByPlaylistFile map[string]HlsWebSubtitle
+	subtitleTracksForMaster      []HlsWebSubtitle
 
 	masterMu          sync.Mutex
 	cachedMaster      string
@@ -365,16 +368,12 @@ func (m *PlaybackSessionManager) Create(
 			StreamURL:                       decision.StreamURL,
 			DurationSeconds:                 durationSeconds,
 			Subtitles:                       media.Subtitles,
-			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(media),
+			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(media, decision.Delivery),
 			EmbeddedAudioTracks:             media.EmbeddedAudioTracks,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnStored),
 		}
 		attachIntroFields(&state, media)
 		return state, nil
-	}
-
-	if err := os.MkdirAll(m.root, 0o755); err != nil {
-		return PlaybackSessionState{}, err
 	}
 
 	m.mu.Lock()
@@ -458,7 +457,7 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 			StreamURL:                       decision.StreamURL,
 			DurationSeconds:                 durationSeconds,
 			Subtitles:                       session.media.Subtitles,
-			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media),
+			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, decision.Delivery),
 			EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnPtr),
 		}
@@ -590,7 +589,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		Status:                          "closed",
 		DurationSeconds:                 durationSeconds,
 		Subtitles:                       session.media.Subtitles,
-		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media),
+		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnClosed),
 	}
@@ -626,7 +625,7 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			StreamURL:                       revision.streamURL,
 			DurationSeconds:                 s.durationSeconds,
 			Subtitles:                       s.media.Subtitles,
-			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(s.media),
+			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(s.media, revision.delivery),
 			EmbeddedAudioTracks:             s.media.EmbeddedAudioTracks,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(s.burnEmbeddedSubtitleStream),
 			Error:                           revision.err,
@@ -637,22 +636,38 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 	return nil
 }
 
-func serveVirtualHlsSubtitlePlaylist(w http.ResponseWriter, session *playbackSession, baseName string) error {
-	tracks := CollectHlsWebSubtitles(session.media)
-	var picked *HlsWebSubtitle
-	for i := range tracks {
-		if filepath.Base(tracks[i].PlaylistFile) == baseName {
-			picked = &tracks[i]
-			break
-		}
+func freezeRevisionSubtitleTracks(media db.MediaItem) (map[string]HlsWebSubtitle, []HlsWebSubtitle) {
+	collected := CollectHlsWebSubtitles(media)
+	if len(collected) == 0 {
+		return nil, nil
 	}
-	if picked == nil {
+	byPlaylist := make(map[string]HlsWebSubtitle, len(collected))
+	for _, track := range collected {
+		byPlaylist[filepath.Base(track.PlaylistFile)] = track
+	}
+	forMaster := make([]HlsWebSubtitle, len(collected))
+	copy(forMaster, collected)
+	return byPlaylist, forMaster
+}
+
+func frozenRevisionSubtitleTracksForMaster(revision *playbackRevision, burning bool) []HlsWebSubtitle {
+	if revision == nil || burning || len(revision.subtitleTracksForMaster) == 0 {
+		return nil
+	}
+	out := make([]HlsWebSubtitle, len(revision.subtitleTracksForMaster))
+	copy(out, revision.subtitleTracksForMaster)
+	return out
+}
+
+func serveVirtualHlsSubtitlePlaylist(w http.ResponseWriter, revision *playbackRevision, durationSeconds int, baseName string) error {
+	if revision == nil || len(revision.subtitleTracksByPlaylistFile) == 0 {
 		return db.ErrNotFound
 	}
-	session.mu.Lock()
-	dur := session.durationSeconds
-	session.mu.Unlock()
-	body := BuildWebVttSubtitleMediaPlaylist(picked.VTTPath, dur)
+	picked, ok := revision.subtitleTracksByPlaylistFile[baseName]
+	if !ok {
+		return db.ErrNotFound
+	}
+	body := BuildWebVttSubtitleMediaPlaylist(picked.VTTPath, durationSeconds)
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
 	_, err := w.Write([]byte(body))
@@ -687,8 +702,11 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 	}
 
 	baseName := filepath.Base(relFromRoot)
-	if _, _, ok := ParseVirtualSubtitlePlaylistName(baseName); ok {
-		return serveVirtualHlsSubtitlePlaylist(w, session, baseName)
+	if _, ok := ParseVirtualSubtitlePlaylistName(baseName); ok {
+		session.mu.Lock()
+		dur := session.durationSeconds
+		session.mu.Unlock()
+		return serveVirtualHlsSubtitlePlaylist(w, revision, dur, baseName)
 	}
 
 	if err := waitForPlaybackFile(r.Context(), target); err != nil {
@@ -735,10 +753,7 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			return err
 		}
-		tracks := CollectHlsWebSubtitles(session.media)
-		if burning {
-			tracks = nil
-		}
+		tracks := frozenRevisionSubtitleTracksForMaster(revision, burning)
 		out := InjectHlsSubtitleRenditions(string(raw), tracks)
 
 		revision.masterMu.Lock()
@@ -800,6 +815,7 @@ func (m *PlaybackSessionManager) startRevision(
 		status:     "starting",
 		cancel:     cancel,
 	}
+	revision.subtitleTracksByPlaylistFile, revision.subtitleTracksForMaster = freezeRevisionSubtitleTracks(session.media)
 	session.revisions[revisionNumber] = revision
 	session.mu.Unlock()
 
@@ -823,7 +839,7 @@ func (m *PlaybackSessionManager) startRevision(
 		StreamURL:                       revision.streamURL,
 		DurationSeconds:                 durationSeconds,
 		Subtitles:                       session.media.Subtitles,
-		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media),
+		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
@@ -905,7 +921,7 @@ func (m *PlaybackSessionManager) runRevision(
 		StreamURL:                       revision.streamURL,
 		DurationSeconds:                 durationSeconds,
 		Subtitles:                       session.media.Subtitles,
-		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media),
+		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
@@ -1066,7 +1082,7 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 		StreamURL:                       revision.streamURL,
 		DurationSeconds:                 durationSeconds,
 		Subtitles:                       session.media.Subtitles,
-		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media),
+		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnReady),
 	}

@@ -190,6 +190,16 @@
                             "format": {
                               "type": "string"
                             },
+                            "logicalId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "forced": {
                               "anyOf": [
                                 {
@@ -283,6 +293,16 @@
                                 }
                               ]
                             },
+                            "logicalId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "supported": {
                               "anyOf": [
                                 {
@@ -347,6 +367,73 @@
                               "anyOf": [
                                 {
                                   "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "deliveryModes": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "enum": [
+                                          "hls_vtt",
+                                          "direct_vtt",
+                                          "ass",
+                                          "pgs_binary",
+                                          "burn_in"
+                                        ]
+                                      },
+                                      "requiresReload": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "mode",
+                                      "requiresReload"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "preferredWebDeliveryMode": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "hls_vtt",
+                                    "direct_vtt",
+                                    "ass",
+                                    "pgs_binary",
+                                    "burn_in"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "preferredAndroidDeliveryMode": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "hls_vtt",
+                                    "direct_vtt",
+                                    "ass",
+                                    "pgs_binary",
+                                    "burn_in"
+                                  ]
                                 },
                                 {
                                   "type": "null"
@@ -1485,6 +1572,16 @@
                                 "format": {
                                   "type": "string"
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "forced": {
                                   "anyOf": [
                                     {
@@ -1578,6 +1675,16 @@
                                     }
                                   ]
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "supported": {
                                   "anyOf": [
                                     {
@@ -1642,6 +1749,73 @@
                                   "anyOf": [
                                     {
                                       "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryModes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                              "hls_vtt",
+                                              "direct_vtt",
+                                              "ass",
+                                              "pgs_binary",
+                                              "burn_in"
+                                            ]
+                                          },
+                                          "requiresReload": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "mode",
+                                          "requiresReload"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredWebDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredAndroidDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
                                     },
                                     {
                                       "type": "null"
@@ -2759,6 +2933,16 @@
                                 "format": {
                                   "type": "string"
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "forced": {
                                   "anyOf": [
                                     {
@@ -2852,6 +3036,16 @@
                                     }
                                   ]
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "supported": {
                                   "anyOf": [
                                     {
@@ -2916,6 +3110,73 @@
                                   "anyOf": [
                                     {
                                       "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryModes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                              "hls_vtt",
+                                              "direct_vtt",
+                                              "ass",
+                                              "pgs_binary",
+                                              "burn_in"
+                                            ]
+                                          },
+                                          "requiresReload": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "mode",
+                                          "requiresReload"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredWebDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredAndroidDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
                                     },
                                     {
                                       "type": "null"
@@ -4033,6 +4294,16 @@
                                 "format": {
                                   "type": "string"
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "forced": {
                                   "anyOf": [
                                     {
@@ -4126,6 +4397,16 @@
                                     }
                                   ]
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "supported": {
                                   "anyOf": [
                                     {
@@ -4190,6 +4471,73 @@
                                   "anyOf": [
                                     {
                                       "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryModes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                              "hls_vtt",
+                                              "direct_vtt",
+                                              "ass",
+                                              "pgs_binary",
+                                              "burn_in"
+                                            ]
+                                          },
+                                          "requiresReload": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "mode",
+                                          "requiresReload"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredWebDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredAndroidDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
                                     },
                                     {
                                       "type": "null"
@@ -5307,6 +5655,16 @@
                                 "format": {
                                   "type": "string"
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "forced": {
                                   "anyOf": [
                                     {
@@ -5400,6 +5758,16 @@
                                     }
                                   ]
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "supported": {
                                   "anyOf": [
                                     {
@@ -5464,6 +5832,73 @@
                                   "anyOf": [
                                     {
                                       "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryModes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                              "hls_vtt",
+                                              "direct_vtt",
+                                              "ass",
+                                              "pgs_binary",
+                                              "burn_in"
+                                            ]
+                                          },
+                                          "requiresReload": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "mode",
+                                          "requiresReload"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredWebDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredAndroidDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
                                     },
                                     {
                                       "type": "null"
@@ -6581,6 +7016,16 @@
                                 "format": {
                                   "type": "string"
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "forced": {
                                   "anyOf": [
                                     {
@@ -6674,6 +7119,16 @@
                                     }
                                   ]
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "supported": {
                                   "anyOf": [
                                     {
@@ -6738,6 +7193,73 @@
                                   "anyOf": [
                                     {
                                       "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryModes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                              "hls_vtt",
+                                              "direct_vtt",
+                                              "ass",
+                                              "pgs_binary",
+                                              "burn_in"
+                                            ]
+                                          },
+                                          "requiresReload": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "mode",
+                                          "requiresReload"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredWebDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredAndroidDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
                                     },
                                     {
                                       "type": "null"
@@ -7855,6 +8377,16 @@
                                 "format": {
                                   "type": "string"
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "forced": {
                                   "anyOf": [
                                     {
@@ -7948,6 +8480,16 @@
                                     }
                                   ]
                                 },
+                                "logicalId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "supported": {
                                   "anyOf": [
                                     {
@@ -8012,6 +8554,73 @@
                                   "anyOf": [
                                     {
                                       "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryModes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "enum": [
+                                              "hls_vtt",
+                                              "direct_vtt",
+                                              "ass",
+                                              "pgs_binary",
+                                              "burn_in"
+                                            ]
+                                          },
+                                          "requiresReload": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "mode",
+                                          "requiresReload"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredWebDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "preferredAndroidDeliveryMode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "hls_vtt",
+                                        "direct_vtt",
+                                        "ass",
+                                        "pgs_binary",
+                                        "burn_in"
+                                      ]
                                     },
                                     {
                                       "type": "null"
@@ -9095,6 +9704,16 @@
                       "format": {
                         "type": "string"
                       },
+                      "logicalId": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "forced": {
                         "anyOf": [
                           {
@@ -9188,6 +9807,16 @@
                           }
                         ]
                       },
+                      "logicalId": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "supported": {
                         "anyOf": [
                           {
@@ -9252,6 +9881,73 @@
                         "anyOf": [
                           {
                             "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "deliveryModes": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "hls_vtt",
+                                    "direct_vtt",
+                                    "ass",
+                                    "pgs_binary",
+                                    "burn_in"
+                                  ]
+                                },
+                                "requiresReload": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "requiresReload"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "preferredWebDeliveryMode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "hls_vtt",
+                              "direct_vtt",
+                              "ass",
+                              "pgs_binary",
+                              "burn_in"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "preferredAndroidDeliveryMode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "hls_vtt",
+                              "direct_vtt",
+                              "ass",
+                              "pgs_binary",
+                              "burn_in"
+                            ]
                           },
                           {
                             "type": "null"
@@ -9670,6 +10366,16 @@
                       "format": {
                         "type": "string"
                       },
+                      "logicalId": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "forced": {
                         "anyOf": [
                           {
@@ -9763,6 +10469,16 @@
                           }
                         ]
                       },
+                      "logicalId": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "supported": {
                         "anyOf": [
                           {
@@ -9827,6 +10543,73 @@
                         "anyOf": [
                           {
                             "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "deliveryModes": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "hls_vtt",
+                                    "direct_vtt",
+                                    "ass",
+                                    "pgs_binary",
+                                    "burn_in"
+                                  ]
+                                },
+                                "requiresReload": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "requiresReload"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "preferredWebDeliveryMode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "hls_vtt",
+                              "direct_vtt",
+                              "ass",
+                              "pgs_binary",
+                              "burn_in"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "preferredAndroidDeliveryMode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "hls_vtt",
+                              "direct_vtt",
+                              "ass",
+                              "pgs_binary",
+                              "burn_in"
+                            ]
                           },
                           {
                             "type": "null"

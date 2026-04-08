@@ -19,11 +19,11 @@ fun localProperty(name: String): String =
         ?.takeIf { it.isNotEmpty() }
         ?: ""
 
-/** Matches web onboarding “Quick start with default admin” (dev) credentials. */
-private fun defaultAdminEmailBuildConfig(): String =
+/** Matches web onboarding “Quick start with default admin” credentials for debug builds only. */
+private fun debugDefaultAdminEmailBuildConfig(): String =
     localProperty("plumTv.defaultAdminEmail").ifEmpty { "admin@example.com" }.asBuildConfigString()
 
-private fun defaultAdminPasswordBuildConfig(): String =
+private fun debugDefaultAdminPasswordBuildConfig(): String =
     localProperty("plumTv.defaultAdminPassword").ifEmpty { "passwordpassword" }.asBuildConfigString()
 
 plugins {
@@ -46,8 +46,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "DEFAULT_SERVER_URL", localProperty("plumTv.defaultServerUrl").asBuildConfigString())
-        buildConfigField("String", "DEFAULT_ADMIN_EMAIL", defaultAdminEmailBuildConfig())
-        buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", defaultAdminPasswordBuildConfig())
+        buildConfigField("String", "DEFAULT_ADMIN_EMAIL", "\"\"")
+        buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", "\"\"")
     }
     // Release signing only when local.properties defines credentials (never commit keystores or passwords).
     val releaseStoreFile = localProperty("plumTv.releaseStoreFile")
@@ -73,6 +73,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            buildConfigField("String", "DEFAULT_ADMIN_EMAIL", debugDefaultAdminEmailBuildConfig())
+            buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", debugDefaultAdminPasswordBuildConfig())
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

@@ -1,6 +1,8 @@
 package db
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"plum/internal/metadata"
@@ -75,6 +77,33 @@ type Subtitle struct {
 	Path            string `json:"-"`
 }
 
+func SidecarSubtitleLogicalID(id int) string {
+	return fmt.Sprintf("ext:%d", id)
+}
+
+func (s Subtitle) MarshalJSON() ([]byte, error) {
+	type subtitleJSON struct {
+		ID              int    `json:"id"`
+		Title           string `json:"title"`
+		Language        string `json:"language"`
+		Format          string `json:"format"`
+		LogicalID       string `json:"logicalId"`
+		Forced          bool   `json:"forced,omitempty"`
+		Default         bool   `json:"default,omitempty"`
+		HearingImpaired bool   `json:"hearingImpaired,omitempty"`
+	}
+	return json.Marshal(subtitleJSON{
+		ID:              s.ID,
+		Title:           s.Title,
+		Language:        s.Language,
+		Format:          s.Format,
+		LogicalID:       SidecarSubtitleLogicalID(s.ID),
+		Forced:          s.Forced,
+		Default:         s.Default,
+		HearingImpaired: s.HearingImpaired,
+	})
+}
+
 type EmbeddedSubtitle struct {
 	MediaID         int    `json:"-"`
 	StreamIndex     int    `json:"streamIndex"`
@@ -85,6 +114,35 @@ type EmbeddedSubtitle struct {
 	Forced          bool   `json:"forced,omitempty"`
 	Default         bool   `json:"default,omitempty"`
 	HearingImpaired bool   `json:"hearingImpaired,omitempty"`
+}
+
+func EmbeddedSubtitleLogicalID(streamIndex int) string {
+	return fmt.Sprintf("emb:%d", streamIndex)
+}
+
+func (s EmbeddedSubtitle) MarshalJSON() ([]byte, error) {
+	type embeddedSubtitleJSON struct {
+		StreamIndex     int    `json:"streamIndex"`
+		Language        string `json:"language"`
+		Title           string `json:"title"`
+		Codec           string `json:"codec,omitempty"`
+		LogicalID       string `json:"logicalId"`
+		Supported       *bool  `json:"supported,omitempty"`
+		Forced          bool   `json:"forced,omitempty"`
+		Default         bool   `json:"default,omitempty"`
+		HearingImpaired bool   `json:"hearingImpaired,omitempty"`
+	}
+	return json.Marshal(embeddedSubtitleJSON{
+		StreamIndex:     s.StreamIndex,
+		Language:        s.Language,
+		Title:           s.Title,
+		Codec:           s.Codec,
+		LogicalID:       EmbeddedSubtitleLogicalID(s.StreamIndex),
+		Supported:       s.Supported,
+		Forced:          s.Forced,
+		Default:         s.Default,
+		HearingImpaired: s.HearingImpaired,
+	})
 }
 
 type EmbeddedAudioTrack struct {

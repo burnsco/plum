@@ -9,6 +9,13 @@ data class SubtitleJson(
     @param:Json(name = "title") val title: String = "",
     @param:Json(name = "language") val language: String = "",
     @param:Json(name = "format") val format: String = "",
+    @param:Json(name = "logicalId") val logicalId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class EmbeddedSubtitleDeliveryModeJson(
+    @param:Json(name = "mode") val mode: String = "",
+    @param:Json(name = "requiresReload") val requiresReload: Boolean = false,
 )
 
 @JsonClass(generateAdapter = true)
@@ -17,6 +24,7 @@ data class EmbeddedSubtitleJson(
     @param:Json(name = "language") val language: String = "",
     @param:Json(name = "title") val title: String = "",
     @param:Json(name = "codec") val codec: String? = null,
+    @param:Json(name = "logicalId") val logicalId: String? = null,
     /** When false, server rejects WebVTT extract; PGS may still sideload via pgsBinaryEligible and /sup. */
     @param:Json(name = "supported") val supported: Boolean? = null,
     /** Playback session: always set by server. Browse rows may omit keys — Moshi defaults apply. */
@@ -25,6 +33,9 @@ data class EmbeddedSubtitleJson(
     @param:Json(name = "pgsBinaryEligible") val pgsBinaryEligible: Boolean = false,
     /** Playback session: raw ASS for native ASS renderers (see contracts EmbeddedSubtitle.assEligible). */
     @param:Json(name = "assEligible") val assEligible: Boolean? = null,
+    @param:Json(name = "deliveryModes") val deliveryModes: List<EmbeddedSubtitleDeliveryModeJson>? = null,
+    @param:Json(name = "preferredWebDeliveryMode") val preferredWebDeliveryMode: String? = null,
+    @param:Json(name = "preferredAndroidDeliveryMode") val preferredAndroidDeliveryMode: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
