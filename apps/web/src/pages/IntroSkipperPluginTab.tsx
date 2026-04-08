@@ -365,7 +365,14 @@ export function IntroSkipperPluginTab() {
         void summaryQuery.refetch();
       }
     }
-  }, [refreshStatusQuery.data, introMap, chromaMap, playbackMap, pendingJobs]);
+  }, [
+    refreshStatusQuery.data,
+    introMap,
+    chromaMap,
+    playbackMap,
+    pendingJobs,
+    summaryQuery,
+  ]);
 
   const handleRefreshIntro = (libraryId: number) => {
     setPendingJobs((prev) => new Set(prev).add(libraryId));

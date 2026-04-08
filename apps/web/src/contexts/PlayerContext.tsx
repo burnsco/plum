@@ -240,6 +240,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     exitBrowserFullscreen,
     pauseAllMediaElements,
     playbackSession?.activeMode,
+    setVideoSession,
+    videoSessionRef,
   ]);
 
   const togglePlayPause = useCallback(() => {
@@ -278,7 +280,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         active.currentTime = t;
       }
     },
-    [getActiveMediaElement],
+    [getActiveMediaElement, videoSessionRef],
   );
 
   const setMuted = useCallback((nextMuted: boolean) => {

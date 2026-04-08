@@ -1,3 +1,5 @@
+/* oxlint-disable vitest/require-mock-type-parameters */
+/* oxlint-disable vitest/require-mock-type-parameters */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -1212,7 +1214,7 @@ describe("PlaybackDock audio track selection", () => {
   it("auto-advances when the Up next countdown completes", async () => {
     vi.useFakeTimers();
     try {
-      const playNextInQueue = vi.fn<() => void>();
+      const playNextInQueue = vi.fn();
       mockUsePlayer.mockReturnValue({
         ...defaultPlaybackDockUsePlayer(),
         queue: [
@@ -1248,7 +1250,7 @@ describe("PlaybackDock audio track selection", () => {
   });
 
   it("advances the music queue when a track ends with repeat off", () => {
-    const playNextInQueue = vi.fn<() => void>();
+    const playNextInQueue = vi.fn();
     const trackA = {
       id: 501,
       library_id: 7,
@@ -1280,7 +1282,7 @@ describe("PlaybackDock audio track selection", () => {
   });
 
   it("restarts the current music track when repeat one is enabled", () => {
-    const playNextInQueue = vi.fn<() => void>();
+    const playNextInQueue = vi.fn();
     const trackA = {
       id: 601,
       library_id: 7,

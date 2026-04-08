@@ -1,3 +1,4 @@
+/* oxlint-disable vitest/require-mock-type-parameters */
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 

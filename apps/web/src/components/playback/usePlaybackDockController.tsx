@@ -2343,7 +2343,6 @@ export function usePlaybackDockController(): ReactNode {
         role="dialog"
         aria-modal="true"
         aria-label="Resume playback"
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="playback-resume-prompt__scrim" />
         <div className="playback-resume-prompt__content">
