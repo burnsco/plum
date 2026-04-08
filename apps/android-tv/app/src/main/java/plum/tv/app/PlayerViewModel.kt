@@ -116,14 +116,6 @@ class PlayerViewModel @Inject constructor(
         controller.forward10()
     }
 
-    fun skipIntro() {
-        controller.skipIntro()
-    }
-
-    fun skipCredits() {
-        controller.skipCredits()
-    }
-
     fun seekTimelineBySteps(steps: Int) {
         val durationMs = uiState.value.durationMs
         val step =

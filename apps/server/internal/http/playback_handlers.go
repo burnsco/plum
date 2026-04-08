@@ -139,11 +139,9 @@ func (h *PlaybackHandler) CreateSession(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	introMode := db.GetLibraryIntroSkipMode(h.DB, media.LibraryID)
 	state, err := h.Sessions.Create(
 		r.Context(),
 		*media,
-		introMode,
 		settings,
 		payload.AudioIndex,
 		user.ID,

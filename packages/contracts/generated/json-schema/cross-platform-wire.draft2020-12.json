@@ -13,19 +13,10 @@
             "type": "object",
             "properties": {
               "kind": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "movie"
-                    ]
-                  },
-                  {
-                    "type": "string",
-                    "enum": [
-                      "show"
-                    ]
-                  }
+                "type": "string",
+                "enum": [
+                  "movie",
+                  "show"
                 ]
               },
               "media": {
@@ -120,55 +111,22 @@
                     ]
                   },
                   "type": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "tv"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "music"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "anime"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "tv",
+                      "movie",
+                      "music",
+                      "anime"
                     ]
                   },
                   "match_status": {
                     "anyOf": [
                       {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "identified"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "local"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "unmatched"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "identified",
+                          "local",
+                          "unmatched"
                         ]
                       },
                       {
@@ -179,25 +137,11 @@
                   "identify_state": {
                     "anyOf": [
                       {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "queued"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "identifying"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "failed"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "queued",
+                          "identifying",
+                          "failed"
                         ]
                       },
                       {
@@ -245,6 +189,36 @@
                             },
                             "format": {
                               "type": "string"
+                            },
+                            "forced": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "default": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "hearingImpaired": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -310,6 +284,36 @@
                               ]
                             },
                             "supported": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "forced": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "default": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "hearingImpaired": {
                               "anyOf": [
                                 {
                                   "type": "boolean"
@@ -1146,6 +1150,80 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "intro_locked": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "credits_start_seconds": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "NaN"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "-Infinity"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "credits_end_seconds": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "NaN"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "-Infinity"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -1229,25 +1307,11 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "show"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "episode"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "movie",
+                      "show",
+                      "episode"
                     ]
                   },
                   "media": {
@@ -1342,55 +1406,22 @@
                         ]
                       },
                       "type": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "tv"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "movie"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "music"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "anime"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "tv",
+                          "movie",
+                          "music",
+                          "anime"
                         ]
                       },
                       "match_status": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identified"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "local"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "unmatched"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "identified",
+                              "local",
+                              "unmatched"
                             ]
                           },
                           {
@@ -1401,25 +1432,11 @@
                       "identify_state": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "queued"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identifying"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "failed"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "identifying",
+                              "failed"
                             ]
                           },
                           {
@@ -1467,6 +1484,36 @@
                                 },
                                 "format": {
                                   "type": "string"
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -1532,6 +1579,36 @@
                                   ]
                                 },
                                 "supported": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
                                   "anyOf": [
                                     {
                                       "type": "boolean"
@@ -2338,6 +2415,80 @@
                         ]
                       },
                       "intro_end_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intro_locked": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_start_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_end_seconds": {
                         "anyOf": [
                           {
                             "anyOf": [
@@ -2430,25 +2581,11 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "show"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "episode"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "movie",
+                      "show",
+                      "episode"
                     ]
                   },
                   "media": {
@@ -2543,55 +2680,22 @@
                         ]
                       },
                       "type": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "tv"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "movie"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "music"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "anime"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "tv",
+                          "movie",
+                          "music",
+                          "anime"
                         ]
                       },
                       "match_status": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identified"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "local"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "unmatched"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "identified",
+                              "local",
+                              "unmatched"
                             ]
                           },
                           {
@@ -2602,25 +2706,11 @@
                       "identify_state": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "queued"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identifying"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "failed"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "identifying",
+                              "failed"
                             ]
                           },
                           {
@@ -2668,6 +2758,36 @@
                                 },
                                 "format": {
                                   "type": "string"
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -2733,6 +2853,36 @@
                                   ]
                                 },
                                 "supported": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
                                   "anyOf": [
                                     {
                                       "type": "boolean"
@@ -3539,6 +3689,80 @@
                         ]
                       },
                       "intro_end_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intro_locked": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_start_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_end_seconds": {
                         "anyOf": [
                           {
                             "anyOf": [
@@ -3631,25 +3855,11 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "show"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "episode"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "movie",
+                      "show",
+                      "episode"
                     ]
                   },
                   "media": {
@@ -3744,55 +3954,22 @@
                         ]
                       },
                       "type": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "tv"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "movie"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "music"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "anime"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "tv",
+                          "movie",
+                          "music",
+                          "anime"
                         ]
                       },
                       "match_status": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identified"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "local"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "unmatched"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "identified",
+                              "local",
+                              "unmatched"
                             ]
                           },
                           {
@@ -3803,25 +3980,11 @@
                       "identify_state": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "queued"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identifying"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "failed"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "identifying",
+                              "failed"
                             ]
                           },
                           {
@@ -3869,6 +4032,36 @@
                                 },
                                 "format": {
                                   "type": "string"
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -3934,6 +4127,36 @@
                                   ]
                                 },
                                 "supported": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
                                   "anyOf": [
                                     {
                                       "type": "boolean"
@@ -4740,6 +4963,80 @@
                         ]
                       },
                       "intro_end_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intro_locked": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_start_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_end_seconds": {
                         "anyOf": [
                           {
                             "anyOf": [
@@ -4832,25 +5129,11 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "show"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "episode"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "movie",
+                      "show",
+                      "episode"
                     ]
                   },
                   "media": {
@@ -4945,55 +5228,22 @@
                         ]
                       },
                       "type": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "tv"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "movie"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "music"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "anime"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "tv",
+                          "movie",
+                          "music",
+                          "anime"
                         ]
                       },
                       "match_status": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identified"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "local"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "unmatched"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "identified",
+                              "local",
+                              "unmatched"
                             ]
                           },
                           {
@@ -5004,25 +5254,11 @@
                       "identify_state": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "queued"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identifying"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "failed"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "identifying",
+                              "failed"
                             ]
                           },
                           {
@@ -5070,6 +5306,36 @@
                                 },
                                 "format": {
                                   "type": "string"
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -5135,6 +5401,36 @@
                                   ]
                                 },
                                 "supported": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
                                   "anyOf": [
                                     {
                                       "type": "boolean"
@@ -5941,6 +6237,80 @@
                         ]
                       },
                       "intro_end_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intro_locked": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_start_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_end_seconds": {
                         "anyOf": [
                           {
                             "anyOf": [
@@ -6033,25 +6403,11 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "show"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "episode"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "movie",
+                      "show",
+                      "episode"
                     ]
                   },
                   "media": {
@@ -6146,55 +6502,22 @@
                         ]
                       },
                       "type": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "tv"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "movie"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "music"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "anime"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "tv",
+                          "movie",
+                          "music",
+                          "anime"
                         ]
                       },
                       "match_status": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identified"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "local"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "unmatched"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "identified",
+                              "local",
+                              "unmatched"
                             ]
                           },
                           {
@@ -6205,25 +6528,11 @@
                       "identify_state": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "queued"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identifying"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "failed"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "identifying",
+                              "failed"
                             ]
                           },
                           {
@@ -6271,6 +6580,36 @@
                                 },
                                 "format": {
                                   "type": "string"
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -6336,6 +6675,36 @@
                                   ]
                                 },
                                 "supported": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
                                   "anyOf": [
                                     {
                                       "type": "boolean"
@@ -7142,6 +7511,80 @@
                         ]
                       },
                       "intro_end_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intro_locked": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_start_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_end_seconds": {
                         "anyOf": [
                           {
                             "anyOf": [
@@ -7234,25 +7677,11 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "movie"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "show"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "episode"
-                        ]
-                      }
+                    "type": "string",
+                    "enum": [
+                      "movie",
+                      "show",
+                      "episode"
                     ]
                   },
                   "media": {
@@ -7347,55 +7776,22 @@
                         ]
                       },
                       "type": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "tv"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "movie"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "music"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "anime"
-                            ]
-                          }
+                        "type": "string",
+                        "enum": [
+                          "tv",
+                          "movie",
+                          "music",
+                          "anime"
                         ]
                       },
                       "match_status": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identified"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "local"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "unmatched"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "identified",
+                              "local",
+                              "unmatched"
                             ]
                           },
                           {
@@ -7406,25 +7802,11 @@
                       "identify_state": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "queued"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "identifying"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "failed"
-                                ]
-                              }
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "identifying",
+                              "failed"
                             ]
                           },
                           {
@@ -7472,6 +7854,36 @@
                                 },
                                 "format": {
                                   "type": "string"
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
@@ -7537,6 +7949,36 @@
                                   ]
                                 },
                                 "supported": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "forced": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "default": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "hearingImpaired": {
                                   "anyOf": [
                                     {
                                       "type": "boolean"
@@ -8343,6 +8785,80 @@
                         ]
                       },
                       "intro_end_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intro_locked": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_start_seconds": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "NaN"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "Infinity"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "-Infinity"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "credits_end_seconds": {
                         "anyOf": [
                           {
                             "anyOf": [
@@ -8502,31 +9018,12 @@
               ]
             },
             "status": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "starting"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "ready"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "error"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "closed"
-                  ]
-                }
+              "type": "string",
+              "enum": [
+                "starting",
+                "ready",
+                "error",
+                "closed"
               ]
             },
             "streamUrl": {
@@ -8597,6 +9094,36 @@
                       },
                       "format": {
                         "type": "string"
+                      },
+                      "forced": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "default": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "hearingImpaired": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -8662,6 +9189,36 @@
                         ]
                       },
                       "supported": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "forced": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "default": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "hearingImpaired": {
                         "anyOf": [
                           {
                             "type": "boolean"
@@ -8809,35 +9366,6 @@
                 }
               ]
             },
-            "intro_skip_mode": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "off"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "manual"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "auto"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "intro_start_seconds": {
               "anyOf": [
                 {
@@ -8901,6 +9429,70 @@
                   "type": "null"
                 }
               ]
+            },
+            "credits_start_seconds": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "NaN"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "-Infinity"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "credits_end_seconds": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "NaN"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "-Infinity"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -8919,19 +9511,10 @@
               "type": "string"
             },
             "delivery": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "remux"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "transcode"
-                  ]
-                }
+              "type": "string",
+              "enum": [
+                "remux",
+                "transcode"
               ]
             },
             "mediaId": {
@@ -9010,31 +9593,12 @@
               ]
             },
             "status": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "starting"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "ready"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "error"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "closed"
-                  ]
-                }
+              "type": "string",
+              "enum": [
+                "starting",
+                "ready",
+                "error",
+                "closed"
               ]
             },
             "streamUrl": {
@@ -9105,6 +9669,36 @@
                       },
                       "format": {
                         "type": "string"
+                      },
+                      "forced": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "default": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "hearingImpaired": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -9170,6 +9764,36 @@
                         ]
                       },
                       "supported": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "forced": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "default": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "hearingImpaired": {
                         "anyOf": [
                           {
                             "type": "boolean"
@@ -9317,35 +9941,6 @@
                 }
               ]
             },
-            "intro_skip_mode": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "off"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "manual"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "auto"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "intro_start_seconds": {
               "anyOf": [
                 {
@@ -9379,6 +9974,70 @@
               ]
             },
             "intro_end_seconds": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "NaN"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "-Infinity"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "credits_start_seconds": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "NaN"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "-Infinity"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "credits_end_seconds": {
               "anyOf": [
                 {
                   "anyOf": [
@@ -9656,25 +10315,11 @@
           "type": "string"
         },
         "delivery": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "remux"
-              ]
-            },
-            {
-              "type": "string",
-              "enum": [
-                "transcode"
-              ]
-            },
-            {
-              "type": "string",
-              "enum": [
-                "direct"
-              ]
-            }
+          "type": "string",
+          "enum": [
+            "remux",
+            "transcode",
+            "direct"
           ]
         },
         "mediaId": {
@@ -9760,31 +10405,12 @@
           ]
         },
         "status": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "starting"
-              ]
-            },
-            {
-              "type": "string",
-              "enum": [
-                "ready"
-              ]
-            },
-            {
-              "type": "string",
-              "enum": [
-                "error"
-              ]
-            },
-            {
-              "type": "string",
-              "enum": [
-                "closed"
-              ]
-            }
+          "type": "string",
+          "enum": [
+            "starting",
+            "ready",
+            "error",
+            "closed"
           ]
         },
         "streamUrl": {
@@ -9857,35 +10483,6 @@
             }
           ]
         },
-        "intro_skip_mode": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "off"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "manual"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "auto"
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "intro_start_seconds": {
           "anyOf": [
             {
@@ -9919,6 +10516,70 @@
           ]
         },
         "intro_end_seconds": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "NaN"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "-Infinity"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credits_start_seconds": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "NaN"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "-Infinity"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credits_end_seconds": {
           "anyOf": [
             {
               "anyOf": [
@@ -10012,25 +10673,11 @@
               "type": "string"
             },
             "delivery": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "remux"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "transcode"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "direct"
-                  ]
-                }
+              "type": "string",
+              "enum": [
+                "remux",
+                "transcode",
+                "direct"
               ]
             },
             "mediaId": {
@@ -10116,31 +10763,12 @@
               ]
             },
             "status": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "starting"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "ready"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "error"
-                  ]
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "closed"
-                  ]
-                }
+              "type": "string",
+              "enum": [
+                "starting",
+                "ready",
+                "error",
+                "closed"
               ]
             },
             "streamUrl": {
@@ -10213,35 +10841,6 @@
                 }
               ]
             },
-            "intro_skip_mode": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "off"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "manual"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "auto"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "intro_start_seconds": {
               "anyOf": [
                 {
@@ -10275,6 +10874,70 @@
               ]
             },
             "intro_end_seconds": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "NaN"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "-Infinity"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "credits_start_seconds": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "NaN"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "-Infinity"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "credits_end_seconds": {
               "anyOf": [
                 {
                   "anyOf": [
@@ -10357,96 +11020,34 @@
                   ]
                 },
                 "phase": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "idle"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "queued"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "scanning"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "completed"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "failed"
-                      ]
-                    }
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "queued",
+                    "scanning",
+                    "completed",
+                    "failed"
                   ]
                 },
                 "enrichmentPhase": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "idle"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "queued"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "running"
-                      ]
-                    }
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "queued",
+                    "running"
                   ]
                 },
                 "enriching": {
                   "type": "boolean"
                 },
                 "identifyPhase": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "enum": [
-                        "idle"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "queued"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "identifying"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "completed"
-                      ]
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "failed"
-                      ]
-                    }
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "queued",
+                    "identifying",
+                    "completed",
+                    "failed"
                   ]
                 },
                 "identified": {
@@ -10842,37 +11443,13 @@
                       "type": "object",
                       "properties": {
                         "stage": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "enum": [
-                                "queued"
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "discovery"
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "enrichment"
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "identify"
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "failed"
-                              ]
-                            }
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "discovery",
+                            "enrichment",
+                            "identify",
+                            "failed"
                           ]
                         },
                         "current": {
@@ -10881,41 +11458,18 @@
                               "type": "object",
                               "properties": {
                                 "phase": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "discovery"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "enrichment"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "identify"
-                                      ]
-                                    }
+                                  "type": "string",
+                                  "enum": [
+                                    "discovery",
+                                    "enrichment",
+                                    "identify"
                                   ]
                                 },
                                 "target": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "directory"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "file"
-                                      ]
-                                    }
+                                  "type": "string",
+                                  "enum": [
+                                    "directory",
+                                    "file"
                                   ]
                                 },
                                 "relativePath": {
@@ -10944,41 +11498,18 @@
                             "type": "object",
                             "properties": {
                               "phase": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "discovery"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "enrichment"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "identify"
-                                    ]
-                                  }
+                                "type": "string",
+                                "enum": [
+                                  "discovery",
+                                  "enrichment",
+                                  "identify"
                                 ]
                               },
                               "target": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "directory"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "file"
-                                    ]
-                                  }
+                                "type": "string",
+                                "enum": [
+                                  "directory",
+                                  "file"
                                 ]
                               },
                               "relativePath": {

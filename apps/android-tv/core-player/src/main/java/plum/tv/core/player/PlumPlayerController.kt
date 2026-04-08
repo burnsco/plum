@@ -106,11 +106,6 @@ private data class IntroState(
     val endSec: Double? = null,
     val creditsStartSec: Double? = null,
     val creditsEndSec: Double? = null,
-    val skipMode: String = "manual",
-    val autoSkipConsumed: Boolean = false,
-    val autoSkipInFlight: Boolean = false,
-    val creditsAutoSkipConsumed: Boolean = false,
-    val creditsAutoSkipInFlight: Boolean = false,
 )
 
 /** Preserves subtitle choice across [setMediaItem] when audio switch replaces the HLS timeline. */
@@ -139,8 +134,6 @@ data class PlayerUiState(
     val subtitleTrackLabel: String? = null,
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
-    val showSkipIntro: Boolean = false,
-    val showSkipCredits: Boolean = false,
     /** Display aspect ratio detected from the video stream (e.g. `1.85:1`), for UI hints when mode is auto. */
     val detectedVideoAspectLabel: String? = null,
 ) {
@@ -521,8 +514,6 @@ class PlumPlayerController(
                 while (isActive) {
                     delay(1_000)
                     _wallClock.value = System.currentTimeMillis()
-                    maybeAutoSkipIntro()
-                    maybeAutoSkipCredits()
                     refreshUiState()
                     if (player.isPlaying) {
                         ticks++
@@ -637,14 +628,6 @@ class PlumPlayerController(
 
     private fun currentDurationMs(): Long = resolvedDurationMs()
 
-    private fun normalizeIntroSkipMode(raw: String?): String =
-        when (raw?.trim()?.lowercase()) {
-            "off", "manual", "auto" -> raw.trim().lowercase()
-            else -> "manual"
-        }
-
-    private fun effectiveIntroSkipMode(): String = introStateRef.get().skipMode
-
     private fun introWindow(): IntroWindow? {
         val state = introStateRef.get()
         val end = state.endSec ?: return null
@@ -666,106 +649,7 @@ class PlumPlayerController(
             positionSec < window.endSec - INTRO_SKIP_TRAILING_SLACK_SEC
     }
 
-    /**
-     * Attempts to seek to intro end once and returns whether a seek request was issued.
-     */
-    private fun requestIntroSkipSeek(window: IntroWindow): Boolean {
-        val targetMs = (window.endSec * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
-        val currentPosMs = player.currentPosition
-        if (targetMs <= currentPosMs) return false
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            player.seekTo(targetMs)
-            return true
-        }
-        // CAS to claim the in-flight slot; avoids duplicate seeks from concurrent callers
-        val prev = introStateRef.get()
-        if (prev.autoSkipInFlight) return false
-        if (!introStateRef.compareAndSet(prev, prev.copy(autoSkipInFlight = true))) return false
-        scope.launch(Dispatchers.Main.immediate) {
-            try {
-                if (targetMs > player.currentPosition) {
-                    player.seekTo(targetMs)
-                }
-            } finally {
-                introStateRef.updateAndGet { it.copy(autoSkipInFlight = false) }
-            }
-        }
-        return true
-    }
-
-    private fun requestCreditsSkipSeek(window: IntroWindow): Boolean {
-        val targetMs = (window.endSec * 1000.0).toLong().coerceIn(0L, seekUpperBoundMs())
-        val currentPosMs = player.currentPosition
-        if (targetMs <= currentPosMs) return false
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            player.seekTo(targetMs)
-            return true
-        }
-        val prev = introStateRef.get()
-        if (prev.creditsAutoSkipInFlight) return false
-        if (!introStateRef.compareAndSet(prev, prev.copy(creditsAutoSkipInFlight = true))) return false
-        scope.launch(Dispatchers.Main.immediate) {
-            try {
-                if (targetMs > player.currentPosition) {
-                    player.seekTo(targetMs)
-                }
-            } finally {
-                introStateRef.updateAndGet { it.copy(creditsAutoSkipInFlight = false) }
-            }
-        }
-        return true
-    }
-
-    /**
-     * Seeks to the end of the detected intro window when the server provided bounds and the
-     * library is not in "off" mode.
-     */
-    fun skipIntro() {
-        if (effectiveIntroSkipMode() == "off") return
-        val window = introWindow() ?: return
-        if (requestIntroSkipSeek(window)) {
-            introStateRef.updateAndGet { it.copy(autoSkipConsumed = true) }
-        }
-    }
-
-    private fun maybeAutoSkipIntro() {
-        if (!player.isPlaying) return
-        if (effectiveIntroSkipMode() != "auto") return
-        val state = introStateRef.get()
-        if (state.autoSkipConsumed) return
-        if (state.autoSkipInFlight) return
-        val window = introWindow() ?: return
-        val posSec = player.currentPosition.coerceAtLeast(0) / 1000.0
-        if (!positionInsideIntroWindow(posSec, window)) return
-        if (requestIntroSkipSeek(window)) {
-            introStateRef.updateAndGet { it.copy(autoSkipConsumed = true) }
-        }
-    }
-
-    fun skipCredits() {
-        if (effectiveIntroSkipMode() == "off") return
-        val window = creditsWindow() ?: return
-        if (requestCreditsSkipSeek(window)) {
-            introStateRef.updateAndGet { it.copy(creditsAutoSkipConsumed = true) }
-        }
-    }
-
-    private fun maybeAutoSkipCredits() {
-        if (!player.isPlaying) return
-        if (effectiveIntroSkipMode() != "auto") return
-        val state = introStateRef.get()
-        if (state.creditsAutoSkipConsumed) return
-        if (state.creditsAutoSkipInFlight) return
-        val window = creditsWindow() ?: return
-        val posSec = player.currentPosition.coerceAtLeast(0) / 1000.0
-        if (!positionInsideIntroWindow(posSec, window)) return
-        if (requestCreditsSkipSeek(window)) {
-            introStateRef.updateAndGet { it.copy(creditsAutoSkipConsumed = true) }
-        }
-    }
-
     private fun mergeIntroFromSession(
-        skipMode: String?,
         start: Double?,
         end: Double?,
         creditsStart: Double? = null,
@@ -773,8 +657,6 @@ class PlumPlayerController(
     ) {
         introStateRef.updateAndGet { prev ->
             prev.copy(
-                skipMode = skipMode?.trim()?.takeIf { it.isNotEmpty() }
-                    ?.let { normalizeIntroSkipMode(it) } ?: prev.skipMode,
                 startSec = start ?: prev.startSec,
                 endSec = end ?: prev.endSec,
                 creditsStartSec = creditsStart ?: prev.creditsStartSec,
@@ -802,21 +684,6 @@ class PlumPlayerController(
         val positionSec = positionMs / 1000.0
         val status = statusOverride ?: _status.value
         val error = errorOverride ?: _error.value
-        val mode = effectiveIntroSkipMode()
-        val window = introWindow()
-        val creditsWin = creditsWindow()
-        val showSkipIntro =
-            mode == "manual" &&
-                window != null &&
-                positionInsideIntroWindow(positionSec, window) &&
-                player.mediaItemCount > 0 &&
-                error == null
-        val showSkipCredits =
-            mode == "manual" &&
-                creditsWin != null &&
-                positionInsideIntroWindow(positionSec, creditsWin) &&
-                player.mediaItemCount > 0 &&
-                error == null
         _uiState.value =
             PlayerUiState(
                 title = title,
@@ -838,8 +705,6 @@ class PlumPlayerController(
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
                 queueIndex = queueIndex,
                 queueSize = episodeQueue.size,
-                showSkipIntro = showSkipIntro,
-                showSkipCredits = showSkipCredits,
                 detectedVideoAspectLabel = cachedVideoAspectLabel,
             )
     }
@@ -895,7 +760,6 @@ class PlumPlayerController(
             endSec = session.introEndSeconds,
             creditsStartSec = session.creditsStartSeconds,
             creditsEndSec = session.creditsEndSeconds,
-            skipMode = normalizeIntroSkipMode(session.introSkipMode?.trim()?.takeIf { it.isNotEmpty() }),
         ))
     }
 
@@ -909,7 +773,6 @@ class PlumPlayerController(
         session.embeddedSubtitles?.let { embeddedSubtitleTracks = it }
         session.audioIndex?.let { serverAudioIndex = it }
         mergeIntroFromSession(
-            session.introSkipMode,
             session.introStartSeconds,
             session.introEndSeconds,
             session.creditsStartSeconds,
@@ -2604,7 +2467,6 @@ class PlumPlayerController(
     private suspend fun handleSessionUpdate(ev: PlaybackSessionUpdateEventJson) {
         serverAudioIndex = ev.audioIndex
         mergeIntroFromSession(
-            ev.introSkipMode,
             ev.introStartSeconds,
             ev.introEndSeconds,
             ev.creditsStartSeconds,

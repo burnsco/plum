@@ -146,7 +146,6 @@ func TestCreateRespectsMaxSessionsPerUser(t *testing.T) {
 	first, err := manager.Create(
 		context.Background(),
 		db.MediaItem{ID: 501, Path: mediaPath},
-		db.IntroSkipModeManual,
 		db.DefaultTranscodingSettings(),
 		-1,
 		77,
@@ -171,7 +170,6 @@ func TestCreateRespectsMaxSessionsPerUser(t *testing.T) {
 	_, err = manager.Create(
 		context.Background(),
 		db.MediaItem{ID: 502, Path: mediaPath},
-		db.IntroSkipModeManual,
 		db.DefaultTranscodingSettings(),
 		-1,
 		77,
@@ -205,7 +203,6 @@ func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
 	state, err := manager.Create(
 		context.Background(),
 		db.MediaItem{ID: 21, Path: mediaPath, Duration: 120},
-		db.IntroSkipModeManual,
 		db.DefaultTranscodingSettings(),
 		-1,
 		99,

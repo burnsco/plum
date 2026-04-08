@@ -34,12 +34,10 @@ import {
   ListTree,
   Server,
   Shield,
-  SkipForward,
   Volume2,
 } from "lucide-react";
 import { AdminSettingsTab } from "@/pages/AdminSettingsTab";
 import { ServerEnvSettingsTab } from "@/pages/ServerEnvSettingsTab";
-import { IntroSkipperPluginTab } from "@/pages/IntroSkipperPluginTab";
 import { SettingsGeneralTab } from "@/pages/settings/SettingsGeneralTab";
 import { SettingsArrProfilesTab, SettingsMediaStackTab } from "@/pages/settings/SettingsMediaStackTab";
 import { SettingsMetadataTab } from "@/pages/settings/SettingsMetadataTab";
@@ -215,7 +213,6 @@ function cloneLibraryPlaybackPreferences(library: Library): LibraryPlaybackPrefe
     preferred_audio_language: normalizeLanguagePreference(resolved.preferredAudioLanguage),
     preferred_subtitle_language: normalizeLanguagePreference(resolved.preferredSubtitleLanguage),
     subtitles_enabled_by_default: resolved.subtitlesEnabledByDefault,
-    intro_skip_mode: resolved.introSkipMode,
     watcher_enabled: library.watcher_enabled ?? false,
     watcher_mode: library.watcher_mode === "poll" ? "poll" : "auto",
     scan_interval_minutes: library.scan_interval_minutes ?? 0,
@@ -345,7 +342,6 @@ export function Settings() {
           preferred_audio_language: "en",
           preferred_subtitle_language: "en",
           subtitles_enabled_by_default: true,
-          intro_skip_mode: "manual",
           watcher_enabled: false,
           watcher_mode: "auto" as const,
           scan_interval_minutes: 0,
@@ -703,12 +699,6 @@ export function Settings() {
         { id: "transcoding", label: "Transcoding", icon: <Cpu className="size-4 shrink-0" /> },
       ],
     },
-    {
-      heading: "Plugins",
-      tabs: [
-        { id: "plugins-intro-skipper", label: "Intro Skipper", icon: <SkipForward className="size-4 shrink-0" /> },
-      ],
-    },
   ];
 
   const tabContent: Record<SettingsTab, ReactNode> = {
@@ -721,7 +711,6 @@ export function Settings() {
     "arr-profiles": arrProfilesTabContent,
     metadata: metadataTabContent,
     transcoding: transcodingTabContent,
-    "plugins-intro-skipper": <IntroSkipperPluginTab />,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────

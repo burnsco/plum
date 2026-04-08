@@ -28,13 +28,6 @@ import type {
     HardwareEncodeFormat,
     HomeDashboard,
     IdentifyResult,
-    IntroRefreshLibraryStatus,
-    IntroRefreshStatusResponse,
-    IntroScanLibrarySummary,
-    IntroScanShowSummary,
-    IntroScanSummaryResponse,
-    IntroScanShowSummaryResponse,
-    IntroSkipMode,
     Library,
     LibraryBrowseItem,
     LibraryMediaPage,
@@ -118,9 +111,6 @@ import {
     RemoveDownloadPayloadSchema,
     HomeDashboardSchema,
     IdentifyResultSchema,
-    IntroRefreshStatusResponseSchema,
-    IntroScanSummaryResponseSchema,
-    IntroScanShowSummaryResponseSchema,
     LibraryMediaPageSchema,
     LibraryPlaybackTracksRefreshResultSchema,
     LibraryScanStatusSchema,
@@ -193,13 +183,6 @@ export type {
     EmbeddedSubtitle, EpisodeMetadataArtworkFetchers, HardwareEncodeFormat,
     HomeDashboard,
     IdentifyResult,
-    IntroRefreshLibraryStatus,
-    IntroRefreshStatusResponse,
-    IntroScanLibrarySummary,
-    IntroScanShowSummary,
-    IntroScanSummaryResponse,
-    IntroScanShowSummaryResponse,
-    IntroSkipMode,
     Library,
     LibraryBrowseItem,
     LibraryMediaPage,
@@ -794,27 +777,6 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         errorMessage: ({ status, body }) =>
           `Unidentified summary: ${status}${body ? ` ${body}` : ""}`,
       }),
-    getIntroScanSummary: () =>
-      jsonRequestEffect({
-        path: "/api/libraries/intro-summary",
-        schema: IntroScanSummaryResponseSchema,
-        errorMessage: ({ status, body }) =>
-          body || `Intro scan summary: ${status}`,
-      }),
-    getIntroScanShowSummary: (libraryId: number) =>
-      jsonRequestEffect({
-        path: `/api/libraries/${libraryId}/intro-summary/shows`,
-        schema: IntroScanShowSummaryResponseSchema,
-        errorMessage: ({ status, body }) =>
-          body || `Intro scan show summary: ${status}`,
-      }),
-    getIntroRefreshStatus: () =>
-      jsonRequestEffect({
-        path: "/api/libraries/intro-summary/refresh-status",
-        schema: IntroRefreshStatusResponseSchema,
-        errorMessage: ({ status, body }) =>
-          body || `Intro refresh status: ${status}`,
-      }),
     updateLibraryPlaybackPreferences: (
       id: number,
       payload: UpdateLibraryPlaybackPreferencesPayload,
@@ -1182,29 +1144,6 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         errorMessage: ({ status, body }) =>
           body || `Refresh library playback tracks: ${status}`,
       }),
-    refreshLibraryIntroOnly: (libraryId: number) =>
-      jsonRequestEffect({
-        method: "POST",
-        path: `/api/libraries/${libraryId}/intro/refresh`,
-        schema: LibraryPlaybackTracksRefreshResultSchema,
-        errorMessage: ({ status, body }) =>
-          body || `Refresh library intro metadata: ${status}`,
-      }),
-    postLibraryIntroChromaprintScan: (
-      libraryId: number,
-      options?: { readonly showKey?: string },
-    ) =>
-      jsonRequestEffect({
-        method: "POST",
-        path: `/api/libraries/${libraryId}/intro/chromaprint-scan`,
-        body:
-          options?.showKey != null && options.showKey.trim() !== ""
-            ? { show_key: options.showKey.trim() }
-            : {},
-        schema: LibraryPlaybackTracksRefreshResultSchema,
-        errorMessage: ({ status, body }) =>
-          body || `Chromaprint intro scan: ${status}`,
-      }),
     patchMediaIntro: (mediaId: number, payload: PatchMediaIntroPayload) =>
       decodeSchemaEffect(
         PatchMediaIntroPayloadSchema,
@@ -1562,9 +1501,6 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     createLibrary: (payload: CreateLibraryPayload) => run(effects.createLibrary(payload)),
     listLibraries: () => run(effects.listLibraries()),
     getUnidentifiedLibrarySummaries: () => run(effects.getUnidentifiedLibrarySummaries()),
-    getIntroScanSummary: () => run(effects.getIntroScanSummary()),
-    getIntroScanShowSummary: (libraryId: number) => run(effects.getIntroScanShowSummary(libraryId)),
-    getIntroRefreshStatus: () => run(effects.getIntroRefreshStatus()),
     updateLibraryPlaybackPreferences: (
       id: number,
       payload: UpdateLibraryPlaybackPreferencesPayload,
@@ -1628,11 +1564,6 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     warmEmbeddedSubtitleCaches: (id: number) => run(effects.warmEmbeddedSubtitleCaches(id)),
     refreshLibraryPlaybackTracks: (libraryId: number) =>
       run(effects.refreshLibraryPlaybackTracks(libraryId)),
-    refreshLibraryIntroOnly: (libraryId: number) => run(effects.refreshLibraryIntroOnly(libraryId)),
-    postLibraryIntroChromaprintScan: (
-      libraryId: number,
-      options?: { readonly showKey?: string },
-    ) => run(effects.postLibraryIntroChromaprintScan(libraryId, options)),
     patchMediaIntro: (mediaId: number, payload: PatchMediaIntroPayload) =>
       run(effects.patchMediaIntro(mediaId, payload)),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>

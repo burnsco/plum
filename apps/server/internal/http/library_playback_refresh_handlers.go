@@ -2,13 +2,9 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"io"
 	"log"
 	"net/http"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,21 +103,11 @@ func (p *playbackRefreshProgress) snapshot() (total, processed int, currentPath 
 	return
 }
 
-// librarySideJobOccupied reports whether a playback, intro-only, or chromaprint job is in flight
-// for libraryID. Caller must hold h.librarySideJobsMu.
+// librarySideJobOccupied reports whether a playback job is in flight for libraryID.
+// Caller must hold h.librarySideJobsMu.
 func (h *LibraryHandler) librarySideJobOccupied(libraryID int) bool {
 	if h.playbackRefreshStatus != nil {
 		if _, ok := h.playbackRefreshStatus[libraryID]; ok {
-			return true
-		}
-	}
-	if h.introRefreshStatus != nil {
-		if _, ok := h.introRefreshStatus[libraryID]; ok {
-			return true
-		}
-	}
-	if h.chromaprintRefreshStatus != nil {
-		if _, ok := h.chromaprintRefreshStatus[libraryID]; ok {
 			return true
 		}
 	}
@@ -156,108 +142,6 @@ func (h *LibraryHandler) getPlaybackRefreshStatuses() map[int]*playbackRefreshPr
 		out[k] = v
 	}
 	return out
-}
-
-func (h *LibraryHandler) tryStartLibraryIntroRefresh(libraryID int, total int) *playbackRefreshProgress {
-	h.librarySideJobsMu.Lock()
-	defer h.librarySideJobsMu.Unlock()
-	if h.librarySideJobOccupied(libraryID) {
-		return nil
-	}
-	if h.introRefreshStatus == nil {
-		h.introRefreshStatus = make(map[int]*playbackRefreshProgress)
-	}
-	p := &playbackRefreshProgress{Total: total}
-	h.introRefreshStatus[libraryID] = p
-	return p
-}
-
-func (h *LibraryHandler) finishLibraryIntroRefresh(libraryID int) {
-	h.librarySideJobsMu.Lock()
-	defer h.librarySideJobsMu.Unlock()
-	delete(h.introRefreshStatus, libraryID)
-}
-
-func (h *LibraryHandler) getIntroRefreshStatuses() map[int]*playbackRefreshProgress {
-	h.librarySideJobsMu.Lock()
-	defer h.librarySideJobsMu.Unlock()
-	out := make(map[int]*playbackRefreshProgress, len(h.introRefreshStatus))
-	for k, v := range h.introRefreshStatus {
-		out[k] = v
-	}
-	return out
-}
-
-func (h *LibraryHandler) tryStartLibraryChromaprintRefresh(libraryID int) *playbackRefreshProgress {
-	h.librarySideJobsMu.Lock()
-	defer h.librarySideJobsMu.Unlock()
-	if h.librarySideJobOccupied(libraryID) {
-		return nil
-	}
-	if h.chromaprintRefreshStatus == nil {
-		h.chromaprintRefreshStatus = make(map[int]*playbackRefreshProgress)
-	}
-	p := &playbackRefreshProgress{Total: 1}
-	h.chromaprintRefreshStatus[libraryID] = p
-	return p
-}
-
-func (h *LibraryHandler) finishLibraryChromaprintRefresh(libraryID int) {
-	h.librarySideJobsMu.Lock()
-	defer h.librarySideJobsMu.Unlock()
-	delete(h.chromaprintRefreshStatus, libraryID)
-}
-
-func (h *LibraryHandler) getChromaprintRefreshStatuses() map[int]*playbackRefreshProgress {
-	h.librarySideJobsMu.Lock()
-	defer h.librarySideJobsMu.Unlock()
-	out := make(map[int]*playbackRefreshProgress, len(h.chromaprintRefreshStatus))
-	for k, v := range h.chromaprintRefreshStatus {
-		out[k] = v
-	}
-	return out
-}
-
-func countNonMissingMedia(items []db.MediaItem) int {
-	n := 0
-	for i := range items {
-		if !items[i].Missing {
-			n++
-		}
-	}
-	return n
-}
-
-// startLibraryIntroRefreshAsync re-probes intro bounds only (chapters + silence), without a full embedded-track refresh.
-func (h *LibraryHandler) startLibraryIntroRefreshAsync(libraryID int) bool {
-	items, itemsErr := db.GetMediaByLibraryID(h.DB, libraryID)
-	if itemsErr != nil {
-		return false
-	}
-	total := countNonMissingMedia(items)
-	progress := h.tryStartLibraryIntroRefresh(libraryID, total)
-	if progress == nil {
-		return false
-	}
-	go func(libID int, mediaItems []db.MediaItem, prog *playbackRefreshProgress) {
-		defer h.finishLibraryIntroRefresh(libID)
-		ctx := context.Background()
-		processed := 0
-		for i := range mediaItems {
-			it := mediaItems[i]
-			if it.Missing {
-				continue
-			}
-			prog.update(processed, it.Path)
-			if err := db.RefreshIntroProbeOnly(ctx, h.DB, &it); err != nil {
-				log.Printf("intro-only refresh library=%d media=%d: %v", libID, it.ID, err)
-			}
-			processed++
-		}
-		prog.update(total, "")
-		log.Printf("library intro-only refresh library=%d done items=%d", libID, total)
-	}(libraryID, items, progress)
-	return true
 }
 
 func (h *LibraryHandler) userOwnedLibrarySet(userID int) (map[int]struct{}, error) {
@@ -377,98 +261,6 @@ func (h *LibraryHandler) RefreshLibraryPlaybackTracks(w http.ResponseWriter, r *
 		return
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"accepted":  true,
-		"libraryId": libraryID,
-	})
-}
-
-func (h *LibraryHandler) RefreshLibraryIntroOnly(w http.ResponseWriter, r *http.Request) {
-	u := UserFromContext(r.Context())
-	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	idStr := chi.URLParam(r, "id")
-	var libraryID, ownerID int
-	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	if ownerID != u.ID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	if !h.startLibraryIntroRefreshAsync(libraryID) {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"accepted":  false,
-			"libraryId": libraryID,
-			"error":     "a library media job is already running for this library",
-		})
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"accepted":  true,
-		"libraryId": libraryID,
-	})
-}
-
-func (h *LibraryHandler) PostLibraryIntroChromaprintScan(w http.ResponseWriter, r *http.Request) {
-	u := UserFromContext(r.Context())
-	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	idStr := chi.URLParam(r, "id")
-	var libraryID, ownerID int
-	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	if ownerID != u.ID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	var body struct {
-		ShowKey string `json:"show_key"`
-	}
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	if !db.ChromaprintMuxersAvailable() {
-		http.Error(w, db.ErrChromaprintUnavailable.Error(), http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(db.IntroFingerprintCacheDir()) == "" {
-		http.Error(w, "intro fingerprint cache directory unset (set PLUM_INTRO_FINGERPRINT_DIR or use a file-backed database path)", http.StatusBadRequest)
-		return
-	}
-	prog := h.tryStartLibraryChromaprintRefresh(libraryID)
-	if prog == nil {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"accepted":  false,
-			"libraryId": libraryID,
-			"error":     "a library media job is already running for this library",
-		})
-		return
-	}
-	showKey := strings.TrimSpace(body.ShowKey)
-	go func(libID int, sk string, p *playbackRefreshProgress) {
-		defer h.finishLibraryChromaprintRefresh(libID)
-		ctx := context.Background()
-		p.update(0, "chromaprint")
-		cacheRoot := db.IntroFingerprintCacheDir()
-		_, _, err := db.RunChromaprintIntroScanForLibrary(ctx, h.DB, libID, sk, cacheRoot)
-		if err != nil {
-			log.Printf("chromaprint intro scan library=%d: %v", libID, err)
-		}
-		p.update(1, "")
-	}(libraryID, showKey, prog)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"accepted":  true,
 		"libraryId": libraryID,
@@ -614,97 +406,4 @@ func (h *LibraryHandler) ConfirmShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, showActionResult{Updated: updated})
-}
-
-func (h *LibraryHandler) GetIntroScanSummary(w http.ResponseWriter, r *http.Request) {
-	u := UserFromContext(r.Context())
-	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	summaries, err := db.ListIntroScanSummaries(h.DB, u.ID)
-	if err != nil {
-		log.Printf("list intro scan summaries: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if summaries == nil {
-		summaries = []db.IntroScanLibrarySummary{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"libraries": summaries})
-}
-
-func (h *LibraryHandler) GetIntroScanShowSummary(w http.ResponseWriter, r *http.Request) {
-	u := UserFromContext(r.Context())
-	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	idStr := chi.URLParam(r, "id")
-	var libraryID, ownerID int
-	err := h.DB.QueryRow(`SELECT id, user_id FROM libraries WHERE id = ?`, idStr).Scan(&libraryID, &ownerID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	if ownerID != u.ID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	shows, err := db.ListIntroScanShowSummaries(h.DB, libraryID)
-	if err != nil {
-		log.Printf("list intro scan show summaries library=%d: %v", libraryID, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if shows == nil {
-		shows = []db.IntroScanShowSummary{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"shows": shows})
-}
-
-type introRefreshStatusEntry struct {
-	LibraryID   int    `json:"library_id"`
-	Total       int    `json:"total"`
-	Processed   int    `json:"processed"`
-	CurrentPath string `json:"current_path,omitempty"`
-}
-
-func (h *LibraryHandler) GetIntroRefreshStatus(w http.ResponseWriter, r *http.Request) {
-	u := UserFromContext(r.Context())
-	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	ownedLibraryIDs, err := h.userOwnedLibrarySet(u.ID)
-	if err != nil {
-		log.Printf("list owned libraries user=%d: %v", u.ID, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	build := func(statuses map[int]*playbackRefreshProgress) []introRefreshStatusEntry {
-		entries := make([]introRefreshStatusEntry, 0, len(statuses))
-		for libID, prog := range statuses {
-			if _, ok := ownedLibraryIDs[libID]; !ok {
-				continue
-			}
-			total, processed, currentPath := prog.snapshot()
-			entries = append(entries, introRefreshStatusEntry{
-				LibraryID:   libID,
-				Total:       total,
-				Processed:   processed,
-				CurrentPath: currentPath,
-			})
-		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].LibraryID < entries[j].LibraryID })
-		return entries
-	}
-	playback := build(h.getPlaybackRefreshStatuses())
-	introOnly := build(h.getIntroRefreshStatuses())
-	chroma := build(h.getChromaprintRefreshStatuses())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"libraries":             playback,
-		"intro_only_libraries":  introOnly,
-		"chromaprint_libraries": chroma,
-	})
 }

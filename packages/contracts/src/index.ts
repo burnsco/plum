@@ -25,10 +25,6 @@ export const MediaTypeSchema = Schema.Literals([
   "anime",
 ]);
 
-export type IntroSkipMode = "off" | "manual" | "auto";
-
-export const IntroSkipModeSchema = Schema.Literals(["off", "manual", "auto"]);
-
 export type MatchStatus = "identified" | "local" | "unmatched";
 
 export const MatchStatusSchema = Schema.Literals([
@@ -351,12 +347,10 @@ export const ShowSeasonEpisodesSchema = Schema.Struct({
 });
 
 export interface ShowEpisodesResponse {
-  intro_skip_mode?: IntroSkipMode;
   seasons: ShowSeasonEpisodes[];
 }
 
 export const ShowEpisodesResponseSchema = Schema.Struct({
-  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   seasons: Schema.Array(ShowSeasonEpisodesSchema),
 });
 
@@ -466,7 +460,6 @@ export interface DirectPlaybackSession {
   embeddedAudioTracks?: EmbeddedAudioTrack[];
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
-  intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
   credits_start_seconds?: number;
@@ -487,7 +480,6 @@ export interface HlsPlaybackSession {
   embeddedAudioTracks?: EmbeddedAudioTrack[];
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
-  intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
   credits_start_seconds?: number;
@@ -508,7 +500,6 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
-  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
   credits_start_seconds: Schema.optional(Schema.Number),
@@ -529,7 +520,6 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
-  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
   credits_start_seconds: Schema.optional(Schema.Number),
@@ -626,7 +616,6 @@ export interface Library {
   watcher_enabled?: boolean;
   watcher_mode?: "auto" | "poll";
   scan_interval_minutes?: number;
-  intro_skip_mode?: IntroSkipMode;
 }
 
 export const LibrarySchema = Schema.Struct({
@@ -641,7 +630,6 @@ export const LibrarySchema = Schema.Struct({
   watcher_enabled: Schema.optional(Schema.Boolean),
   watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
   scan_interval_minutes: Schema.optional(Schema.Number),
-  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
 });
 
 export interface UnidentifiedLibrarySummary {
@@ -670,7 +658,6 @@ export interface UpdateLibraryPlaybackPreferencesPayload {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
   subtitles_enabled_by_default: boolean;
-  intro_skip_mode?: IntroSkipMode;
   watcher_enabled?: boolean;
   watcher_mode?: "auto" | "poll";
   scan_interval_minutes?: number;
@@ -680,7 +667,6 @@ export const UpdateLibraryPlaybackPreferencesPayloadSchema = Schema.Struct({
   preferred_audio_language: Schema.String,
   preferred_subtitle_language: Schema.String,
   subtitles_enabled_by_default: Schema.Boolean,
-  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   watcher_enabled: Schema.optional(Schema.Boolean),
   watcher_mode: Schema.optional(Schema.Literals(["auto", "poll"])),
   scan_interval_minutes: Schema.optional(Schema.Number),
@@ -1638,87 +1624,6 @@ export const LibraryPlaybackTracksRefreshResultSchema = Schema.Struct({
   libraryId: Schema.Number,
 });
 
-export interface IntroScanLibrarySummary {
-  library_id: number;
-  name: string;
-  type: MediaType;
-  intro_skip_mode: string;
-  total_episodes: number;
-  with_intro: number;
-}
-
-export const IntroScanLibrarySummarySchema = Schema.Struct({
-  library_id: Schema.Number,
-  name: Schema.String,
-  type: MediaTypeSchema,
-  intro_skip_mode: Schema.String,
-  total_episodes: Schema.Number,
-  with_intro: Schema.Number,
-});
-
-export interface IntroScanSummaryResponse {
-  libraries: IntroScanLibrarySummary[];
-}
-
-export const IntroScanSummaryResponseSchema = Schema.Struct({
-  libraries: Schema.Array(IntroScanLibrarySummarySchema),
-});
-
-export interface IntroScanShowSummary {
-  show_key: string;
-  show_title: string;
-  total_episodes: number;
-  with_intro: number;
-}
-
-export const IntroScanShowSummarySchema = Schema.Struct({
-  show_key: Schema.String,
-  show_title: Schema.String,
-  total_episodes: Schema.Number,
-  with_intro: Schema.Number,
-});
-
-export interface IntroScanShowSummaryResponse {
-  shows: IntroScanShowSummary[];
-}
-
-export const IntroScanShowSummaryResponseSchema = Schema.Struct({
-  shows: Schema.Array(IntroScanShowSummarySchema),
-});
-
-export interface IntroRefreshLibraryStatus {
-  library_id: number;
-  total: number;
-  processed: number;
-  current_path: string;
-}
-
-export const IntroRefreshLibraryStatusSchema = Schema.Struct({
-  library_id: Schema.Number,
-  total: Schema.Number,
-  processed: Schema.Number,
-  current_path: Schema.optional(Schema.String),
-});
-
-export interface IntroRefreshStatusResponse {
-  /** Full playback-tracks refresh (embedded audio/subtitle re-probe). */
-  libraries: IntroRefreshLibraryStatus[];
-  /** Intro-only chapter/silence re-probe. */
-  intro_only_libraries?: IntroRefreshLibraryStatus[];
-  /** Chromaprint season clustering (TV/anime). */
-  chromaprint_libraries?: IntroRefreshLibraryStatus[];
-}
-
-export const IntroRefreshStatusResponseSchema = Schema.Struct({
-  libraries: Schema.Array(IntroRefreshLibraryStatusSchema),
-  intro_only_libraries: Schema.optional(
-    Schema.Array(IntroRefreshLibraryStatusSchema),
-  ),
-  chromaprint_libraries: Schema.optional(
-    Schema.Array(IntroRefreshLibraryStatusSchema),
-  ),
-});
-
 export interface ShowRefreshPayload {
   showKey: string;
 }
@@ -2043,7 +1948,6 @@ export interface PlaybackSessionUpdateEvent {
   durationSeconds: number;
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
-  intro_skip_mode?: IntroSkipMode;
   intro_start_seconds?: number;
   intro_end_seconds?: number;
   credits_start_seconds?: number;
@@ -2103,7 +2007,6 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   durationSeconds: Schema.Number,
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
-  intro_skip_mode: Schema.optional(IntroSkipModeSchema),
   intro_start_seconds: Schema.optional(Schema.Number),
   intro_end_seconds: Schema.optional(Schema.Number),
   credits_start_seconds: Schema.optional(Schema.Number),

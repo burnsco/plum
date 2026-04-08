@@ -2593,7 +2593,6 @@ describe("App library and player wiring", () => {
         watcher_enabled: false,
         watcher_mode: "auto",
         scan_interval_minutes: 0,
-        intro_skip_mode: "manual",
       });
     });
 

@@ -18,7 +18,7 @@ This document maps `internal/db` to maintenance domains. Shared row/value types 
 | `playback.go` | Continue watching, progress, home rails |
 | `sessions.go` | Expired HTTP `sessions` row cleanup |
 | `search_index.go` | Library search index |
-| `settings.go`, `intro_*.go`, `media_files.go`, … | As before (settings, intro detection, `media_files`, artwork, etc.) |
+| `settings.go`, `media_files.go`, … | As before (settings, intro detection, `media_files`, artwork, etc.) |
 
 ## HTTP layer (`internal/http`)
 
@@ -29,7 +29,7 @@ This document maps `internal/db` to maintenance domains. Shared row/value types 
 | `library_collections_handlers.go` | Series details, library media page, home dashboard |
 | `library_discover_search_handlers.go` | Discover rails, browse/search, TMDB search, library search |
 | `library_items_handlers.go` | Movie/show details, identify movie, show episodes JSON |
-| `library_playback_refresh_handlers.go` | Playback track refresh, intro-only, chromaprint, show refresh/confirm, intro status APIs |
+| `library_playback_refresh_handlers.go` | Playback track refresh, show refresh/confirm, intro status APIs |
 | `metadata_artwork_handlers.go` | Artwork/posters (existing) |
 | `respond.go` | `writeJSON`, `writeJSONError` |
 | `request_parse.go` | `parsePathInt` (playback-style IDs), `chiURLIntParam`, `chiURLIntParamInvalidID` |

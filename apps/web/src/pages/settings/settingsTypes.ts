@@ -1,10 +1,9 @@
-import type { IntroSkipMode, Library } from "@plum/contracts";
+import type { Library } from "@plum/contracts";
 
 export type LibraryPlaybackPreferencesForm = {
   preferred_audio_language: string;
   preferred_subtitle_language: string;
   subtitles_enabled_by_default: boolean;
-  intro_skip_mode: IntroSkipMode;
   watcher_enabled: boolean;
   watcher_mode: "auto" | "poll";
   scan_interval_minutes: number;
@@ -18,7 +17,6 @@ export function libraryPreferencesEqual(
     left.preferred_audio_language === right.preferred_audio_language &&
     left.preferred_subtitle_language === right.preferred_subtitle_language &&
     left.subtitles_enabled_by_default === right.subtitles_enabled_by_default &&
-    left.intro_skip_mode === right.intro_skip_mode &&
     left.watcher_enabled === right.watcher_enabled &&
     left.watcher_mode === right.watcher_mode &&
     left.scan_interval_minutes === right.scan_interval_minutes
@@ -34,8 +32,7 @@ export type SettingsTab =
   | "media-stack"
   | "arr-profiles"
   | "metadata"
-  | "transcoding"
-  | "plugins-intro-skipper";
+  | "transcoding";
 
 export function libraryTypeLabel(type: Library["type"]): string {
   switch (type) {

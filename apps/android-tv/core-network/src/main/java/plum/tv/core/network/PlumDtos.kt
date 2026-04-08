@@ -123,7 +123,6 @@ data class LibraryJson(
     @param:Json(name = "type") val type: String,
     @param:Json(name = "path") val path: String,
     @param:Json(name = "user_id") val userId: Int,
-    @param:Json(name = "intro_skip_mode") val introSkipMode: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -238,7 +237,6 @@ data class ShowSeasonEpisodesJson(
 
 @JsonClass(generateAdapter = true)
 data class ShowEpisodesResponseJson(
-    @param:Json(name = "intro_skip_mode") val introSkipMode: String? = null,
     @param:Json(name = "seasons") val seasons: List<ShowSeasonEpisodesJson> = emptyList(),
 )
 

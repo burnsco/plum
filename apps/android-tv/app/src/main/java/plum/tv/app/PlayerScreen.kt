@@ -184,19 +184,6 @@ fun PlayerRoute(
         }
     }
 
-    // Surface the skip control when intro detection kicks in mid-playback (auto-hide would hide it).
-    LaunchedEffect(ui.showSkipIntro) {
-        if (ui.showSkipIntro) {
-            showControls()
-        }
-    }
-
-    LaunchedEffect(ui.showSkipCredits) {
-        if (ui.showSkipCredits) {
-            showControls()
-        }
-    }
-
     LaunchedEffect(upNext) {
         if (upNext != null) {
             showControls()
@@ -560,28 +547,6 @@ fun PlayerRoute(
                             onClick = { viewModel.forward10() },
                             modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
                         )
-                        if (ui.showSkipIntro) {
-                            SkipIntroControl(
-                                label = "Skip intro",
-                                contentDescription = "Skip intro",
-                                onClick = {
-                                    viewModel.skipIntro()
-                                    showControls()
-                                },
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
-                            )
-                        }
-                        if (ui.showSkipCredits) {
-                            SkipIntroControl(
-                                label = "Skip credits",
-                                contentDescription = "Skip credits",
-                                onClick = {
-                                    viewModel.skipCredits()
-                                    showControls()
-                                },
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
-                            )
-                        }
                         if (ui.canNext) {
                             PlayerControlButton(
                                 icon = Icons.Filled.SkipNext,
@@ -1541,56 +1506,6 @@ private fun PlexSeekBar(
                         },
                     )
                     .background(Color.White),
-            )
-        }
-    }
-}
-
-// ── Control button ────────────────────────────────────────────────────────────
-
-@Composable
-private fun SkipIntroControl(
-    label: String,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val palette = PlumTheme.palette
-    val shape = RoundedCornerShape(16.dp)
-    Surface(
-        onClick = onClick,
-        modifier =
-            modifier
-                .height(50.dp)
-                .widthIn(min = 128.dp)
-                .semantics { this.contentDescription = contentDescription },
-        shape = ClickableSurfaceDefaults.shape(shape = shape),
-        colors =
-            ClickableSurfaceDefaults.colors(
-                containerColor = palette.accent.copy(alpha = 0.24f),
-                contentColor = Color.White,
-                focusedContainerColor = palette.accent.copy(alpha = 0.42f),
-                focusedContentColor = Color.White,
-                pressedContainerColor = palette.accent.copy(alpha = 0.48f),
-                pressedContentColor = Color.White,
-            ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-        border =
-            ClickableSurfaceDefaults.border(
-                border = plumBorder(palette.accent.copy(alpha = 0.5f), 1.5.dp, shape),
-                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.9f), 2.dp, shape),
-                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.9f), 2.dp, shape),
-            ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = label,
-                style = PlumTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
             )
         }
     }
