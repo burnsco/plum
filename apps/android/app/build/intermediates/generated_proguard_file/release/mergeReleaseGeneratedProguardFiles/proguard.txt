@@ -1,0 +1,4 @@
+-keep,allowobfuscation,allowshrinking class plum.tv.app.MainNavViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.app.MainNavViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.app.PlayerViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.app.PlayerViewModel

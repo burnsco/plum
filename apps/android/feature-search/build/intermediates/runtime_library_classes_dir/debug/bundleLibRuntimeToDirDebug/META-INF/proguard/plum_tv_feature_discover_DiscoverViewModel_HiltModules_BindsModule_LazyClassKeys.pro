@@ -1,0 +1,1 @@
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverViewModel

@@ -1,0 +1,10 @@
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverBrowseViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverBrowseViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverDetailViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverDetailViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DiscoverViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DownloadsViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.discover.DownloadsViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.search.SearchViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.search.SearchViewModel

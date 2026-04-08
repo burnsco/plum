@@ -1,0 +1,16 @@
+/home/cburns/apps/plum/apps/android-tv/core-player/build.gradle.kts: Warning: Unknown issue id "NullSafeMutableLiveData" [UnknownIssueId]
+/home/cburns/apps/plum/apps/android-tv/core-player/build.gradle.kts: Warning: Unknown issue id "NullSafeMutableLiveData" [UnknownIssueId]
+
+   Explanation for issues of type "UnknownIssueId":
+   Lint will report this issue if it is configured with an issue id it does
+   not recognize in for example Gradle files or lint.xml configuration files.
+
+/home/cburns/apps/plum/apps/android-tv/core-player/src/main/java/plum/tv/core/player/PlumPlayerController.kt:268: Warning: Switch statement on an int with known associated constant missing case Player.STATE_IDLE [SwitchIntDef]
+                    when (playbackState) {
+                    ~~~~
+
+   Explanation for issues of type "SwitchIntDef":
+   This check warns if a switch statement does not explicitly include all the
+   values declared by the typedef @IntDef declaration.
+
+0 errors, 3 warnings

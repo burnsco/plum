@@ -1,0 +1,245 @@
+/home/cburns/apps/plum/apps/android-tv/app/src/main/AndroidManifest.xml:22: Warning: Attribute shell is only used in API level 29 and higher (current min is 24) [UnusedAttribute]
+        <profileable android:shell="true" />
+                     ~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "UnusedAttribute":
+   This check finds attributes set in XML files that were introduced in a
+   version newer than the oldest version targeted by your application (with
+   the minSdkVersion attribute).
+
+   This is not an error; the application will simply ignore the attribute.
+   However, if the attribute is important to the appearance or functionality
+   of your application, you should consider finding an alternative way to
+   achieve the same result with only available attributes, and then you can
+   optionally create a copy of the layout in a layout-vNN folder which will be
+   used on API NN or higher where you can take advantage of the newer
+   attribute.
+
+   Note: This check does not only apply to attributes. For example, some tags
+   can be unused too, such as the new <tag> element in layouts introduced in
+   API 21.
+
+/home/cburns/apps/plum/apps/android-tv/app/build.gradle.kts:138: Warning: A newer version of androidx.test.ext:junit than 1.2.1 is available: 1.3.0 [GradleDependency]
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/app/build.gradle.kts:139: Warning: A newer version of androidx.test:runner than 1.6.2 is available: 1.7.0 [GradleDependency]
+    androidTestImplementation("androidx.test:runner:1.6.2")
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/gradle/libs.versions.toml:4: Warning: A newer version of androidx.compose:compose-bom than 2026.03.00 is available: 2026.03.01 [GradleDependency]
+androidx-compose-bom = "2026.03.00"
+                       ~~~~~~~~~~~~
+
+   Explanation for issues of type "GradleDependency":
+   This detector looks for usages of libraries where the version you are using
+   is not the current stable release. Using older versions is fine, and there
+   are cases where you deliberately want to stick with an older version.
+   However, you may simply not be aware that a more recent version is
+   available, and that is what this lint check helps find.
+
+/home/cburns/apps/plum/apps/android-tv/gradle/libs.versions.toml:15: Warning: A newer version of io.mockk:mockk than 1.14.2 is available: 1.14.9 [NewerVersionAvailable]
+mockk = "1.14.2"
+        ~~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/gradle/libs.versions.toml:21: Warning: A newer version of com.squareup.okhttp3:logging-interceptor than 5.3.0 is available: 5.3.2 [NewerVersionAvailable]
+okhttp = "5.3.0"
+         ~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/gradle/libs.versions.toml:21: Warning: A newer version of com.squareup.okhttp3:mockwebserver than 5.3.0 is available: 5.3.2 [NewerVersionAvailable]
+okhttp = "5.3.0"
+         ~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/gradle/libs.versions.toml:21: Warning: A newer version of com.squareup.okhttp3:okhttp than 5.3.0 is available: 5.3.2 [NewerVersionAvailable]
+okhttp = "5.3.0"
+         ~~~~~~~
+
+   Explanation for issues of type "NewerVersionAvailable":
+   This detector checks with a central repository to see if there are newer
+   versions available for the dependencies used by this project. This is
+   similar to the GradleDependency check, which checks for newer versions
+   available in the Android SDK tools and libraries, but this works with any
+   MavenCentral dependency, and connects to the library every time, which
+   makes it more flexible but also much slower.
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/java/plum/tv/app/PlayerScreen.kt:1368: Warning: Modifier factory functions should be extensions on Modifier [ModifierFactoryExtensionFunction from androidx.compose.ui]
+private fun controlUpToSeekBar(durationMs: Long, seekBarFocusRequester: FocusRequester): Modifier =
+            ~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "ModifierFactoryExtensionFunction":
+   Modifier factory functions should be defined as extension functions on
+   Modifier to allow modifiers to be fluently chained.
+
+   Vendor: Jetpack Compose
+   Identifier: androidx.compose.ui
+   Feedback: https://issuetracker.google.com/issues/new?component=612128
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/AndroidManifest.xml:27: Warning: Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios. [DiscouragedApi]
+            android:screenOrientation="landscape">
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "DiscouragedApi":
+   Discouraged APIs are allowed and are not deprecated, but they may be unfit
+   for common use (e.g. due to slow performance or subtle behavior).
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/res/xml/network_security_config.xml:3: Warning: Insecure Base Configuration [InsecureBaseConfiguration]
+    <base-config cleartextTrafficPermitted="true" />
+                                            ~~~~
+
+   Explanation for issues of type "InsecureBaseConfiguration":
+   Permitting cleartext traffic could allow eavesdroppers to intercept data
+   sent by your app, which impacts the privacy of your users. Consider only
+   allowing encrypted traffic by setting the cleartextTrafficPermitted tag to
+   false.
+
+   https://goo.gle/InsecureBaseConfiguration
+   https://developer.android.com/preview/features/security-config.html
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/res/drawable/ic_launcher.xml:2: Warning: The resource R.drawable.ic_launcher appears to be unused [UnusedResources]
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+^
+
+   Explanation for issues of type "UnusedResources":
+   Unused resources make applications larger and slow down builds.
+
+
+   The unused resource check can ignore tests. If you want to include
+   resources that are only referenced from tests, consider packaging them in a
+   test source set instead.
+
+   You can include test sources in the unused resource check by setting the
+   system property lint.unused-resources.include-tests =true, and to exclude
+   them (usually for performance reasons), use
+   lint.unused-resources.exclude-tests =true.
+   ,
+
+   Available options:
+
+   **skip-libraries** (default is true):
+   Whether the unused resource check should skip reporting unused resources in libraries.
+
+   Many libraries will declare resources that are part of the library surface; other modules depending on the library will also reference the resources. To avoid reporting all these resources as unused (in the context of a library), the unused resource check normally skips reporting unused resources in libraries. Instead, run the unused resource check on the consuming app module (along with `checkDependencies=true`).
+
+   However, there are cases where you want to check that all the resources declared in a library are used; in that case, you can disable the skip option.
+
+   To configure this option, use a `lint.xml` file with an <option> like this:
+
+   ```xml
+   <lint>
+       <issue id="UnusedResources">
+           <option name="skip-libraries" value="true" />
+       </issue>
+   </lint>
+   ```
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png: Warning: The following images appear both as density independent .xml files and as bitmap files: src/main/res/drawable/ic_launcher.xml, src/main/res/mipmap-hdpi/ic_launcher.png [IconXmlAndPng]
+
+   Explanation for issues of type "IconXmlAndPng":
+   If a drawable resource appears as an .xml file in the drawable/ folder,
+   it's usually not intentional for it to also appear as a bitmap using the
+   same name; generally you expect the drawable XML file to define states and
+   each state has a corresponding drawable bitmap.
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png: Warning: Launcher icons should not fill every pixel of their square region; see the design guide for details [IconLauncherShape]
+/home/cburns/apps/plum/apps/android-tv/app/src/main/res/drawable-xxxhdpi/ic_launcher_banner.png: Warning: Launcher icons should not fill every pixel of their square region; see the design guide for details [IconLauncherShape]
+
+   Explanation for issues of type "IconLauncherShape":
+   According to the Android Design Guide
+   (https://d.android.com/r/studio-ui/designer/material/iconography) your
+   launcher icons should "use a distinct silhouette", a "three-dimensional,
+   front view, with a slight perspective as if viewed from above, so that
+   users perceive some depth."
+
+   The unique silhouette implies that your launcher icon should not be a
+   filled square.
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/res: Warning: Missing density variation folders in src/main/res: drawable-hdpi, drawable-mdpi, drawable-xxhdpi [IconMissingDensityFolder]
+
+   Explanation for issues of type "IconMissingDensityFolder":
+   Icons will look best if a custom version is provided for each of the major
+   screen density classes (low, medium, high, extra-high, extra-extra-high).
+   This lint check identifies folders which are missing, such as
+   drawable-hdpi.
+
+   Low density is not really used much anymore, so this check ignores the ldpi
+   density. To force lint to include it, set the environment variable
+   ANDROID_LINT_INCLUDE_LDPI=true. For more information on current density
+   usage, see https://developer.android.com/about/dashboards
+
+   https://developer.android.com/guide/practices/screens_support.html
+
+/home/cburns/apps/plum/apps/android-tv/app/src/main/java/plum/tv/app/PlayerScreen.kt:1315: Warning: Use the KTX extension function String.toColorInt instead? [UseKtx]
+        runCatching { Color(AndroidGraphicsColor.parseColor(preset.hex)) }
+                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/app/src/main/java/plum/tv/app/PlayerScreen.kt:1606: Warning: Use the KTX extension function String.toColorInt instead? [UseKtx]
+            runCatching { AndroidGraphicsColor.parseColor(appearance.colorHex) }
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "UseKtx":
+   The Android KTX libraries decorates the Android platform SDK as well as
+   various libraries with more convenient extension functions available from
+   Kotlin, allowing you to use default parameters, named parameters, and
+   more.
+
+   Available options:
+
+   **remove-defaults** (default is true):
+   Whether to skip arguments that match the defaults provided by the extension.
+
+   Extensions often provide default values for some of the parameters. For example:
+   ```kotlin
+   fun Path.readLines(charset: Charset = Charsets.UTF_8): List<String> { return Files.readAllLines(this, charset) }
+   ```
+   This lint check will by default automatically omit parameters that match the default, so if your code was calling
+
+   ```kotlin
+   Files.readAllLines(file, Charset.UTF_8)
+   ```
+   lint would replace this with
+   ```kotlin
+   file.readLines()
+   ```
+   rather than
+
+   ```kotlin
+   file.readLines(Charset.UTF_8
+   ```
+   You can turn this behavior off using this option.
+
+   To configure this option, use a `lint.xml` file with an <option> like this:
+
+   ```xml
+   <lint>
+       <issue id="UseKtx">
+           <option name="remove-defaults" value="true" />
+       </issue>
+   </lint>
+   ```
+
+   **require-present** (default is true):
+   Whether to only offer extensions already available.
+
+   This option lets you only have lint suggest extension replacements if those extensions are already available on the class path (in other words, you're already depending on the library containing the extension method.)
+
+   To configure this option, use a `lint.xml` file with an <option> like this:
+
+   ```xml
+   <lint>
+       <issue id="UseKtx">
+           <option name="require-present" value="true" />
+       </issue>
+   </lint>
+   ```
+
+/home/cburns/apps/plum/apps/android-tv/app/build.gradle.kts:137: Warning: Use version catalog instead [UseTomlInstead]
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/app/build.gradle.kts:138: Warning: Use version catalog instead [UseTomlInstead]
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/cburns/apps/plum/apps/android-tv/app/build.gradle.kts:139: Warning: Use version catalog instead [UseTomlInstead]
+    androidTestImplementation("androidx.test:runner:1.6.2")
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "UseTomlInstead":
+   If your project is using a libs.versions.toml file, you should place all
+   Gradle dependencies in the TOML file. This lint check looks for version
+   declarations outside of the TOML file and suggests moving them (and in the
+   IDE, provides a quickfix to performing the operation automatically).
+
+0 errors, 21 warnings

@@ -1,0 +1,2 @@
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.home.HomeViewModel
+-keep,allowobfuscation,allowshrinking class plum.tv.feature.home.HomeViewModel

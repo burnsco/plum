@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<incidents format="6" by="lint 9.1.0" type="conditional_incidents">
+
+    <incident
+        id="ConfigurationScreenWidthHeight"
+        severity="warning"
+        message="Using Configuration.screenWidthDp instead of LocalWindowInfo.current.containerSize">
+        <location
+            file="${:feature-home*debug*MAIN*sourceProvider*0*javaDir*0}/plum/tv/feature/home/HomeScreen.kt"
+            line="341"
+            column="25"
+            startOffset="13893"
+            endLine="341"
+            endColumn="65"
+            endOffset="13933"/>
+    </incident>
+
+</incidents>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<incidents format="6" by="lint 9.1.0" type="partial_results">
+    <map id="UnsafeIntentLaunch">
+            <map id="unprotected">
+                <entry
+                    name="plum.tv.app.MainActivity"
+                    boolean="true"/>
+            </map>
+    </map>
+    <map id="UnusedResources">
+        <location id="R.drawable.ic_launcher"
+            file="${:app*debug*MAIN*sourceProvider*0*resDir*0}/drawable/ic_launcher.xml"
+            line="2"
+            column="1"
+            startOffset="39"
+            endLine="10"
+            endColumn="10"
+            endOffset="329"/>
+        <entry
+            name="model"
+            string="drawable[ic_launcher_banner(U),ic_launcher(D)],id[exo_content_frame(R)],mipmap[ic_launcher(U)],string[app_name(U)],style[Theme_PlumTv(U)],xml[network_security_config(U)];;;;"/>
+    </map>
+
+</incidents>

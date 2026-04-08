@@ -55,17 +55,17 @@ Shared TypeScript utilities that multiple clients need should live in `@plum/sha
 - `apps/web`: React/Vite UI. Modern media player frontend.
 - `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for API and WebSocket protocol.
 - `packages/shared`: Shared runtime utilities consumed by the web app (and other TypeScript clients as needed).
-- `apps/android-tv`: Kotlin Android TV app (Gradle). Not part of root `bun lint` / `bun typecheck`; use `bun run validate:android` or Gradle via `bun run android:assemble` / `android:lint` when working on TV.
+- `apps/android`: Kotlin Android TV app (Gradle). Not part of root `bun lint` / `bun typecheck`; use `bun run validate:android` or Gradle via `bun run android:assemble` / `android:lint` when working on TV.
 
 ### Android TV development
 
 Prerequisites: [Android Studio](https://developer.android.com/studio) with Android SDK, or a standalone SDK with `ANDROID_HOME` set. Use **JDK 17 or 21** for Gradle (e.g. Android Studio’s bundled JBR): some Gradle/Kotlin DSL versions do not run on **JDK 26+**, which surfaces as a cryptic `IllegalArgumentException` with a version number during settings script compilation.
 
-1. **SDK path**: Copy [`apps/android-tv/local.properties.example`](apps/android-tv/local.properties.example) to `apps/android-tv/local.properties` and set `sdk.dir=...`, or export `ANDROID_HOME` (the helper script will write `local.properties` from it on first run).
+1. **SDK path**: Copy [`apps/android/local.properties.example`](apps/android/local.properties.example) to `apps/android/local.properties` and set `sdk.dir=...`, or export `ANDROID_HOME` (the helper script will write `local.properties` from it on first run).
 2. **Build debug APK**: From repo root, `bun run android:assemble` (runs `./scripts/android-tv.sh :app:assembleDebug`).
 3. **Install on a connected device/emulator**: `bun run android:install` (device must be running; use an Android TV system image for TV behavior).
-4. **Install and launch on device**: `bun run android:deploy` (default desk TV at `192.168.2.11:5555`: `adb connect`, release APK, `adb install -r`, then starts the TV app). Agents: full JDK/SDK/`adb` notes and intent details are in [`apps/android-tv/AGENT_DEPLOY.md`](apps/android-tv/AGENT_DEPLOY.md).
-5. **IDE**: Open the **`apps/android-tv`** directory in Android Studio (File → Open) for Gradle sync, Run/Debug, Logcat, and Kotlin editing. Compose Previews for TV are limited; use a TV emulator or hardware for real UI.
+4. **Install and launch on device**: `bun run android:deploy` (default desk TV at `192.168.2.11:5555`: `adb connect`, release APK, `adb install -r`, then starts the TV app). Agents: full JDK/SDK/`adb` notes and intent details are in [`apps/android/AGENT_DEPLOY.md`](apps/android/AGENT_DEPLOY.md).
+5. **IDE**: Open the **`apps/android`** directory in Android Studio (File → Open) for Gradle sync, Run/Debug, Logcat, and Kotlin editing. Compose Previews for TV are limited; use a TV emulator or hardware for real UI.
 6. **Backend**: Run Plum server (`bun run dev:server` or your usual command); the app defaults to `http://10.0.2.2:8080` on the emulator (host loopback). Physical devices need your LAN IP and cleartext is allowed via `network_security_config`.
 
 ## Effects & State

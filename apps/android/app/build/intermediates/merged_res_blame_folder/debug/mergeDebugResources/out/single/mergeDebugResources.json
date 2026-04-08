@@ -1,0 +1,38 @@
+[
+    {
+        "merged": "plum.tv.app-debug-53:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "plum.tv.app-main-55:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "plum.tv.app-main-55:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/xml_network_security_config.xml.flat",
+        "source": "plum.tv.app-main-55:/xml/network_security_config.xml"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "plum.tv.app-main-55:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/drawable_ic_launcher.xml.flat",
+        "source": "plum.tv.app-main-55:/drawable/ic_launcher.xml"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/drawable-xxxhdpi_ic_launcher_banner.png.flat",
+        "source": "plum.tv.app-main-55:/drawable-xxxhdpi/ic_launcher_banner.png"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/drawable-xhdpi_ic_launcher_banner.png.flat",
+        "source": "plum.tv.app-main-55:/drawable-xhdpi/ic_launcher_banner.png"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "plum.tv.app-main-55:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "plum.tv.app-debug-53:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "plum.tv.app-main-55:/mipmap-xxhdpi/ic_launcher.png"
+    }
+]

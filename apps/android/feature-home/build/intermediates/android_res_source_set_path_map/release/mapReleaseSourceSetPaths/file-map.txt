@@ -1,0 +1,9 @@
+plum.tv.feature.home.feature-home-pngs-0 /home/cburns/apps/plum/apps/android-tv/feature-home/build/generated/res/pngs/release
+plum.tv.feature.home.feature-home-resValues-1 /home/cburns/apps/plum/apps/android-tv/feature-home/build/generated/res/resValues/release
+plum.tv.feature.home.feature-home-updated_navigation_xml-2 /home/cburns/apps/plum/apps/android-tv/feature-home/build/generated/updated_navigation_xml/release
+plum.tv.feature.home.feature-home-mergeReleaseResources-3 /home/cburns/apps/plum/apps/android-tv/feature-home/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
+plum.tv.feature.home.feature-home-mergeReleaseResources-4 /home/cburns/apps/plum/apps/android-tv/feature-home/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
+plum.tv.feature.home.feature-home-release-5 /home/cburns/apps/plum/apps/android-tv/feature-home/build/intermediates/merged_res/release/mergeReleaseResources
+plum.tv.feature.home.feature-home-release-6 /home/cburns/apps/plum/apps/android-tv/feature-home/build/intermediates/packaged_res/release/packageReleaseResources
+plum.tv.feature.home.feature-home-main-7 /home/cburns/apps/plum/apps/android-tv/feature-home/src/main/res
+plum.tv.feature.home.feature-home-release-8 /home/cburns/apps/plum/apps/android-tv/feature-home/src/release/res

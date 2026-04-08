@@ -1,0 +1,2 @@
+int font inter_variable 0x0
+int font outfit_variable 0x0

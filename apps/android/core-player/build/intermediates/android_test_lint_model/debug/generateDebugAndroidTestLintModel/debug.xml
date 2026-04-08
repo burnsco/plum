@@ -1,0 +1,30 @@
+<variant
+    name="debug"
+    package="plum.tv.core.player"
+    minSdkVersion="24"
+    targetSdkVersion="24"
+    debuggable="true"
+    mergedManifest="build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml"
+    manifestMergeReport="build/outputs/logs/manifest-merger-debug-report.txt"
+    partialResultsDir="build/intermediates/android_test_lint_partial_results/debug/lintAnalyzeDebugAndroidTest/out">
+  <buildFeatures/>
+  <sourceProviders>
+  </sourceProviders>
+  <testSourceProviders>
+    <sourceProvider
+        manifests="src/androidTest/AndroidManifest.xml"
+        javaDirectories="src/androidTest/java:src/androidTestDebug/java:src/androidTest/kotlin:src/androidTestDebug/kotlin"
+        resDirectories="src/androidTest/res:src/androidTestDebug/res"
+        assetsDirectories="src/androidTest/assets:src/androidTestDebug/assets"
+        keepRulesDirectories="src/androidTest/keepRules:src/androidTestDebug/keepRules"
+        androidTest="true"/>
+  </testSourceProviders>
+  <testFixturesSourceProviders>
+  </testFixturesSourceProviders>
+  <artifact
+      type="INSTRUMENTATION_TEST"
+      applicationId="plum.tv.core.player.test"
+      generatedResourceFolders="build/generated/res/resValues/androidTest/debug"
+      desugaredMethodsFiles="/home/cburns/.gradle/caches/9.4.1/transforms/fe86c5f94981167e38c9e6ec106dfd7b/transformed/D8BackportedDesugaredMethods.txt">
+  </artifact>
+</variant>
