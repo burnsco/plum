@@ -101,7 +101,6 @@ import { PlaybackTrackMenus } from "./PlaybackTrackMenus";
 import { PlaybackVideoStage } from "./PlaybackVideoStage";
 import { PlayerLoadingOverlay } from "./PlayerLoadingOverlay";
 import { useHlsAttachment } from "./useHlsAttachment";
-import { usePlaybackDockIntroCreditsSkip } from "./usePlaybackDockIntroCreditsSkip";
 import { usePlaybackDockUpNext } from "./usePlaybackDockUpNext";
 
 const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
@@ -533,22 +532,6 @@ export function usePlaybackDockController(): ReactNode {
     effectiveWebTrackDefaults.defaultSubtitleLabelHint,
     effectiveWebTrackDefaults.defaultSubtitleLanguage,
   ]);
-
-  const {
-    processIntroSkip,
-    processCreditsSkip,
-    showSkipIntroControl,
-    showSkipCreditsControl,
-    handleSkipIntroClick,
-    handleSkipCreditsClick,
-  } = usePlaybackDockIntroCreditsSkip({
-    activeItemId,
-    activeItem,
-    introSkipMode: libraryPlaybackPreferences.introSkipMode,
-    isVideo,
-    seekTo,
-    playbackCurrentTime: playbackState.currentTime,
-  });
 
   useEffect(() => {
     const previousUrl = previousVideoSourceUrlRef.current;
@@ -2423,8 +2406,6 @@ export function usePlaybackDockController(): ReactNode {
             syncPlaybackState(event.currentTarget);
             syncVideoProgressSnapshot(event.currentTarget);
             persistInitialPlaybackProgress(event.currentTarget);
-            processIntroSkip(event.currentTarget);
-            processCreditsSkip(event.currentTarget);
           }}
           onPlay={(event) => {
             if (event.currentTarget.currentTime > 1) {
@@ -2435,8 +2416,6 @@ export function usePlaybackDockController(): ReactNode {
             syncPlaybackState(event.currentTarget);
             syncVideoProgressSnapshot(event.currentTarget);
             persistInitialPlaybackProgress(event.currentTarget);
-            processIntroSkip(event.currentTarget);
-            processCreditsSkip(event.currentTarget);
           }}
           onPlaying={() => {
             kickstartVideoPlaybackRef.current = false;
@@ -2472,34 +2451,6 @@ export function usePlaybackDockController(): ReactNode {
             handleVideoEnded(event);
           }}
         />
-        {(showSkipIntroControl || showSkipCreditsControl) && (
-          <div className="fullscreen-player__skip-actions">
-            {showSkipIntroControl ? (
-              <button
-                type="button"
-                className="fullscreen-player__skip-intro"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleSkipIntroClick();
-                }}
-              >
-                Skip intro
-              </button>
-            ) : null}
-            {showSkipCreditsControl ? (
-              <button
-                type="button"
-                className="fullscreen-player__skip-credits"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleSkipCreditsClick();
-                }}
-              >
-                Skip credits
-              </button>
-            ) : null}
-          </div>
-        )}
         {showPlayerLoadingOverlay && (
           <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />
         )}

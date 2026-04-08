@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install release Plum TV APK on connected ADB device(s); optionally launch the app.
-# Use JAVA_HOME=Android Studio JBR and ANDROID_HOME=SDK (see apps/android-tv/AGENT_DEPLOY.md).
+# Use JAVA_HOME=Android Studio JBR and ANDROID_HOME=SDK (see apps/android/AGENT_DEPLOY.md).
 #
 # PLUM_TV_ADB_CONNECT — if set, runs `adb connect` first (classic TCP, e.g. 192.168.2.11:5555).
 #   Used by android-tv-deploy-desk.sh / android-tv-deploy-lr.sh so TVs do not need USB or wireless
@@ -20,8 +20,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ID="com.plum.android.tv"
 ACTIVITY="plum.tv.app.MainActivity"
-APK_RELEASE="${ROOT}/apps/android-tv/app/build/outputs/apk/release/app-release.apk"
-APK_RELEASE_UNSIGNED="${ROOT}/apps/android-tv/app/build/outputs/apk/release/app-release-unsigned.apk"
+APK_RELEASE="${ROOT}/apps/android/app/build/outputs/apk/release/app-release.apk"
+APK_RELEASE_UNSIGNED="${ROOT}/apps/android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
 # Match android-tv.sh: prefer Android Studio JBR when JAVA_HOME is unset.
 if [[ -z "${JAVA_HOME:-}" ]]; then
@@ -43,7 +43,7 @@ adb_bin() {
     echo "${ANDROID_HOME}/platform-tools/adb"
     return
   fi
-  local props="${ROOT}/apps/android-tv/local.properties"
+  local props="${ROOT}/apps/android/local.properties"
   if [[ -f "$props" ]] && grep -q '^sdk.dir=' "$props"; then
     local sdk
     sdk="$(grep '^sdk.dir=' "$props" | head -1 | cut -d= -f2- | tr -d '\r')"

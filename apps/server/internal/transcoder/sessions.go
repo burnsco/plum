@@ -58,7 +58,6 @@ type PlaybackSessionState struct {
 	EmbeddedAudioTracks             []db.EmbeddedAudioTrack        `json:"embeddedAudioTracks,omitempty"`
 	BurnEmbeddedSubtitleStreamIndex *int                           `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
 	Error                           string                         `json:"error,omitempty"`
-	IntroSkipMode                   string                         `json:"intro_skip_mode,omitempty"`
 	IntroStartSeconds               *float64                       `json:"intro_start_seconds,omitempty"`
 	IntroEndSeconds                 *float64                       `json:"intro_end_seconds,omitempty"`
 	CreditsStartSeconds             *float64                       `json:"credits_start_seconds,omitempty"`
@@ -85,7 +84,6 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		DurationSeconds                 int      `json:"durationSeconds"`
 		Error                           string   `json:"error,omitempty"`
 		BurnEmbeddedSubtitleStreamIndex *int     `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
-		IntroSkipMode                   string   `json:"intro_skip_mode,omitempty"`
 		IntroStartSeconds               *float64 `json:"intro_start_seconds,omitempty"`
 		IntroEndSeconds                 *float64 `json:"intro_end_seconds,omitempty"`
 		CreditsStartSeconds             *float64 `json:"credits_start_seconds,omitempty"`
@@ -103,7 +101,6 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		DurationSeconds:                 s.DurationSeconds,
 		Error:                           s.Error,
 		BurnEmbeddedSubtitleStreamIndex: s.BurnEmbeddedSubtitleStreamIndex,
-		IntroSkipMode:                   s.IntroSkipMode,
 		IntroStartSeconds:               s.IntroStartSeconds,
 		IntroEndSeconds:                 s.IntroEndSeconds,
 		CreditsStartSeconds:             s.CreditsStartSeconds,
@@ -133,7 +130,6 @@ type playbackSession struct {
 	id                         string
 	userID                     int
 	media                      db.MediaItem
-	introSkipMode              string
 	durationSeconds            int
 	capabilities               ClientPlaybackCapabilities
 	audioIndex                 int
@@ -145,8 +141,7 @@ type playbackSession struct {
 	burnEmbeddedSubtitleStream *int // non-nil when subtitles are burned into the transcoded video
 }
 
-func attachIntroFields(state *PlaybackSessionState, media db.MediaItem, introSkipMode string) {
-	state.IntroSkipMode = db.NormalizeIntroSkipMode(introSkipMode)
+func attachIntroFields(state *PlaybackSessionState, media db.MediaItem) {
 	if media.IntroStartSeconds != nil {
 		v := *media.IntroStartSeconds
 		state.IntroStartSeconds = &v
@@ -332,7 +327,6 @@ func (m *PlaybackSessionManager) Shutdown() {
 func (m *PlaybackSessionManager) Create(
 	ctx context.Context,
 	media db.MediaItem,
-	introSkipMode string,
 	settings db.TranscodingSettings,
 	audioIndex int,
 	userID int,
@@ -375,7 +369,7 @@ func (m *PlaybackSessionManager) Create(
 			EmbeddedAudioTracks:             media.EmbeddedAudioTracks,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnStored),
 		}
-		attachIntroFields(&state, media, introSkipMode)
+		attachIntroFields(&state, media)
 		return state, nil
 	}
 
@@ -406,7 +400,6 @@ func (m *PlaybackSessionManager) Create(
 		id:                         sessionID,
 		userID:                     userID,
 		media:                      media,
-		introSkipMode:              db.NormalizeIntroSkipMode(introSkipMode),
 		durationSeconds:            durationSeconds,
 		capabilities:               capabilities,
 		audioIndex:                 audioIndex,
@@ -469,7 +462,7 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 			EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnPtr),
 		}
-		attachIntroFields(&state, session.media, session.introSkipMode)
+		attachIntroFields(&state, session.media)
 		return state, nil
 	}
 	return m.startRevision(session, settings, audioIndex, decision, &probe)
@@ -601,7 +594,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnClosed),
 	}
-	attachIntroFields(&closed, session.media, session.introSkipMode)
+	attachIntroFields(&closed, session.media)
 	m.broadcast(closed)
 }
 
@@ -638,7 +631,7 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(s.burnEmbeddedSubtitleStream),
 			Error:                           revision.err,
 		}
-		attachIntroFields(&replay, s.media, s.introSkipMode)
+		attachIntroFields(&replay, s.media)
 		return &replay
 	}
 	return nil
@@ -834,7 +827,7 @@ func (m *PlaybackSessionManager) startRevision(
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
-	attachIntroFields(&starting, session.media, session.introSkipMode)
+	attachIntroFields(&starting, session.media)
 	return starting, nil
 }
 
@@ -916,7 +909,7 @@ func (m *PlaybackSessionManager) runRevision(
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
-	attachIntroFields(&finalState, session.media, session.introSkipMode)
+	attachIntroFields(&finalState, session.media)
 
 	for index, plan := range plans {
 		if ctx.Err() != nil {
@@ -1077,7 +1070,7 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnReady),
 	}
-	attachIntroFields(&ready, session.media, session.introSkipMode)
+	attachIntroFields(&ready, session.media)
 	m.broadcast(ready)
 
 	if previousActive > 0 && previousActive != activeRevision {

@@ -12,11 +12,6 @@ ffmpeg -hide_banner -h muxer=chromaprint
 
 If you see `Unknown format 'chromaprint'`, install a build that links Chromaprint or set `PLUM_INTRO_FINGERPRINT_DIR` only after switching ffmpeg.
 
-## API
-
-- `POST /api/libraries/{id}/intro/chromaprint-scan` — optional JSON body `{ "show_key": "tmdb-123" }` to limit to one series; omit for all shows in the library.
-- Returns `400` when the muxer is missing or the fingerprint cache directory cannot be resolved.
-
 ## Limitations
 
 Detection is heuristic (Hamming distance on subfingerprints); false positives/negatives are possible. Episodes with `intro_locked` on the primary `media_files` row are skipped.

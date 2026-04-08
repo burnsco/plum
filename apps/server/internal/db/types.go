@@ -209,7 +209,6 @@ type Library struct {
 	WatcherEnabled            bool      `json:"watcher_enabled,omitempty"`
 	WatcherMode               string    `json:"watcher_mode,omitempty"`
 	ScanIntervalMinutes       int       `json:"scan_interval_minutes,omitempty"`
-	IntroSkipMode             string    `json:"intro_skip_mode,omitempty"`
 	CreatedAt                 time.Time `json:"created_at"`
 }
 

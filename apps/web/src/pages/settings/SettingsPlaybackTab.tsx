@@ -1,4 +1,4 @@
-import type { IntroSkipMode, Library } from "@plum/contracts";
+import type { Library } from "@plum/contracts";
 import { Button } from "@/components/ui/button";
 import {
   languagePreferenceOptions,
@@ -150,34 +150,6 @@ export function SettingsPlaybackTab({
                       description="If the preferred subtitle language exists, Plum will enable it automatically."
                     />
 
-                    <SettingsSelectRow
-                      id={`library-intro-skip-${library.id}`}
-                      label="Intro skip"
-                      description={
-                        <>
-                          When the video file has a chapter titled Intro, Opening, or similar, Plum can
-                          jump past it. Rescan the library after adding chapters so timestamps are picked
-                          up.
-                        </>
-                      }
-                    >
-                      <select
-                        id={`library-intro-skip-${library.id}`}
-                        value={current.intro_skip_mode}
-                        onChange={(event) =>
-                          setLibraryField(
-                            library.id,
-                            "intro_skip_mode",
-                            event.target.value as IntroSkipMode,
-                          )
-                        }
-                        className="flex h-9 w-full rounded-md border border-(--plum-border) bg-(--plum-panel) px-3 py-1 text-sm text-(--plum-text) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--plum-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--plum-bg)"
-                      >
-                        <option value="off">Off</option>
-                        <option value="manual">Show skip button</option>
-                        <option value="auto">Auto-skip</option>
-                      </select>
-                    </SettingsSelectRow>
                   </div>
                 ) : (
                   <p className="mt-5 text-sm text-(--plum-muted)">

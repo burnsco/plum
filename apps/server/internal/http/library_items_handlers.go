@@ -219,8 +219,7 @@ type showSeasonEpisodesResponse struct {
 }
 
 type showEpisodesResponse struct {
-	IntroSkipMode string                       `json:"intro_skip_mode,omitempty"`
-	Seasons       []showSeasonEpisodesResponse `json:"seasons"`
+	Seasons []showSeasonEpisodesResponse `json:"seasons"`
 }
 
 func (h *LibraryHandler) GetLibraryShowEpisodes(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +276,6 @@ func (h *LibraryHandler) GetLibraryShowEpisodes(w http.ResponseWriter, r *http.R
 		})
 	}
 	writeJSON(w, http.StatusOK, showEpisodesResponse{
-		IntroSkipMode: db.GetLibraryIntroSkipMode(h.DB, libraryID),
-		Seasons:       seasons,
+		Seasons: seasons,
 	})
 }

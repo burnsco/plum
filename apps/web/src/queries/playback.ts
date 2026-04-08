@@ -1,6 +1,5 @@
-/** Playback-adjacent catalog refresh hooks (ffprobe / sidecars / intros). */
+/** Playback-adjacent catalog refresh hooks (ffprobe / sidecars). */
 export {
   useRefreshLibraryPlaybackTracks,
-  useRefreshLibraryIntroOnly,
   useRefreshPlaybackTrackMetadata,
 } from "./library";

@@ -153,7 +153,6 @@ CREATE TABLE IF NOT EXISTS libraries (
   watcher_enabled INTEGER NOT NULL DEFAULT 0,
   watcher_mode TEXT NOT NULL DEFAULT 'auto',
   scan_interval_minutes INTEGER NOT NULL DEFAULT 0,
-  intro_skip_mode TEXT NOT NULL DEFAULT 'manual',
   created_at DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_libraries_user_id ON libraries(user_id);
@@ -1134,15 +1133,12 @@ var schemaMigrations = []schemaMigration{
 	},
 	{
 		version: 24,
-		name:    "intro_skip_and_chapter_probe",
+		name:    "chapter_probe",
 		apply: func(ctx context.Context, tx *sql.Tx) error {
 			if err := addColumnIfMissingTx(ctx, tx, "media_files", "intro_start_sec", "REAL"); err != nil {
 				return err
 			}
 			if err := addColumnIfMissingTx(ctx, tx, "media_files", "intro_end_sec", "REAL"); err != nil {
-				return err
-			}
-			if err := addColumnIfMissingTx(ctx, tx, "libraries", "intro_skip_mode", "TEXT NOT NULL DEFAULT 'manual'"); err != nil {
 				return err
 			}
 			return nil
