@@ -64,21 +64,27 @@ type ScanDelta struct {
 }
 
 type Subtitle struct {
-	ID       int    `json:"id"`
-	MediaID  int    `json:"-"`
-	Title    string `json:"title"`
-	Language string `json:"language"`
-	Format   string `json:"format"`
-	Path     string `json:"-"`
+	ID              int    `json:"id"`
+	MediaID         int    `json:"-"`
+	Title           string `json:"title"`
+	Language        string `json:"language"`
+	Format          string `json:"format"`
+	Forced          bool   `json:"forced,omitempty"`
+	Default         bool   `json:"default,omitempty"`
+	HearingImpaired bool   `json:"hearingImpaired,omitempty"`
+	Path            string `json:"-"`
 }
 
 type EmbeddedSubtitle struct {
-	MediaID     int    `json:"-"`
-	StreamIndex int    `json:"streamIndex"`
-	Language    string `json:"language"`
-	Title       string `json:"title"`
-	Codec       string `json:"codec,omitempty"`
-	Supported   *bool  `json:"supported,omitempty"`
+	MediaID         int    `json:"-"`
+	StreamIndex     int    `json:"streamIndex"`
+	Language        string `json:"language"`
+	Title           string `json:"title"`
+	Codec           string `json:"codec,omitempty"`
+	Supported       *bool  `json:"supported,omitempty"`
+	Forced          bool   `json:"forced,omitempty"`
+	Default         bool   `json:"default,omitempty"`
+	HearingImpaired bool   `json:"hearingImpaired,omitempty"`
 }
 
 type EmbeddedAudioTrack struct {

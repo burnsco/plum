@@ -15,6 +15,7 @@ func TestEmbeddedSubtitleWebVTTDeliveryEligible(t *testing.T) {
 		{"supported false", EmbeddedSubtitle{Codec: "subrip", Supported: &falseVal}, false},
 		{"supported true", EmbeddedSubtitle{Codec: "subrip", Supported: &trueVal}, true},
 		{"pgs", EmbeddedSubtitle{Codec: "hdmv_pgs_subtitle"}, false},
+		{"short pgs alias", EmbeddedSubtitle{Codec: "pgs"}, false},
 		{"pgs supported true still bitmap", EmbeddedSubtitle{Codec: "hdmv_pgs_subtitle", Supported: &trueVal}, false},
 	}
 	for _, tc := range cases {
@@ -36,6 +37,7 @@ func TestEmbeddedSubtitlePgsBinaryDeliveryEligible(t *testing.T) {
 	}{
 		{"pgs", EmbeddedSubtitle{Codec: "hdmv_pgs_subtitle"}, true},
 		{"pgssub", EmbeddedSubtitle{Codec: "pgssub"}, true},
+		{"short pgs alias", EmbeddedSubtitle{Codec: "pgs"}, true},
 		{"subrip", EmbeddedSubtitle{Codec: "subrip"}, false},
 		{"pgs supported false", EmbeddedSubtitle{Codec: "hdmv_pgs_subtitle", Supported: &falseVal}, false},
 		{"pgs supported true", EmbeddedSubtitle{Codec: "hdmv_pgs_subtitle", Supported: &trueVal}, true},

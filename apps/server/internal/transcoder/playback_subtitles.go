@@ -38,6 +38,9 @@ type PlaybackEmbeddedSubtitleJSON struct {
 	Title             string `json:"title"`
 	Codec             string `json:"codec,omitempty"`
 	Supported         *bool  `json:"supported,omitempty"`
+	Forced            bool   `json:"forced,omitempty"`
+	Default           bool   `json:"default,omitempty"`
+	HearingImpaired   bool   `json:"hearingImpaired,omitempty"`
 	VttEligible       bool   `json:"vttEligible"`
 	PgsBinaryEligible bool   `json:"pgsBinaryEligible"`
 	AssEligible       bool   `json:"assEligible"`
@@ -55,6 +58,9 @@ func embeddedSubtitlesForPlaybackJSON(media db.MediaItem) []PlaybackEmbeddedSubt
 			Title:             e.Title,
 			Codec:             e.Codec,
 			Supported:         e.Supported,
+			Forced:            e.Forced,
+			Default:           e.Default,
+			HearingImpaired:   e.HearingImpaired,
 			VttEligible:       db.EmbeddedSubtitleWebVTTDeliveryEligible(e),
 			PgsBinaryEligible: db.EmbeddedSubtitlePgsBinaryDeliveryEligible(e),
 			AssEligible:       db.EmbeddedSubtitleAssDeliveryEligible(e),
