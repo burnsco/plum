@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
+import { PlaybackPreferencesProvider } from "../contexts/playbackPreferencesContext";
+import { usePlaybackPreferences } from "../contexts/usePlaybackPreferences";
 import { videoAutoplayStorageKey } from "../lib/playbackPreferences";
+import { useLibraries } from "../queries";
 import { PlaybackDock } from "./PlaybackDock";
 
 type MockHlsInstance = {
@@ -37,12 +40,16 @@ const { mockHlsInstances } = vi.hoisted(() => ({
   mockHlsInstances: [] as MockHlsInstance[],
 }));
 
-vi.mock("../contexts/PlayerContext", () => ({
-  usePlayer: () => mockUsePlayer(),
-  usePlayerSession: () => mockUsePlayer(),
-  usePlayerQueue: () => mockUsePlayer(),
-  usePlayerTransport: () => mockUsePlayer(),
-}));
+vi.mock("../contexts/PlayerContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../contexts/PlayerContext")>();
+  return {
+    ...actual,
+    usePlayer: () => mockUsePlayer(),
+    usePlayerSession: () => mockUsePlayer(),
+    usePlayerQueue: () => mockUsePlayer(),
+    usePlayerTransport: () => mockUsePlayer(),
+  };
+});
 
 vi.mock("hls.js", () => ({
   default: class {
@@ -85,17 +92,33 @@ vi.mock("hls.js", () => ({
   },
 }));
 
+function PlaybackDockTestHarness() {
+  const { data: libraries = [], isFetched } = useLibraries();
+  const prefsApi = usePlaybackPreferences(libraries);
+  return (
+    <PlaybackPreferencesProvider
+      value={{ api: prefsApi, librariesFetched: isFetched }}
+    >
+      <PlaybackDock />
+    </PlaybackPreferencesProvider>
+  );
+}
+
+function playbackDockTestTree(queryClient: QueryClient) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <PlaybackDockTestHarness />
+    </QueryClientProvider>
+  );
+}
+
 function renderDock() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return {
     queryClient,
-    ...render(
-      <QueryClientProvider client={queryClient}>
-        <PlaybackDock />
-      </QueryClientProvider>,
-    ),
+    ...render(playbackDockTestTree(queryClient)),
   };
 }
 
@@ -244,11 +267,7 @@ describe("PlaybackDock audio track selection", () => {
         "http://localhost:3000/api/playback/sessions/session-1/revisions/2/index.m3u8",
     });
 
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <PlaybackDock />
-      </QueryClientProvider>,
-    );
+    rerender(playbackDockTestTree(queryClient));
 
     await waitFor(() => {
       expect(mockHlsInstances).toHaveLength(2);
@@ -400,11 +419,7 @@ describe("PlaybackDock audio track selection", () => {
       registerMediaElement: vi.fn(),
     });
 
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <PlaybackDock />
-      </QueryClientProvider>,
-    );
+    rerender(playbackDockTestTree(queryClient));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Unmute" })).toBeTruthy();
@@ -828,11 +843,7 @@ describe("PlaybackDock audio track selection", () => {
         queueIndex: 1,
       });
 
-      rerender(
-        <QueryClientProvider client={queryClient}>
-          <PlaybackDock />
-        </QueryClientProvider>,
-      );
+      rerender(playbackDockTestTree(queryClient));
 
       await waitFor(() => {
         expect(fetchSpy).toHaveBeenCalledWith(
@@ -1048,11 +1059,7 @@ describe("PlaybackDock audio track selection", () => {
         "http://localhost:3000/api/playback/sessions/session-1/revisions/2/index.m3u8",
     });
 
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <PlaybackDock />
-      </QueryClientProvider>,
-    );
+    rerender(playbackDockTestTree(queryClient));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Audio track: Japanese/i })).toBeTruthy();
@@ -1200,5 +1207,109 @@ describe("PlaybackDock audio track selection", () => {
     await waitFor(() => {
       expect(window.localStorage.getItem(videoAutoplayStorageKey)).toBe("false");
     });
+  });
+
+  it("auto-advances when the Up next countdown completes", async () => {
+    vi.useFakeTimers();
+    try {
+      const playNextInQueue = vi.fn<() => void>();
+      mockUsePlayer.mockReturnValue({
+        ...defaultPlaybackDockUsePlayer(),
+        queue: [
+          { ...defaultPlaybackDockUsePlayer().activeItem, id: 42 },
+          { ...defaultPlaybackDockUsePlayer().activeItem, id: 43 },
+        ],
+        queueIndex: 0,
+        playNextInQueue,
+      });
+
+      const { container } = renderDock();
+      const video = container.querySelector("video") as HTMLVideoElement | null;
+      expect(video).toBeTruthy();
+      if (!video) {
+        throw new Error("Expected a video element");
+      }
+
+      fireEvent.ended(video);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(screen.getByRole("dialog", { name: "Up next" })).toBeTruthy();
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(playNextInQueue).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("advances the music queue when a track ends with repeat off", () => {
+    const playNextInQueue = vi.fn<() => void>();
+    const trackA = {
+      id: 501,
+      library_id: 7,
+      title: "Song A",
+      path: "/music/a.flac",
+      duration: 120,
+      type: "music" as const,
+    };
+    const trackB = { ...trackA, id: 502, title: "Song B", path: "/music/b.flac" };
+    mockUsePlayer.mockReturnValue({
+      ...defaultPlaybackDockUsePlayer(),
+      activeMode: "music",
+      activeItem: trackA,
+      queue: [trackA, trackB],
+      queueIndex: 0,
+      playNextInQueue,
+      repeatMode: "off",
+    });
+
+    const { container } = renderDock();
+    const audio = container.querySelector("audio.plum-music-audio") as HTMLAudioElement | null;
+    expect(audio).toBeTruthy();
+    if (!audio) {
+      throw new Error("Expected music audio element");
+    }
+
+    fireEvent.ended(audio);
+    expect(playNextInQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts the current music track when repeat one is enabled", () => {
+    const playNextInQueue = vi.fn<() => void>();
+    const trackA = {
+      id: 601,
+      library_id: 7,
+      title: "Song A",
+      path: "/music/a.flac",
+      duration: 120,
+      type: "music" as const,
+    };
+    mockUsePlayer.mockReturnValue({
+      ...defaultPlaybackDockUsePlayer(),
+      activeMode: "music",
+      activeItem: trackA,
+      queue: [trackA],
+      queueIndex: 0,
+      playNextInQueue,
+      repeatMode: "one",
+    });
+
+    const { container } = renderDock();
+    const audio = container.querySelector("audio.plum-music-audio") as HTMLAudioElement | null;
+    expect(audio).toBeTruthy();
+    if (!audio) {
+      throw new Error("Expected music audio element");
+    }
+
+    const play = vi.spyOn(audio, "play").mockResolvedValue(undefined as never);
+    fireEvent.ended(audio);
+    expect(playNextInQueue).not.toHaveBeenCalled();
+    expect(audio.currentTime).toBe(0);
+    expect(play).toHaveBeenCalled();
   });
 });
