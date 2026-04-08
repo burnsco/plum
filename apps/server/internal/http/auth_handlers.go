@@ -20,23 +20,59 @@ import (
 const (
 	quickConnectCodeLength       = 6
 	quickConnectMaxFailedGuesses = 5
+	quickConnectFailureTTL       = 30 * time.Minute
+	quickConnectPruneInterval    = 5 * time.Minute
 	// Alphabet avoids ambiguous 0/O and 1/I (similar to many TV pairing UIs).
 	quickConnectAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 )
 
 var quickConnectFailureCounts sync.Map // normalized code -> *quickConnectFailSlot
+var quickConnectFailureLastPrune atomic.Int64
 
 type quickConnectFailSlot struct {
-	n atomic.Int32
+	n           atomic.Int32
+	lastSeenUTC atomic.Int64
 }
 
 func quickConnectRegisterFailedGuess(code string) bool {
-	v, _ := quickConnectFailureCounts.LoadOrStore(code, &quickConnectFailSlot{})
-	return v.(*quickConnectFailSlot).n.Add(1) > int32(quickConnectMaxFailedGuesses)
+	nowUnix := time.Now().UTC().Unix()
+	slotAny, _ := quickConnectFailureCounts.LoadOrStore(code, newQuickConnectFailSlot(nowUnix))
+	slot := slotAny.(*quickConnectFailSlot)
+	slot.lastSeenUTC.Store(nowUnix)
+	quickConnectPruneFailureCounts(nowUnix)
+	return slot.n.Add(1) > int32(quickConnectMaxFailedGuesses)
 }
 
 func quickConnectClearGuessFailures(code string) {
 	quickConnectFailureCounts.Delete(code)
+}
+
+func newQuickConnectFailSlot(nowUnix int64) *quickConnectFailSlot {
+	slot := &quickConnectFailSlot{}
+	slot.lastSeenUTC.Store(nowUnix)
+	return slot
+}
+
+func quickConnectPruneFailureCounts(nowUnix int64) {
+	lastPrune := quickConnectFailureLastPrune.Load()
+	if nowUnix-lastPrune < int64(quickConnectPruneInterval.Seconds()) {
+		return
+	}
+	if !quickConnectFailureLastPrune.CompareAndSwap(lastPrune, nowUnix) {
+		return
+	}
+	expireBefore := nowUnix - int64(quickConnectFailureTTL.Seconds())
+	quickConnectFailureCounts.Range(func(key, value any) bool {
+		slot, ok := value.(*quickConnectFailSlot)
+		if !ok {
+			quickConnectFailureCounts.Delete(key)
+			return true
+		}
+		if slot.lastSeenUTC.Load() < expireBefore {
+			quickConnectFailureCounts.Delete(key)
+		}
+		return true
+	})
 }
 
 func randomQuickConnectCode() (string, error) {

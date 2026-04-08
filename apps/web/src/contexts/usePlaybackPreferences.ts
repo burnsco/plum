@@ -12,19 +12,21 @@ import {
 } from "../lib/playbackPreferences";
 import { preferredInitialAudioIndex } from "../lib/playback/playerQueue";
 import {
+  embeddedStreamIndexFromLogicalId,
   formatSubtitleTrackLabel,
   getPreferredSubtitleKey,
   type SubtitleTrackOption,
 } from "../lib/playback/playerMedia";
 
-function buildInitialSubtitleTrackOptions(
-  item: MediaItem,
-): SubtitleTrackOption[] {
+function buildInitialSubtitleTrackOptions(item: MediaItem): SubtitleTrackOption[] {
   const embedded =
     item.embeddedSubtitles?.map((subtitle, index) => {
       const requiresBurn = embeddedSubtitleNeedsWebBurnIn(subtitle);
+      const logicalId = subtitle.logicalId || `emb:${subtitle.streamIndex}`;
       return {
-        key: `emb-${subtitle.streamIndex}`,
+        key: logicalId,
+        logicalId,
+        origin: "embedded" as const,
         label: formatSubtitleTrackLabel(
           subtitle.title,
           subtitle.language,
@@ -47,24 +49,17 @@ export function resolveInitialBurnSubtitleStreamIndex(
   item: MediaItem,
   libraryPrefs: ResolvedLibraryPlaybackPreferences,
 ): number | null {
-  const effectiveDefaults = resolveEffectiveWebTrackDefaults(
-    item,
-    readStoredPlayerWebDefaults(),
-  );
+  const effectiveDefaults = resolveEffectiveWebTrackDefaults(item, readStoredPlayerWebDefaults());
   const subtitlesDisabledByClient =
-    effectiveDefaults.defaultSubtitleLanguage.trim() ===
-    PLAYER_WEB_TRACK_LANGUAGE_NONE;
-  const subtitlesEnabled =
-    !subtitlesDisabledByClient && libraryPrefs.subtitlesEnabledByDefault;
+    effectiveDefaults.defaultSubtitleLanguage.trim() === PLAYER_WEB_TRACK_LANGUAGE_NONE;
+  const subtitlesEnabled = !subtitlesDisabledByClient && libraryPrefs.subtitlesEnabledByDefault;
   if (!subtitlesEnabled) return null;
 
   const preferredSubtitleLanguageRaw =
     effectiveDefaults.defaultSubtitleLanguage.trim() !== ""
       ? effectiveDefaults.defaultSubtitleLanguage
       : libraryPrefs.preferredSubtitleLanguage;
-  const preferredSubtitleLanguage = normalizeLanguagePreference(
-    preferredSubtitleLanguageRaw,
-  );
+  const preferredSubtitleLanguage = normalizeLanguagePreference(preferredSubtitleLanguageRaw);
   if (preferredSubtitleLanguage === "") return null;
 
   const subtitleLabelHint =
@@ -77,12 +72,9 @@ export function resolveInitialBurnSubtitleStreamIndex(
     true,
     subtitleLabelHint,
   );
-  if (!preferredSubtitleKey.startsWith("emb-")) return null;
-  const streamIndex = Number(preferredSubtitleKey.slice(4));
-  if (!Number.isFinite(streamIndex)) return null;
-  const selected = item.embeddedSubtitles?.find(
-    (track) => track.streamIndex === streamIndex,
-  );
+  const streamIndex = embeddedStreamIndexFromLogicalId(preferredSubtitleKey);
+  if (streamIndex == null) return null;
+  const selected = item.embeddedSubtitles?.find((track) => track.streamIndex === streamIndex);
   if (!selected || !embeddedSubtitleNeedsWebBurnIn(selected)) {
     return null;
   }
@@ -101,16 +93,11 @@ export type PlaybackPreferencesApi = {
   ) => number;
 };
 
-export function usePlaybackPreferences(
-  libraries: Library[],
-): PlaybackPreferencesApi {
+export function usePlaybackPreferences(libraries: Library[]): PlaybackPreferencesApi {
   const libraryPrefsForItem = useCallback(
     (item: MediaItem): ResolvedLibraryPlaybackPreferences => {
-      const activeLibrary =
-        libraries.find((library) => library.id === item.library_id) ?? null;
-      return resolveLibraryPlaybackPreferences(
-        activeLibrary ?? { type: item.type },
-      );
+      const activeLibrary = libraries.find((library) => library.id === item.library_id) ?? null;
+      return resolveLibraryPlaybackPreferences(activeLibrary ?? { type: item.type });
     },
     [libraries],
   );
@@ -134,16 +121,10 @@ export function usePlaybackPreferences(
   );
 
   const audioIndexForSubtitleBurnChange = useCallback(
-    (
-      item: MediaItem,
-      session: { audioIndex: number } | null | undefined,
-    ): number =>
+    (item: MediaItem, session: { audioIndex: number } | null | undefined): number =>
       session != null
         ? session.audioIndex
-        : preferredInitialAudioIndex(
-            item,
-            libraryPrefsForItem(item).preferredAudioLanguage,
-          ),
+        : preferredInitialAudioIndex(item, libraryPrefsForItem(item).preferredAudioLanguage),
     [libraryPrefsForItem],
   );
 

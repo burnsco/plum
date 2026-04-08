@@ -93,7 +93,6 @@ export function WsProvider({ children }: { children: ReactNode }) {
           if (!mountedRef.current || cancelled || wsRef.current != null) return;
           reconnectTimeoutRef.current = setTimeout(connect, 3000);
         };
-
         void refreshMe()
           .then((nextUser) => {
             if (nextUser == null) {

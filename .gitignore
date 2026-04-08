@@ -10,10 +10,10 @@ apps/web/.vite/
 
 # Android TV
 ANDROID_TV_LOCAL.md
-apps/android-tv/.gradle/
-apps/android-tv/**/build/
-apps/android-tv/local.properties
-apps/android-tv/*.iml
+apps/android/.gradle/
+apps/android/**/build/
+apps/android/local.properties
+apps/android/*.iml
 
 # Server
 apps/server/plum

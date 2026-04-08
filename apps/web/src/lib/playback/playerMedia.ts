@@ -1,10 +1,12 @@
 import Hls from "hls.js";
-import type { ClientPlaybackCapabilities, MediaItem } from "../../api";
+import type {
+  ClientPlaybackCapabilities,
+  EmbeddedSubtitleDeliveryMode,
+  EmbeddedSubtitleDeliveryOption,
+  MediaItem,
+} from "../../api";
 import { ignorePromise } from "../ignorePromise";
-import {
-  languageMatchesPreference,
-  type SubtitleAppearance,
-} from "../playbackPreferences";
+import { languageMatchesPreference, type SubtitleAppearance } from "../playbackPreferences";
 
 export type BrowserAudioTrack = {
   enabled: boolean;
@@ -36,12 +38,16 @@ export type TrackMenuOption = {
 };
 
 export type SubtitleTrackOption = TrackMenuOption & {
+  logicalId?: string;
+  origin?: "external" | "embedded";
   src: string;
   srcLang: string;
   supported?: boolean;
   forced?: boolean;
   default?: boolean;
   hearingImpaired?: boolean;
+  deliveryModes?: ReadonlyArray<EmbeddedSubtitleDeliveryOption>;
+  preferredWebDeliveryMode?: EmbeddedSubtitleDeliveryMode;
   /** PGS-style track: selecting it restarts playback with server burn-in transcode. */
   requiresBurn?: boolean;
   /** ASS/SSA track: use JASSUB renderer instead of the HTML5 TextTrack API. */
@@ -49,6 +55,22 @@ export type SubtitleTrackOption = TrackMenuOption & {
   /** Raw ASS/SSA URL served by the /ass endpoint; only set when assEligible is true. */
   assSrc?: string;
 };
+
+export function isEmbeddedSubtitleLogicalId(logicalId: string): boolean {
+  return logicalId.startsWith("emb:");
+}
+
+export function embeddedStreamIndexFromLogicalId(logicalId: string): number | null {
+  if (!isEmbeddedSubtitleLogicalId(logicalId)) return null;
+  const n = Number(logicalId.slice(4));
+  return Number.isFinite(n) ? n : null;
+}
+
+export function encodeLogicalSubtitleIdForPlaylist(logicalId: string): string {
+  return Array.from(new TextEncoder().encode(logicalId))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 export type AudioTrackOption = TrackMenuOption & {
   streamIndex: number;
@@ -109,12 +131,9 @@ export function getBrowserAudioTracks(
   element: HTMLVideoElement | null,
 ): BrowserAudioTrackList | null {
   if (!element) return null;
-  const audioTracks = (
-    element as HTMLVideoElement & { audioTracks?: BrowserAudioTrackList }
-  ).audioTracks;
-  return audioTracks && typeof audioTracks.length === "number"
-    ? audioTracks
-    : null;
+  const audioTracks = (element as HTMLVideoElement & { audioTracks?: BrowserAudioTrackList })
+    .audioTracks;
+  return audioTracks && typeof audioTracks.length === "number" ? audioTracks : null;
 }
 
 export function formatTrackLabel(
@@ -162,9 +181,7 @@ export function formatClock(totalSeconds: number): string {
 }
 
 export function formatHlsErrorMessage(data: HlsErrorData): string {
-  return (
-    data.details || data.type || data.error?.message || "Playback stream failed"
-  );
+  return data.details || data.type || data.error?.message || "Playback stream failed";
 }
 
 export function resolvedVideoDuration(
@@ -178,9 +195,7 @@ export function resolvedVideoDuration(
   if (Number.isFinite(itemDuration) && itemDuration > 0) {
     return itemDuration;
   }
-  return Number.isFinite(elementDuration) && elementDuration > 0
-    ? elementDuration
-    : 0;
+  return Number.isFinite(elementDuration) && elementDuration > 0 ? elementDuration : 0;
 }
 
 /** Plum transcode/remux HLS uses growing `EVENT` playlists; direct file streams are full seekable range. */
@@ -210,13 +225,8 @@ export function seekUpperBoundSeconds(
   itemDurationSeconds: number,
   delivery: PlumVideoDelivery,
 ): number {
-  const catalog = resolvedVideoDuration(
-    authoritativeSeconds,
-    itemDurationSeconds,
-    0,
-  );
-  const elDur =
-    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+  const catalog = resolvedVideoDuration(authoritativeSeconds, itemDurationSeconds, 0);
+  const elDur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
   const seekableEnd = mediaSeekableEndSeconds(video);
 
   if (delivery === "remux" || delivery === "transcode") {
@@ -244,27 +254,18 @@ export function clampVideoSeekSeconds(
   itemDurationSeconds: number,
   delivery: PlumVideoDelivery,
 ): number {
-  const upper = seekUpperBoundSeconds(
-    video,
-    authoritativeSeconds,
-    itemDurationSeconds,
-    delivery,
-  );
+  const upper = seekUpperBoundSeconds(video, authoritativeSeconds, itemDurationSeconds, delivery);
   const t = Math.max(0, targetSeconds);
   if (upper <= 0 || !Number.isFinite(upper)) return t;
   return Math.min(t, Math.max(0, upper - SEEK_END_EPSILON_SEC));
 }
 
-export function nudgeVideoIntoBufferedRange(
-  video: HTMLVideoElement | null,
-): boolean {
+export function nudgeVideoIntoBufferedRange(video: HTMLVideoElement | null): boolean {
   if (!video || video.buffered.length === 0) {
     return false;
   }
 
-  const currentTime = Number.isFinite(video.currentTime)
-    ? video.currentTime
-    : 0;
+  const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
   for (let index = 0; index < video.buffered.length; index += 1) {
     const start = video.buffered.start(index);
     const end = video.buffered.end(index);
@@ -289,9 +290,7 @@ export function nudgeVideoIntoBufferedRange(
   return false;
 }
 
-export function bufferedRangeStartsNearZero(
-  video: HTMLVideoElement | null,
-): boolean {
+export function bufferedRangeStartsNearZero(video: HTMLVideoElement | null): boolean {
   if (!video || video.buffered.length === 0) {
     return false;
   }
@@ -320,10 +319,7 @@ function parseVttTimestamp(value: string): number | null {
  * {@link parseVttCueBlocks} already treats an in-progress last cue (no closing blank line) as a
  * valid block once the timing line is complete.
  */
-export function streamingVttPrefixForParse(
-  accum: string,
-  streamDone: boolean,
-): string {
+export function streamingVttPrefixForParse(accum: string, streamDone: boolean): string {
   const n = accum.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
   if (streamDone) {
     return n;
@@ -392,10 +388,7 @@ export async function consumeSubtitleResponseWithPartialUpdates(
       }
     }
   } catch (error) {
-    if (
-      signal.aborted ||
-      (error instanceof DOMException && error.name === "AbortError")
-    ) {
+    if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
       ignorePromise(reader.cancel(), "playerMedia:readerCancelCatch");
       throw new DOMException("Aborted", "AbortError");
     }
@@ -508,8 +501,7 @@ export function getPreferredSubtitleKey(
   if (hint) {
     const hintMatches = ranked(
       subtitleTracks.filter(
-        (track) =>
-          langMatch(track) && subtitleLabelMatchesHint(track.label, hint),
+        (track) => langMatch(track) && subtitleLabelMatchesHint(track.label, hint),
       ),
     );
     const bestHint = hintMatches[0];
@@ -534,9 +526,7 @@ export function subtitleTrackPriority(
   return 20;
 }
 
-export function sortSubtitleTrackOptions(
-  tracks: SubtitleTrackOption[],
-): SubtitleTrackOption[] {
+export function sortSubtitleTrackOptions(tracks: SubtitleTrackOption[]): SubtitleTrackOption[] {
   return tracks.toSorted((left, right) => {
     const priority = subtitleTrackPriority(left) - subtitleTrackPriority(right);
     if (priority !== 0) return priority;
@@ -560,10 +550,7 @@ export function getPreferredAudioKey(
   );
 }
 
-export function applyCueLineSetting(
-  cue: TextTrackCue,
-  position: SubtitleAppearance["position"],
-) {
+export function applyCueLineSetting(cue: TextTrackCue, position: SubtitleAppearance["position"]) {
   const cueWithLine = cue as TextTrackCue & { line?: number | string };
   if (!("line" in cueWithLine)) return;
   cueWithLine.line = position === "top" ? 8 : "auto";
@@ -588,8 +575,7 @@ export function applyVttCueSettings(cue: TextTrackCue, settings: string[]) {
         }
         break;
       case "line":
-        vttCue.line =
-          value === "auto" ? "auto" : Number(value.replace("%", ""));
+        vttCue.line = value === "auto" ? "auto" : Number(value.replace("%", ""));
         break;
       case "position":
         vttCue.position = Number(value.replace("%", ""));
@@ -624,9 +610,7 @@ export function clearTextTrackCues(track: TextTrack | null) {
 
 export function buildSubtitleCues(body: string): TextTrackCue[] {
   const CueConstructor =
-    typeof window !== "undefined"
-      ? (window.VTTCue ?? window.TextTrackCue)
-      : undefined;
+    typeof window !== "undefined" ? (window.VTTCue ?? window.TextTrackCue) : undefined;
   if (!CueConstructor) {
     return [];
   }
@@ -644,10 +628,7 @@ export function buildSubtitleCues(body: string): TextTrackCue[] {
     .filter(Boolean);
 }
 
-export function hasTextTrack(
-  video: HTMLVideoElement,
-  track: TextTrack | null,
-): boolean {
+export function hasTextTrack(video: HTMLVideoElement, track: TextTrack | null): boolean {
   if (!track) {
     return false;
   }
@@ -660,21 +641,14 @@ export function hasTextTrack(
 }
 
 /** Virtual media playlist filename served under the playback revision (matches server `plum_subs_*` names). */
-export function plumHlsSubtitlePlaylistFileForTrackKey(
-  trackKey: string,
-): string | null {
-  if (trackKey === "off") return null;
-  const match = /^(emb|ext)-(\d+)$/.exec(trackKey);
-  if (!match) return null;
-  return `plum_subs_${match[1]}_${match[2]}.m3u8`;
+export function plumHlsSubtitlePlaylistFileForTrackLogicalId(logicalId: string): string | null {
+  if (logicalId === "off") return null;
+  return `plum_subs_${encodeLogicalSubtitleIdForPlaylist(logicalId)}.m3u8`;
 }
 
-/** Resolves hls.js subtitle track index for a Plum menu key when the master lists our virtual playlists. */
-export function findHlsSubtitleTrackIndexForPlumKey(
-  hls: Hls,
-  trackKey: string,
-): number {
-  const wantFile = plumHlsSubtitlePlaylistFileForTrackKey(trackKey);
+/** Resolves hls.js subtitle track index for a Plum logical subtitle id when the master lists our virtual playlists. */
+export function findHlsSubtitleTrackIndexForLogicalId(hls: Hls, logicalId: string): number {
+  const wantFile = plumHlsSubtitlePlaylistFileForTrackLogicalId(logicalId);
   if (!wantFile) return -1;
   const tracks = hls.subtitleTracks ?? [];
   for (let i = 0; i < tracks.length; i++) {
@@ -692,9 +666,7 @@ export function getSeasonEpisodeLabel(item: MediaItem): string | null {
 }
 
 export function getVideoMetadata(item: MediaItem): string {
-  const bits = [
-    item.type === "movie" ? "Movie" : item.type === "anime" ? "Anime" : "TV",
-  ];
+  const bits = [item.type === "movie" ? "Movie" : item.type === "anime" ? "Anime" : "TV"];
   const seasonEpisode = getSeasonEpisodeLabel(item);
   const releaseYear =
     item.release_date?.split("-")[0] ||
@@ -706,11 +678,7 @@ export function getVideoMetadata(item: MediaItem): string {
   return bits.join(" • ");
 }
 
-export function getMusicMetadata(
-  item: MediaItem,
-  queueIndex: number,
-  queueSize: number,
-): string {
+export function getMusicMetadata(item: MediaItem, queueIndex: number, queueSize: number): string {
   const bits = [item.artist || "Unknown Artist"];
   if (item.album) bits.push(item.album);
   if (queueSize > 0) bits.push(`${queueIndex + 1}/${queueSize}`);

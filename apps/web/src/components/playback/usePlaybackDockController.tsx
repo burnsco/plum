@@ -53,7 +53,6 @@ import {
   buildSubtitleTrackRequests,
   clonePlaybackTrackMetadata,
   embeddedStreamIndexFromKey,
-  rememberBlockedSubtitleKey,
   type PlaybackTrackSource,
 } from "../../lib/playback/playbackDockSubtitleTracks";
 import {
@@ -61,8 +60,6 @@ import {
   bufferedRangeStartsNearZero,
   buildSubtitleCues,
   clearTextTrackCues,
-  consumeSubtitleResponseWithPartialUpdates,
-  findHlsSubtitleTrackIndexForPlumKey,
   formatClock,
   formatTrackLabel,
   getBrowserAudioTracks,
@@ -102,6 +99,8 @@ import { PlaybackVideoStage } from "./PlaybackVideoStage";
 import { PlayerLoadingOverlay } from "./PlayerLoadingOverlay";
 import { useHlsAttachment } from "./useHlsAttachment";
 import { usePlaybackDockUpNext } from "./usePlaybackDockUpNext";
+import { useSubtitleController } from "./useSubtitleController";
+import { useSubtitleTransport, type LoadedSubtitleTrack } from "./useSubtitleTransport";
 
 const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
 
@@ -109,10 +108,6 @@ type PlaybackState = {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
-};
-
-type LoadedSubtitleTrack = SubtitleTrackOption & {
-  body: string;
 };
 
 type VideoProgressSnapshot = {
@@ -132,10 +127,6 @@ type QueuedSubtitlePreference =
     };
 
 const CONTROLS_HIDE_DELAY = 3000;
-/** Sidecar SRT/VTT etc. */
-const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
-/** Embedded tracks are transcoded server-side (often full-file ffmpeg); client abort was killing ffmpeg at ~45s. */
-const EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS = 600_000;
 export function usePlaybackDockController(): ReactNode {
   const queryClient = useQueryClient();
   const { api: playbackPreferences, librariesFetched } =
@@ -181,7 +172,6 @@ export function usePlaybackDockController(): ReactNode {
     writeStoredVideoAspectMode(value);
   }, []);
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
-  const [activeAssSource, setActiveAssSource] = useState<string | null>(null);
   /** Mirrored from the video ref so JassubRenderer re-renders when the element mounts (ref alone does not). */
   const [jassubVideoElement, setJassubVideoElement] =
     useState<HTMLVideoElement | null>(null);
@@ -697,154 +687,29 @@ export function usePlaybackDockController(): ReactNode {
     },
     [activeItem, isVideo],
   );
-  const ensureSubtitleTrackLoaded = useCallback(
-    async (trackKey: string) => {
-      if (trackKey === "off") return;
-      if (loadedSubtitleTracks.some((track) => track.key === trackKey)) return;
-      if (subtitleLoadControllersRef.current.has(trackKey)) return;
-      if (blockedSubtitleRetryKeysRef.current.has(trackKey)) return;
-      const track = subtitleTrackRequests.find(
-        (candidate) => candidate.key === trackKey,
-      );
-      if (!track) return;
-      if (track.requiresBurn) {
-        setPendingSubtitleKey(null);
-        return;
-      }
-      if (track.assEligible && track.assSrc) {
-        // ASS tracks are rendered by JASSUB; no VTT load needed.
-        setSubtitleStatusMessage("Loading subtitles...");
-        setLoadedSubtitleTracks((current) => {
-          const rest = current.filter((candidate) => candidate.key !== trackKey);
-          return [...rest, { ...track, body: "" }];
-        });
-        setActiveAssSource(track.assSrc);
-        setPendingSubtitleKey(null);
-        return;
-      }
-      if (videoSourceIsHls && hlsRef.current) {
-        const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(
-          hlsRef.current,
-          trackKey,
-        );
-        if (hlsIdx >= 0) {
-          setPendingSubtitleKey(null);
-          setSubtitleStatusMessage("");
-          return;
-        }
-      }
-      if (track.supported === false) {
-        setSubtitleStatusMessage("This subtitle track is unavailable.");
-        setPendingSubtitleKey(null);
-        return;
-      }
-
-      const controller = new AbortController();
-      subtitleLoadControllersRef.current.set(trackKey, controller);
-      let timedOut = false;
-      const subtitleTimeoutMs = track.src.includes("/subtitles/embedded/")
-        ? EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS
-        : SUBTITLE_LOAD_TIMEOUT_MS;
-      const timeoutId =
-        typeof window === "undefined"
-          ? null
-          : window.setTimeout(() => {
-              timedOut = true;
-              controller.abort();
-            }, subtitleTimeoutMs);
-
-      try {
-        setSubtitleStatusMessage("Loading subtitles...");
-        const response = await fetch(track.src, {
-          credentials: "include",
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Subtitle request failed: ${response.status}`);
-        }
-        let lastFlushedCueCount = 0;
-        let lastFlushedBodyLen = 0;
-        await consumeSubtitleResponseWithPartialUpdates(
-          response,
-          controller.signal,
-          (bodyForState, streamDone) => {
-            const cues = buildSubtitleCues(bodyForState);
-            if (!streamDone) {
-              if (cues.length === 0) return;
-              if (
-                cues.length === lastFlushedCueCount &&
-                bodyForState.length === lastFlushedBodyLen
-              ) {
-                return;
-              }
-              lastFlushedCueCount = cues.length;
-              lastFlushedBodyLen = bodyForState.length;
-            } else {
-              lastFlushedCueCount = cues.length;
-              lastFlushedBodyLen = bodyForState.length;
-            }
-            setLoadedSubtitleTracks((current) => {
-              const rest = current.filter(
-                (candidate) => candidate.key !== track.key,
-              );
-              return [...rest, { ...track, body: bodyForState }];
-            });
-            if (cues.length > 0) {
-              setSubtitleStatusMessage("");
-            }
-          },
-        );
-        blockedSubtitleRetryKeysRef.current.delete(track.key);
-        setPendingSubtitleKey((current) =>
-          current === track.key ? null : current,
-        );
-        setSubtitleStatusMessage("");
-      } catch (error) {
-        let loadError: unknown = error;
-        if (
-          (error instanceof DOMException && error.name === "AbortError") ||
-          controller.signal.aborted
-        ) {
-          if (!timedOut) {
-            return;
-          }
-          loadError = new Error("Subtitle request timed out");
-        }
-        console.error("[PlaybackDock] Subtitle load failed", {
-          mediaId: activeItem?.id ?? null,
-          source: track.src,
-          error: loadError,
-        });
-        setLoadedSubtitleTracks((current) =>
-          current.filter((candidate) => candidate.key !== track.key),
-        );
-        rememberBlockedSubtitleKey(
-          blockedSubtitleRetryKeysRef.current,
-          track.key,
-        );
-        setPendingSubtitleKey((current) =>
-          current === track.key ? null : current,
-        );
-        setSubtitleStatusMessage(
-          loadError instanceof Error &&
-            loadError.message === "Subtitle request timed out"
-            ? "Subtitle load timed out. Try again."
-            : "Subtitle load failed. Try again.",
-        );
-      } finally {
-        if (timeoutId != null) {
-          window.clearTimeout(timeoutId);
-        }
-        subtitleLoadControllersRef.current.delete(trackKey);
-      }
-    },
-    [
-      activeItem?.id,
-      loadedSubtitleTracks,
-      subtitleTrackRequests,
-      videoSourceIsHls,
-    ],
-  );
+  const { ensureSubtitleTrackLoaded, subtitleLoadStateByKey } =
+    useSubtitleTransport({
+    activeMediaId: activeItem?.id ?? null,
+    loadedSubtitleTracks,
+    subtitleTrackRequests,
+    subtitleLoadControllersRef,
+    blockedSubtitleRetryKeysRef,
+    setPendingSubtitleKey,
+    setLoadedSubtitleTracks,
+    setSubtitleStatusMessage,
+  });
+  const subtitleSelection = useSubtitleController({
+    selectedSubtitleKey,
+    subtitleTrackRequests,
+    subtitleLoadStateByKey,
+    burnEmbeddedSubtitleStreamIndex,
+    videoSourceIsHls,
+    hls: hlsRef.current,
+    resolutionVersion: subtitleReadyVersion,
+  });
+  const subtitleRenderer = subtitleSelection.renderer;
+  const activeAssSource = subtitleSelection.activeAssSource;
+  const manualSubtitleTrackKey = subtitleSelection.manualTrackKey;
 
   useEffect(() => {
     queuedSubtitlePreferenceRef.current = null;
@@ -861,44 +726,42 @@ export function usePlaybackDockController(): ReactNode {
   }, [selectedSubtitleKey, subtitleReadyVersion]);
 
   useEffect(() => {
-    if (selectedSubtitleKey === "off") return;
-    const req = subtitleTrackRequests.find(
-      (t) => t.key === selectedSubtitleKey,
-    );
-    if (req?.requiresBurn) {
+    if (manualSubtitleTrackKey == null) {
       setPendingSubtitleKey(null);
+      if (subtitleRenderer !== "manual_vtt") {
+        setSubtitleStatusMessage("");
+      }
       return;
     }
     if (
-      !loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)
+      !loadedSubtitleTracks.some((track) => track.key === manualSubtitleTrackKey)
     ) {
       setPendingSubtitleKey((current) =>
-        current === selectedSubtitleKey ? current : selectedSubtitleKey,
+        current === manualSubtitleTrackKey ? current : manualSubtitleTrackKey,
       );
     }
-    void ensureSubtitleTrackLoaded(selectedSubtitleKey);
+    void ensureSubtitleTrackLoaded(manualSubtitleTrackKey);
   }, [
     ensureSubtitleTrackLoaded,
     loadedSubtitleTracks,
-    selectedSubtitleKey,
+    manualSubtitleTrackKey,
+    subtitleRenderer,
     subtitleReadyVersion,
-    subtitleTrackRequests,
   ]);
 
   useEffect(() => {
-    if (selectedSubtitleKey === "off") {
+    if (manualSubtitleTrackKey == null) {
       setPendingSubtitleKey(null);
-      setSubtitleStatusMessage("");
       return;
     }
     if (
-      loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)
+      loadedSubtitleTracks.some((track) => track.key === manualSubtitleTrackKey)
     ) {
       setPendingSubtitleKey((current) =>
-        current === selectedSubtitleKey ? null : current,
+        current === manualSubtitleTrackKey ? null : current,
       );
     }
-  }, [loadedSubtitleTracks, selectedSubtitleKey]);
+  }, [loadedSubtitleTracks, manualSubtitleTrackKey, subtitleRenderer]);
 
   useEffect(() => {
     if (pendingSubtitleKey == null) return;
@@ -1115,6 +978,12 @@ export function usePlaybackDockController(): ReactNode {
           duration_seconds: snapshot.durationSeconds,
           completed,
         });
+        if (activeItem.library_id != null) {
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.library(activeItem.library_id),
+          });
+        }
+        void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       } catch (err) {
         if (import.meta.env.DEV) {
           console.warn("[PlaybackDock:updateMediaProgress]", err);
@@ -1125,12 +994,6 @@ export function usePlaybackDockController(): ReactNode {
         positionSeconds: snapshot.positionSeconds,
         completed,
       };
-      if (activeItem.library_id != null) {
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.library(activeItem.library_id),
-        });
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
     },
     [activeItem, captureVideoProgressSnapshot, isVideo, queryClient],
   );
@@ -1503,41 +1366,12 @@ export function usePlaybackDockController(): ReactNode {
       return;
     }
 
-    const burnIdx = burnEmbeddedSubtitleStreamIndex;
-    if (burnIdx != null && selectedSubtitleKey === `emb-${burnIdx}`) {
+    if (subtitleRenderer !== "manual_vtt") {
       clearTextTrackCues(manualSubtitleTrackRef.current);
       if (manualSubtitleTrackRef.current) {
         manualSubtitleTrackRef.current.mode = "disabled";
       }
       return;
-    }
-
-    // ASS tracks are rendered by JassubRenderer; skip TextTrack for them.
-    if (selectedSubtitleKey !== "off") {
-      const selectedTrackReq = subtitleTrackRequests.find(
-        (t) => t.key === selectedSubtitleKey,
-      );
-      if (selectedTrackReq?.assEligible) {
-        clearTextTrackCues(manualSubtitleTrackRef.current);
-        if (manualSubtitleTrackRef.current) {
-          manualSubtitleTrackRef.current.mode = "disabled";
-        }
-        return;
-      }
-    }
-
-    if (videoSourceIsHls && hlsRef.current && selectedSubtitleKey !== "off") {
-      const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(
-        hlsRef.current,
-        selectedSubtitleKey,
-      );
-      if (hlsIdx >= 0) {
-        clearTextTrackCues(manualSubtitleTrackRef.current);
-        if (manualSubtitleTrackRef.current) {
-          manualSubtitleTrackRef.current.mode = "disabled";
-        }
-        return;
-      }
     }
 
     let track = manualSubtitleTrackRef.current;
@@ -1560,14 +1394,9 @@ export function usePlaybackDockController(): ReactNode {
 
     clearTextTrackCues(track);
 
-    if (selectedSubtitleKey === "off") {
-      track.mode = "disabled";
-      return;
-    }
-
     const selectedTrack =
       loadedSubtitleTracks.find(
-        (candidate) => candidate.key === selectedSubtitleKey,
+        (candidate) => candidate.key === manualSubtitleTrackKey,
       ) ?? null;
     if (!selectedTrack) {
       track.mode = "disabled";
@@ -1580,12 +1409,11 @@ export function usePlaybackDockController(): ReactNode {
     }
     track.mode = "showing";
   }, [
-    burnEmbeddedSubtitleStreamIndex,
     loadedSubtitleTracks,
+    manualSubtitleTrackKey,
     selectedSubtitleKey,
     subtitleAppearance.position,
-    subtitleTrackRequests,
-    videoSourceIsHls,
+    subtitleRenderer,
   ]);
 
   useEffect(() => {
@@ -1601,26 +1429,6 @@ export function usePlaybackDockController(): ReactNode {
     subtitleAttachmentVersion,
     subtitleReadyVersion,
   ]);
-
-  // Clear JASSUB renderer when the selected subtitle is no longer an ASS track.
-  useEffect(() => {
-    if (selectedSubtitleKey === "off") {
-      setActiveAssSource(null);
-      return;
-    }
-    // When there is no playback track source, `subtitleTrackRequests` is always [] — do not treat a
-    // missing row as a stale selection (avoids racing `ensureSubtitleTrackLoaded` on the way up).
-    if (playbackTrackSource == null) {
-      return;
-    }
-    const track = subtitleTrackRequests.find(
-      (t) => t.key === selectedSubtitleKey,
-    );
-    if (track == null || !track.assEligible) {
-      setActiveAssSource(null);
-    }
-  }, [playbackTrackSource, selectedSubtitleKey, subtitleTrackRequests]);
-
   const syncBrowserAudioTrackSelection = useCallback(() => {
     const browserAudioTracks = getBrowserAudioTracks(videoRef.current);
     if (
@@ -1930,8 +1738,8 @@ export function usePlaybackDockController(): ReactNode {
     maybeRecoverInitialBufferGap,
     mediaRecoveryAttemptsRef,
     networkRecoveryAttemptsRef,
-    burnEmbeddedSubtitleStreamIndex,
     selectedSubtitleKey,
+    subtitleRenderer,
     subtitleTrackRequests,
     subtitleReadyVersion,
     subtitleLoadControllersRef,

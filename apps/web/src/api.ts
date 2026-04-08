@@ -28,6 +28,8 @@ export type {
   DownloadsResponse,
   DetachPlaybackSessionCommand,
   EmbeddedAudioTrack,
+  EmbeddedSubtitleDeliveryMode,
+  EmbeddedSubtitleDeliveryOption,
   EmbeddedSubtitle,
   HardwareEncodeFormat,
   HomeDashboard,

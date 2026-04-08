@@ -2,11 +2,12 @@ import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "r
 import Hls from "hls.js";
 import { ignorePromise } from "@/lib/ignorePromise";
 import {
-  findHlsSubtitleTrackIndexForPlumKey,
+  findHlsSubtitleTrackIndexForLogicalId,
   formatHlsErrorMessage,
-  plumHlsSubtitlePlaylistFileForTrackKey,
+  plumHlsSubtitlePlaylistFileForTrackLogicalId,
 } from "@/lib/playback/playerMedia";
 import type { HlsErrorData, SubtitleTrackOption } from "@/lib/playback/playerMedia";
+import type { WebSubtitleRenderer } from "./useSubtitleController";
 
 type LoadedSubtitleTrack = SubtitleTrackOption & { body: string };
 
@@ -24,8 +25,8 @@ export type UseHlsAttachmentParams = {
   maybeRecoverInitialBufferGap: (video: HTMLVideoElement | null) => boolean;
   mediaRecoveryAttemptsRef: RefObject<number>;
   networkRecoveryAttemptsRef: RefObject<number>;
-  burnEmbeddedSubtitleStreamIndex: number | null;
   selectedSubtitleKey: string;
+  subtitleRenderer: WebSubtitleRenderer;
   subtitleTrackRequests: SubtitleTrackOption[];
   subtitleReadyVersion: number;
   subtitleLoadControllersRef: RefObject<Map<string, AbortController>>;
@@ -50,8 +51,8 @@ export function useHlsAttachment({
   maybeRecoverInitialBufferGap,
   mediaRecoveryAttemptsRef,
   networkRecoveryAttemptsRef,
-  burnEmbeddedSubtitleStreamIndex,
   selectedSubtitleKey,
+  subtitleRenderer,
   subtitleTrackRequests,
   subtitleReadyVersion,
   subtitleLoadControllersRef,
@@ -170,29 +171,17 @@ export function useHlsAttachment({
     if (!videoSourceIsHls) return;
     const hls = hlsRef.current;
     if (!hls) return;
-    const burnIdx = burnEmbeddedSubtitleStreamIndex;
-    if (burnIdx != null && selectedSubtitleKey === `emb-${burnIdx}`) {
+    if (subtitleRenderer !== "hls_native") {
       hls.subtitleTrack = -1;
       hls.subtitleDisplay = false;
       return;
     }
-    if (selectedSubtitleKey === "off") {
-      hls.subtitleTrack = -1;
-      return;
-    }
-    const selectedReq = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
-    if (selectedReq?.assEligible && selectedReq.assSrc) {
-      // ASS is rendered by JASSUB; the same logical track may still appear as HLS WebVTT.
-      hls.subtitleTrack = -1;
-      hls.subtitleDisplay = false;
-      return;
-    }
-    const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
+    const idx = findHlsSubtitleTrackIndexForLogicalId(hls, selectedSubtitleKey);
     if (idx >= 0) {
       hls.subtitleTrack = idx;
       hls.subtitleDisplay = true;
     } else {
-      const wantFile = plumHlsSubtitlePlaylistFileForTrackKey(selectedSubtitleKey);
+      const wantFile = plumHlsSubtitlePlaylistFileForTrackLogicalId(selectedSubtitleKey);
       const prev = hls.subtitleTrack;
       if (wantFile != null && prev >= 0) {
         const tracks = hls.subtitleTracks ?? [];
@@ -207,11 +196,12 @@ export function useHlsAttachment({
         }
       }
       hls.subtitleTrack = -1;
+      hls.subtitleDisplay = false;
     }
   }, [
-    burnEmbeddedSubtitleStreamIndex,
     hlsRef,
     selectedSubtitleKey,
+    subtitleRenderer,
     subtitleReadyVersion,
     subtitleTrackRequests,
     videoAttachmentVersion,
@@ -219,10 +209,10 @@ export function useHlsAttachment({
   ]);
 
   useEffect(() => {
-    if (!videoSourceIsHls || selectedSubtitleKey === "off") return;
+    if (!videoSourceIsHls || subtitleRenderer !== "hls_native") return;
     const hls = hlsRef.current;
     if (!hls) return;
-    const idx = findHlsSubtitleTrackIndexForPlumKey(hls, selectedSubtitleKey);
+    const idx = findHlsSubtitleTrackIndexForLogicalId(hls, selectedSubtitleKey);
     if (idx < 0) return;
     const controller = subtitleLoadControllersRef.current.get(selectedSubtitleKey);
     if (controller) {
@@ -236,6 +226,7 @@ export function useHlsAttachment({
     hlsRef,
     selectedSubtitleKey,
     setLoadedSubtitleTracks,
+    subtitleRenderer,
     subtitleLoadControllersRef,
     subtitleReadyVersion,
     videoSourceIsHls,

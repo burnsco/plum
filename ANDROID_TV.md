@@ -69,7 +69,7 @@ You do **not** need Android Studio. Install only the command-line tools.
 1. From the repository root, go to the Android TV app directory:
 
    ```bash
-   cd apps/android-tv
+   cd apps/android
    ```
 
 2. Copy the example properties file and set your SDK path:
@@ -88,7 +88,7 @@ You do **not** need Android Studio. Install only the command-line tools.
 
 ## Building the APK
 
-From within `apps/android-tv`, run:
+From within `apps/android`, run:
 
 ```bash
 ./gradlew assembleDebug
@@ -171,10 +171,10 @@ With **USB debugging** enabled and the TV showing as `device` in `adb devices`, 
 - APK still in the project tree after a local build:
 
 ```bash
-adb install -r apps/android-tv/app/build/outputs/apk/release/app-release.apk
+adb install -r apps/android/app/build/outputs/apk/release/app-release.apk
 ```
 
-(run from the **repository root**, adjusting the path if you built only under `apps/android-tv`)
+(run from the **repository root**, adjusting the path if you built only under `apps/android`)
 
 - APK on a USB drive **mounted on the same computer** (Linux example):
 
@@ -191,7 +191,7 @@ adb install /path/to/app-release.apk
 Debug build path (if you used `assembleDebug`):
 
 ```bash
-adb install -r apps/android-tv/app/build/outputs/apk/debug/app-debug.apk
+adb install -r apps/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 You do **not** need the USB stick plugged into the TV for this flow: the stick is for moving the file to the PC that has `adb` and the USB cable to the TV.

@@ -356,6 +356,127 @@ func TestServeFileWaitsForDelayedSegment(t *testing.T) {
 	}
 }
 
+func TestServeFileUsesFrozenRevisionVirtualSubtitleTracks(t *testing.T) {
+	root := t.TempDir()
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
+	revisionDir := filepath.Join(root, "session-frozen-virtual", "revision_1")
+	if err := os.MkdirAll(revisionDir, 0o755); err != nil {
+		t.Fatalf("mkdir revision dir: %v", err)
+	}
+
+	frozenMap, frozenMaster := freezeRevisionSubtitleTracks(db.MediaItem{
+		ID: 11,
+		Subtitles: []db.Subtitle{
+			{ID: 101, Language: "en", Format: "srt"},
+		},
+	})
+
+	session := &playbackSession{
+		id: "session-frozen-virtual",
+		media: db.MediaItem{
+			ID: 11,
+			Subtitles: []db.Subtitle{
+				{ID: 101, Language: "en", Format: "srt"},
+			},
+		},
+		durationSeconds: 120,
+		revisions: map[int]*playbackRevision{
+			1: {
+				number:                       1,
+				dir:                          revisionDir,
+				status:                       "ready",
+				subtitleTracksByPlaylistFile: frozenMap,
+				subtitleTracksForMaster:      frozenMaster,
+			},
+		},
+	}
+	manager.sessions["session-frozen-virtual"] = session
+
+	// Simulate metadata refresh mutating session-level subtitle list after revision creation.
+	session.mu.Lock()
+	session.media.Subtitles = []db.Subtitle{{ID: 202, Language: "fr", Format: "srt"}}
+	session.mu.Unlock()
+
+	playlistFile := hlsSubtitlePlaylistFileForLogicalID("ext:101")
+	req := httptest.NewRequest(http.MethodGet, "/api/playback/sessions/session-frozen-virtual/revisions/1/"+playlistFile, nil)
+	rec := httptest.NewRecorder()
+
+	if err := manager.ServeFile(rec, req, "session-frozen-virtual", 1, playlistFile); err != nil {
+		t.Fatalf("ServeFile: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "/api/subtitles/101") {
+		t.Fatalf("expected frozen subtitle path, got body %q", body)
+	}
+	if strings.Contains(body, "/api/subtitles/202") {
+		t.Fatalf("unexpected mutated subtitle path in body %q", body)
+	}
+}
+
+func TestServeFileUsesFrozenRevisionMasterSubtitleTracks(t *testing.T) {
+	root := t.TempDir()
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
+	revisionDir := filepath.Join(root, "session-frozen-master", "revision_1")
+	if err := os.MkdirAll(revisionDir, 0o755); err != nil {
+		t.Fatalf("mkdir revision dir: %v", err)
+	}
+	playlist := "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant_0/index.m3u8\n"
+	if err := os.WriteFile(filepath.Join(revisionDir, "index.m3u8"), []byte(playlist), 0o644); err != nil {
+		t.Fatalf("write playlist: %v", err)
+	}
+
+	frozenMap, frozenMaster := freezeRevisionSubtitleTracks(db.MediaItem{
+		ID: 12,
+		Subtitles: []db.Subtitle{
+			{ID: 303, Language: "en", Format: "srt", Title: "English"},
+		},
+	})
+
+	session := &playbackSession{
+		id: "session-frozen-master",
+		media: db.MediaItem{
+			ID: 12,
+			Subtitles: []db.Subtitle{
+				{ID: 303, Language: "en", Format: "srt", Title: "English"},
+			},
+		},
+		revisions: map[int]*playbackRevision{
+			1: {
+				number:                       1,
+				dir:                          revisionDir,
+				status:                       "ready",
+				subtitleTracksByPlaylistFile: frozenMap,
+				subtitleTracksForMaster:      frozenMaster,
+			},
+		},
+	}
+	manager.sessions["session-frozen-master"] = session
+
+	// Mutate session-level media to a different subtitle after revision freeze.
+	session.mu.Lock()
+	session.media.Subtitles = []db.Subtitle{{ID: 404, Language: "fr", Format: "srt", Title: "French"}}
+	session.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/playback/sessions/session-frozen-master/revisions/1/index.m3u8", nil)
+	rec := httptest.NewRecorder()
+	if err := manager.ServeFile(rec, req, "session-frozen-master", 1, "index.m3u8"); err != nil {
+		t.Fatalf("ServeFile: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, hlsSubtitlePlaylistFileForLogicalID("ext:303")) {
+		t.Fatalf("expected frozen subtitle rendition in master, got %q", body)
+	}
+	if strings.Contains(body, hlsSubtitlePlaylistFileForLogicalID("ext:404")) {
+		t.Fatalf("unexpected mutated subtitle rendition in master %q", body)
+	}
+}
+
 func TestParseHlsSegmentIndex(t *testing.T) {
 	t.Parallel()
 	n, ok := parseHlsSegmentIndex("segment_00022.ts")

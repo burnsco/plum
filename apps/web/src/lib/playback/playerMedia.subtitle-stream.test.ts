@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type Hls from "hls.js";
 import {
   consumeSubtitleResponseWithPartialUpdates,
-  findHlsSubtitleTrackIndexForPlumKey,
-  plumHlsSubtitlePlaylistFileForTrackKey,
+  findHlsSubtitleTrackIndexForLogicalId,
+  plumHlsSubtitlePlaylistFileForTrackLogicalId,
   streamingVttPrefixForParse,
 } from "./playerMedia";
 
@@ -26,36 +26,30 @@ describe("streamingVttPrefixForParse", () => {
   });
 });
 
-describe("plumHlsSubtitlePlaylistFileForTrackKey", () => {
-  it("maps emb and ext keys to virtual playlist filenames", () => {
-    expect(plumHlsSubtitlePlaylistFileForTrackKey("emb-3")).toBe(
-      "plum_subs_emb_3.m3u8",
+describe("plumHlsSubtitlePlaylistFileForTrackLogicalId", () => {
+  it("maps logical ids to virtual playlist filenames", () => {
+    expect(plumHlsSubtitlePlaylistFileForTrackLogicalId("emb:3")).toBe("plum_subs_656d623a33.m3u8");
+    expect(plumHlsSubtitlePlaylistFileForTrackLogicalId("ext:12")).toBe(
+      "plum_subs_6578743a3132.m3u8",
     );
-    expect(plumHlsSubtitlePlaylistFileForTrackKey("ext-12")).toBe(
-      "plum_subs_ext_12.m3u8",
-    );
-    expect(plumHlsSubtitlePlaylistFileForTrackKey("off")).toBeNull();
+    expect(plumHlsSubtitlePlaylistFileForTrackLogicalId("off")).toBeNull();
   });
 });
 
-describe("findHlsSubtitleTrackIndexForPlumKey", () => {
+describe("findHlsSubtitleTrackIndexForLogicalId", () => {
   it("matches hls subtitle track url containing the virtual playlist name", () => {
     const hls = {
-      subtitleTracks: [
-        { url: "https://x.test/sessions/a/revisions/1/plum_subs_emb_2.m3u8" },
-      ],
+      subtitleTracks: [{ url: "https://x.test/sessions/a/revisions/1/plum_subs_656d623a32.m3u8" }],
     } as unknown as Hls;
-    expect(findHlsSubtitleTrackIndexForPlumKey(hls, "emb-2")).toBe(0);
-    expect(findHlsSubtitleTrackIndexForPlumKey(hls, "emb-9")).toBe(-1);
+    expect(findHlsSubtitleTrackIndexForLogicalId(hls, "emb:2")).toBe(0);
+    expect(findHlsSubtitleTrackIndexForLogicalId(hls, "emb:9")).toBe(-1);
   });
 });
 
 describe("consumeSubtitleResponseWithPartialUpdates", () => {
   it("streams chunks and ends with the full normalized body", async () => {
     const encoder = new TextEncoder();
-    const chunk1 = encoder.encode(
-      "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nA\n\n",
-    );
+    const chunk1 = encoder.encode("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nA\n\n");
     const chunk2 = encoder.encode("00:00:03.000 --> 00:00:04.000\nB\n\n");
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {

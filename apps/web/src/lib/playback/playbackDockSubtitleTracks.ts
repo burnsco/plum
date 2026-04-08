@@ -9,10 +9,13 @@ import {
   BASE_URL,
   type EmbeddedAudioTrack,
   type EmbeddedSubtitle,
+  type EmbeddedSubtitleDeliveryMode,
+  type EmbeddedSubtitleDeliveryOption,
   type PlaybackTrackMetadata,
   type Subtitle,
 } from "../../api";
 import {
+  embeddedStreamIndexFromLogicalId,
   formatSubtitleTrackLabel,
   sortSubtitleTrackOptions,
   type SubtitleTrackOption,
@@ -41,14 +44,53 @@ export function rememberBlockedSubtitleKey(set: Set<string>, key: string) {
 }
 
 export function embeddedStreamIndexFromKey(key: string): number | null {
-  if (!key.startsWith("emb-")) return null;
-  const n = Number(key.slice(4));
-  return Number.isFinite(n) ? n : null;
+  return embeddedStreamIndexFromLogicalId(key);
 }
 
 function isAssFormat(format: string): boolean {
   const f = format.trim().toLowerCase();
   return f === "ass" || f === "ssa";
+}
+
+function inferredEmbeddedDeliveryModes(
+  subtitle: EmbeddedSubtitle,
+  requiresBurn: boolean,
+  assEligible: boolean,
+): EmbeddedSubtitleDeliveryOption[] | undefined {
+  if (subtitle.deliveryModes?.length) {
+    return subtitle.deliveryModes.map((mode) => ({ ...mode }));
+  }
+  if (subtitle.supported === false) {
+    return undefined;
+  }
+  if (requiresBurn) {
+    return [{ mode: "burn_in", requiresReload: true }];
+  }
+  const modes: EmbeddedSubtitleDeliveryOption[] = [{ mode: "direct_vtt", requiresReload: false }];
+  if (assEligible) {
+    modes.push({ mode: "ass", requiresReload: false });
+  }
+  return modes;
+}
+
+function inferredPreferredWebDeliveryMode(
+  subtitle: EmbeddedSubtitle,
+  requiresBurn: boolean,
+  assEligible: boolean,
+): EmbeddedSubtitleDeliveryMode | undefined {
+  if (subtitle.preferredWebDeliveryMode != null) {
+    return subtitle.preferredWebDeliveryMode;
+  }
+  if (subtitle.supported === false) {
+    return undefined;
+  }
+  if (requiresBurn) {
+    return "burn_in";
+  }
+  if (assEligible) {
+    return "ass";
+  }
+  return "direct_vtt";
 }
 
 export function buildSubtitleTrackRequests(
@@ -58,32 +100,44 @@ export function buildSubtitleTrackRequests(
   const external =
     source.subtitles?.map((subtitle, index) => {
       const assEligible = isAssFormat(subtitle.format ?? "");
+      const deliveryModes: ReadonlyArray<EmbeddedSubtitleDeliveryOption> = assEligible
+        ? [
+            { mode: "direct_vtt", requiresReload: false },
+            { mode: "ass", requiresReload: false },
+          ]
+        : [{ mode: "direct_vtt", requiresReload: false }];
+      const preferredWebDeliveryMode: EmbeddedSubtitleDeliveryMode = assEligible
+        ? "ass"
+        : "direct_vtt";
+      const logicalId = subtitle.logicalId || `ext:${subtitle.id}`;
       return {
-        key: `ext-${subtitle.id}`,
-        label: formatSubtitleTrackLabel(
-          subtitle.title,
-          subtitle.language,
-          `Subtitle ${index + 1}`,
-        ),
+        key: logicalId,
+        logicalId,
+        origin: "external" as const,
+        label: formatSubtitleTrackLabel(subtitle.title, subtitle.language, `Subtitle ${index + 1}`),
         src: externalSubtitleUrl(BASE_URL, subtitle.id),
         srcLang: subtitle.language || "und",
         supported: true,
         forced: subtitle.forced === true,
         default: subtitle.default === true,
         hearingImpaired: subtitle.hearingImpaired === true,
+        deliveryModes,
+        preferredWebDeliveryMode,
         assEligible,
-        assSrc: assEligible
-          ? externalSubtitleAssUrl(BASE_URL, subtitle.id)
-          : undefined,
+        assSrc: assEligible ? externalSubtitleAssUrl(BASE_URL, subtitle.id) : undefined,
       };
     }) ?? [];
   const embedded =
     source.embeddedSubtitles?.map((subtitle, index) => {
       const catalogOk = subtitle.supported !== false;
-      const requiresBurn =
-        catalogOk && embeddedSubtitleNeedsWebBurnIn(subtitle);
-      const assEligible =
-        catalogOk && !requiresBurn && subtitle.assEligible === true;
+      const requiresBurn = catalogOk && embeddedSubtitleNeedsWebBurnIn(subtitle);
+      const assEligible = catalogOk && !requiresBurn && subtitle.assEligible === true;
+      const deliveryModes = inferredEmbeddedDeliveryModes(subtitle, requiresBurn, assEligible);
+      const preferredWebDeliveryMode = inferredPreferredWebDeliveryMode(
+        subtitle,
+        requiresBurn,
+        assEligible,
+      );
       const labelBase = formatSubtitleTrackLabel(
         subtitle.title,
         subtitle.language,
@@ -94,28 +148,25 @@ export function buildSubtitleTrackRequests(
         : requiresBurn
           ? `${labelBase} (burn-in)`
           : labelBase;
+      const logicalId = subtitle.logicalId || `emb:${subtitle.streamIndex}`;
       return {
-        key: `emb-${subtitle.streamIndex}`,
+        key: logicalId,
+        logicalId,
+        origin: "embedded" as const,
         label,
-        src: embeddedSubtitleUrl(
-          BASE_URL,
-          source.mediaId,
-          subtitle.streamIndex,
-        ),
+        src: embeddedSubtitleUrl(BASE_URL, source.mediaId, subtitle.streamIndex),
         srcLang: subtitle.language || "und",
         supported: catalogOk,
         forced: subtitle.forced === true,
         default: subtitle.default === true,
         hearingImpaired: subtitle.hearingImpaired === true,
         disabled: !catalogOk,
+        deliveryModes,
+        preferredWebDeliveryMode,
         requiresBurn,
         assEligible,
         assSrc: assEligible
-          ? embeddedSubtitleAssUrl(
-              BASE_URL,
-              source.mediaId,
-              subtitle.streamIndex,
-            )
+          ? embeddedSubtitleAssUrl(BASE_URL, source.mediaId, subtitle.streamIndex)
           : undefined,
       };
     }) ?? [];
