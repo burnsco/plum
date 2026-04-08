@@ -17,6 +17,7 @@ export type PosterGridItem = {
   statusLabel?: string;
   statusActionLabel?: string;
   statusActionDisabled?: boolean;
+  playActionLabel?: string;
   actionLabel?: string;
   actionDisabled?: boolean;
   actionTone?: "default" | "success" | "muted";

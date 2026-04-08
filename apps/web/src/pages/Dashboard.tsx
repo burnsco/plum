@@ -87,7 +87,6 @@ function toPosterGridItem(
             entry.media,
             entry.show_key?.trim() ? { showKey: entry.show_key } : undefined,
           );
-  const href = dashboardDetailHref(entry);
   const rating =
     entry.kind === "movie"
       ? getPreferredMovieRating(entry.media)
@@ -103,8 +102,7 @@ function toPosterGridItem(
     ratingLabel: rating.label,
     ratingValue: rating.value,
     progressPercent: shelf === "continueWatching" ? entry.media.progress_percent : undefined,
-    href,
-    onClick: href ? undefined : playItem,
+    onClick: playItem,
     onPlay: playItem,
   };
 }
@@ -186,6 +184,14 @@ export function Dashboard() {
     const detailHref = dashboardDetailHref(entry);
     return {
       ...card,
+      playActionLabel: "Play",
+      actionLabel: detailHref ? "Details" : undefined,
+      actionTone: detailHref ? "muted" : undefined,
+      onAction: detailHref
+        ? () => {
+            navigate(detailHref);
+          }
+        : undefined,
       contextMenuContent: (
         <DashboardCardContextMenu
           canOpenDetails={Boolean(detailHref)}

@@ -1307,14 +1307,53 @@ func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPat
 	slices.SortFunc(rows, func(a, b subtitleRow) int {
 		return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
 	})
-	if _, err = tx.ExecContext(ctx, `DELETE FROM subtitles WHERE media_id = ?`, mediaID); err != nil {
+
+	dbRows, err := tx.QueryContext(ctx, `SELECT id, path FROM subtitles WHERE media_id = ?`, mediaID)
+	if err != nil {
 		return err
 	}
+	existingByPath := make(map[string]int, len(rows))
+	for dbRows.Next() {
+		var id int
+		var path string
+		if err := dbRows.Scan(&id, &path); err != nil {
+			_ = dbRows.Close()
+			return err
+		}
+		existingByPath[path] = id
+	}
+	if err := dbRows.Err(); err != nil {
+		_ = dbRows.Close()
+		return err
+	}
+	if err := dbRows.Close(); err != nil {
+		return err
+	}
+
+	seenPath := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
+		seenPath[row.path] = struct{}{}
+		if id, ok := existingByPath[row.path]; ok {
+			if _, err = tx.ExecContext(ctx,
+				`UPDATE subtitles SET title = ?, language = ?, format = ?, forced = ?, is_default = ?, hearing_impaired = ? WHERE id = ? AND media_id = ?`,
+				row.title, row.language, row.format, boolToInt(row.forced), boolToInt(row.def), boolToInt(row.hi), id, mediaID,
+			); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err = tx.ExecContext(ctx,
 			`INSERT INTO subtitles (media_id, title, language, format, forced, is_default, hearing_impaired, path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			mediaID, row.title, row.language, row.format, row.forced, row.def, row.hi, row.path,
+			mediaID, row.title, row.language, row.format, boolToInt(row.forced), boolToInt(row.def), boolToInt(row.hi), row.path,
 		); err != nil {
+			return err
+		}
+	}
+	for path, id := range existingByPath {
+		if _, ok := seenPath[path]; ok {
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM subtitles WHERE id = ? AND media_id = ?`, id, mediaID); err != nil {
 			return err
 		}
 	}

@@ -17,6 +17,7 @@ func TestParseSidecarSubtitleMetadata_StrictSiblingMatching(t *testing.T) {
 		wantText string
 		forced   bool
 		hi       bool
+		def      bool
 	}{
 		{name: "plain", filename: "Movie.srt", wantOK: true, wantLang: "und", wantText: ""},
 		{name: "language", filename: "Movie.en.srt", wantOK: true, wantLang: "en", wantText: "English"},
@@ -24,6 +25,8 @@ func TestParseSidecarSubtitleMetadata_StrictSiblingMatching(t *testing.T) {
 		{name: "forced", filename: "Movie.en.forced.srt", wantOK: true, wantLang: "en", wantText: "English • Forced", forced: true},
 		{name: "hyphenated locale with qualifier", filename: "Movie.pt-BR.forced.srt", wantOK: true, wantLang: "pt", wantText: "Portuguese • Forced", forced: true},
 		{name: "sdh", filename: "Movie.eng.sdh.srt", wantOK: true, wantLang: "en", wantText: "English • SDH", hi: true},
+		{name: "default marker after language", filename: "Movie.en.default.srt", wantOK: true, wantLang: "en", wantText: "English", def: true},
+		{name: "default marker only", filename: "Movie.default.srt", wantOK: true, wantLang: "und", wantText: "", def: true},
 		{name: "neighbor title excluded", filename: "Movie 2.en.srt", wantOK: false},
 		{name: "unrecognized suffix excluded", filename: "Movie.directors-cut.en.srt", wantOK: false},
 	}
@@ -36,7 +39,7 @@ func TestParseSidecarSubtitleMetadata_StrictSiblingMatching(t *testing.T) {
 			if !tc.wantOK {
 				return
 			}
-			if got.Language != tc.wantLang || got.Title != tc.wantText || got.Forced != tc.forced || got.HI != tc.hi {
+			if got.Language != tc.wantLang || got.Title != tc.wantText || got.Forced != tc.forced || got.HI != tc.hi || got.Default != tc.def {
 				t.Fatalf("got %+v", got)
 			}
 		})
@@ -99,5 +102,48 @@ func TestScanForSubtitles_ReplacesStaleRowsAndOrdersDeterministically(t *testing
 	}
 	if len(subs) != 1 || subs[0].Title != "English" {
 		t.Fatalf("after rescan subs=%#v", subs)
+	}
+}
+
+func TestScanForSubtitles_PreservesIDsWhenPathsUnchanged(t *testing.T) {
+	dbConn, err := InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	root := t.TempDir()
+	videoPath := filepath.Join(root, "Movie.mkv")
+	if err := os.WriteFile(videoPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write video: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Movie.en.srt"), []byte("one"), 0o644); err != nil {
+		t.Fatalf("write subtitle: %v", err)
+	}
+
+	if err := scanForSubtitles(context.Background(), dbConn, 42, videoPath); err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	first, err := getSubtitlesForMedia(dbConn, 42)
+	if err != nil {
+		t.Fatalf("get subtitles: %v", err)
+	}
+	if len(first) != 1 || first[0].ID == 0 {
+		t.Fatalf("first subs=%#v", first)
+	}
+	firstID := first[0].ID
+
+	if err := scanForSubtitles(context.Background(), dbConn, 42, videoPath); err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	second, err := getSubtitlesForMedia(dbConn, 42)
+	if err != nil {
+		t.Fatalf("get subtitles after rescan: %v", err)
+	}
+	if len(second) != 1 {
+		t.Fatalf("len=%d subs=%#v", len(second), second)
+	}
+	if second[0].ID != firstID {
+		t.Fatalf("subtitle id changed: first=%d second=%d", firstID, second[0].ID)
 	}
 }

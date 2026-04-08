@@ -2335,25 +2335,28 @@ class PlumPlayerController(
     private suspend fun buildMediaItem(streamUrl: String): MediaItem {
         val subtitleConfigurations = mutableListOf<MediaItem.SubtitleConfiguration>()
 
-        // HLS master already includes #EXT-X-MEDIA subtitle renditions (same WebVTT URLs). Sideloading
-        // the same tracks again duplicates text groups and confuses the picker (Jellyfin-style: one path).
-        if (hlsSessionId == null) {
-            externalSubtitles.forEach { subtitle ->
-                val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
-                val builder =
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                        .setId("ext:${subtitle.id}")
-                        // Server converts sidecars to WebVTT on the fly (see HandleStreamSubtitle).
-                        .setMimeType(MimeTypes.TEXT_VTT)
-                if (subtitle.language.isNotBlank()) {
-                    builder.setLanguage(subtitle.language)
-                }
-                if (subtitle.title.isNotBlank()) {
-                    builder.setLabel(subtitle.title)
-                }
-                subtitleConfigurations += builder.build()
+        // Always sideload sidecar subtitles. Native HLS subtitle discovery can miss external tracks
+        // on some Android/Media3 paths even though the same server endpoint works when attached
+        // directly as a SubtitleConfiguration. Picker de-dupe keeps duplicate HLS rows hidden.
+        externalSubtitles.forEach { subtitle ->
+            val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
+            val builder =
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                    .setId("ext:${subtitle.id}")
+                    // Server converts sidecars to WebVTT on the fly (see HandleStreamSubtitle).
+                    .setMimeType(MimeTypes.TEXT_VTT)
+            if (subtitle.language.isNotBlank()) {
+                builder.setLanguage(subtitle.language)
             }
+            if (subtitle.title.isNotBlank()) {
+                builder.setLabel(subtitle.title)
+            }
+            subtitleConfigurations += builder.build()
+        }
 
+        // HLS masters already include embedded text subtitle renditions, but direct sessions need them
+        // attached explicitly.
+        if (hlsSessionId == null) {
             embeddedSubtitleTracks.forEach { subtitle ->
                 // Session payload omits bitmap/unsupported streams server-side; keep client guard for older servers.
                 if (subtitle.supported == false) {

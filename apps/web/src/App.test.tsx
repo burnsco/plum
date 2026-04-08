@@ -491,10 +491,52 @@ describe("App library and player wiring", () => {
 
     await renderApp("/");
 
-    fireEvent.click(await screen.findByRole("button", { name: /Play Space Show/i }));
+    const cardHitArea = await screen.findByRole("button", { name: /^Space Show$/i });
+    const card = cardHitArea.closest(".show-card");
+    expect(card).toBeTruthy();
+    fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Play" }));
 
     await waitFor(() => {
       expect(api.createPlaybackSession).toHaveBeenCalledWith(55, expect.anything());
+    });
+  });
+
+  it("starts playback when clicking the continue-watching card body", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
+      continueWatching: [
+        {
+          kind: "movie",
+          remaining_seconds: 2400,
+          media: {
+            id: 99,
+            library_id: 2,
+            title: "Die My Love",
+            path: "/movies/Die My Love (2025)/Die My Love.mp4",
+            duration: 7200,
+            type: "movie",
+            progress_seconds: 4800,
+            progress_percent: 66,
+            release_date: "2025-01-01",
+            poster_path: "/poster.jpg",
+          },
+        },
+      ],
+      recentlyAddedTvEpisodes: [],
+      recentlyAddedTvShows: [],
+      recentlyAddedMovies: [],
+      recentlyAddedAnimeEpisodes: [],
+      recentlyAddedAnimeShows: [],
+    });
+
+    await renderApp("/");
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Die My Love$/i }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(99, expect.anything());
     });
   });
 
@@ -547,14 +589,148 @@ describe("App library and player wiring", () => {
 
     expect(await screen.findByTestId("dashboard-recent-tv-shows-heading")).toBeTruthy();
     expect(await screen.findByTestId("dashboard-recent-movies-heading")).toBeTruthy();
-    expect(await screen.findByRole("link", { name: /^Space Show$/i })).toBeTruthy();
-    expect(await screen.findByRole("link", { name: /^Die My Love/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^Space Show$/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^Die My Love$/i })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Play Die My Love/i }));
+    const movieCardHitArea = screen.getByRole("button", { name: /^Die My Love$/i });
+    const movieCard = movieCardHitArea.closest(".show-card");
+    expect(movieCard).toBeTruthy();
+    fireEvent.click(within(movieCard as HTMLElement).getByRole("button", { name: "Play" }));
 
     await waitFor(() => {
       expect(api.createPlaybackSession).toHaveBeenCalledWith(99, expect.anything());
     });
+  });
+
+  it("starts playback when clicking a recently added card body", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
+      continueWatching: [],
+      recentlyAddedTvEpisodes: [],
+      recentlyAddedTvShows: [],
+      recentlyAddedMovies: [
+        {
+          kind: "movie",
+          media: {
+            id: 99,
+            library_id: 2,
+            title: "Die My Love",
+            path: "/movies/Die My Love (2025)/Die My Love.mp4",
+            duration: 7200,
+            type: "movie",
+            release_date: "2025-01-01",
+            poster_path: "/poster.jpg",
+          },
+        },
+      ],
+      recentlyAddedAnimeEpisodes: [],
+      recentlyAddedAnimeShows: [],
+    });
+
+    await renderApp("/");
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Die My Love$/i }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(99, expect.anything());
+    });
+  });
+
+  it("shows explicit Play and Details actions on dashboard cards", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
+      continueWatching: [],
+      recentlyAddedTvEpisodes: [],
+      recentlyAddedTvShows: [],
+      recentlyAddedMovies: [
+        {
+          kind: "movie",
+          media: {
+            id: 99,
+            library_id: 2,
+            title: "Die My Love",
+            path: "/movies/Die My Love (2025)/Die My Love.mp4",
+            duration: 7200,
+            type: "movie",
+            release_date: "2025-01-01",
+            poster_path: "/poster.jpg",
+          },
+        },
+      ],
+      recentlyAddedAnimeEpisodes: [],
+      recentlyAddedAnimeShows: [],
+    });
+
+    await renderApp("/");
+
+    const cardHitArea = await screen.findByRole("button", { name: /^Die My Love$/i });
+    const card = cardHitArea.closest(".show-card");
+    expect(card).toBeTruthy();
+    const cardScope = within(card as HTMLElement);
+
+    expect(cardScope.getByRole("button", { name: "Play" })).toBeTruthy();
+    expect(cardScope.getByRole("button", { name: "Details" })).toBeTruthy();
+
+    fireEvent.click(cardScope.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalledWith(99, expect.anything());
+    });
+  });
+
+  it("navigates to details from a dashboard card without starting playback", async () => {
+    vi.spyOn(api, "listLibraries").mockResolvedValue([
+      { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
+    ]);
+    vi.spyOn(api, "getHomeDashboard").mockResolvedValue({
+      continueWatching: [],
+      recentlyAddedTvEpisodes: [],
+      recentlyAddedTvShows: [],
+      recentlyAddedMovies: [
+        {
+          kind: "movie",
+          media: {
+            id: 99,
+            library_id: 2,
+            title: "Die My Love",
+            path: "/movies/Die My Love (2025)/Die My Love.mp4",
+            duration: 7200,
+            type: "movie",
+            release_date: "2025-01-01",
+            poster_path: "/poster.jpg",
+          },
+        },
+      ],
+      recentlyAddedAnimeEpisodes: [],
+      recentlyAddedAnimeShows: [],
+    });
+    vi.spyOn(api, "getMovieDetails").mockResolvedValue({
+      media_id: 99,
+      library_id: 2,
+      title: "Die My Love",
+      source_path: "/movies/Die My Love (2025)/Die My Love.mp4",
+      overview: "A movie detail page",
+      poster_path: "/poster.jpg",
+      backdrop_path: "/backdrop.jpg",
+      release_date: "2025-01-01",
+      vote_average: 7.8,
+      imdb_id: "tt1234567",
+      imdb_rating: 7.4,
+      runtime: 120,
+      genres: [],
+      cast: [],
+    });
+
+    await renderApp("/");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Details" }));
+
+    expect(await screen.findByRole("heading", { name: "Die My Love" })).toBeTruthy();
+    expect(api.createPlaybackSession).not.toHaveBeenCalled();
   });
 
   it("reveals hard TV cards as searching once easier matches appear", async () => {

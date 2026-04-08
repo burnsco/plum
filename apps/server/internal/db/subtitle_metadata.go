@@ -131,6 +131,10 @@ func normalizeSubtitleFreeform(raw string) string {
 	return strings.TrimSpace(s)
 }
 
+func isDefaultSubtitleMarkerToken(raw string) bool {
+	return normalizeSubtitleToken(raw) == "default"
+}
+
 func qualifierFromToken(raw string) string {
 	n := normalizeSubtitleToken(raw)
 	if n == "" {
@@ -233,12 +237,17 @@ func parseSidecarSubtitleMetadata(videoPath, subtitleName string) (parsedSidecar
 	}
 	lang := "und"
 	var flags subtitleQualifiers
+	var isDefault bool
 	var extras []string
 	for idx, token := range tokens {
 		if token == "" {
 			return parsedSidecarSubtitle{}, false
 		}
 		if idx == 0 {
+			if isDefaultSubtitleMarkerToken(token) {
+				isDefault = true
+				continue
+			}
 			if parsedLang := canonicalSubtitleLanguage(token); parsedLang != "" {
 				lang = parsedLang
 				continue
@@ -248,6 +257,10 @@ func parseSidecarSubtitleMetadata(videoPath, subtitleName string) (parsedSidecar
 				continue
 			}
 			return parsedSidecarSubtitle{}, false
+		}
+		if isDefaultSubtitleMarkerToken(token) {
+			isDefault = true
+			continue
 		}
 		if qualifier := qualifierFromToken(token); qualifier != "" {
 			applySubtitleQualifierFlags(&flags, qualifier)
@@ -269,6 +282,7 @@ func parseSidecarSubtitleMetadata(videoPath, subtitleName string) (parsedSidecar
 		Language: lang,
 		Title:    title,
 		Forced:   flags.Forced,
+		Default:  isDefault,
 		HI:       flags.HearingImpaired,
 		SortKey:  strings.ToLower(subtitleName),
 	}, true

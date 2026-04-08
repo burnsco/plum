@@ -30,6 +30,7 @@ function arePropsEqual(prev: MediaCardProps, next: MediaCardProps): boolean {
     p.statusLabel === n.statusLabel &&
     p.statusActionLabel === n.statusActionLabel &&
     p.statusActionDisabled === n.statusActionDisabled &&
+    p.playActionLabel === n.playActionLabel &&
     p.actionLabel === n.actionLabel &&
     p.actionDisabled === n.actionDisabled &&
     p.actionTone === n.actionTone &&
@@ -49,7 +50,7 @@ function MediaCardInner({ item, className, index = 0 }: MediaCardProps) {
   const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
   const [posterErrored, setPosterErrored] = useState(false);
   const cardState = item.cardState ?? "default";
-  const hasInlineAction = item.actionLabel != null;
+  const hasInlineAction = item.playActionLabel != null || item.actionLabel != null;
   const shouldPrioritizePoster = index < 8;
   const progressPercent =
     item.progressPercent != null
@@ -87,7 +88,7 @@ function MediaCardInner({ item, className, index = 0 }: MediaCardProps) {
         />
       )}
 
-      {item.onPlay && cardState === "default" && (
+      {item.onPlay && item.playActionLabel == null && cardState === "default" && (
         <button
           type="button"
           className="show-card-play-button"
@@ -183,20 +184,35 @@ function MediaCardInner({ item, className, index = 0 }: MediaCardProps) {
             )}
             {item.metaLine ? <span className="show-card-meta__copy">{item.metaLine}</span> : null}
           </div>
-          {item.actionLabel ? (
+          {item.playActionLabel || item.actionLabel ? (
             <div className="show-card-action-row">
-              <button
-                type="button"
-                className={`show-card-inline-action show-card-inline-action--${item.actionTone ?? "default"}`}
-                disabled={item.actionDisabled}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  item.onAction?.();
-                }}
-              >
-                {item.actionLabel}
-              </button>
+              {item.playActionLabel && item.onPlay ? (
+                <button
+                  type="button"
+                  className="show-card-inline-action"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    item.onPlay?.();
+                  }}
+                >
+                  {item.playActionLabel}
+                </button>
+              ) : null}
+              {item.actionLabel ? (
+                <button
+                  type="button"
+                  className={`show-card-inline-action show-card-inline-action--${item.actionTone ?? "default"}`}
+                  disabled={item.actionDisabled}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    item.onAction?.();
+                  }}
+                >
+                  {item.actionLabel}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
