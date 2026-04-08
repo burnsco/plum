@@ -6,14 +6,24 @@ import { Schema } from "effect";
  */
 export type LibraryType = "tv" | "movie" | "music" | "anime";
 
-export const LibraryTypeSchema = Schema.Literals(["tv", "movie", "music", "anime"]);
+export const LibraryTypeSchema = Schema.Literals([
+  "tv",
+  "movie",
+  "music",
+  "anime",
+]);
 
 /**
  * Media item type stored per item; matches library type for identification.
  */
 export type MediaType = "tv" | "movie" | "music" | "anime";
 
-export const MediaTypeSchema = Schema.Literals(["tv", "movie", "music", "anime"]);
+export const MediaTypeSchema = Schema.Literals([
+  "tv",
+  "movie",
+  "music",
+  "anime",
+]);
 
 export type IntroSkipMode = "off" | "manual" | "auto";
 
@@ -21,17 +31,28 @@ export const IntroSkipModeSchema = Schema.Literals(["off", "manual", "auto"]);
 
 export type MatchStatus = "identified" | "local" | "unmatched";
 
-export const MatchStatusSchema = Schema.Literals(["identified", "local", "unmatched"]);
+export const MatchStatusSchema = Schema.Literals([
+  "identified",
+  "local",
+  "unmatched",
+]);
 
 export type IdentifyState = "queued" | "identifying" | "failed";
 
-export const IdentifyStateSchema = Schema.Literals(["queued", "identifying", "failed"]);
+export const IdentifyStateSchema = Schema.Literals([
+  "queued",
+  "identifying",
+  "failed",
+]);
 
 export interface Subtitle {
   id: number;
   title: string;
   language: string;
   format: string;
+  forced?: boolean;
+  default?: boolean;
+  hearingImpaired?: boolean;
 }
 
 export const SubtitleSchema = Schema.Struct({
@@ -39,6 +60,9 @@ export const SubtitleSchema = Schema.Struct({
   title: Schema.String,
   language: Schema.String,
   format: Schema.String,
+  forced: Schema.optional(Schema.Boolean),
+  default: Schema.optional(Schema.Boolean),
+  hearingImpaired: Schema.optional(Schema.Boolean),
 });
 
 export interface EmbeddedSubtitle {
@@ -47,6 +71,9 @@ export interface EmbeddedSubtitle {
   title: string;
   codec?: string;
   supported?: boolean;
+  forced?: boolean;
+  default?: boolean;
+  hearingImpaired?: boolean;
   /** Playback session only: false for bitmap subs that need server-side burn-in. */
   vttEligible?: boolean;
   /** Playback session: raw PGS stream for clients like Android TV / ExoPlayer. */
@@ -61,6 +88,9 @@ export const EmbeddedSubtitleSchema = Schema.Struct({
   title: Schema.String,
   codec: Schema.optional(Schema.String),
   supported: Schema.optional(Schema.Boolean),
+  forced: Schema.optional(Schema.Boolean),
+  default: Schema.optional(Schema.Boolean),
+  hearingImpaired: Schema.optional(Schema.Boolean),
   vttEligible: Schema.optional(Schema.Boolean),
   pgsBinaryEligible: Schema.optional(Schema.Boolean),
   assEligible: Schema.optional(Schema.Boolean),
@@ -358,7 +388,9 @@ export const MarkShowWatchedPayloadSchema = Schema.Union([
   }),
 ]);
 
-export type MarkShowWatchedPayload = Schema.Schema.Type<typeof MarkShowWatchedPayloadSchema>;
+export type MarkShowWatchedPayload = Schema.Schema.Type<
+  typeof MarkShowWatchedPayloadSchema
+>;
 
 export interface SetContinueWatchingVisibilityPayload {
   hidden: boolean;
@@ -569,11 +601,17 @@ export interface HomeDashboard {
 export const HomeDashboardSchema = Schema.Struct({
   continueWatching: Schema.Array(ContinueWatchingEntrySchema),
   recentlyAdded: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
-  recentlyAddedTvEpisodes: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedTvEpisodes: Schema.optional(
+    Schema.Array(RecentlyAddedEntrySchema),
+  ),
   recentlyAddedTvShows: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
   recentlyAddedMovies: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
-  recentlyAddedAnimeEpisodes: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
-  recentlyAddedAnimeShows: Schema.optional(Schema.Array(RecentlyAddedEntrySchema)),
+  recentlyAddedAnimeEpisodes: Schema.optional(
+    Schema.Array(RecentlyAddedEntrySchema),
+  ),
+  recentlyAddedAnimeShows: Schema.optional(
+    Schema.Array(RecentlyAddedEntrySchema),
+  ),
 });
 
 export interface Library {
@@ -735,7 +773,12 @@ export const ScanLibraryResultSchema = Schema.Struct({
   skipped: Schema.Number,
 });
 
-export type LibraryScanPhase = "idle" | "queued" | "scanning" | "completed" | "failed";
+export type LibraryScanPhase =
+  | "idle"
+  | "queued"
+  | "scanning"
+  | "completed"
+  | "failed";
 
 export const LibraryScanPhaseSchema = Schema.Literals([
   "idle",
@@ -747,9 +790,18 @@ export const LibraryScanPhaseSchema = Schema.Literals([
 
 export type LibraryEnrichmentPhase = "idle" | "queued" | "running";
 
-export const LibraryEnrichmentPhaseSchema = Schema.Literals(["idle", "queued", "running"]);
+export const LibraryEnrichmentPhaseSchema = Schema.Literals([
+  "idle",
+  "queued",
+  "running",
+]);
 
-export type LibraryIdentifyPhase = "idle" | "queued" | "identifying" | "completed" | "failed";
+export type LibraryIdentifyPhase =
+  | "idle"
+  | "queued"
+  | "identifying"
+  | "completed"
+  | "failed";
 
 export const LibraryIdentifyPhaseSchema = Schema.Literals([
   "idle",
@@ -784,7 +836,10 @@ export const LibraryScanActivityPhaseSchema = Schema.Literals([
 
 export type LibraryScanActivityTarget = "directory" | "file";
 
-export const LibraryScanActivityTargetSchema = Schema.Literals(["directory", "file"]);
+export const LibraryScanActivityTargetSchema = Schema.Literals([
+  "directory",
+  "file",
+]);
 
 export interface LibraryScanActivityEntry {
   phase: LibraryScanActivityPhase;
@@ -1165,19 +1220,23 @@ export const DiscoverBrowseCategorySchema = Schema.Literals([
 ]);
 
 /** Canonical browse shelf order for Discover; IDs match server TMDB browse routes. */
-export const DISCOVER_BROWSE_CATEGORY_ORDER: readonly DiscoverBrowseCategory[] = [
-  "trending",
-  "popular-movies",
-  "now-playing",
-  "upcoming",
-  "popular-tv",
-  "on-the-air",
-  "top-rated",
-];
+export const DISCOVER_BROWSE_CATEGORY_ORDER: readonly DiscoverBrowseCategory[] =
+  [
+    "trending",
+    "popular-movies",
+    "now-playing",
+    "upcoming",
+    "popular-tv",
+    "on-the-air",
+    "top-rated",
+  ];
 
 export type MediaStackServiceKind = "radarr" | "sonarr-tv";
 
-export const MediaStackServiceKindSchema = Schema.Literals(["radarr", "sonarr-tv"]);
+export const MediaStackServiceKindSchema = Schema.Literals([
+  "radarr",
+  "sonarr-tv",
+]);
 
 export interface DiscoverLibraryMatch {
   library_id: number;
@@ -1195,7 +1254,11 @@ export const DiscoverLibraryMatchSchema = Schema.Struct({
   show_key: Schema.optional(Schema.String),
 });
 
-export type DiscoverAcquisitionState = "not_added" | "added" | "downloading" | "available";
+export type DiscoverAcquisitionState =
+  | "not_added"
+  | "added"
+  | "downloading"
+  | "available";
 
 export const DiscoverAcquisitionStateSchema = Schema.Literals([
   "not_added",
@@ -1725,7 +1788,11 @@ export const VaapiDecodeCodecSchema = Schema.Literals([
 
 export type HardwareEncodeFormat = "h264" | "hevc" | "av1";
 
-export const HardwareEncodeFormatSchema = Schema.Literals(["h264", "hevc", "av1"]);
+export const HardwareEncodeFormatSchema = Schema.Literals([
+  "h264",
+  "hevc",
+  "av1",
+]);
 
 /** FFmpeg `tonemap_opencl` algorithm names (experimental server setting). */
 export type OpenCLToneMapAlgorithm =
@@ -1823,11 +1890,7 @@ export const TranscodingSettingsResponseSchema = Schema.Struct({
   warnings: Schema.Array(TranscodingSettingsWarningSchema),
 });
 
-export type MetadataArtworkProvider =
-  | "fanart"
-  | "tmdb"
-  | "tvdb"
-  | "omdb";
+export type MetadataArtworkProvider = "fanart" | "tmdb" | "tvdb" | "omdb";
 
 export const MetadataArtworkProviderSchema = Schema.Literals([
   "fanart",
@@ -2005,7 +2068,9 @@ export type PlumWebSocketEvent =
   | LibraryScanUpdateEvent
   | LibraryCatalogChangedEvent;
 
-export type PlumWebSocketCommand = AttachPlaybackSessionCommand | DetachPlaybackSessionCommand;
+export type PlumWebSocketCommand =
+  | AttachPlaybackSessionCommand
+  | DetachPlaybackSessionCommand;
 
 export const WelcomeEventSchema = Schema.Struct({
   type: Schema.Literal("welcome"),

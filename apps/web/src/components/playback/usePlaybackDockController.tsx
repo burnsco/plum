@@ -75,7 +75,10 @@ import {
   resolvedVideoDuration,
   seekUpperBoundSeconds,
 } from "../../lib/playback/playerMedia";
-import type { AudioTrackOption, SubtitleTrackOption } from "../../lib/playback/playerMedia";
+import type {
+  AudioTrackOption,
+  SubtitleTrackOption,
+} from "../../lib/playback/playerMedia";
 import {
   useFullscreenPlaybackKeyboard,
   usePlaybackUpNextKeyboard,
@@ -136,7 +139,8 @@ const SUBTITLE_LOAD_TIMEOUT_MS = 45_000;
 const EMBEDDED_SUBTITLE_LOAD_TIMEOUT_MS = 600_000;
 export function usePlaybackDockController(): ReactNode {
   const queryClient = useQueryClient();
-  const { api: playbackPreferences, librariesFetched } = usePlayerPlaybackPreferences();
+  const { api: playbackPreferences, librariesFetched } =
+    usePlayerPlaybackPreferences();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playerRootRef = useRef<HTMLElement | null>(null);
@@ -180,9 +184,13 @@ export function usePlaybackDockController(): ReactNode {
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   const [activeAssSource, setActiveAssSource] = useState<string | null>(null);
   /** Mirrored from the video ref so JassubRenderer re-renders when the element mounts (ref alone does not). */
-  const [jassubVideoElement, setJassubVideoElement] = useState<HTMLVideoElement | null>(null);
-  const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<LoadedSubtitleTrack[]>([]);
-  const [refreshedPlaybackTracks, setRefreshedPlaybackTracks] = useState<PlaybackTrackMetadata | null>(null);
+  const [jassubVideoElement, setJassubVideoElement] =
+    useState<HTMLVideoElement | null>(null);
+  const [loadedSubtitleTracks, setLoadedSubtitleTracks] = useState<
+    LoadedSubtitleTrack[]
+  >([]);
+  const [refreshedPlaybackTracks, setRefreshedPlaybackTracks] =
+    useState<PlaybackTrackMetadata | null>(null);
   const [subtitleStatusMessage, setSubtitleStatusMessage] = useState("");
   const [selectedAudioKey, setSelectedAudioKey] = useState("");
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
@@ -193,11 +201,18 @@ export function usePlaybackDockController(): ReactNode {
   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
-  const [detectedVideoAspectLabel, setDetectedVideoAspectLabel] = useState<string | null>(null);
+  const [detectedVideoAspectLabel, setDetectedVideoAspectLabel] = useState<
+    string | null
+  >(null);
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
-  const [resumePrompt, setResumePrompt] = useState<{ seconds: number; mediaId: number } | null>(null);
+  const [resumePrompt, setResumePrompt] = useState<{
+    seconds: number;
+    mediaId: number;
+  } | null>(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
-  const [pendingSubtitleKey, setPendingSubtitleKey] = useState<string | null>(null);
+  const [pendingSubtitleKey, setPendingSubtitleKey] = useState<string | null>(
+    null,
+  );
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null);
   const subtitleBtnRef = useRef<HTMLButtonElement | null>(null);
   const audioMenuRef = useRef<HTMLDivElement | null>(null);
@@ -207,10 +222,35 @@ export function usePlaybackDockController(): ReactNode {
   const playerSettingsMenuRef = useRef<HTMLDivElement | null>(null);
   const playerSettingsBtnRef = useRef<HTMLButtonElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const requestedAudioTrackRef = useRef<{ mediaId: number; key: string } | null>(null);
-  const dispatchedAudioTrackRef = useRef<{ mediaId: number; key: string } | null>(null);
+  const requestedAudioTrackRef = useRef<{
+    mediaId: number;
+    key: string;
+  } | null>(null);
+  const dispatchedAudioTrackRef = useRef<{
+    mediaId: number;
+    key: string;
+  } | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(0);
+  const handleAssStatusChange = useCallback(
+    (status: "loading" | "ready" | "error" | "timeout") => {
+      switch (status) {
+        case "loading":
+          setSubtitleStatusMessage("Loading subtitles...");
+          break;
+        case "ready":
+          setSubtitleStatusMessage("");
+          break;
+        case "timeout":
+          setSubtitleStatusMessage("Subtitle load timed out. Try again.");
+          break;
+        default:
+          setSubtitleStatusMessage("Subtitle load failed. Try again.");
+          break;
+      }
+    },
+    [],
+  );
   const resetHideTimer = useCallback(() => {
     setControlsVisible(true);
     clearTimeout(hideTimerRef.current);
@@ -237,11 +277,15 @@ export function usePlaybackDockController(): ReactNode {
   const videoPlaybackStartedRef = useRef(false);
   const manualSubtitleTrackRef = useRef<TextTrack | null>(null);
   const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
-  const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(
+    new Map(),
+  );
   const blockedSubtitleRetryKeysRef = useRef<Set<string>>(new Set());
   const currentSubtitleMediaIdRef = useRef<number | null>(null);
   const lastVideoProgressRef = useRef<VideoProgressSnapshot | null>(null);
-  const queuedSubtitlePreferenceRef = useRef<QueuedSubtitlePreference | null>(null);
+  const queuedSubtitlePreferenceRef = useRef<QueuedSubtitlePreference | null>(
+    null,
+  );
   const manualSubtitleSelectionRef = useRef<number | null>(null);
   const manualAudioSelectionRef = useRef<number | null>(null);
   const {
@@ -257,8 +301,13 @@ export function usePlaybackDockController(): ReactNode {
     dismissDock,
     burnEmbeddedSubtitleStreamIndex,
   } = usePlayerSession();
-  const { queue, queueIndex, repeatMode, playNextInQueue, playPreviousInQueue } =
-    usePlayerQueue();
+  const {
+    queue,
+    queueIndex,
+    repeatMode,
+    playNextInQueue,
+    playPreviousInQueue,
+  } = usePlayerQueue();
   const {
     volume,
     muted,
@@ -360,7 +409,10 @@ export function usePlaybackDockController(): ReactNode {
   const isWindowPlayer = isVideo;
   const activeItemId = activeItem?.id ?? null;
   const activeItemDuration = activeItem?.duration ?? 0;
-  const hasNextQueueItem = computeHasNextQueueItem(playbackQueue.length, queueIndex);
+  const hasNextQueueItem = computeHasNextQueueItem(
+    playbackQueue.length,
+    queueIndex,
+  );
   const hasVideoQueueNavigation = isVideo && playbackQueue.length > 1;
   currentSubtitleMediaIdRef.current = activeItemId;
   const videoStatusMessage =
@@ -379,7 +431,8 @@ export function usePlaybackDockController(): ReactNode {
   const showPlayerLoadingOverlay =
     isVideo &&
     (isVideoLoading ||
-      (hlsStatusMessage !== "" && !hlsStatusMessage.startsWith("Stream error:")));
+      (hlsStatusMessage !== "" &&
+        !hlsStatusMessage.startsWith("Stream error:")));
   const videoSourceIsHls = useMemo(
     () => /\.m3u8(?:$|\?)/i.test(videoSourceUrl),
     [videoSourceUrl],
@@ -414,16 +467,25 @@ export function usePlaybackDockController(): ReactNode {
 
   const effectiveWebTrackDefaults = useMemo(
     () =>
-      resolveEffectiveWebTrackDefaults(activeItem ?? null, playerLocalSettings.webDefaults),
+      resolveEffectiveWebTrackDefaults(
+        activeItem ?? null,
+        playerLocalSettings.webDefaults,
+      ),
     [activeItem, playerLocalSettings.webDefaults],
   );
 
   const clientSubtitleAutoPickDisabled = useMemo(() => {
-    return effectiveWebTrackDefaults.defaultSubtitleLanguage.trim() === PLAYER_WEB_TRACK_LANGUAGE_NONE;
+    return (
+      effectiveWebTrackDefaults.defaultSubtitleLanguage.trim() ===
+      PLAYER_WEB_TRACK_LANGUAGE_NONE
+    );
   }, [effectiveWebTrackDefaults.defaultSubtitleLanguage]);
 
   const clientAudioAutoPickDisabled = useMemo(() => {
-    return effectiveWebTrackDefaults.defaultAudioLanguage.trim() === PLAYER_WEB_TRACK_LANGUAGE_NONE;
+    return (
+      effectiveWebTrackDefaults.defaultAudioLanguage.trim() ===
+      PLAYER_WEB_TRACK_LANGUAGE_NONE
+    );
   }, [effectiveWebTrackDefaults.defaultAudioLanguage]);
 
   const effectivePreferredSubtitleLanguage = useMemo(() => {
@@ -432,7 +494,9 @@ export function usePlaybackDockController(): ReactNode {
     }
     const fromClient = effectiveWebTrackDefaults.defaultSubtitleLanguage.trim();
     if (fromClient !== "") {
-      return normalizeLanguagePreference(effectiveWebTrackDefaults.defaultSubtitleLanguage);
+      return normalizeLanguagePreference(
+        effectiveWebTrackDefaults.defaultSubtitleLanguage,
+      );
     }
     return libraryPlaybackPreferences.preferredSubtitleLanguage;
   }, [
@@ -447,7 +511,9 @@ export function usePlaybackDockController(): ReactNode {
     }
     const fromClient = effectiveWebTrackDefaults.defaultAudioLanguage.trim();
     if (fromClient !== "") {
-      return normalizeLanguagePreference(effectiveWebTrackDefaults.defaultAudioLanguage);
+      return normalizeLanguagePreference(
+        effectiveWebTrackDefaults.defaultAudioLanguage,
+      );
     }
     return libraryPlaybackPreferences.preferredAudioLanguage;
   }, [
@@ -546,9 +612,11 @@ export function usePlaybackDockController(): ReactNode {
       mediaId: activeItem.id,
       subtitles: refreshedPlaybackTracks?.subtitles ?? activeItem.subtitles,
       embeddedSubtitles:
-        refreshedPlaybackTracks?.embeddedSubtitles ?? activeItem.embeddedSubtitles,
+        refreshedPlaybackTracks?.embeddedSubtitles ??
+        activeItem.embeddedSubtitles,
       embeddedAudioTracks:
-        refreshedPlaybackTracks?.embeddedAudioTracks ?? activeItem.embeddedAudioTracks,
+        refreshedPlaybackTracks?.embeddedAudioTracks ??
+        activeItem.embeddedAudioTracks,
     };
   }, [activeItem, isVideo, refreshedPlaybackTracks]);
 
@@ -566,7 +634,9 @@ export function usePlaybackDockController(): ReactNode {
     const filtered = subtitleTrackRequests.filter(
       (t) => t.key === "off" || isEnglishSubtitleTrackForMenu(t),
     );
-    const selected = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    const selected = subtitleTrackRequests.find(
+      (t) => t.key === selectedSubtitleKey,
+    );
     if (
       selected != null &&
       selected.key !== "off" &&
@@ -589,7 +659,9 @@ export function usePlaybackDockController(): ReactNode {
         queuedSubtitlePreferenceRef.current = { kind: "off" };
         return;
       }
-      const track = subtitleTrackRequests.find((candidate) => candidate.key === key);
+      const track = subtitleTrackRequests.find(
+        (candidate) => candidate.key === key,
+      );
       if (!track) {
         queuedSubtitlePreferenceRef.current = null;
         return;
@@ -648,7 +720,9 @@ export function usePlaybackDockController(): ReactNode {
       if (loadedSubtitleTracks.some((track) => track.key === trackKey)) return;
       if (subtitleLoadControllersRef.current.has(trackKey)) return;
       if (blockedSubtitleRetryKeysRef.current.has(trackKey)) return;
-      const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
+      const track = subtitleTrackRequests.find(
+        (candidate) => candidate.key === trackKey,
+      );
       if (!track) return;
       if (track.requiresBurn) {
         setPendingSubtitleKey(null);
@@ -656,13 +730,20 @@ export function usePlaybackDockController(): ReactNode {
       }
       if (track.assEligible && track.assSrc) {
         // ASS tracks are rendered by JASSUB; no VTT load needed.
+        setSubtitleStatusMessage("Loading subtitles...");
+        setLoadedSubtitleTracks((current) => {
+          const rest = current.filter((candidate) => candidate.key !== trackKey);
+          return [...rest, { ...track, body: "" }];
+        });
         setActiveAssSource(track.assSrc);
         setPendingSubtitleKey(null);
-        setSubtitleStatusMessage("");
         return;
       }
       if (videoSourceIsHls && hlsRef.current) {
-        const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, trackKey);
+        const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(
+          hlsRef.current,
+          trackKey,
+        );
         if (hlsIdx >= 0) {
           setPendingSubtitleKey(null);
           setSubtitleStatusMessage("");
@@ -720,7 +801,9 @@ export function usePlaybackDockController(): ReactNode {
               lastFlushedBodyLen = bodyForState.length;
             }
             setLoadedSubtitleTracks((current) => {
-              const rest = current.filter((candidate) => candidate.key !== track.key);
+              const rest = current.filter(
+                (candidate) => candidate.key !== track.key,
+              );
               return [...rest, { ...track, body: bodyForState }];
             });
             if (cues.length > 0) {
@@ -729,7 +812,9 @@ export function usePlaybackDockController(): ReactNode {
           },
         );
         blockedSubtitleRetryKeysRef.current.delete(track.key);
-        setPendingSubtitleKey((current) => (current === track.key ? null : current));
+        setPendingSubtitleKey((current) =>
+          current === track.key ? null : current,
+        );
         setSubtitleStatusMessage("");
       } catch (error) {
         let loadError: unknown = error;
@@ -750,10 +835,16 @@ export function usePlaybackDockController(): ReactNode {
         setLoadedSubtitleTracks((current) =>
           current.filter((candidate) => candidate.key !== track.key),
         );
-        rememberBlockedSubtitleKey(blockedSubtitleRetryKeysRef.current, track.key);
-        setPendingSubtitleKey((current) => (current === track.key ? null : current));
+        rememberBlockedSubtitleKey(
+          blockedSubtitleRetryKeysRef.current,
+          track.key,
+        );
+        setPendingSubtitleKey((current) =>
+          current === track.key ? null : current,
+        );
         setSubtitleStatusMessage(
-          loadError instanceof Error && loadError.message === "Subtitle request timed out"
+          loadError instanceof Error &&
+            loadError.message === "Subtitle request timed out"
             ? "Subtitle load timed out. Try again."
             : "Subtitle load failed. Try again.",
         );
@@ -788,12 +879,16 @@ export function usePlaybackDockController(): ReactNode {
 
   useEffect(() => {
     if (selectedSubtitleKey === "off") return;
-    const req = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    const req = subtitleTrackRequests.find(
+      (t) => t.key === selectedSubtitleKey,
+    );
     if (req?.requiresBurn) {
       setPendingSubtitleKey(null);
       return;
     }
-    if (!loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
+    if (
+      !loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)
+    ) {
       setPendingSubtitleKey((current) =>
         current === selectedSubtitleKey ? current : selectedSubtitleKey,
       );
@@ -813,8 +908,12 @@ export function usePlaybackDockController(): ReactNode {
       setSubtitleStatusMessage("");
       return;
     }
-    if (loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)) {
-      setPendingSubtitleKey((current) => (current === selectedSubtitleKey ? null : current));
+    if (
+      loadedSubtitleTracks.some((track) => track.key === selectedSubtitleKey)
+    ) {
+      setPendingSubtitleKey((current) =>
+        current === selectedSubtitleKey ? null : current,
+      );
     }
   }, [loadedSubtitleTracks, selectedSubtitleKey]);
 
@@ -841,7 +940,11 @@ export function usePlaybackDockController(): ReactNode {
     return (
       playbackTrackSource.embeddedAudioTracks?.map((track, index) => ({
         key: `aud-${track.streamIndex}`,
-        label: formatTrackLabel(track.title, track.language, `Audio ${index + 1}`),
+        label: formatTrackLabel(
+          track.title,
+          track.language,
+          `Audio ${index + 1}`,
+        ),
         streamIndex: track.streamIndex,
         language: track.language,
       })) ?? []
@@ -854,8 +957,9 @@ export function usePlaybackDockController(): ReactNode {
   );
 
   const selectedAudioLabel =
-    (selectedAudioIndex >= 0 ? audioTracks[selectedAudioIndex]?.label : audioTracks[0]?.label) ||
-    "Audio";
+    (selectedAudioIndex >= 0
+      ? audioTracks[selectedAudioIndex]?.label
+      : audioTracks[0]?.label) || "Audio";
   const videoSubtitleStyle = useMemo(
     () =>
       ({
@@ -872,9 +976,13 @@ export function usePlaybackDockController(): ReactNode {
         return;
       }
       const elementDuration =
-        Number.isFinite(element.duration) && element.duration > 0 ? element.duration : 0;
+        Number.isFinite(element.duration) && element.duration > 0
+          ? element.duration
+          : 0;
       setPlaybackState({
-        currentTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
+        currentTime: Number.isFinite(element.currentTime)
+          ? element.currentTime
+          : 0,
         duration: isVideo
           ? resolvedVideoDuration(
               playbackDurationSeconds,
@@ -901,27 +1009,30 @@ export function usePlaybackDockController(): ReactNode {
     setSubtitleReadyVersion((value) => value + 1);
   }, []);
 
-  const maybeRecoverInitialBufferGap = useCallback((video: HTMLVideoElement | null): boolean => {
-    if (!video || initialBufferGapHandledRef.current) {
-      return false;
-    }
+  const maybeRecoverInitialBufferGap = useCallback(
+    (video: HTMLVideoElement | null): boolean => {
+      if (!video || initialBufferGapHandledRef.current) {
+        return false;
+      }
 
-    if ((Number.isFinite(video.currentTime) ? video.currentTime : 0) > 1) {
-      initialBufferGapHandledRef.current = true;
-      return false;
-    }
+      if ((Number.isFinite(video.currentTime) ? video.currentTime : 0) > 1) {
+        initialBufferGapHandledRef.current = true;
+        return false;
+      }
 
-    if (bufferedRangeStartsNearZero(video)) {
-      initialBufferGapHandledRef.current = true;
-      return false;
-    }
+      if (bufferedRangeStartsNearZero(video)) {
+        initialBufferGapHandledRef.current = true;
+        return false;
+      }
 
-    const nudged = nudgeVideoIntoBufferedRange(video);
-    if (nudged || video.buffered.length > 0) {
-      initialBufferGapHandledRef.current = true;
-    }
-    return nudged;
-  }, []);
+      const nudged = nudgeVideoIntoBufferedRange(video);
+      if (nudged || video.buffered.length > 0) {
+        initialBufferGapHandledRef.current = true;
+      }
+      return nudged;
+    },
+    [],
+  );
 
   const captureVideoProgressSnapshot = useCallback(
     (element?: HTMLVideoElement | null): VideoProgressSnapshot | null => {
@@ -931,7 +1042,9 @@ export function usePlaybackDockController(): ReactNode {
       const fallbackDuration =
         fallback?.mediaId === activeItem.id ? fallback.durationSeconds : 0;
       const fallbackPosition =
-        fallback?.mediaId === activeItem.id ? fallback.positionSeconds : playbackState.currentTime;
+        fallback?.mediaId === activeItem.id
+          ? fallback.positionSeconds
+          : playbackState.currentTime;
       const duration = resolvedVideoDuration(
         playbackDurationSeconds,
         activeItem.duration,
@@ -939,7 +1052,9 @@ export function usePlaybackDockController(): ReactNode {
       );
       if (!Number.isFinite(duration) || duration <= 0) return null;
       const rawPosition =
-        candidate && Number.isFinite(candidate.currentTime) ? candidate.currentTime : fallbackPosition;
+        candidate && Number.isFinite(candidate.currentTime)
+          ? candidate.currentTime
+          : fallbackPosition;
       const delivery = videoDelivery ?? "direct";
       let positionCap = duration;
       if (candidate != null) {
@@ -954,7 +1069,9 @@ export function usePlaybackDockController(): ReactNode {
         }
       }
       const positionSeconds = Math.max(0, Math.min(rawPosition, positionCap));
-      const ended = candidate?.ended ?? (fallback?.mediaId === activeItem.id ? fallback.ended : false);
+      const ended =
+        candidate?.ended ??
+        (fallback?.mediaId === activeItem.id ? fallback.ended : false);
       return {
         mediaId: activeItem.id,
         positionSeconds,
@@ -962,7 +1079,9 @@ export function usePlaybackDockController(): ReactNode {
         shouldResumePlayback:
           candidate != null
             ? !candidate.paused && !candidate.ended
-            : (fallback?.mediaId === activeItem.id ? fallback.shouldResumePlayback : false),
+            : fallback?.mediaId === activeItem.id
+              ? fallback.shouldResumePlayback
+              : false,
         ended,
       };
     },
@@ -985,7 +1104,11 @@ export function usePlaybackDockController(): ReactNode {
   );
 
   const persistPlaybackProgress = useCallback(
-    async (options?: { force?: boolean; completed?: boolean; snapshot?: VideoProgressSnapshot | null }) => {
+    async (options?: {
+      force?: boolean;
+      completed?: boolean;
+      snapshot?: VideoProgressSnapshot | null;
+    }) => {
       if (!isVideo || !activeItem) return;
       const snapshot =
         options?.snapshot && options.snapshot.mediaId === activeItem.id
@@ -1020,7 +1143,9 @@ export function usePlaybackDockController(): ReactNode {
         completed,
       };
       if (activeItem.library_id != null) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.library(activeItem.library_id) });
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.library(activeItem.library_id),
+        });
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
     },
@@ -1074,18 +1199,26 @@ export function usePlaybackDockController(): ReactNode {
     (element: HTMLVideoElement) => {
       if (!isVideo || !activeItem) return;
       if (initialProgressPersistedRef.current === activeItem.id) return;
-      if (!Number.isFinite(element.currentTime) || element.currentTime <= 0) return;
+      if (!Number.isFinite(element.currentTime) || element.currentTime <= 0)
+        return;
       initialProgressPersistedRef.current = activeItem.id;
       const snapshot = captureVideoProgressSnapshot(element);
       void persistPlaybackProgress({ force: true, snapshot });
     },
-    [activeItem, captureVideoProgressSnapshot, isVideo, persistPlaybackProgress],
+    [
+      activeItem,
+      captureVideoProgressSnapshot,
+      isVideo,
+      persistPlaybackProgress,
+    ],
   );
 
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     if (videoRef.current !== element) {
       if (videoRef.current && !element) {
-        const snapshot = captureVideoProgressSnapshotRef.current(videoRef.current);
+        const snapshot = captureVideoProgressSnapshotRef.current(
+          videoRef.current,
+        );
         if (snapshot) {
           lastVideoProgressRef.current = snapshot;
           seekToAfterReloadRef.current = snapshot.positionSeconds;
@@ -1135,7 +1268,10 @@ export function usePlaybackDockController(): ReactNode {
         resumePlaybackAfterReloadRef.current = false;
         if (shouldResumePlayback) {
           suppressVideoAutoplayOnCanPlayRef.current = false;
-          ignorePromise(element.play(), "PlaybackDock:resumePlaybackAfterReload");
+          ignorePromise(
+            element.play(),
+            "PlaybackDock:resumePlaybackAfterReload",
+          );
         } else {
           element.pause();
           suppressVideoAutoplayOnCanPlayRef.current = true;
@@ -1193,7 +1329,11 @@ export function usePlaybackDockController(): ReactNode {
         ignorePromise(element.play(), "PlaybackDock:canPlayKickstart");
       }
     },
-    [maybeRecoverInitialBufferGap, syncPlaybackState, syncVideoProgressSnapshot],
+    [
+      maybeRecoverInitialBufferGap,
+      syncPlaybackState,
+      syncVideoProgressSnapshot,
+    ],
   );
 
   useEffect(() => {
@@ -1248,10 +1388,16 @@ export function usePlaybackDockController(): ReactNode {
 
   useEffect(() => {
     if (!isVideo) return;
-    const nextDuration = resolvedVideoDuration(playbackDurationSeconds, activeItemDuration, 0);
+    const nextDuration = resolvedVideoDuration(
+      playbackDurationSeconds,
+      activeItemDuration,
+      0,
+    );
     if (nextDuration <= 0) return;
     setPlaybackState((current) =>
-      current.duration === nextDuration ? current : { ...current, duration: nextDuration },
+      current.duration === nextDuration
+        ? current
+        : { ...current, duration: nextDuration },
     );
   }, [activeItemDuration, isVideo, playbackDurationSeconds]);
 
@@ -1304,7 +1450,8 @@ export function usePlaybackDockController(): ReactNode {
       getPreferredSubtitleKey(
         subtitleTrackOptions,
         effectivePreferredSubtitleLanguage,
-        libraryPlaybackPreferences.subtitlesEnabledByDefault && !clientSubtitleAutoPickDisabled,
+        libraryPlaybackPreferences.subtitlesEnabledByDefault &&
+          !clientSubtitleAutoPickDisabled,
         effectiveSubtitleLabelHint,
       );
     const preferredAudioKey = getPreferredAudioKey(
@@ -1374,10 +1521,7 @@ export function usePlaybackDockController(): ReactNode {
     }
 
     const burnIdx = burnEmbeddedSubtitleStreamIndex;
-    if (
-      burnIdx != null &&
-      selectedSubtitleKey === `emb-${burnIdx}`
-    ) {
+    if (burnIdx != null && selectedSubtitleKey === `emb-${burnIdx}`) {
       clearTextTrackCues(manualSubtitleTrackRef.current);
       if (manualSubtitleTrackRef.current) {
         manualSubtitleTrackRef.current.mode = "disabled";
@@ -1387,7 +1531,9 @@ export function usePlaybackDockController(): ReactNode {
 
     // ASS tracks are rendered by JassubRenderer; skip TextTrack for them.
     if (selectedSubtitleKey !== "off") {
-      const selectedTrackReq = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+      const selectedTrackReq = subtitleTrackRequests.find(
+        (t) => t.key === selectedSubtitleKey,
+      );
       if (selectedTrackReq?.assEligible) {
         clearTextTrackCues(manualSubtitleTrackRef.current);
         if (manualSubtitleTrackRef.current) {
@@ -1398,7 +1544,10 @@ export function usePlaybackDockController(): ReactNode {
     }
 
     if (videoSourceIsHls && hlsRef.current && selectedSubtitleKey !== "off") {
-      const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(hlsRef.current, selectedSubtitleKey);
+      const hlsIdx = findHlsSubtitleTrackIndexForPlumKey(
+        hlsRef.current,
+        selectedSubtitleKey,
+      );
       if (hlsIdx >= 0) {
         clearTextTrackCues(manualSubtitleTrackRef.current);
         if (manualSubtitleTrackRef.current) {
@@ -1409,7 +1558,11 @@ export function usePlaybackDockController(): ReactNode {
     }
 
     let track = manualSubtitleTrackRef.current;
-    if (manualSubtitleVideoRef.current !== video || track == null || !hasTextTrack(video, track)) {
+    if (
+      manualSubtitleVideoRef.current !== video ||
+      track == null ||
+      !hasTextTrack(video, track)
+    ) {
       try {
         track = video.addTextTrack("subtitles", "Plum subtitles", "und");
       } catch {
@@ -1430,7 +1583,9 @@ export function usePlaybackDockController(): ReactNode {
     }
 
     const selectedTrack =
-      loadedSubtitleTracks.find((candidate) => candidate.key === selectedSubtitleKey) ?? null;
+      loadedSubtitleTracks.find(
+        (candidate) => candidate.key === selectedSubtitleKey,
+      ) ?? null;
     if (!selectedTrack) {
       track.mode = "disabled";
       return;
@@ -1458,7 +1613,11 @@ export function usePlaybackDockController(): ReactNode {
         manualSubtitleTrackRef.current.mode = "disabled";
       }
     };
-  }, [applyManagedSubtitleTrack, subtitleAttachmentVersion, subtitleReadyVersion]);
+  }, [
+    applyManagedSubtitleTrack,
+    subtitleAttachmentVersion,
+    subtitleReadyVersion,
+  ]);
 
   // Clear JASSUB renderer when the selected subtitle is no longer an ASS track.
   useEffect(() => {
@@ -1471,7 +1630,9 @@ export function usePlaybackDockController(): ReactNode {
     if (playbackTrackSource == null) {
       return;
     }
-    const track = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    const track = subtitleTrackRequests.find(
+      (t) => t.key === selectedSubtitleKey,
+    );
     if (track == null || !track.assEligible) {
       setActiveAssSource(null);
     }
@@ -1492,7 +1653,9 @@ export function usePlaybackDockController(): ReactNode {
       (_, index) => index,
     ).find((index) => browserAudioTracks[index]?.enabled);
     const activeIndex =
-      selectedAudioIndex >= 0 ? selectedAudioIndex : Math.max(0, detectedIndex ?? 0);
+      selectedAudioIndex >= 0
+        ? selectedAudioIndex
+        : Math.max(0, detectedIndex ?? 0);
 
     for (let i = 0; i < browserAudioTracks.length; i += 1) {
       const audioTrack = browserAudioTracks[i];
@@ -1507,7 +1670,11 @@ export function usePlaybackDockController(): ReactNode {
       const track = audioTracks.find((candidate) => candidate.key === key);
       if (!track) return;
       const previousRequest = dispatchedAudioTrackRef.current;
-      if (previousRequest?.mediaId === activeItem.id && previousRequest.key === key) return;
+      if (
+        previousRequest?.mediaId === activeItem.id &&
+        previousRequest.key === key
+      )
+        return;
       dispatchedAudioTrackRef.current = { mediaId: activeItem.id, key };
       void changeAudioTrack(track.streamIndex);
     },
@@ -1540,10 +1707,16 @@ export function usePlaybackDockController(): ReactNode {
   useEffect(() => {
     if (!isVideo || !activeItem || videoAudioIndex < 0) return;
     const sessionAudioKey =
-      audioTracks.find((track) => track.streamIndex === videoAudioIndex)?.key ?? "";
+      audioTracks.find((track) => track.streamIndex === videoAudioIndex)?.key ??
+      "";
     if (!sessionAudioKey) return;
-    setSelectedAudioKey((current) => (current === sessionAudioKey ? current : sessionAudioKey));
-    dispatchedAudioTrackRef.current = { mediaId: activeItem.id, key: sessionAudioKey };
+    setSelectedAudioKey((current) =>
+      current === sessionAudioKey ? current : sessionAudioKey,
+    );
+    dispatchedAudioTrackRef.current = {
+      mediaId: activeItem.id,
+      key: sessionAudioKey,
+    };
     // Session/WebSocket can report a new audio index without reloading the element metadata handler;
     // bump so native audioTracks selection re-syncs (fixes UI showing server track while mux played another).
     setAudioTrackVersion((v) => v + 1);
@@ -1565,7 +1738,8 @@ export function usePlaybackDockController(): ReactNode {
       const refreshedTrack = buildSubtitleTrackRequests({
         mediaId: activeItem.id,
         subtitles: metadata?.subtitles ?? playbackTrackSource?.subtitles,
-        embeddedSubtitles: metadata?.embeddedSubtitles ?? playbackTrackSource?.embeddedSubtitles,
+        embeddedSubtitles:
+          metadata?.embeddedSubtitles ?? playbackTrackSource?.embeddedSubtitles,
       }).find((candidate) => candidate.key === key);
       if (!refreshedTrack || refreshedTrack.supported === false) {
         setPendingSubtitleKey(null);
@@ -1577,7 +1751,12 @@ export function usePlaybackDockController(): ReactNode {
       blockedSubtitleRetryKeysRef.current.delete(key);
       await ensureSubtitleTrackLoaded(key);
     },
-    [activeItem, ensureSubtitleTrackLoaded, playbackTrackSource, refreshActivePlaybackTracks],
+    [
+      activeItem,
+      ensureSubtitleTrackLoaded,
+      playbackTrackSource,
+      refreshActivePlaybackTracks,
+    ],
   );
 
   const toggleSubtitleMenu = useCallback(() => {
@@ -1585,7 +1764,8 @@ export function usePlaybackDockController(): ReactNode {
       const nextOpen = !value;
       if (
         nextOpen &&
-        (!hasSupportedSubtitleTracks || blockedSubtitleRetryKeysRef.current.size > 0)
+        (!hasSupportedSubtitleTracks ||
+          blockedSubtitleRetryKeysRef.current.size > 0)
       ) {
         void refreshActivePlaybackTracks();
       }
@@ -1598,7 +1778,8 @@ export function usePlaybackDockController(): ReactNode {
 
   const selectSubtitleTrack = useCallback(
     async (key: string) => {
-      const track = subtitleTrackOptions.find((candidate) => candidate.key === key) ?? null;
+      const track =
+        subtitleTrackOptions.find((candidate) => candidate.key === key) ?? null;
       if (key !== "off" && (track == null || track.supported === false)) {
         setSubtitleStatusMessage("This subtitle track is unavailable.");
         return;
@@ -1671,7 +1852,8 @@ export function usePlaybackDockController(): ReactNode {
         await changeEmbeddedSubtitleBurn(null);
       }
 
-      const shouldRefreshBeforeRetry = blockedSubtitleRetryKeysRef.current.has(key);
+      const shouldRefreshBeforeRetry =
+        blockedSubtitleRetryKeysRef.current.has(key);
       setLoadedSubtitleTracks((current) =>
         current.filter((candidate) => candidate.key !== key),
       );
@@ -1706,7 +1888,9 @@ export function usePlaybackDockController(): ReactNode {
   useEffect(() => {
     if (!isVideo || activeItemId == null || videoSourceUrl === "") return;
     if (selectedSubtitleKey === "off") return;
-    const req = subtitleTrackRequests.find((t) => t.key === selectedSubtitleKey);
+    const req = subtitleTrackRequests.find(
+      (t) => t.key === selectedSubtitleKey,
+    );
     if (!req?.requiresBurn) return;
     const idx = embeddedStreamIndexFromKey(selectedSubtitleKey);
     if (idx == null) return;
@@ -1736,8 +1920,13 @@ export function usePlaybackDockController(): ReactNode {
           normalizeLanguagePreference(picked.label) ||
           "";
         const stored = readStoredPlayerWebDefaults();
-        writeStoredPlayerWebDefaults({ ...stored, defaultAudioLanguage: langNorm });
-        mergeShowTrackDefaultsForEpisode(activeItem ?? null, { defaultAudioLanguage: langNorm });
+        writeStoredPlayerWebDefaults({
+          ...stored,
+          defaultAudioLanguage: langNorm,
+        });
+        mergeShowTrackDefaultsForEpisode(activeItem ?? null, {
+          defaultAudioLanguage: langNorm,
+        });
       }
       setSelectedAudioKey((current) => (current === key ? current : key));
     },
@@ -1768,7 +1957,13 @@ export function usePlaybackDockController(): ReactNode {
 
   /* ── Close track menus on outside click ── */
   useEffect(() => {
-    if (!subtitleMenuOpen && !audioMenuOpen && !aspectMenuOpen && !playerSettingsOpen) return;
+    if (
+      !subtitleMenuOpen &&
+      !audioMenuOpen &&
+      !aspectMenuOpen &&
+      !playerSettingsOpen
+    )
+      return;
     const onClick = (e: MouseEvent) => {
       if (
         subtitleMenuRef.current?.contains(e.target as Node) ||
@@ -1791,19 +1986,25 @@ export function usePlaybackDockController(): ReactNode {
   }, [aspectMenuOpen, audioMenuOpen, playerSettingsOpen, subtitleMenuOpen]);
 
   const syncBrowserFullscreenState = useCallback(() => {
-    setBrowserFullscreenActive(document.fullscreenElement === playerRootRef.current);
+    setBrowserFullscreenActive(
+      document.fullscreenElement === playerRootRef.current,
+    );
   }, []);
 
   useEffect(() => {
     syncBrowserFullscreenState();
     const handleFullscreenChange = () => syncBrowserFullscreenState();
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [syncBrowserFullscreenState]);
 
   const toggleBrowserFullscreen = useCallback(() => {
     if (document.fullscreenElement === playerRootRef.current) {
-      ignorePromise(document.exitFullscreen(), "PlaybackDock:exitFullscreenToggle");
+      ignorePromise(
+        document.exitFullscreen(),
+        "PlaybackDock:exitFullscreenToggle",
+      );
       return;
     }
     if (!playerRootRef.current) return;
@@ -1835,10 +2036,13 @@ export function usePlaybackDockController(): ReactNode {
     setControlsVisible(true);
   }, []);
 
-  usePlaybackUpNextKeyboard(Boolean(upNextTarget && activeMode === "video" && activeItem != null), {
-    dismissUpNext,
-    confirmUpNextNow,
-  });
+  usePlaybackUpNextKeyboard(
+    Boolean(upNextTarget && activeMode === "video" && activeItem != null),
+    {
+      dismissUpNext,
+      confirmUpNextNow,
+    },
+  );
 
   useFullscreenPlaybackKeyboard(isWindowPlayer && isVideo, {
     playerRootRef,
@@ -1858,7 +2062,8 @@ export function usePlaybackDockController(): ReactNode {
   });
 
   const handleVideoPrevious = useCallback(() => {
-    const currentTime = videoRef.current?.currentTime ?? playbackState.currentTime;
+    const currentTime =
+      videoRef.current?.currentTime ?? playbackState.currentTime;
     if (
       shouldRestartCurrentVideoOnPrevious(
         currentTime,
@@ -1959,7 +2164,11 @@ export function usePlaybackDockController(): ReactNode {
   );
 
   const handleSeekSliderChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement> | { currentTarget: HTMLInputElement }) => {
+    (
+      event:
+        | ChangeEvent<HTMLInputElement>
+        | { currentTarget: HTMLInputElement },
+    ) => {
       const next = Number(event.currentTarget.value);
       if (!Number.isFinite(next)) return;
       seekPreviewValueRef.current = next;
@@ -1979,10 +2188,14 @@ export function usePlaybackDockController(): ReactNode {
       seekPreviewValueRef.current = null;
       setSeekPreviewSec(null);
       const cap =
-        progressMax > 0 && Number.isFinite(progressMax) ? progressMax : Number.POSITIVE_INFINITY;
+        progressMax > 0 && Number.isFinite(progressMax)
+          ? progressMax
+          : Number.POSITIVE_INFINITY;
       const el = videoRef.current;
       const t =
-        el != null && Number.isFinite(el.currentTime) ? el.currentTime : playbackState.currentTime;
+        el != null && Number.isFinite(el.currentTime)
+          ? el.currentTime
+          : playbackState.currentTime;
       seekTo(Math.max(0, Math.min(cap, t + delta)));
       resetHideTimer();
     },
@@ -2006,7 +2219,8 @@ export function usePlaybackDockController(): ReactNode {
     seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime,
     progressMax || 0,
   );
-  const seekTimeLabelSec = seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime;
+  const seekTimeLabelSec =
+    seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime;
 
   const aspectTrackMenuOptions = useMemo(
     () =>
@@ -2038,9 +2252,15 @@ export function usePlaybackDockController(): ReactNode {
         onPause={(event) => syncPlaybackState(event.currentTarget)}
         onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
         onEnded={() => {
-          if (musicPlaybackShouldLoopSameTrack(repeatMode) && audioRef.current) {
+          if (
+            musicPlaybackShouldLoopSameTrack(repeatMode) &&
+            audioRef.current
+          ) {
             audioRef.current.currentTime = 0;
-            ignorePromise(audioRef.current.play(), "PlaybackDock:musicRepeatOne");
+            ignorePromise(
+              audioRef.current.play(),
+              "PlaybackDock:musicRepeatOne",
+            );
             return;
           }
           playNextInQueue();
@@ -2050,14 +2270,18 @@ export function usePlaybackDockController(): ReactNode {
   }
 
   const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
-  const autoplayButtonLabel = videoAutoplayEnabled ? "Disable autoplay next" : "Enable autoplay next";
+  const autoplayButtonLabel = videoAutoplayEnabled
+    ? "Disable autoplay next"
+    : "Enable autoplay next";
   const handleClosePlayer = () => {
     const snapshot = captureVideoProgressSnapshot(videoRef.current);
     void persistPlaybackProgress({ force: true, snapshot });
     dismissDock();
   };
 
-  const upNextSeasonLabel = upNextTarget ? getSeasonEpisodeLabel(upNextTarget) : "";
+  const upNextSeasonLabel = upNextTarget
+    ? getSeasonEpisodeLabel(upNextTarget)
+    : "";
   const upNextOverlay =
     upNextTarget != null ? (
       <div
@@ -2067,28 +2291,44 @@ export function usePlaybackDockController(): ReactNode {
         aria-label="Up next"
       >
         {upNextBackdropUrl ? (
-          <img src={upNextBackdropUrl} alt="" className="playback-up-next__bg" />
+          <img
+            src={upNextBackdropUrl}
+            alt=""
+            className="playback-up-next__bg"
+          />
         ) : (
-          <div className="playback-up-next__bg playback-up-next__bg--empty" aria-hidden />
+          <div
+            className="playback-up-next__bg playback-up-next__bg--empty"
+            aria-hidden
+          />
         )}
         <div className="playback-up-next__scrim" />
         <div className="playback-up-next__content">
           <p className="playback-up-next__eyebrow">Up next</p>
-          <h2 className="playback-up-next__title">
-            {upNextTarget.title}
-          </h2>
+          <h2 className="playback-up-next__title">{upNextTarget.title}</h2>
           {upNextSeasonLabel ? (
             <p className="playback-up-next__meta">{upNextSeasonLabel}</p>
           ) : null}
           <p className="playback-up-next__timer">
             Starting in{" "}
-            <span className="playback-up-next__timer-value">{upNextSecondsLeft}</span>s
+            <span className="playback-up-next__timer-value">
+              {upNextSecondsLeft}
+            </span>
+            s
           </p>
           <div className="playback-up-next__actions">
-            <button type="button" className="playback-up-next__play-now" onClick={confirmUpNextNow}>
+            <button
+              type="button"
+              className="playback-up-next__play-now"
+              onClick={confirmUpNextNow}
+            >
               Play now
             </button>
-            <button type="button" className="playback-up-next__cancel" onClick={dismissUpNext}>
+            <button
+              type="button"
+              className="playback-up-next__cancel"
+              onClick={dismissUpNext}
+            >
               Cancel
             </button>
           </div>
@@ -2168,6 +2408,7 @@ export function usePlaybackDockController(): ReactNode {
           videoSubtitleStyle={videoSubtitleStyle}
           jassubVideoElement={jassubVideoElement}
           activeAssSource={activeAssSource}
+          onAssStatusChange={handleAssStatusChange}
           onVideoDoubleClick={handleVideoDoubleClick}
           onLoadStart={() => {
             if (!videoPlaybackStartedRef.current) {
@@ -2209,7 +2450,10 @@ export function usePlaybackDockController(): ReactNode {
             void persistPlaybackProgress({ force: true, snapshot });
           }}
           onWaiting={(event) => {
-            if (!event.currentTarget.ended && !videoPlaybackStartedRef.current) {
+            if (
+              !event.currentTarget.ended &&
+              !videoPlaybackStartedRef.current
+            ) {
               setIsVideoLoading(true);
             }
           }}
@@ -2220,7 +2464,9 @@ export function usePlaybackDockController(): ReactNode {
           onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
           onError={() => {
             setIsVideoLoading(false);
-            setHlsStatusMessage("Stream error: browser media element failed to load playback");
+            setHlsStatusMessage(
+              "Stream error: browser media element failed to load playback",
+            );
           }}
           onEnded={(event) => {
             setIsVideoLoading(false);
@@ -2291,7 +2537,9 @@ export function usePlaybackDockController(): ReactNode {
               onVideoPrevious={handleVideoPrevious}
               onPlayNextInQueue={playNextInQueue}
               hasNextQueueItem={hasNextQueueItem}
-              onToggleQueueAutoplay={() => setVideoAutoplayEnabled((value) => !value)}
+              onToggleQueueAutoplay={() =>
+                setVideoAutoplayEnabled((value) => !value)
+              }
               autoplayNextLabel={autoplayButtonLabel}
               queueAutoplayActive={videoAutoplayEnabled}
               muted={muted}

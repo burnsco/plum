@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -95,13 +96,15 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		metadata.Subtitles = subtitles
 	}
 
-	probed, err := readVideoMetadata(ctx, sourcePath)
-	if err != nil {
+	embeddedSubtitles, embeddedAudioTracks, getErr := getPersistedPlaybackTracks(db, item.ID)
+	if getErr != nil {
+		return metadata, getErr
+	}
+	if canReusePersistedPlaybackTracks(item, sourcePath, embeddedSubtitles, embeddedAudioTracks) {
+		metadata.EmbeddedSubtitles = embeddedSubtitles
+		metadata.EmbeddedAudioTracks = embeddedAudioTracks
+	} else if probed, err := readVideoMetadata(ctx, sourcePath); err != nil {
 		slog.Warn("refresh playback embedded tracks", "media_id", item.ID, "path", sourcePath, "error", err)
-		embeddedSubtitles, embeddedAudioTracks, getErr := getPersistedPlaybackTracks(db, item.ID)
-		if getErr != nil {
-			return metadata, getErr
-		}
 		metadata.EmbeddedSubtitles = embeddedSubtitles
 		metadata.EmbeddedAudioTracks = embeddedAudioTracks
 	} else {
@@ -255,6 +258,20 @@ func getPersistedPlaybackTracks(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, []
 	return embeddedSubtitles, embeddedAudioTracks, nil
 }
 
+func canReusePersistedPlaybackTracks(item *MediaItem, sourcePath string, embeddedSubtitles []EmbeddedSubtitle, embeddedAudioTracks []EmbeddedAudioTrack) bool {
+	if item == nil || item.FileSizeBytes <= 0 || strings.TrimSpace(item.FileModTime) == "" {
+		return false
+	}
+	if len(embeddedSubtitles) == 0 && len(embeddedAudioTracks) == 0 {
+		return false
+	}
+	fi, err := os.Stat(sourcePath)
+	if err != nil {
+		return false
+	}
+	return fi.Size() == item.FileSizeBytes && fi.ModTime().UTC().Format(time.RFC3339Nano) == item.FileModTime
+}
+
 func getSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Subtitle, error) {
 	if len(mediaIDs) == 0 {
 		return nil, nil
@@ -265,7 +282,7 @@ func getSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Subtitle, err
 		placeholders[i] = "?"
 		args[i] = mediaIDs[i]
 	}
-	query := `SELECT id, media_id, title, language, format, path FROM subtitles WHERE media_id IN (` + strings.Join(placeholders, ",") + `)`
+	query := `SELECT id, media_id, title, language, format, forced, is_default, hearing_impaired, path FROM subtitles WHERE media_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY media_id, language, forced DESC, hearing_impaired ASC, title, path`
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -274,9 +291,13 @@ func getSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Subtitle, err
 	out := make(map[int][]Subtitle)
 	for rows.Next() {
 		var s Subtitle
-		if err := rows.Scan(&s.ID, &s.MediaID, &s.Title, &s.Language, &s.Format, &s.Path); err != nil {
+		var forcedInt, defaultInt, hearingInt int
+		if err := rows.Scan(&s.ID, &s.MediaID, &s.Title, &s.Language, &s.Format, &forcedInt, &defaultInt, &hearingInt, &s.Path); err != nil {
 			return nil, err
 		}
+		s.Forced = forcedInt != 0
+		s.Default = defaultInt != 0
+		s.HearingImpaired = hearingInt != 0
 		out[s.MediaID] = append(out[s.MediaID], s)
 	}
 	return out, rows.Err()
@@ -292,7 +313,7 @@ func getEmbeddedSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Embed
 		placeholders[i] = "?"
 		args[i] = mediaIDs[i]
 	}
-	query := `SELECT media_id, stream_index, language, title, COALESCE(codec, ''), supported FROM embedded_subtitles WHERE media_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY media_id, stream_index`
+	query := `SELECT media_id, stream_index, language, title, COALESCE(codec, ''), supported, forced, is_default, hearing_impaired FROM embedded_subtitles WHERE media_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY media_id, stream_index`
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -302,13 +323,17 @@ func getEmbeddedSubtitlesByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Embed
 	for rows.Next() {
 		var s EmbeddedSubtitle
 		var supportedInt sql.NullInt64
-		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title, &s.Codec, &supportedInt); err != nil {
+		var forcedInt, defaultInt, hearingInt int
+		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title, &s.Codec, &supportedInt, &forcedInt, &defaultInt, &hearingInt); err != nil {
 			return nil, err
 		}
 		if supportedInt.Valid {
 			v := supportedInt.Int64 != 0
 			s.Supported = &v
 		}
+		s.Forced = forcedInt != 0
+		s.Default = defaultInt != 0
+		s.HearingImpaired = hearingInt != 0
 		out[s.MediaID] = append(out[s.MediaID], s)
 	}
 	return out, rows.Err()
@@ -954,7 +979,7 @@ WHERE library_id = ? AND kind = ?`, libraryID, kind)
 // duplicateHashQueryChunk limits bound variables per query (below SQLite's default SQLITE_MAX_VARIABLE_NUMBER).
 
 func getSubtitlesForMedia(db *sql.DB, mediaID int) ([]Subtitle, error) {
-	rows, err := db.Query(`SELECT id, media_id, title, language, format, path FROM subtitles WHERE media_id = ?`, mediaID)
+	rows, err := db.Query(`SELECT id, media_id, title, language, format, forced, is_default, hearing_impaired, path FROM subtitles WHERE media_id = ? ORDER BY language, forced DESC, hearing_impaired ASC, title, path`, mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -963,16 +988,20 @@ func getSubtitlesForMedia(db *sql.DB, mediaID int) ([]Subtitle, error) {
 	var subs []Subtitle
 	for rows.Next() {
 		var s Subtitle
-		if err := rows.Scan(&s.ID, &s.MediaID, &s.Title, &s.Language, &s.Format, &s.Path); err != nil {
+		var forcedInt, defaultInt, hearingInt int
+		if err := rows.Scan(&s.ID, &s.MediaID, &s.Title, &s.Language, &s.Format, &forcedInt, &defaultInt, &hearingInt, &s.Path); err != nil {
 			return nil, err
 		}
+		s.Forced = forcedInt != 0
+		s.Default = defaultInt != 0
+		s.HearingImpaired = hearingInt != 0
 		subs = append(subs, s)
 	}
 	return subs, rows.Err()
 }
 
 func getEmbeddedSubtitlesForMedia(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, error) {
-	rows, err := db.Query(`SELECT media_id, stream_index, language, title, COALESCE(codec, ''), supported FROM embedded_subtitles WHERE media_id = ? ORDER BY stream_index`, mediaID)
+	rows, err := db.Query(`SELECT media_id, stream_index, language, title, COALESCE(codec, ''), supported, forced, is_default, hearing_impaired FROM embedded_subtitles WHERE media_id = ? ORDER BY stream_index`, mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -982,13 +1011,17 @@ func getEmbeddedSubtitlesForMedia(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, 
 	for rows.Next() {
 		var s EmbeddedSubtitle
 		var supportedInt sql.NullInt64
-		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title, &s.Codec, &supportedInt); err != nil {
+		var forcedInt, defaultInt, hearingInt int
+		if err := rows.Scan(&s.MediaID, &s.StreamIndex, &s.Language, &s.Title, &s.Codec, &supportedInt, &forcedInt, &defaultInt, &hearingInt); err != nil {
 			return nil, err
 		}
 		if supportedInt.Valid {
 			v := supportedInt.Int64 != 0
 			s.Supported = &v
 		}
+		s.Forced = forcedInt != 0
+		s.Default = defaultInt != 0
+		s.HearingImpaired = hearingInt != 0
 		subs = append(subs, s)
 	}
 	return subs, rows.Err()
@@ -1014,14 +1047,18 @@ func getEmbeddedAudioTracksForMedia(db *sql.DB, mediaID int) ([]EmbeddedAudioTra
 
 func GetSubtitleByID(db *sql.DB, id int) (*Subtitle, error) {
 	var s Subtitle
-	err := db.QueryRow(`SELECT id, media_id, title, language, format, path FROM subtitles WHERE id = ?`, id).
-		Scan(&s.ID, &s.MediaID, &s.Title, &s.Language, &s.Format, &s.Path)
+	var forcedInt, defaultInt, hearingInt int
+	err := db.QueryRow(`SELECT id, media_id, title, language, format, forced, is_default, hearing_impaired, path FROM subtitles WHERE id = ?`, id).
+		Scan(&s.ID, &s.MediaID, &s.Title, &s.Language, &s.Format, &forcedInt, &defaultInt, &hearingInt, &s.Path)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	s.Forced = forcedInt != 0
+	s.Default = defaultInt != 0
+	s.HearingImpaired = hearingInt != 0
 	return &s, nil
 }
 
@@ -1060,7 +1097,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 	args := []string{"-v", "error"}
 	args = append(args, ffopts.InputProbeBeforeI...)
 	args = append(args,
-		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title",
+		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
 		"-show_entries", "chapter=start_time,end_time:chapter_tags=title",
 		"-of", "json",
 		path,
@@ -1076,10 +1113,15 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 			Duration string `json:"duration"`
 		} `json:"format"`
 		Streams []struct {
-			Index     int    `json:"index"`
-			CodecType string `json:"codec_type"`
-			CodecName string `json:"codec_name"`
-			Tags      struct {
+			Index       int    `json:"index"`
+			CodecType   string `json:"codec_type"`
+			CodecName   string `json:"codec_name"`
+			Disposition struct {
+				Default         int `json:"default"`
+				Forced          int `json:"forced"`
+				HearingImpaired int `json:"hearing_impaired"`
+			} `json:"disposition"`
+			Tags struct {
 				Language string `json:"language"`
 				Title    string `json:"title"`
 			} `json:"tags"`
@@ -1108,12 +1150,14 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 		if lang == "" {
 			lang = "und"
 		}
-		title := stream.Tags.Title
-		if title == "" {
-			title = lang
-		}
 		switch stream.CodecType {
 		case "subtitle":
+			title, normalizedLang, forced, hearingImpaired := normalizeEmbeddedSubtitleMetadata(
+				stream.Tags.Title,
+				lang,
+				stream.Disposition.Forced != 0,
+				stream.Disposition.HearingImpaired != 0,
+			)
 			codec := strings.TrimSpace(stream.CodecName)
 			var supportedPtr *bool
 			if codec != "" {
@@ -1121,16 +1165,27 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 				supportedPtr = &supported
 			}
 			result.EmbeddedSubtitles = append(result.EmbeddedSubtitles, EmbeddedSubtitle{
-				StreamIndex: stream.Index,
-				Language:    lang,
-				Title:       title,
-				Codec:       codec,
-				Supported:   supportedPtr,
+				StreamIndex:     stream.Index,
+				Language:        normalizedLang,
+				Title:           title,
+				Codec:           codec,
+				Supported:       supportedPtr,
+				Forced:          forced,
+				Default:         stream.Disposition.Default != 0,
+				HearingImpaired: hearingImpaired,
 			})
 		case "audio":
+			title := strings.TrimSpace(stream.Tags.Title)
+			if title == "" {
+				title = displaySubtitleLanguage(lang)
+			}
+			audioLang := canonicalSubtitleLanguage(lang)
+			if audioLang == "" {
+				audioLang = "und"
+			}
 			result.EmbeddedAudioTracks = append(result.EmbeddedAudioTracks, EmbeddedAudioTrack{
 				StreamIndex: stream.Index,
-				Language:    lang,
+				Language:    audioLang,
 				Title:       title,
 			})
 		}
@@ -1200,42 +1255,70 @@ func probeEmbeddedAudioTracks(ctx context.Context, path string) ([]EmbeddedAudio
 
 func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPath string) error {
 	dir := filepath.Dir(videoPath)
-	base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
-
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 
+	type subtitleRow struct {
+		name     string
+		path     string
+		format   string
+		language string
+		title    string
+		forced   bool
+		def      bool
+		hi       bool
+	}
+	rows := make([]subtitleRow, 0)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if strings.HasPrefix(name, base) {
-			ext := strings.ToLower(filepath.Ext(name))
-			if ext == ".srt" || ext == ".vtt" || ext == ".ass" || ext == ".ssa" {
-				path := filepath.Join(dir, name)
-				lang := "und"
-				parts := strings.Split(strings.TrimSuffix(name, ext), ".")
-				if len(parts) > 1 {
-					lastPart := parts[len(parts)-1]
-					if len(lastPart) == 2 || len(lastPart) == 3 {
-						lang = lastPart
-					}
-				}
-
-				_, err := dbConn.ExecContext(ctx,
-					`INSERT OR IGNORE INTO subtitles (media_id, title, language, format, path) VALUES (?, ?, ?, ?, ?)`,
-					mediaID, name, lang, ext[1:], path,
-				)
-				if err != nil {
-					return err
-				}
-			}
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".srt" && ext != ".vtt" && ext != ".ass" && ext != ".ssa" {
+			continue
+		}
+		parsed, ok := parseSidecarSubtitleMetadata(videoPath, name)
+		if !ok {
+			continue
+		}
+		rows = append(rows, subtitleRow{
+			name:     name,
+			path:     filepath.Join(dir, name),
+			format:   ext[1:],
+			language: parsed.Language,
+			title:    parsed.Title,
+			forced:   parsed.Forced,
+			def:      parsed.Default,
+			hi:       parsed.HI,
+		})
+	}
+	slices.SortFunc(rows, func(a, b subtitleRow) int {
+		return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+	})
+	if _, err = tx.ExecContext(ctx, `DELETE FROM subtitles WHERE media_id = ?`, mediaID); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if _, err = tx.ExecContext(ctx,
+			`INSERT INTO subtitles (media_id, title, language, format, forced, is_default, hearing_impaired, path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			mediaID, row.title, row.language, row.format, row.forced, row.def, row.hi, row.path,
+		); err != nil {
+			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, subtitles []EmbeddedSubtitle, audioTracks []EmbeddedAudioTrack) {
@@ -1255,8 +1338,8 @@ func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, su
 				}
 			}
 			if _, err := dbConn.ExecContext(ctx,
-				`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
-				mediaID, s.StreamIndex, s.Language, s.Title, s.Codec, supportedVal,
+				`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported, forced, is_default, hearing_impaired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				mediaID, s.StreamIndex, s.Language, s.Title, s.Codec, supportedVal, s.Forced, s.Default, s.HearingImpaired,
 			); err != nil {
 				slog.Warn("insert embedded_subtitles", "media_id", mediaID, "error", err)
 			}

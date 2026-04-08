@@ -28,8 +28,12 @@ describe("streamingVttPrefixForParse", () => {
 
 describe("plumHlsSubtitlePlaylistFileForTrackKey", () => {
   it("maps emb and ext keys to virtual playlist filenames", () => {
-    expect(plumHlsSubtitlePlaylistFileForTrackKey("emb-3")).toBe("plum_subs_emb_3.m3u8");
-    expect(plumHlsSubtitlePlaylistFileForTrackKey("ext-12")).toBe("plum_subs_ext_12.m3u8");
+    expect(plumHlsSubtitlePlaylistFileForTrackKey("emb-3")).toBe(
+      "plum_subs_emb_3.m3u8",
+    );
+    expect(plumHlsSubtitlePlaylistFileForTrackKey("ext-12")).toBe(
+      "plum_subs_ext_12.m3u8",
+    );
     expect(plumHlsSubtitlePlaylistFileForTrackKey("off")).toBeNull();
   });
 });
@@ -37,7 +41,9 @@ describe("plumHlsSubtitlePlaylistFileForTrackKey", () => {
 describe("findHlsSubtitleTrackIndexForPlumKey", () => {
   it("matches hls subtitle track url containing the virtual playlist name", () => {
     const hls = {
-      subtitleTracks: [{ url: "https://x.test/sessions/a/revisions/1/plum_subs_emb_2.m3u8" }],
+      subtitleTracks: [
+        { url: "https://x.test/sessions/a/revisions/1/plum_subs_emb_2.m3u8" },
+      ],
     } as unknown as Hls;
     expect(findHlsSubtitleTrackIndexForPlumKey(hls, "emb-2")).toBe(0);
     expect(findHlsSubtitleTrackIndexForPlumKey(hls, "emb-9")).toBe(-1);
@@ -47,7 +53,9 @@ describe("findHlsSubtitleTrackIndexForPlumKey", () => {
 describe("consumeSubtitleResponseWithPartialUpdates", () => {
   it("streams chunks and ends with the full normalized body", async () => {
     const encoder = new TextEncoder();
-    const chunk1 = encoder.encode("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nA\n\n");
+    const chunk1 = encoder.encode(
+      "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nA\n\n",
+    );
     const chunk2 = encoder.encode("00:00:03.000 --> 00:00:04.000\nB\n\n");
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -76,7 +84,9 @@ describe("consumeSubtitleResponseWithPartialUpdates", () => {
     const response = {
       ok: true,
       body: null,
-      text: vi.fn().mockResolvedValue("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nX\n"),
+      text: vi
+        .fn<() => Promise<string>>()
+        .mockResolvedValue("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nX\n"),
     } as unknown as Response;
     const signal = new AbortController().signal;
     let last = "";

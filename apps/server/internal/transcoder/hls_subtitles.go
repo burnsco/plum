@@ -29,11 +29,15 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 		if !sidecarSubtitleHlsEligible(s) {
 			continue
 		}
+		name := strings.TrimSpace(s.Title)
+		if name == "" {
+			name = subtitleDisplayLabel("", s.Language, fmt.Sprintf("Subtitle %d", s.ID))
+		}
 		out = append(out, HlsWebSubtitle{
 			PlaylistFile: fmt.Sprintf("plum_subs_ext_%d.m3u8", s.ID),
 			MediaID:      media.ID,
 			VTTPath:      fmt.Sprintf("/api/subtitles/%d", s.ID),
-			DisplayName:  subtitleDisplayLabel(s.Title, s.Language, fmt.Sprintf("Subtitle %d", s.ID)),
+			DisplayName:  name,
 			Language:     normalizeHlsLanguage(s.Language),
 		})
 	}
@@ -42,11 +46,15 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 		if !db.EmbeddedSubtitleWebVTTDeliveryEligible(e) {
 			continue
 		}
+		name := strings.TrimSpace(e.Title)
+		if name == "" {
+			name = subtitleDisplayLabel("", e.Language, fmt.Sprintf("Embedded %d", e.StreamIndex))
+		}
 		out = append(out, HlsWebSubtitle{
 			PlaylistFile: fmt.Sprintf("plum_subs_emb_%d.m3u8", e.StreamIndex),
 			MediaID:      media.ID,
 			VTTPath:      fmt.Sprintf("/api/media/%d/subtitles/embedded/%d", media.ID, e.StreamIndex),
-			DisplayName:  subtitleDisplayLabel(e.Title, e.Language, fmt.Sprintf("Embedded %d", e.StreamIndex)),
+			DisplayName:  name,
 			Language:     normalizeHlsLanguage(e.Language),
 		})
 	}

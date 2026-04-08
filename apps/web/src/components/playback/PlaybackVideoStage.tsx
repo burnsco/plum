@@ -7,6 +7,9 @@ type PlaybackVideoStageProps = {
   videoSubtitleStyle: CSSProperties;
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
+  onAssStatusChange: (
+    status: "loading" | "ready" | "error" | "timeout",
+  ) => void;
   onVideoDoubleClick: () => void;
   onLoadStart: () => void;
   onLoadedMetadata: (element: HTMLVideoElement) => void;
@@ -29,6 +32,7 @@ export function PlaybackVideoStage({
   videoSubtitleStyle,
   jassubVideoElement,
   activeAssSource,
+  onAssStatusChange,
   onVideoDoubleClick,
   onLoadStart,
   onLoadedMetadata,
@@ -69,7 +73,11 @@ export function PlaybackVideoStage({
           onEnded={onEnded}
         />
       </div>
-      <JassubRenderer videoElement={jassubVideoElement} assSrc={activeAssSource} />
+      <JassubRenderer
+        videoElement={jassubVideoElement}
+        assSrc={activeAssSource}
+        onStatusChange={onAssStatusChange}
+      />
     </div>
   );
 }

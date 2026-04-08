@@ -12,7 +12,11 @@ import {
   type PlaybackTrackMetadata,
   type Subtitle,
 } from "../../api";
-import type { SubtitleTrackOption } from "./playerMedia";
+import {
+  formatSubtitleTrackLabel,
+  sortSubtitleTrackOptions,
+  type SubtitleTrackOption,
+} from "./playerMedia";
 
 export type PlaybackTrackMetadataInput = {
   subtitles?: readonly Subtitle[];
@@ -56,21 +60,35 @@ export function buildSubtitleTrackRequests(
       const assEligible = isAssFormat(subtitle.format ?? "");
       return {
         key: `ext-${subtitle.id}`,
-        label: subtitle.title || subtitle.language || `Subtitle ${index + 1}`,
+        label: formatSubtitleTrackLabel(
+          subtitle.title,
+          subtitle.language,
+          `Subtitle ${index + 1}`,
+        ),
         src: externalSubtitleUrl(BASE_URL, subtitle.id),
         srcLang: subtitle.language || "und",
         supported: true,
+        forced: subtitle.forced === true,
+        default: subtitle.default === true,
+        hearingImpaired: subtitle.hearingImpaired === true,
         assEligible,
-        assSrc: assEligible ? externalSubtitleAssUrl(BASE_URL, subtitle.id) : undefined,
+        assSrc: assEligible
+          ? externalSubtitleAssUrl(BASE_URL, subtitle.id)
+          : undefined,
       };
     }) ?? [];
   const embedded =
     source.embeddedSubtitles?.map((subtitle, index) => {
       const catalogOk = subtitle.supported !== false;
-      const requiresBurn = catalogOk && embeddedSubtitleNeedsWebBurnIn(subtitle);
-      const assEligible = catalogOk && !requiresBurn && subtitle.assEligible === true;
-      const labelBase =
-        subtitle.title || subtitle.language || `Embedded subtitle ${index + 1}`;
+      const requiresBurn =
+        catalogOk && embeddedSubtitleNeedsWebBurnIn(subtitle);
+      const assEligible =
+        catalogOk && !requiresBurn && subtitle.assEligible === true;
+      const labelBase = formatSubtitleTrackLabel(
+        subtitle.title,
+        subtitle.language,
+        `Embedded subtitle ${index + 1}`,
+      );
       const label = !catalogOk
         ? `${labelBase} (Unavailable)`
         : requiresBurn
@@ -79,18 +97,29 @@ export function buildSubtitleTrackRequests(
       return {
         key: `emb-${subtitle.streamIndex}`,
         label,
-        src: embeddedSubtitleUrl(BASE_URL, source.mediaId, subtitle.streamIndex),
+        src: embeddedSubtitleUrl(
+          BASE_URL,
+          source.mediaId,
+          subtitle.streamIndex,
+        ),
         srcLang: subtitle.language || "und",
         supported: catalogOk,
+        forced: subtitle.forced === true,
+        default: subtitle.default === true,
+        hearingImpaired: subtitle.hearingImpaired === true,
         disabled: !catalogOk,
         requiresBurn,
         assEligible,
         assSrc: assEligible
-          ? embeddedSubtitleAssUrl(BASE_URL, source.mediaId, subtitle.streamIndex)
+          ? embeddedSubtitleAssUrl(
+              BASE_URL,
+              source.mediaId,
+              subtitle.streamIndex,
+            )
           : undefined,
       };
     }) ?? [];
-  return [...external, ...embedded];
+  return sortSubtitleTrackOptions([...external, ...embedded]);
 }
 
 export function clonePlaybackTrackMetadata(
@@ -98,7 +127,11 @@ export function clonePlaybackTrackMetadata(
 ): PlaybackTrackMetadata {
   return {
     subtitles: metadata.subtitles?.map((subtitle) => ({ ...subtitle })),
-    embeddedSubtitles: metadata.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })),
-    embeddedAudioTracks: metadata.embeddedAudioTracks?.map((track) => ({ ...track })),
+    embeddedSubtitles: metadata.embeddedSubtitles?.map((subtitle) => ({
+      ...subtitle,
+    })),
+    embeddedAudioTracks: metadata.embeddedAudioTracks?.map((track) => ({
+      ...track,
+    })),
   };
 }

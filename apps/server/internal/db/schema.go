@@ -337,6 +337,9 @@ CREATE TABLE IF NOT EXISTS subtitles (
   title TEXT NOT NULL,
   language TEXT NOT NULL,
   format TEXT NOT NULL,
+  forced INTEGER NOT NULL DEFAULT 0,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  hearing_impaired INTEGER NOT NULL DEFAULT 0,
   path TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_subtitles_media_id ON subtitles(media_id);
@@ -346,7 +349,10 @@ CREATE TABLE IF NOT EXISTS embedded_subtitles (
   media_id INTEGER NOT NULL,
   stream_index INTEGER NOT NULL,
   language TEXT NOT NULL,
-  title TEXT NOT NULL
+  title TEXT NOT NULL,
+  forced INTEGER NOT NULL DEFAULT 0,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  hearing_impaired INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_embedded_subtitles_media_stream ON embedded_subtitles(media_id, stream_index);
 
@@ -1242,6 +1248,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHER
 				"hide_from_continue_watching",
 				"INTEGER NOT NULL DEFAULT 0",
 			)
+		},
+	},
+	{
+		version: 35,
+		name:    "subtitle_metadata_flags",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			for _, column := range []struct {
+				table string
+				name  string
+				def   string
+			}{
+				{table: "subtitles", name: "forced", def: "INTEGER NOT NULL DEFAULT 0"},
+				{table: "subtitles", name: "is_default", def: "INTEGER NOT NULL DEFAULT 0"},
+				{table: "subtitles", name: "hearing_impaired", def: "INTEGER NOT NULL DEFAULT 0"},
+				{table: "embedded_subtitles", name: "forced", def: "INTEGER NOT NULL DEFAULT 0"},
+				{table: "embedded_subtitles", name: "is_default", def: "INTEGER NOT NULL DEFAULT 0"},
+				{table: "embedded_subtitles", name: "hearing_impaired", def: "INTEGER NOT NULL DEFAULT 0"},
+			} {
+				if err := addColumnIfMissingTx(ctx, tx, column.table, column.name, column.def); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	},
 }

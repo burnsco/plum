@@ -14,27 +14,27 @@ import retrofit2.http.Query
 
 @JsonClass(generateAdapter = true)
 data class DeviceLoginRequest(
-    @Json(name = "email") val email: String,
-    @Json(name = "password") val password: String,
+    @param:Json(name = "email") val email: String,
+    @param:Json(name = "password") val password: String,
 )
 
 @JsonClass(generateAdapter = true)
 data class QuickConnectRedeemRequest(
-    @Json(name = "code") val code: String,
+    @param:Json(name = "code") val code: String,
 )
 
 @JsonClass(generateAdapter = true)
 data class UserJson(
-    @Json(name = "id") val id: Int,
-    @Json(name = "email") val email: String,
-    @Json(name = "is_admin") val isAdmin: Boolean,
+    @param:Json(name = "id") val id: Int,
+    @param:Json(name = "email") val email: String,
+    @param:Json(name = "is_admin") val isAdmin: Boolean,
 )
 
 @JsonClass(generateAdapter = true)
 data class DeviceLoginResponseJson(
-    @Json(name = "user") val user: UserJson,
-    @Json(name = "sessionToken") val sessionToken: String,
-    @Json(name = "expiresAt") val expiresAt: String,
+    @param:Json(name = "user") val user: UserJson,
+    @param:Json(name = "sessionToken") val sessionToken: String,
+    @param:Json(name = "expiresAt") val expiresAt: String,
 )
 
 interface PlumApi {

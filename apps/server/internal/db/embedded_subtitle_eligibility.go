@@ -7,7 +7,7 @@ import "strings"
 func EmbeddedSubtitleCodecLikelyBitmap(codec string) bool {
 	c := strings.ToLower(strings.TrimSpace(codec))
 	switch c {
-	case "hdmv_pgs_subtitle", "pgssub", "dvd_subtitle", "dvdsub", "dvb_subtitle", "xsub", "dvb_teletext":
+	case "hdmv_pgs_subtitle", "pgssub", "pgs", "dvd_subtitle", "dvdsub", "dvb_subtitle", "xsub", "dvb_teletext":
 		return true
 	default:
 		return false
