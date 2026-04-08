@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // This config is only consumed by Vitest; production/dev use vite.config.ts.
+    __PLUM_VITEST_LAYOUT__: JSON.stringify(true),
+  },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },

@@ -3,6 +3,7 @@ package plum.tv.app
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -21,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -102,7 +102,7 @@ fun MainNavHost(
     val currentLibraryType = navBackStackEntry?.arguments?.getString("libraryType")
     val hideSideRail = currentRoute.startsWith("play/")
     val scope = rememberCoroutineScope()
-    val activity = LocalContext.current as ComponentActivity
+    val activity = LocalActivity.current as ComponentActivity
     val mainNavVm: MainNavViewModel = hiltViewModel(viewModelStoreOwner = activity)
     val authVm: AuthViewModel = hiltViewModel(viewModelStoreOwner = activity)
     val mainContentFocusRequester = remember { FocusRequester() }

@@ -1,6 +1,21 @@
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
+/** Radix Slider / useSize expect this; jsdom does not provide it. */
+globalThis.ResizeObserver ??= class ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+};
+
+if (typeof Element !== "undefined") {
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
+    configurable: true,
+    writable: true,
+    value() {},
+  });
+}
+
 const originalConsoleLog = console.log;
 
 Object.defineProperties(HTMLMediaElement.prototype, {

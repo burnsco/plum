@@ -813,6 +813,7 @@ private fun UpNextInterstitial(
     }
 }
 
+@OptIn(UnstableApi::class)
 private fun applyVideoAspectToPlayerView(
     playerView: PlayerView,
     mode: VideoAspectRatioMode,

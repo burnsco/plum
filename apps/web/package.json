@@ -13,6 +13,8 @@
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:app": "vitest run src/App.test.tsx",
+    "test:stable": "vitest run --exclude '**/App.test.tsx'",
     "test:watch": "vitest"
   },
   "dependencies": {

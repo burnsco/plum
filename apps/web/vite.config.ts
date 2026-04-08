@@ -19,6 +19,9 @@ const proxyTarget =
   "http://localhost:8080";
 const useDirectBackendUrl = browserBackendUrl != null;
 
+/** True while Vitest is driving Vite; used for layout tweaks under jsdom (no responsive CSS). */
+const plumVitestLayout = process.env.VITEST === "true" || process.env.VITEST === "1";
+
 export default defineConfig({
   cacheDir: ".vite",
   // Pre-bundle effect once into .vite/deps to avoid repeated optimize churn in dev.
@@ -29,6 +32,9 @@ export default defineConfig({
   },
   // Treat .wasm files as static assets so ?url imports work correctly.
   assetsInclude: ["**/*.wasm"],
+  define: {
+    __PLUM_VITEST_LAYOUT__: JSON.stringify(plumVitestLayout),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

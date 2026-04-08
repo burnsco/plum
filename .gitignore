@@ -19,6 +19,8 @@ apps/android-tv/*.iml
 apps/server/plum
 apps/server/*.db
 apps/server/*.db-journal
+*.db-wal
+*.db-shm
 apps/server/tmp/
 apps/server/bin/
 apps/server/data/

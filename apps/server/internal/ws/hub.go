@@ -18,6 +18,7 @@ type Hub struct {
 	unregister chan *Client
 	broadcast  chan []byte
 	targeted   chan targetedBroadcast
+	stop       chan struct{}
 	clients    map[*Client]struct{}
 	maxClients int
 	runEnded   chan struct{}
@@ -74,6 +75,7 @@ func NewHub() *Hub {
 		unregister: make(chan *Client),
 		broadcast:  make(chan []byte, hubBroadcastBuffer),
 		targeted:   make(chan targetedBroadcast, hubTargetedBuffer),
+		stop:       make(chan struct{}),
 		clients:    make(map[*Client]struct{}),
 		maxClients: maxHubClientsFromEnv(),
 		runEnded:   make(chan struct{}),
@@ -84,6 +86,9 @@ func (h *Hub) Run() {
 	defer close(h.runEnded)
 	for {
 		select {
+		case <-h.stop:
+			h.shutdownAllClients()
+			return
 		case op := <-h.register:
 			if h.maxClients > 0 && len(h.clients) >= h.maxClients {
 				slog.Warn("ws hub client limit reached, rejecting connection", "max_clients", h.maxClients)
@@ -97,19 +102,11 @@ func (h *Hub) Run() {
 				delete(h.clients, c)
 				c.signalDone()
 			}
-		case msg, ok := <-h.broadcast:
-			if !ok {
-				h.shutdownAllClients()
-				return
-			}
+		case msg := <-h.broadcast:
 			for c := range h.clients {
 				enqueueFanout(c, msg)
 			}
-		case targeted, ok := <-h.targeted:
-			if !ok {
-				h.shutdownAllClients()
-				return
-			}
+		case targeted := <-h.targeted:
 			for c := range h.clients {
 				if c.User() == nil || c.User().ID != targeted.userID {
 					continue
@@ -128,10 +125,9 @@ func (h *Hub) shutdownAllClients() {
 }
 
 func (h *Hub) Broadcast(msg []byte) {
-	if h.closed.Load() {
-		return
-	}
 	select {
+	case <-h.runEnded:
+		return
 	case h.broadcast <- msg:
 	default:
 		slog.Warn("ws broadcast buffer full, dropping message")
@@ -139,10 +135,9 @@ func (h *Hub) Broadcast(msg []byte) {
 }
 
 func (h *Hub) BroadcastToUser(userID int, msg []byte) {
-	if h.closed.Load() {
-		return
-	}
 	select {
+	case <-h.runEnded:
+		return
 	case h.targeted <- targetedBroadcast{userID: userID, msg: msg}:
 	default:
 		slog.Warn("ws targeted broadcast buffer full, dropping message", "user_id", userID)
@@ -170,6 +165,5 @@ func (h *Hub) Close() {
 	if h.closed.Swap(true) {
 		return
 	}
-	close(h.broadcast)
-	close(h.targeted)
+	close(h.stop)
 }

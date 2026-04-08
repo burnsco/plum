@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/queries", () => ({
   useDownloads: vi.fn(),
+  useRemoveDownload: vi.fn(() => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    variables: undefined as { id: string } | undefined,
+  })),
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({

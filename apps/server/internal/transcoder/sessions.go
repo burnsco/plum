@@ -383,12 +383,22 @@ func (m *PlaybackSessionManager) Create(
 		return PlaybackSessionState{}, err
 	}
 
-	if lim := maxPlaybackSessionsPerUser(); lim > 0 && m.countSessionsForUser(userID) >= lim {
-		return PlaybackSessionState{}, ErrTooManyPlaybackSessions
+	m.mu.Lock()
+	if lim := maxPlaybackSessionsPerUser(); lim > 0 {
+		n := 0
+		for _, s := range m.sessions {
+			if s.userID == userID {
+				n++
+			}
+		}
+		if n >= lim {
+			m.mu.Unlock()
+			return PlaybackSessionState{}, ErrTooManyPlaybackSessions
+		}
 	}
-
 	sessionID, err := newPlaybackSessionID()
 	if err != nil {
+		m.mu.Unlock()
 		return PlaybackSessionState{}, err
 	}
 
@@ -406,7 +416,6 @@ func (m *PlaybackSessionManager) Create(
 		burnEmbeddedSubtitleStream: burnStored,
 	}
 
-	m.mu.Lock()
 	m.sessions[sessionID] = session
 	m.mu.Unlock()
 
@@ -1019,8 +1028,10 @@ func (m *PlaybackSessionManager) runRevision(
 	if finalState.Error == "" {
 		finalState.Error = "playback stream failed"
 	}
+	session.mu.Lock()
 	revision.status = "error"
 	revision.err = finalState.Error
+	session.mu.Unlock()
 	slog.Error("playback revision error",
 		"session_id", session.id,
 		"media_id", session.media.ID,

@@ -15,6 +15,10 @@ import { Search, Settings, User } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
+function plumVitestLayout(): boolean {
+  return __PLUM_VITEST_LAYOUT__;
+}
+
 /** Plum logo icon — purple plum fruit on a dark button */
 function PlumLogoButton() {
   return (
@@ -87,7 +91,12 @@ export function TopBar() {
         <div className="flex items-center justify-between gap-3 md:justify-start">
           <PlumLogoButton />
 
-          <div className="flex items-center gap-2 md:hidden">
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              plumVitestLayout() ? "hidden" : "md:hidden",
+            )}
+          >
             <LibraryActivityCenter />
             <SettingsButton isActive={isSettingsRoute} />
             <UserMenu email={user?.email} onSignOut={logout} />
@@ -109,7 +118,7 @@ export function TopBar() {
 
         <HorizontalScrollRail
           label="mobile navigation"
-          className="md:hidden"
+          className={plumVitestLayout() ? "hidden" : "md:hidden"}
           contentClassName="flex gap-2 overflow-x-auto px-10"
         >
           <MobileNavLink to="/" active={isHomeRoute}>
@@ -151,7 +160,12 @@ export function TopBar() {
           })}
         </HorizontalScrollRail>
 
-        <div className="hidden items-center gap-2 md:flex">
+        <div
+          className={cn(
+            "items-center gap-2",
+            plumVitestLayout() ? "flex" : "hidden md:flex",
+          )}
+        >
           <LibraryActivityCenter />
           <SettingsButton isActive={isSettingsRoute} />
           <UserMenu email={user?.email} onSignOut={logout} />

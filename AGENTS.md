@@ -2,8 +2,25 @@
 
 ## Task Completion Requirements
 
-- Both `bun lint` and `bun typecheck` must pass before considering tasks completed.
-- Backend tests should be run using `go test ./...` in `apps/server`.
+- `bun run validate` (same as `validate:fast`) must pass before considering tasks completed: root lint and typecheck across `apps/web`, `packages/shared`, and `packages/contracts`, plus `bun run server:test` in `apps/server`.
+- For changes scoped to one surface, you may run the matching per-platform command (see **Validation**) instead of the full monorepo fast path, but still cover anything your edits could break.
+- Backend-only work can use `go test ./...` in `apps/server` (or `bun run validate:server`) instead of the full JS toolchain.
+
+## Validation
+
+Root scripts in `package.json`:
+
+| Command | Purpose |
+| --- | --- |
+| `bun run validate` / `validate:fast` | Frequent check: lint + typecheck (web, shared, contracts) + server tests. Default pre-commit style bar. |
+| `validate:full` | Merge gate: everything in `validate:fast`, plus web unit tests, web production build, Go build, Android `lintDebug` + `assembleDebug`. |
+| `validate:web` | Web stack only: lint/typecheck for web + shared + contracts, web tests, web build. |
+| `validate:server` | Server only: `go test ./...` + Go build via `apps/server` scripts. |
+| `validate:android` | Android TV only: `lintDebug` + `assembleDebug` (requires SDK; see **Android TV development**). |
+
+`validate:full` currently runs `bun run --cwd apps/web test` (full Vitest suite). For the subset that excludes `App.test.tsx`, use `bun run --cwd apps/web test:stable`; for that file alone, `bun run --cwd apps/web test:app`.
+
+Per [.plans/fix-up.md](.plans/fix-up.md) **Milestone A**, the fast path, full gate, and per-platform scripts above are implemented. Other items in that milestone (for example SQLite WAL/SHM ignores and toolchain auditing) may still be open—see the plan file.
 
 ## Project Snapshot
 
@@ -31,7 +48,7 @@ Shared TypeScript utilities that multiple clients need should live in `@plum/sha
 - `apps/web`: React/Vite UI. Modern media player frontend.
 - `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for API and WebSocket protocol.
 - `packages/shared`: Shared runtime utilities consumed by the web app (and other TypeScript clients as needed).
-- `apps/android-tv`: Kotlin Android TV app (Gradle). Not part of `bun lint` / `bun typecheck`; build with Gradle when working on TV.
+- `apps/android-tv`: Kotlin Android TV app (Gradle). Not part of root `bun lint` / `bun typecheck`; use `bun run validate:android` or Gradle via `bun run android:assemble` / `android:lint` when working on TV.
 
 ### Android TV development
 

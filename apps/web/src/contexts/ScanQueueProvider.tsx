@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   getLibraryScanStatus as fetchLibraryScanStatus,
   startLibraryScan,
+  type Library,
   type LibraryScanStatus,
 } from "../api";
 import { getEnrichmentPhase, isLibraryScanProcessing } from "../lib/libraryActivity";
@@ -25,6 +26,9 @@ import { useWs } from "./WsContext";
 const SCAN_POLL_INTERVAL_MS = 2_000;
 const JUST_FINISHED_TTL_MS = 5 * 60 * 1000;
 const JUST_FINISHED_MAX_ITEMS = 5;
+
+/** Stable fallback so `useLibraries` loading state does not pass a fresh `[]` every render. */
+const EMPTY_LIBRARIES: Library[] = [];
 
 function isLibraryProcessing(status?: LibraryScanStatus) {
   return status != null && isLibraryScanProcessing(status);
@@ -175,7 +179,8 @@ function hasMeaningfulStatusChange(previous: LibraryScanStatus | undefined, next
 
 export function ScanQueueProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { data: libraries = [] } = useLibraries();
+  const { data: librariesData } = useLibraries();
+  const libraries = librariesData ?? EMPTY_LIBRARIES;
   const { latestEvent, eventSequence } = useWs();
   const [scanStatuses, setScanStatuses] = useState<Record<number, LibraryScanStatus>>({});
   const [recentLibraryActivities, setRecentLibraryActivities] = useState<RecentLibraryActivity[]>([]);

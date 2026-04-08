@@ -1,93 +1,31 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { loadAuthSessionEffect } from "@plum/shared";
 import * as api from "../api";
+import { AuthProvider } from "./AuthContext";
 import { useScanQueue } from "./ScanQueueContext";
 import { ScanQueueProvider } from "./ScanQueueProvider";
 import { WsProvider } from "./WsContext";
 
-type MockWebSocketHandle = {
-  close: (code?: number, reason?: string) => void;
-  mockMessage: (data: string) => void;
-};
+vi.mock("@plum/shared", async () => {
+  const actual = await import("@plum/shared");
+  return {
+    ...actual,
+    loadAuthSessionEffect: vi.fn(),
+  };
+});
 
-type MockWebSocketClass = {
-  instances: MockWebSocketHandle[];
+/** Matches the MockWebSocket installed in vitest.setup.ts */
+type GlobalWebSocketMock = {
+  instances: Array<{ mockMessage: (data: string) => void }>;
   reset: () => void;
 };
 
-class MockWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSING = 2;
-  static CLOSED = 3;
-  static instances: MockWebSocket[] = [];
-
-  static reset() {
-    MockWebSocket.instances = [];
-  }
-
-  onopen: ((event: Event) => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: ((event: CloseEvent) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  readyState = MockWebSocket.CONNECTING;
-
-  private listeners: Record<string, Set<(event: Event) => void>> = {
-    open: new Set(),
-    message: new Set(),
-    error: new Set(),
-    close: new Set(),
-  };
-
-  constructor(_url: string) {
-    MockWebSocket.instances.push(this);
-    setTimeout(() => {
-      this.readyState = MockWebSocket.OPEN;
-      this.emit("open", new Event("open"));
-    }, 0);
-  }
-
-  send() {}
-
-  close(code?: number, reason?: string) {
-    this.readyState = MockWebSocket.CLOSED;
-    this.emit("close", {
-      code: code ?? 1000,
-      reason: reason ?? "",
-      wasClean: true,
-    } as CloseEvent);
-  }
-
-  addEventListener(type: string, listener: EventListener) {
-    this.listeners[type]?.add(listener as (event: Event) => void);
-  }
-
-  removeEventListener(type: string, listener: EventListener) {
-    this.listeners[type]?.delete(listener as (event: Event) => void);
-  }
-
-  dispatchEvent() {
-    return true;
-  }
-
-  mockMessage(data: string) {
-    this.emit("message", { data } as MessageEvent);
-  }
-
-  private emit(type: string, event: Event) {
-    if (type === "open") this.onopen?.(event);
-    if (type === "message") this.onmessage?.(event as MessageEvent);
-    if (type === "close") this.onclose?.(event as CloseEvent);
-    if (type === "error") this.onerror?.(event);
-    for (const listener of this.listeners[type] ?? []) {
-      listener(event);
-    }
-  }
+function getWebSocketMock(): GlobalWebSocketMock {
+  return globalThis.WebSocket as unknown as GlobalWebSocketMock;
 }
-
-(globalThis as typeof globalThis & { WebSocket: typeof WebSocket }).WebSocket =
-  MockWebSocket as unknown as typeof WebSocket;
 
 function ScanQueueHarness() {
   const { activeLibraryIds, activityScanStatuses } = useScanQueue();
@@ -104,6 +42,16 @@ function ScanQueueHarness() {
 describe("ScanQueueContext websocket updates", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(loadAuthSessionEffect).mockReturnValue(
+      Effect.succeed({
+        hasAdmin: true,
+        user: {
+          id: 1,
+          email: "admin@example.com",
+          is_admin: true,
+        },
+      }),
+    );
     vi.spyOn(api, "getMe").mockResolvedValue({
       id: 1,
       email: "admin@example.com",
@@ -130,7 +78,7 @@ describe("ScanQueueContext websocket updates", () => {
       estimatedItems: 0,
       queuePosition: 0,
     });
-    (globalThis.WebSocket as unknown as MockWebSocketClass).reset();
+    getWebSocketMock().reset();
   });
 
   it("applies library scan websocket updates immediately", async () => {
@@ -142,21 +90,23 @@ describe("ScanQueueContext websocket updates", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <WsProvider>
-          <ScanQueueProvider>
-            <ScanQueueHarness />
-          </ScanQueueProvider>
-        </WsProvider>
+        <AuthProvider>
+          <WsProvider>
+            <ScanQueueProvider>
+              <ScanQueueHarness />
+            </ScanQueueProvider>
+          </WsProvider>
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
-    const MockWebSocketCtor = globalThis.WebSocket as unknown as MockWebSocketClass;
+    const wsMock = getWebSocketMock();
     await waitFor(() => {
-      expect(MockWebSocketCtor.instances.length).toBeGreaterThan(0);
+      expect(wsMock.instances.length).toBeGreaterThan(0);
     });
 
     await act(async () => {
-      MockWebSocketCtor.instances[0].mockMessage(
+      wsMock.instances[0].mockMessage(
         JSON.stringify({
           type: "library_scan_update",
           scan: {

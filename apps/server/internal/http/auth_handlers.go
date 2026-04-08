@@ -250,10 +250,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	if errors.Is(err, sql.ErrNoRows) {
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
-		return
-	}
 
 	sessID, err := auth.NewSessionID()
 	if err != nil {
@@ -319,10 +315,6 @@ func (h *AuthHandler) DeviceLogin(w http.ResponseWriter, r *http.Request) {
 		hash = u.PasswordHash
 	}
 	if err := auth.CheckPasswordHash(payload.Password, hash); err != nil {
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
-		return
-	}
-	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
