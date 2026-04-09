@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -551,7 +552,7 @@ func lookupShowTitleByShowKey(db *sql.DB, libraryID int, libraryType string, sho
 	}
 	var title string
 	err := db.QueryRow(query, args...).Scan(&title)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -578,7 +579,7 @@ WHERE library_id = ? AND kind = ?`
 	}
 	err = db.QueryRow(query, args...).Scan(&showID, &title, &overview, &posterPath, &backdropPath, &airDate, &voteAverage, &imdbID, &imdbRating)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, "", "", "", "", "", 0, "", 0, nil, nil, nil
 		}
 		return 0, "", "", "", "", "", 0, "", 0, nil, nil, err
@@ -607,7 +608,7 @@ JOIN media_global g ON g.id = m.id
 WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
 		Scan(&details.MediaID, &details.LibraryID, &refID, &details.Title, &details.SourcePath, &details.Overview, &details.PosterPath, &details.PosterURL, &details.BackdropPath, &details.BackdropURL, &details.ReleaseDate, &details.VoteAverage, &details.IMDbID, &details.IMDbRating, &details.Runtime)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -646,7 +647,7 @@ WHERE m.library_id = ? AND m.id = ?`, libraryID, mediaID).
 func GetLibraryShowDetails(db *sql.DB, libraryID int, showKey string) (*LibraryShowDetails, error) {
 	var libraryType string
 	if err := db.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&libraryType); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err

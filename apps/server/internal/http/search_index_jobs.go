@@ -3,7 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -70,14 +70,14 @@ func (m *SearchIndexManager) QueueAllLibraries(full bool) {
 	}
 	rows, err := m.db.Query(`SELECT id FROM libraries WHERE type IN (?, ?, ?)`, db.LibraryTypeMovie, db.LibraryTypeTV, db.LibraryTypeAnime)
 	if err != nil {
-		log.Printf("search index queue all: %v", err)
+		slog.Error("search index queue all", "error", err)
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var libraryID int
 		if err := rows.Scan(&libraryID); err != nil {
-			log.Printf("search index queue all scan: %v", err)
+			slog.Error("search index queue all scan", "error", err)
 			return
 		}
 		m.Queue(libraryID, full)
@@ -99,15 +99,17 @@ func (m *SearchIndexManager) runLibrary(libraryID int) {
 		}
 		m.sem <- struct{}{}
 		indexStart := time.Now()
-		log.Printf("search index worker library_id=%d full=%v started", libraryID, full)
+		slog.Info("search index worker started", "library_id", libraryID, "full", full)
 		err := refresh(libraryID, full)
-		log.Printf(
-			"search index worker library_id=%d full=%v finished elapsed=%s err=%v",
-			libraryID, full, time.Since(indexStart).Round(time.Millisecond), err,
+		slog.Info("search index worker finished",
+			"library_id", libraryID,
+			"full", full,
+			"elapsed", time.Since(indexStart).Round(time.Millisecond),
+			"error", err,
 		)
 		<-m.sem
 		if err != nil {
-			log.Printf("search index refresh library %d: %v", libraryID, err)
+			slog.Warn("search index refresh", "library_id", libraryID, "error", err)
 			time.Sleep(5 * time.Second)
 		}
 

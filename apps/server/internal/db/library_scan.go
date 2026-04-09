@@ -410,10 +410,16 @@ func batchUpdateMissingMedia(ctx context.Context, dbConn *sql.DB, table, kind st
 		for _, id := range chunk {
 			args = append(args, id)
 		}
-		if _, err := dbConn.ExecContext(ctx,
+		tx, err := dbConn.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(
+			ctx,
 			`UPDATE `+table+` SET missing_since = ?, last_seen_at = COALESCE(last_seen_at, '') WHERE id IN (`+strings.Join(placeholders, ",")+`)`,
 			args...,
 		); err != nil {
+			_ = tx.Rollback()
 			return err
 		}
 
@@ -423,7 +429,8 @@ func batchUpdateMissingMedia(ctx context.Context, dbConn *sql.DB, table, kind st
 		for _, id := range chunk {
 			mediaArgs = append(mediaArgs, id)
 		}
-		if _, err := dbConn.ExecContext(ctx,
+		if _, err := tx.ExecContext(
+			ctx,
 			`UPDATE media_files
 			    SET missing_since = ?, updated_at = ?
 			  WHERE media_id IN (
@@ -431,6 +438,10 @@ func batchUpdateMissingMedia(ctx context.Context, dbConn *sql.DB, table, kind st
 			  )`,
 			mediaArgs...,
 		); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such table: media_files") {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}

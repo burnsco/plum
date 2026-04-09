@@ -39,7 +39,7 @@ function arePropsEqual(prev: MediaCardProps, next: MediaCardProps): boolean {
     p.onPlay === n.onPlay &&
     p.onAction === n.onAction &&
     p.onStatusAction === n.onStatusAction &&
-    p.contextMenuContent === n.contextMenuContent &&
+    // Omit contextMenuContent: inline JSX makes reference equality always false.
     p.topBadge === n.topBadge &&
     prev.className === next.className &&
     prev.index === next.index

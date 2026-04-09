@@ -3,6 +3,7 @@ import { Image, ListChecks } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
+import { CastGrid } from "@/components/CastGrid";
 import { LibraryMediaContextMenu } from "@/components/LibraryMediaContextMenu";
 import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
@@ -15,7 +16,8 @@ import {
 } from "@/components/ui/context-menu";
 import { usePlayerQueue } from "../contexts/PlayerContext";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
-import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
+import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
+import { fileNameFromPath } from "@/utils/fileNameFromPath";
 import { useMarkShowWatched, useShowDetails, useShowEpisodes, useUpdateMediaProgress } from "../queries";
 
 function formatDuration(seconds: number): string {
@@ -30,13 +32,6 @@ function seasonEpisodeLabel(item: MediaItem): string {
   const e = item.episode ?? 0;
   if (s > 0 || e > 0) return `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`;
   return "";
-}
-
-function fileNameFromPath(path: string): string {
-  const trimmed = path.trim();
-  if (trimmed === "") return "";
-  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
 export function ShowDetail() {
@@ -516,45 +511,7 @@ export function ShowDetail() {
           </section>
         </div>
       )}
-      {details?.cast.length ? (
-        <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
-          <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {details.cast.map((member) => {
-              const headshot = resolveCastProfileUrl(undefined, member.profile_path, "w185", BASE_URL);
-              const initial = member.name.trim().charAt(0).toUpperCase() || "?";
-              return (
-                <Link
-                  key={`${member.name}-${member.character ?? ""}`}
-                  to={`/search?q=${encodeURIComponent(member.name)}`}
-                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3 transition-colors hover:border-(--plum-accent)/50 hover:bg-(--plum-panel)"
-                >
-                  {headshot ? (
-                    <img
-                      src={headshot}
-                      alt=""
-                      className="h-[4.5rem] w-12 shrink-0 rounded-md object-cover object-top"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-[4.5rem] w-12 shrink-0 items-center justify-center rounded-md bg-(--plum-border) text-sm font-semibold text-(--plum-muted)"
-                      aria-hidden
-                    >
-                      {initial}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
-                    {member.character ? (
-                      <div className="text-xs text-(--plum-muted)">{member.character}</div>
-                    ) : null}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
+      <CastGrid members={details?.cast ?? []} hideWhenEmpty />
       <PosterPickerDialog
         open={posterPickerOpen}
         onOpenChange={setPosterPickerOpen}

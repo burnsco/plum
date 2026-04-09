@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -181,7 +181,7 @@ func (h *LibraryHandler) startLibraryPlaybackRefreshAsync(libraryID int) bool {
 		n := len(mediaItems)
 		if n == 0 {
 			prog.update(0, "")
-			log.Printf("library playback refresh library=%d done refreshed=0 failed=0 (empty)", libID)
+			slog.Info("library playback refresh done", "library_id", libID, "refreshed", 0, "failed", 0, "empty", true)
 			return
 		}
 		workers := playbackRefreshWorkerCount(n)
@@ -192,14 +192,14 @@ func (h *LibraryHandler) startLibraryPlaybackRefreshAsync(libraryID int) bool {
 				prog.update(i, it.Path)
 				_, rerr := db.RefreshPlaybackTrackMetadata(ctx, h.DB, &it)
 				if rerr != nil {
-					log.Printf("refresh playback tracks library=%d media=%d: %v", libID, it.ID, rerr)
+					slog.Warn("refresh playback tracks", "library_id", libID, "media_id", it.ID, "error", rerr)
 					failed++
 				} else {
 					refreshed++
 				}
 			}
 			prog.update(n, "")
-			log.Printf("library playback refresh library=%d done refreshed=%d failed=%d", libID, refreshed, failed)
+			slog.Info("library playback refresh done", "library_id", libID, "refreshed", refreshed, "failed", failed)
 			return
 		}
 		jobs := make(chan int, workers)
@@ -214,7 +214,7 @@ func (h *LibraryHandler) startLibraryPlaybackRefreshAsync(libraryID int) bool {
 					it := mediaItems[idx]
 					_, rerr := db.RefreshPlaybackTrackMetadata(ctx, h.DB, &it)
 					if rerr != nil {
-						log.Printf("refresh playback tracks library=%d media=%d: %v", libID, it.ID, rerr)
+						slog.Warn("refresh playback tracks", "library_id", libID, "media_id", it.ID, "error", rerr)
 						failMu.Lock()
 						failed++
 						failMu.Unlock()
@@ -230,7 +230,7 @@ func (h *LibraryHandler) startLibraryPlaybackRefreshAsync(libraryID int) bool {
 		wg.Wait()
 		prog.update(n, "")
 		refreshed := n - failed
-		log.Printf("library playback refresh library=%d done refreshed=%d failed=%d workers=%d", libID, refreshed, failed, workers)
+		slog.Info("library playback refresh done", "library_id", libID, "refreshed", refreshed, "failed", failed, "workers", workers)
 	}(libraryID, items, progress)
 	return true
 }

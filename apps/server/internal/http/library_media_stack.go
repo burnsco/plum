@@ -3,7 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -41,7 +41,7 @@ func (h *LibraryHandler) enrichDiscoverShelvesAcquisition(ctx context.Context, p
 	settings := loadMediaStackSettings(h.DB)
 	snapshot, err := h.Arr.LoadSnapshot(ctx, settings)
 	if err != nil {
-		log.Printf("media stack snapshot: %v", err)
+		slog.Warn("media stack snapshot", "error", err)
 	}
 	for shelfIndex := range payload.Shelves {
 		for itemIndex := range payload.Shelves[shelfIndex].Items {
@@ -64,7 +64,7 @@ func (h *LibraryHandler) enrichDiscoverSearchAcquisition(ctx context.Context, pa
 	settings := loadMediaStackSettings(h.DB)
 	snapshot, err := h.Arr.LoadSnapshot(ctx, settings)
 	if err != nil {
-		log.Printf("media stack snapshot: %v", err)
+		slog.Warn("media stack snapshot", "error", err)
 	}
 	for index := range payload.Movies {
 		item := &payload.Movies[index]
@@ -95,7 +95,7 @@ func (h *LibraryHandler) enrichDiscoverItemsAcquisition(ctx context.Context, ite
 	settings := loadMediaStackSettings(h.DB)
 	snapshot, err := h.Arr.LoadSnapshot(ctx, settings)
 	if err != nil {
-		log.Printf("media stack snapshot: %v", err)
+		slog.Warn("media stack snapshot", "error", err)
 	}
 	for index := range items {
 		item := &items[index]
@@ -116,7 +116,7 @@ func (h *LibraryHandler) enrichDiscoverTitleAcquisition(ctx context.Context, det
 	settings := loadMediaStackSettings(h.DB)
 	snapshot, err := h.Arr.LoadSnapshot(ctx, settings)
 	if err != nil {
-		log.Printf("media stack snapshot: %v", err)
+		slog.Warn("media stack snapshot", "error", err)
 	}
 	details.Acquisition = h.Arr.ResolveDiscoverAcquisition(
 		details.MediaType,
@@ -160,7 +160,7 @@ func (h *LibraryHandler) AddDiscoverTitle(w http.ResponseWriter, r *http.Request
 
 	snapshot, snapshotErr := h.Arr.LoadSnapshot(r.Context(), settings)
 	if snapshotErr != nil {
-		log.Printf("media stack snapshot before add: %v", snapshotErr)
+		slog.Warn("media stack snapshot before add", "error", snapshotErr)
 	}
 	acquisition := h.Arr.ResolveDiscoverAcquisition(mediaType, tmdbID, false, settings, snapshot)
 	if acquisition != nil && acquisition.State != metadata.DiscoverAcquisitionStateNotAdded {
@@ -208,7 +208,7 @@ func (h *LibraryHandler) AddDiscoverTitle(w http.ResponseWriter, r *http.Request
 	h.Arr.Invalidate()
 	snapshot, snapshotErr = h.Arr.LoadSnapshot(r.Context(), settings)
 	if snapshotErr != nil {
-		log.Printf("media stack snapshot after add: %v", snapshotErr)
+		slog.Warn("media stack snapshot after add", "error", snapshotErr)
 	}
 	acquisition = h.Arr.ResolveDiscoverAcquisition(mediaType, tmdbID, false, settings, snapshot)
 	if acquisition == nil {
@@ -243,7 +243,7 @@ func (h *LibraryHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := h.Arr.GetDownloads(r.Context(), settings)
 	if err != nil {
-		log.Printf("media stack downloads partial response: %v", err)
+		slog.Warn("media stack downloads partial response", "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, payload)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,15 +29,18 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	logWriters := []io.Writer{os.Stderr}
 	logFilePath := strings.TrimSpace(getEnv("PLUM_LOG_FILE", ""))
 	if logFilePath != "" {
 		if err := os.MkdirAll(filepath.Dir(logFilePath), 0o755); err != nil {
-			log.Fatalf("prepare log file dir: %v", err)
+			slog.Error("prepare log file dir", "error", err)
+			os.Exit(1)
 		}
 		f, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
-			log.Fatalf("open log file: %v", err)
+			slog.Error("open log file", "error", err, "path", logFilePath)
+			os.Exit(1)
 		}
 		defer f.Close()
 		logWriters = append(logWriters, f)
@@ -56,12 +58,14 @@ func main() {
 	musicBrainzContact := getEnv("MUSICBRAINZ_CONTACT_URL", "")
 
 	if err := ensureDatabaseDir(conn); err != nil {
-		log.Fatalf("prepare db dir: %v", err)
+		slog.Error("prepare db dir", "error", err)
+		os.Exit(1)
 	}
 
 	sqlDB, err := db.InitDB(conn)
 	if err != nil {
-		log.Fatalf("init db: %v", err)
+		slog.Error("init db", "error", err)
+		os.Exit(1)
 	}
 	defer sqlDB.Close()
 
@@ -141,7 +145,8 @@ func main() {
 	go func() {
 		slog.Info("plum backend listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %v", err)
+			slog.Error("listen", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -270,7 +275,7 @@ func buildRouter(
 	transcodingSettingsHandler := &httpapi.TranscodingSettingsHandler{DB: sqlDB}
 	metadataArtworkSettingsHandler := &httpapi.MetadataArtworkSettingsHandler{DB: sqlDB, Artwork: pipeline}
 	mediaStackSettingsHandler := &httpapi.MediaStackSettingsHandler{DB: sqlDB, Arr: mediaStack}
-	serverEnvSettingsHandler := &httpapi.ServerEnvSettingsHandler{Pipeline: pipeline}
+	serverEnvSettingsHandler := &httpapi.ServerEnvSettingsHandler{DB: sqlDB, Pipeline: pipeline}
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

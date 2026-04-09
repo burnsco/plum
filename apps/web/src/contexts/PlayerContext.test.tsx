@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAuthSessionEffect } from "@plum/shared";
 import type { MediaItem } from "../api";
 import * as api from "../api";
+import { makeMediaItem } from "../test-utils/mediaItem";
 import { playerWebDefaultsStorageKey } from "../lib/playbackPreferences";
 import { AuthProvider } from "./AuthContext";
 import { PlayerProvider, usePlayer } from "./PlayerContext";
@@ -131,15 +132,15 @@ class MockWebSocket {
 (globalThis as typeof globalThis & { WebSocket: typeof WebSocket }).WebSocket =
   MockWebSocket as unknown as typeof WebSocket;
 
-const movie: MediaItem = {
+const movie: MediaItem = makeMediaItem({
   id: 99,
   title: "Die My Love",
   path: "/movies/Die My Love (2025)/Die My Love.mp4",
   duration: 7200,
   type: "movie",
-};
+});
 
-const episodeOne: MediaItem = {
+const episodeOne: MediaItem = makeMediaItem({
   id: 201,
   title: "Episode One",
   path: "/shows/Example/Season 1/Episode One.mkv",
@@ -151,9 +152,9 @@ const episodeOne: MediaItem = {
     { streamIndex: 1, language: "eng", title: "English" },
     { streamIndex: 2, language: "jpn", title: "Japanese" },
   ],
-};
+});
 
-const episodeTwo: MediaItem = {
+const episodeTwo: MediaItem = makeMediaItem({
   id: 202,
   title: "Episode Two",
   path: "/shows/Example/Season 1/Episode Two.mkv",
@@ -166,9 +167,9 @@ const episodeTwo: MediaItem = {
     { streamIndex: 3, language: "eng", title: "English" },
     { streamIndex: 5, language: "jpn", title: "Japanese" },
   ],
-};
+});
 
-const preferredTracksMovie: MediaItem = {
+const preferredTracksMovie: MediaItem = makeMediaItem({
   id: 303,
   title: "Preferred Tracks Movie",
   path: "/movies/Preferred Tracks Movie (2026)/Preferred Tracks Movie.mkv",
@@ -187,7 +188,7 @@ const preferredTracksMovie: MediaItem = {
       codec: "hdmv_pgs_subtitle",
     },
   ],
-};
+});
 
 async function flushMicrotasks() {
   await Promise.resolve();
@@ -239,7 +240,7 @@ function VideoQueueHarness() {
 
 function PlaybackTrackHydrationHarness() {
   const { activeItem, playShowGroup } = usePlayer();
-  const bareEpisodeOne: MediaItem = {
+  const bareEpisodeOne: MediaItem = makeMediaItem({
     id: 301,
     title: "Hydration Episode One",
     path: "/shows/Hydration/Season 1/Episode One.mkv",
@@ -248,8 +249,8 @@ function PlaybackTrackHydrationHarness() {
     season: 1,
     episode: 1,
     library_id: 7,
-  };
-  const bareEpisodeTwo: MediaItem = {
+  });
+  const bareEpisodeTwo: MediaItem = makeMediaItem({
     id: 302,
     title: "Hydration Episode Two",
     path: "/shows/Hydration/Season 1/Episode Two.mkv",
@@ -258,7 +259,7 @@ function PlaybackTrackHydrationHarness() {
     season: 1,
     episode: 2,
     library_id: 7,
-  };
+  });
 
   return (
     <div>

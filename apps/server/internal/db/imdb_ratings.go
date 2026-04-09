@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -30,7 +31,7 @@ func (s *IMDbRatingStore) GetIMDbRatingByID(_ context.Context, imdbID string) (f
 	}
 	var rating float64
 	err := s.DB.QueryRow(`SELECT rating FROM imdb_ratings WHERE imdb_id = ?`, imdbID).Scan(&rating)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
 	return rating, err
@@ -206,7 +207,7 @@ WHERE COALESCE(imdb_id, '') != ''
 func getAppSettingTime(dbConn *sql.DB, key string) (time.Time, error) {
 	var raw string
 	err := dbConn.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, key).Scan(&raw)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, nil
 	}
 	if err != nil {

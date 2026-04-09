@@ -8,6 +8,7 @@ import * as api from "./api";
 import App from "./App";
 import { IdentifyShowDialog } from "./components/IdentifyShowDialog";
 import * as IdentifyQueueContext from "./contexts/IdentifyQueueContext";
+import { makeMediaItem } from "./test-utils/mediaItem";
 
 const realUseIdentifyQueue = IdentifyQueueContext.useIdentifyQueue;
 
@@ -470,7 +471,7 @@ describe("App library and player wiring", () => {
           show_key: "tmdb-101",
           episode_label: "S02E04",
           remaining_seconds: 1200,
-          media: {
+          media: makeMediaItem({
             id: 55,
             library_id: 1,
             title: "Space Show - S02E04 - Echoes",
@@ -480,7 +481,7 @@ describe("App library and player wiring", () => {
             season: 2,
             episode: 4,
             progress_percent: 33,
-          },
+          }),
         },
       ],
       recentlyAddedTvEpisodes: [],
@@ -511,7 +512,7 @@ describe("App library and player wiring", () => {
         {
           kind: "movie",
           remaining_seconds: 2400,
-          media: {
+          media: makeMediaItem({
             id: 99,
             library_id: 2,
             title: "Die My Love",
@@ -522,7 +523,7 @@ describe("App library and player wiring", () => {
             progress_percent: 66,
             release_date: "2025-01-01",
             poster_path: "/poster.jpg",
-          },
+          }),
         },
       ],
       recentlyAddedTvEpisodes: [],
@@ -555,7 +556,7 @@ describe("App library and player wiring", () => {
           show_title: "Space Show",
           show_key: "tmdb-101",
           episode_label: "S02E04",
-          media: {
+          media: makeMediaItem({
             id: 55,
             library_id: 1,
             title: "Space Show - S02E04 - Echoes",
@@ -564,13 +565,13 @@ describe("App library and player wiring", () => {
             type: "tv",
             season: 2,
             episode: 4,
-          },
+          }),
         },
       ],
       recentlyAddedMovies: [
         {
           kind: "movie",
-          media: {
+          media: makeMediaItem({
             id: 99,
             library_id: 2,
             title: "Die My Love",
@@ -579,7 +580,7 @@ describe("App library and player wiring", () => {
             type: "movie",
             release_date: "2025-01-01",
             poster_path: "/poster.jpg",
-          },
+          }),
         },
       ],
       recentlyAddedAnimeEpisodes: [],
@@ -614,7 +615,7 @@ describe("App library and player wiring", () => {
       recentlyAddedMovies: [
         {
           kind: "movie",
-          media: {
+          media: makeMediaItem({
             id: 99,
             library_id: 2,
             title: "Die My Love",
@@ -623,7 +624,7 @@ describe("App library and player wiring", () => {
             type: "movie",
             release_date: "2025-01-01",
             poster_path: "/poster.jpg",
-          },
+          }),
         },
       ],
       recentlyAddedAnimeEpisodes: [],
@@ -650,7 +651,7 @@ describe("App library and player wiring", () => {
       recentlyAddedMovies: [
         {
           kind: "movie",
-          media: {
+          media: makeMediaItem({
             id: 99,
             library_id: 2,
             title: "Die My Love",
@@ -659,7 +660,7 @@ describe("App library and player wiring", () => {
             type: "movie",
             release_date: "2025-01-01",
             poster_path: "/poster.jpg",
-          },
+          }),
         },
       ],
       recentlyAddedAnimeEpisodes: [],
@@ -694,7 +695,7 @@ describe("App library and player wiring", () => {
       recentlyAddedMovies: [
         {
           kind: "movie",
-          media: {
+          media: makeMediaItem({
             id: 99,
             library_id: 2,
             title: "Die My Love",
@@ -703,7 +704,7 @@ describe("App library and player wiring", () => {
             type: "movie",
             release_date: "2025-01-01",
             poster_path: "/poster.jpg",
-          },
+          }),
         },
       ],
       recentlyAddedAnimeEpisodes: [],

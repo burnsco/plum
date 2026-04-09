@@ -498,18 +498,29 @@ func tailLogFile(path string, maxLines int) ([]string, error) {
 	sc := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
-	var ring []string
+	if maxLines <= 0 {
+		return nil, errors.New("tailLogFile: maxLines must be positive")
+	}
+	ring := make([]string, maxLines)
+	var head, size int
 	for sc.Scan() {
 		line := sc.Text()
-		if len(ring) >= maxLines {
-			ring = ring[1:]
+		if size < maxLines {
+			ring[(head+size)%maxLines] = line
+			size++
+			continue
 		}
-		ring = append(ring, line)
+		ring[head] = line
+		head = (head + 1) % maxLines
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	return ring, nil
+	out := make([]string, size)
+	for i := 0; i < size; i++ {
+		out[i] = ring[(head+i)%maxLines]
+	}
+	return out, nil
 }
 
 // StartAdminMaintenanceScheduler runs due scheduled tasks periodically.

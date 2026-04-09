@@ -21,7 +21,7 @@ import {
   useLibraries,
 } from "../queries";
 import { ScanQueueContext, type QueueScanOptions, type RecentLibraryActivity } from "./ScanQueueContext";
-import { useWs } from "./WsContext";
+import { useWsEvent } from "./WsContext";
 
 const SCAN_POLL_INTERVAL_MS = 2_000;
 const JUST_FINISHED_TTL_MS = 5 * 60 * 1000;
@@ -181,7 +181,7 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { data: librariesData } = useLibraries();
   const libraries = librariesData ?? EMPTY_LIBRARIES;
-  const { latestEvent, eventSequence } = useWs();
+  const { latestEvent, eventSequence } = useWsEvent();
   const [scanStatuses, setScanStatuses] = useState<Record<number, LibraryScanStatus>>({});
   const [recentLibraryActivities, setRecentLibraryActivities] = useState<RecentLibraryActivity[]>([]);
   const scanStatusesRef = useRef<Record<number, LibraryScanStatus>>({});

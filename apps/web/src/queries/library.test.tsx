@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { HomeDashboard } from "@/api";
 import * as api from "@/api";
+import { makeMediaItem } from "@/test-utils/mediaItem";
 import { queryKeys } from "./shared";
 import { useClearShowProgress } from "./library";
 
@@ -15,14 +16,14 @@ function buildHomeDashboardFixture(): HomeDashboard {
         show_title: "Target Show",
         episode_label: "S01E01",
         remaining_seconds: 1200,
-        media: {
+        media: makeMediaItem({
           id: 1001,
           library_id: 1,
           title: "Target Show - S01E01",
           path: "/tv/target-s01e01.mkv",
           duration: 1800,
           type: "tv",
-        },
+        }),
       },
       {
         kind: "show",
@@ -30,14 +31,14 @@ function buildHomeDashboardFixture(): HomeDashboard {
         show_title: "Target Show Other Library",
         episode_label: "S01E02",
         remaining_seconds: 900,
-        media: {
+        media: makeMediaItem({
           id: 2001,
           library_id: 2,
           title: "Target Show - S01E02",
           path: "/anime/target-s01e02.mkv",
           duration: 1800,
           type: "anime",
-        },
+        }),
       },
       {
         kind: "show",
@@ -45,14 +46,14 @@ function buildHomeDashboardFixture(): HomeDashboard {
         show_title: "Other Show",
         episode_label: "S01E03",
         remaining_seconds: 600,
-        media: {
+        media: makeMediaItem({
           id: 3001,
           library_id: 1,
           title: "Other Show - S01E03",
           path: "/tv/other-s01e03.mkv",
           duration: 1800,
           type: "tv",
-        },
+        }),
       },
     ],
     recentlyAdded: [],

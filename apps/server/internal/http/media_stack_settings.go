@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"plum/internal/arr"
@@ -50,11 +50,11 @@ func (h *MediaStackSettingsHandler) Put(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if writePath, err := dotenv.ResolveWritePath(); err != nil {
-		log.Printf("resolve .env for media stack sync: %v", err)
+		slog.Warn("resolve .env for media stack sync", "error", err)
 	} else if !dotenv.IsWritablePath(writePath) {
-		log.Printf("skip media stack .env sync: not writable at %s", writePath)
+		slog.Info("skip media stack .env sync: not writable", "path", writePath)
 	} else if err := dotenv.Upsert(writePath, db.MediaStackSettingsEnvPairs(settings)); err != nil {
-		log.Printf("sync media stack to .env: %v", err)
+		slog.Warn("sync media stack to .env", "error", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -159,7 +159,7 @@ import {
     UpdatePlaybackSessionAudioPayloadSchema,
     UserSchema,
 } from "@plum/contracts";
-import { Data, Effect, Option, Schedule, Schema } from "effect";
+import { Data, Duration, Effect, Option, Schedule, Schema } from "effect";
 import { buildBackendUrl, ensureBaseUrl } from "./backend";
 import { normalizeDiscoverOriginKey } from "./discover";
 
@@ -1651,7 +1651,9 @@ export function loadAuthSessionEffect(
     };
   }).pipe(
     Effect.retry({
-      schedule: Schedule.addDelay(Schedule.recurs(retries), () => Effect.succeed(retryDelayMs)),
+      schedule: Schedule.addDelay(Schedule.recurs(retries), () =>
+        Effect.succeed(Duration.millis(retryDelayMs)),
+      ),
     }),
   );
 }

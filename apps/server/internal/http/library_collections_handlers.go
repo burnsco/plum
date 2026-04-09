@@ -85,7 +85,7 @@ func (h *LibraryHandler) ListLibraryMedia(w http.ResponseWriter, r *http.Request
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if identifyStates := h.identifyRun.stateForLibrary(libraryID); len(identifyStates) > 0 {
+	if identifyStates := h.getIdentifyRun().stateForLibrary(libraryID); len(identifyStates) > 0 {
 		for i := range page.Items {
 			if state, ok := identifyStates[identifyRowKey(page.Items[i].Type, page.Items[i].Path)]; ok {
 				page.Items[i].IdentifyState = state

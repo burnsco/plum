@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
 
+	"plum/internal/db"
 	"plum/internal/dotenv"
 	"plum/internal/metadata"
 )
@@ -35,6 +37,7 @@ var managedEnvKeys = map[string]struct{}{
 // ServerEnvSettingsHandler reads and updates the on-disk .env file (same discovery rules as startup)
 // and applies metadata API key changes to the running process without restart.
 type ServerEnvSettingsHandler struct {
+	DB       *sql.DB
 	Pipeline *metadata.Pipeline
 }
 
@@ -73,14 +76,33 @@ type serverEnvUpdateRequest struct {
 	ClearFanartAPIKey *bool `json:"fanart_api_key_clear"`
 }
 
-func effectiveDatabaseURL() string {
-	if v := strings.TrimSpace(os.Getenv(envPLUMDatabaseURL)); v != "" {
+func effectiveDatabaseURLWithOverrides(overrides map[string]string) string {
+	if v := effectiveEnvString(overrides, envPLUMDatabaseURL); v != "" {
 		return v
 	}
-	return strings.TrimSpace(os.Getenv(envPLUMDatabaseLegacyPath))
+	return effectiveEnvString(overrides, envPLUMDatabaseLegacyPath)
+}
+
+func effectiveEnvString(overrides map[string]string, envName string) string {
+	if overrides != nil {
+		if v, ok := overrides[envName]; ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return strings.TrimSpace(os.Getenv(envName))
+}
+
+func effectiveSecretPresent(overrides map[string]string, envName string) bool {
+	return effectiveEnvString(overrides, envName) != ""
 }
 
 func (h *ServerEnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	overrides, err := h.loadServerEnvOverrides()
+	if err != nil {
+		http.Error(w, "load server env overrides: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	writePath, err := dotenv.ResolveWritePath()
 	if err != nil {
 		http.Error(w, "resolve .env path: "+err.Error(), http.StatusInternalServerError)
@@ -96,14 +118,14 @@ func (h *ServerEnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		EnvFilePath:           writePath,
 		EnvFileExisted:        hadFile,
 		EnvFileWritable:       dotenv.IsWritablePath(writePath),
-		PLUMAddr:              strings.TrimSpace(os.Getenv(envPLUMAddr)),
-		PLUMDatabaseURL:       effectiveDatabaseURL(),
-		MusicBrainzContactURL: strings.TrimSpace(os.Getenv(envMusicBrainzContactURL)),
+		PLUMAddr:              effectiveEnvString(overrides, envPLUMAddr),
+		PLUMDatabaseURL:       effectiveDatabaseURLWithOverrides(overrides),
+		MusicBrainzContactURL: effectiveEnvString(overrides, envMusicBrainzContactURL),
 		SecretsPresent: serverEnvSecretsPresent{
-			TMDBAPIKey:   strings.TrimSpace(os.Getenv(envTMDBAPIKey)) != "",
-			TVDBAPIKey:   strings.TrimSpace(os.Getenv(envTVDBAPIKey)) != "",
-			OMDBAPIKey:   strings.TrimSpace(os.Getenv(envOMDBAPIKey)) != "",
-			FanartAPIKey: strings.TrimSpace(os.Getenv(envFanartAPIKey)) != "",
+			TMDBAPIKey:   effectiveSecretPresent(overrides, envTMDBAPIKey),
+			TVDBAPIKey:   effectiveSecretPresent(overrides, envTVDBAPIKey),
+			OMDBAPIKey:   effectiveSecretPresent(overrides, envOMDBAPIKey),
+			FanartAPIKey: effectiveSecretPresent(overrides, envFanartAPIKey),
 		},
 		RestartRecommended: false,
 		Help: "Values match what the server process loaded from environment and .env. " +
@@ -141,6 +163,13 @@ func (h *ServerEnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *ServerEnvSettingsHandler) loadServerEnvOverrides() (map[string]string, error) {
+	if h.DB == nil {
+		return nil, nil
+	}
+	return db.GetServerEnvOverrides(h.DB)
 }
 
 func (h *ServerEnvSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
@@ -200,26 +229,34 @@ func (h *ServerEnvSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.DB == nil {
+		http.Error(w, "database not configured for server env settings", http.StatusInternalServerError)
+		return
+	}
+	// Persist app_settings first so a failed write does not leave .env ahead of the DB (restart
+	// would otherwise diverge from runtime overrides and pipeline reconfigure).
+	if err := db.UpsertServerEnvOverrides(r.Context(), h.DB, updates); err != nil {
+		http.Error(w, "persist server env overrides: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err := dotenv.Upsert(writePath, updates); err != nil {
 		http.Error(w, "write .env: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	for k, v := range updates {
-		if v == "" {
-			_ = os.Unsetenv(k)
-		} else {
-			_ = os.Setenv(k, v)
-		}
+	overrides, err := db.GetServerEnvOverrides(h.DB)
+	if err != nil {
+		http.Error(w, "reload server env overrides: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if h.Pipeline != nil {
 		h.Pipeline.ReconfigureKeys(
-			strings.TrimSpace(os.Getenv(envTMDBAPIKey)),
-			strings.TrimSpace(os.Getenv(envTVDBAPIKey)),
-			strings.TrimSpace(os.Getenv(envOMDBAPIKey)),
-			strings.TrimSpace(os.Getenv(envFanartAPIKey)),
-			strings.TrimSpace(os.Getenv(envMusicBrainzContactURL)),
+			effectiveEnvString(overrides, envTMDBAPIKey),
+			effectiveEnvString(overrides, envTVDBAPIKey),
+			effectiveEnvString(overrides, envOMDBAPIKey),
+			effectiveEnvString(overrides, envFanartAPIKey),
+			effectiveEnvString(overrides, envMusicBrainzContactURL),
 		)
 	}
 
@@ -227,14 +264,14 @@ func (h *ServerEnvSettingsHandler) Put(w http.ResponseWriter, r *http.Request) {
 		EnvFilePath:           writePath,
 		EnvFileExisted:        true,
 		EnvFileWritable:       true,
-		PLUMAddr:              strings.TrimSpace(os.Getenv(envPLUMAddr)),
-		PLUMDatabaseURL:       effectiveDatabaseURL(),
-		MusicBrainzContactURL: strings.TrimSpace(os.Getenv(envMusicBrainzContactURL)),
+		PLUMAddr:              effectiveEnvString(overrides, envPLUMAddr),
+		PLUMDatabaseURL:       effectiveDatabaseURLWithOverrides(overrides),
+		MusicBrainzContactURL: effectiveEnvString(overrides, envMusicBrainzContactURL),
 		SecretsPresent: serverEnvSecretsPresent{
-			TMDBAPIKey:   strings.TrimSpace(os.Getenv(envTMDBAPIKey)) != "",
-			TVDBAPIKey:   strings.TrimSpace(os.Getenv(envTVDBAPIKey)) != "",
-			OMDBAPIKey:   strings.TrimSpace(os.Getenv(envOMDBAPIKey)) != "",
-			FanartAPIKey: strings.TrimSpace(os.Getenv(envFanartAPIKey)) != "",
+			TMDBAPIKey:   effectiveSecretPresent(overrides, envTMDBAPIKey),
+			TVDBAPIKey:   effectiveSecretPresent(overrides, envTVDBAPIKey),
+			OMDBAPIKey:   effectiveSecretPresent(overrides, envOMDBAPIKey),
+			FanartAPIKey: effectiveSecretPresent(overrides, envFanartAPIKey),
 		},
 		RestartRecommended: restart,
 		Help:               "Metadata provider keys were applied to the running server. Restart Plum if you changed listen address or database path.",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { makeMediaItem } from "@/test-utils/mediaItem";
 import {
   buildRecentlyAddedToastLabel,
   buildRecentlyAddedToastMessage,
@@ -13,14 +14,14 @@ describe("libraryReadyNotifications", () => {
         show_key: "tmdb-42",
         show_title: "Example Show",
         episode_label: "S1 E2",
-        media: {
+        media: makeMediaItem({
           id: 7,
           library_id: 3,
           title: "Example Show S1 E2",
           path: "/tv/example-show/episode-2.mkv",
           duration: 1200,
           type: "tv",
-        },
+        }),
       }),
     ).toBe("show:tmdb-42");
   });
@@ -32,14 +33,14 @@ describe("libraryReadyNotifications", () => {
         show_key: "tmdb-42",
         show_title: "Example Show",
         episode_label: "S1 E2",
-        media: {
+        media: makeMediaItem({
           id: 7,
           library_id: 3,
           title: "Example Show S1 E2",
           path: "/tv/example-show/episode-2.mkv",
           duration: 1200,
           type: "tv",
-        },
+        }),
       }),
     ).toBe("Example Show (S1 E2)");
   });
@@ -52,14 +53,14 @@ describe("libraryReadyNotifications", () => {
           show_key: "",
           show_title: "",
           episode_label: "",
-          media: {
+          media: makeMediaItem({
             id: 9,
             library_id: 4,
             title: "Dune",
             path: "/movies/dune.mkv",
             duration: 7200,
             type: "movie",
-          },
+          }),
         },
         [
           {

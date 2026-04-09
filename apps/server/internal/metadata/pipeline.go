@@ -1,13 +1,17 @@
 package metadata
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Pipeline runs identification against multiple providers (TMDB, TVDB, etc.).
 type Pipeline struct {
+	mu                    sync.RWMutex
 	movieProvider         MovieProvider
 	movieDetailsProvider  MovieDetailsProvider
 	tvProviders           []TVProvider
@@ -51,20 +55,38 @@ func NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact string
 }
 
 // ReconfigureKeys rebuilds provider clients from API keys and reapplies cache and IMDb rating wiring.
-// Safe for concurrent reads only in the sense that replacement is atomic for pointer fields; avoid
-// calling during heavy metadata work on untrusted networks.
 func (p *Pipeline) ReconfigureKeys(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	next := NewPipeline(tmdbKey, tvdbKey, omdbKey, fanartKey, musicBrainzContact)
 	next.SetIMDbRatingProvider(p.imdbRatings)
 	next.SetProviderCache(p.providerCache)
-	*p = *next
+	p.movieProvider = next.movieProvider
+	p.movieDetailsProvider = next.movieDetailsProvider
+	p.tvProviders = next.tvProviders
+	p.seriesDetailsProvider = next.seriesDetailsProvider
+	p.discoverProvider = next.discoverProvider
+	p.imdbRatings = next.imdbRatings
+	p.musicProvider = next.musicProvider
+	p.omdb = next.omdb
+	p.tmdb = next.tmdb
+	p.tvdb = next.tvdb
+	p.fanart = next.fanart
+	p.providerCache = next.providerCache
 }
 
 func (p *Pipeline) SetIMDbRatingProvider(provider IMDbRatingProvider) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.imdbRatings = provider
 }
 
 func (p *Pipeline) SetProviderCache(cache ProviderCache) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.providerCache = cache
 	if p.tmdb != nil {
 		p.tmdb.SetCache(cache)
@@ -83,6 +105,9 @@ func (p *Pipeline) SetProviderCache(cache ProviderCache) {
 }
 
 func (p *Pipeline) IdentifyMusic(ctx context.Context, info MusicInfo) *MusicMatchResult {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.musicProvider == nil {
 		return nil
 	}
@@ -90,6 +115,9 @@ func (p *Pipeline) IdentifyMusic(ctx context.Context, info MusicInfo) *MusicMatc
 }
 
 func (p *Pipeline) SearchMovie(ctx context.Context, query string) ([]MatchResult, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.movieProvider == nil {
 		return []MatchResult{}, nil
 	}
@@ -97,6 +125,9 @@ func (p *Pipeline) SearchMovie(ctx context.Context, query string) ([]MatchResult
 }
 
 func (p *Pipeline) GetMovie(ctx context.Context, movieID string) (*MatchResult, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	lookup, ok := p.movieProvider.(MovieLookupProvider)
 	if !ok || lookup == nil {
 		return nil, nil
@@ -105,6 +136,9 @@ func (p *Pipeline) GetMovie(ctx context.Context, movieID string) (*MatchResult, 
 }
 
 func (p *Pipeline) ProviderStatuses() []ArtworkProviderStatus {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	statuses := []ArtworkProviderStatus{
 		{Provider: "fanart", Enabled: p.fanart != nil, Available: p.fanart != nil},
 		{Provider: "tmdb", Enabled: p.tmdb != nil, Available: p.tmdb != nil},
@@ -165,6 +199,9 @@ func appendPosterCandidates(candidates []PosterCandidate, seen map[string]struct
 }
 
 func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imdbID string) ([]PosterCandidate, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	candidates := make([]PosterCandidate, 0, 8)
 	seen := map[string]struct{}{}
 	if p.fanart != nil && tmdbID > 0 {
@@ -191,6 +228,9 @@ func (p *Pipeline) GetMoviePosterCandidates(ctx context.Context, tmdbID int, imd
 }
 
 func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string) ([]PosterCandidate, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	candidates := make([]PosterCandidate, 0, 8)
 	seen := map[string]struct{}{}
 	if p.seriesDetailsProvider != nil && tmdbID > 0 {
@@ -222,6 +262,9 @@ func (p *Pipeline) GetShowPosterCandidates(ctx context.Context, title string, tm
 }
 
 func (p *Pipeline) GetSeasonPosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string, season int) ([]PosterCandidate, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	candidates := make([]PosterCandidate, 0, 3)
 	seen := map[string]struct{}{}
 	if p.fanart != nil && tvdbID != "" {
@@ -245,6 +288,9 @@ func (p *Pipeline) GetSeasonPosterCandidates(ctx context.Context, title string, 
 }
 
 func (p *Pipeline) GetEpisodePosterCandidates(ctx context.Context, title string, tmdbID int, tvdbID string, imdbID string, season int, episode int) ([]PosterCandidate, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	candidates := make([]PosterCandidate, 0, 3)
 	seen := map[string]struct{}{}
 	if p.tmdb != nil && tmdbID > 0 {
@@ -266,6 +312,9 @@ func (p *Pipeline) GetEpisodePosterCandidates(ctx context.Context, title string,
 }
 
 func (p *Pipeline) GetDiscover(ctx context.Context, originCountry string) (*DiscoverResponse, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
@@ -273,6 +322,9 @@ func (p *Pipeline) GetDiscover(ctx context.Context, originCountry string) (*Disc
 }
 
 func (p *Pipeline) GetDiscoverGenres(ctx context.Context) (*DiscoverGenresResponse, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
@@ -287,6 +339,9 @@ func (p *Pipeline) BrowseDiscover(
 	page int,
 	originCountry string,
 ) (*DiscoverBrowseResponse, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
@@ -294,6 +349,9 @@ func (p *Pipeline) BrowseDiscover(
 }
 
 func (p *Pipeline) SearchDiscover(ctx context.Context, query string) (*DiscoverSearchResponse, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
@@ -301,6 +359,9 @@ func (p *Pipeline) SearchDiscover(ctx context.Context, query string) (*DiscoverS
 }
 
 func (p *Pipeline) GetDiscoverTitleDetails(ctx context.Context, mediaType DiscoverMediaType, tmdbID int) (*DiscoverTitleDetails, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.discoverProvider == nil {
 		return nil, ErrTMDBNotConfigured
 	}
@@ -317,6 +378,9 @@ func (p *Pipeline) GetDiscoverTitleDetails(ctx context.Context, mediaType Discov
 }
 
 func (p *Pipeline) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDetails, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.movieDetailsProvider == nil {
 		return nil, nil
 	}
@@ -341,6 +405,9 @@ func (p *Pipeline) IdentifyMovie(ctx context.Context, info MediaInfo) *MatchResu
 // IdentifyMovieResult exposes provider failures so callers can retry transient
 // movie lookup issues instead of treating them as an unmatched title.
 func (p *Pipeline) IdentifyMovieResult(ctx context.Context, info MediaInfo) (*MatchResult, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.movieProvider == nil {
 		return nil, nil
 	}
@@ -445,11 +512,17 @@ func firstExactMovieTitleYearMatch(results []MatchResult, info MediaInfo) *Match
 
 // IdentifyTV returns the best TV match: explicit ID first, then scored candidates with threshold + margin.
 func (p *Pipeline) IdentifyTV(ctx context.Context, info MediaInfo) *MatchResult {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	return p.identifySeries(ctx, info, false)
 }
 
 // IdentifyAnime returns the best anime match while avoiding unsafe absolute-number guesses.
 func (p *Pipeline) IdentifyAnime(ctx context.Context, info MediaInfo) *MatchResult {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if info.Season == 0 && info.Episode == 0 && info.AbsoluteEpisode > 0 && info.TMDBID <= 0 {
 		return nil
 	}
@@ -653,14 +726,9 @@ func bestScored(candidates []MatchResult, info MediaInfo, scoreFn func(*MatchRes
 	for i := range candidates {
 		scores[i] = scored{m: &candidates[i], score: scoreFn(&candidates[i], info)}
 	}
-	// Sort by score descending (simple bubble for small n)
-	for i := 0; i < len(scores); i++ {
-		for j := i + 1; j < len(scores); j++ {
-			if scores[j].score > scores[i].score {
-				scores[i], scores[j] = scores[j], scores[i]
-			}
-		}
-	}
+	slices.SortFunc(scores, func(a, b scored) int {
+		return cmp.Compare(b.score, a.score)
+	})
 	top := scores[0]
 	if top.score < threshold {
 		return nil, top.score
@@ -673,6 +741,9 @@ func bestScored(candidates []MatchResult, info MediaInfo, scoreFn func(*MatchRes
 
 // GetSeriesDetails returns TV series metadata by TMDB ID for the show-detail UI.
 func (p *Pipeline) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesDetails, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.seriesDetailsProvider == nil {
 		return nil, nil
 	}
@@ -690,6 +761,9 @@ func (p *Pipeline) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesDet
 
 // SearchTV returns raw TV search results from the first provider (e.g. TMDB) for the Identify UI.
 func (p *Pipeline) SearchTV(ctx context.Context, query string) ([]MatchResult, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if len(p.tvProviders) == 0 {
 		return nil, nil
 	}
@@ -698,6 +772,9 @@ func (p *Pipeline) SearchTV(ctx context.Context, query string) ([]MatchResult, e
 
 // GetEpisode returns episode-level metadata for a series/season/episode (for refresh/identify).
 func (p *Pipeline) GetEpisode(ctx context.Context, provider, seriesID string, season, episode int) (*MatchResult, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if provider != "" {
 		prov := p.tvProviderByName(provider)
 		if prov == nil {

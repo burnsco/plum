@@ -22,8 +22,15 @@ func TestServerEnvSettingsHandler_GetAndPut(t *testing.T) {
 	t.Setenv("PLUM_ADDR", "")
 	t.Setenv("TMDB_API_KEY", "")
 
+	dbPath := filepath.Join(tmp, "plum.db")
+	sqlDB, err := db.InitDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	p := metadata.NewPipeline("", "", "", "", "")
-	h := &ServerEnvSettingsHandler{Pipeline: p}
+	h := &ServerEnvSettingsHandler{DB: sqlDB, Pipeline: p}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/settings/server-env", nil)
 	getReq = getReq.WithContext(withUser(getReq.Context(), &db.User{ID: 1, IsAdmin: true}))
@@ -67,11 +74,25 @@ func TestServerEnvSettingsHandler_GetAndPut(t *testing.T) {
 		t.Fatalf("put status=%d %s", putRec.Code, putRec.Body.String())
 	}
 
-	if os.Getenv("TMDB_API_KEY") != "newsecret" {
-		t.Fatalf("process TMDB_API_KEY=%q", os.Getenv("TMDB_API_KEY"))
+	if os.Getenv("TMDB_API_KEY") != "" {
+		t.Fatalf("expected process TMDB_API_KEY unchanged (empty), got %q", os.Getenv("TMDB_API_KEY"))
 	}
-	if os.Getenv("OMDB_API_KEY") != "omdbval" {
-		t.Fatalf("process OMDB_API_KEY=%q", os.Getenv("OMDB_API_KEY"))
+	var storedTMDB, storedOMDB string
+	_ = sqlDB.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, db.ServerEnvAppSettingKey("TMDB_API_KEY")).Scan(&storedTMDB)
+	_ = sqlDB.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, db.ServerEnvAppSettingKey("OMDB_API_KEY")).Scan(&storedOMDB)
+	if storedTMDB != "newsecret" {
+		t.Fatalf("app_settings TMDB_API_KEY=%q", storedTMDB)
+	}
+	if storedOMDB != "omdbval" {
+		t.Fatalf("app_settings OMDB_API_KEY=%q", storedOMDB)
+	}
+	for _, st := range p.ProviderStatuses() {
+		if st.Provider == "tmdb" && !st.Available {
+			t.Fatal("expected tmdb available after put")
+		}
+		if st.Provider == "omdb" && !st.Available {
+			t.Fatal("expected omdb available after put")
+		}
 	}
 
 	disk, _ := os.ReadFile(filepath.Join(tmp, ".env"))

@@ -158,7 +158,10 @@ func (h *Hub) Register(c *Client) bool {
 }
 
 func (h *Hub) Unregister(c *Client) {
-	h.unregister <- c
+	select {
+	case h.unregister <- c:
+	case <-h.runEnded:
+	}
 }
 
 func (h *Hub) Close() {

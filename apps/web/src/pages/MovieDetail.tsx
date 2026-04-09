@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { resolveBackdropUrl, resolveCastProfileUrl, resolvePosterUrl } from "@plum/shared";
+import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
 import { BASE_URL, type MediaItem } from "@/api";
+import { CastGrid } from "@/components/CastGrid";
 import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { PosterPickerDialog } from "@/components/PosterPickerDialog";
 import { RatingBadge } from "@/components/RatingBadge";
 import { usePlayerQueue } from "@/contexts/PlayerContext";
 import { useMovieDetails } from "@/queries";
+import { fileNameFromPath } from "@/utils/fileNameFromPath";
 
 function formatRuntime(minutes?: number): string {
   if (!minutes || minutes <= 0) {
@@ -18,13 +20,6 @@ function formatRuntime(minutes?: number): string {
     return `${mins} min`;
   }
   return `${hours}h ${mins}m`;
-}
-
-function fileNameFromPath(path: string): string {
-  const trimmed = path.trim();
-  if (trimmed === "") return "";
-  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
 export function MovieDetail() {
@@ -64,13 +59,14 @@ export function MovieDetail() {
     path: details.source_path?.trim() ?? "",
     duration: details.runtime != null && details.runtime > 0 ? details.runtime * 60 : 0,
     type: "movie",
+    tmdb_id: 0,
     overview: details.overview,
-    poster_path: details.poster_path,
+    poster_path: details.poster_path ?? "",
     poster_url: details.poster_url,
-    backdrop_path: details.backdrop_path,
+    backdrop_path: details.backdrop_path ?? "",
     backdrop_url: details.backdrop_url,
-    release_date: details.release_date,
-    vote_average: details.vote_average,
+    release_date: details.release_date ?? "",
+    vote_average: details.vote_average ?? 0,
     imdb_id: details.imdb_id,
     imdb_rating: details.imdb_rating,
     subtitles: details.subtitles,
@@ -168,47 +164,7 @@ export function MovieDetail() {
         </div>
       </div>
 
-      <section className="rounded-(--radius-xl) border border-(--plum-border) bg-(--plum-panel) p-5">
-        <h2 className="text-lg font-semibold text-(--plum-text)">Cast</h2>
-        {details.cast.length === 0 ? (
-          <p className="mt-3 text-sm text-(--plum-muted)">No cast metadata yet.</p>
-        ) : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {details.cast.map((member) => {
-              const headshot = resolveCastProfileUrl(undefined, member.profile_path, "w185", BASE_URL);
-              const initial = member.name.trim().charAt(0).toUpperCase() || "?";
-              return (
-                <Link
-                  key={`${member.name}-${member.character ?? ""}`}
-                  to={`/search?q=${encodeURIComponent(member.name)}`}
-                  className="flex gap-3 rounded-lg border border-(--plum-border) bg-(--plum-panel-alt) p-3 transition-colors hover:border-(--plum-accent)/50 hover:bg-(--plum-panel)"
-                >
-                  {headshot ? (
-                    <img
-                      src={headshot}
-                      alt=""
-                      className="h-[4.5rem] w-12 shrink-0 rounded-md object-cover object-top"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-[4.5rem] w-12 shrink-0 items-center justify-center rounded-md bg-(--plum-border) text-sm font-semibold text-(--plum-muted)"
-                      aria-hidden
-                    >
-                      {initial}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-(--plum-text)">{member.name}</div>
-                    {member.character ? (
-                      <div className="text-xs text-(--plum-muted)">{member.character}</div>
-                    ) : null}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      <CastGrid members={details.cast} />
 
       <PosterPickerDialog
         open={posterPickerOpen}

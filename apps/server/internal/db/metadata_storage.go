@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -323,14 +324,14 @@ func findShowIDTx(ctx context.Context, tx *sql.Tx, libraryID int, kind string, t
 		if err == nil {
 			return showID, nil
 		}
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, sql.ErrNoRows) {
 			return 0, err
 		}
 	}
 	var existingTMDBID int
 	err := tx.QueryRowContext(ctx, `SELECT id, COALESCE(tmdb_id, 0) FROM shows WHERE library_id = ? AND kind = ? AND title_key = ? LIMIT 1`, libraryID, kind, titleKey).Scan(&showID, &existingTMDBID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
@@ -345,7 +346,7 @@ func findSeasonIDTx(ctx context.Context, tx *sql.Tx, showID int, seasonNumber in
 	var seasonID int
 	err := tx.QueryRowContext(ctx, `SELECT id FROM seasons WHERE show_id = ? AND season_number = ?`, showID, seasonNumber).Scan(&seasonID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err

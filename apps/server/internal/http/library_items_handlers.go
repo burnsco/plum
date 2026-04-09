@@ -88,7 +88,7 @@ SELECT m.id FROM movies m
 JOIN media_global g ON g.kind = 'movie' AND g.ref_id = m.id
 WHERE m.library_id = ? AND g.id = ?`, libraryID, payload.MediaID).Scan(&refID)
 	if err != nil {
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -96,7 +96,7 @@ WHERE m.library_id = ? AND g.id = ?`, libraryID, payload.MediaID).Scan(&refID)
 		err = h.DB.QueryRow(`SELECT id FROM movies WHERE library_id = ? AND id = ?`, libraryID, payload.MediaID).Scan(&refID)
 	}
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			w.Header().Set("Content-Type", "application/json")
 			writeJSON(w, http.StatusOK, showActionResult{Updated: 0})
 			return
@@ -246,7 +246,7 @@ func (h *LibraryHandler) GetLibraryShowEpisodes(w http.ResponseWriter, r *http.R
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if identifyStates := h.identifyRun.stateForLibrary(libraryID); len(identifyStates) > 0 {
+	if identifyStates := h.getIdentifyRun().stateForLibrary(libraryID); len(identifyStates) > 0 {
 		for i := range items {
 			if state, ok := identifyStates[identifyRowKey(items[i].Type, items[i].Path)]; ok {
 				items[i].IdentifyState = state

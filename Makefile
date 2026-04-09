@@ -15,7 +15,7 @@ YELLOW := \033[1;33m
 RED := \033[1;31m
 NC := \033[0m # No Color
 
-.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint fmt test android-tv-build deploy-tv deploy-tv-reinstall deploy-tv-install deploy-tv-reinstall-install deploy-tv-lr deploy-tv-lr-reinstall deploy-tv-lr-install deploy-tv-lr-reinstall-install
+.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint lint-backend lint-frontend fmt fmt-backend fmt-frontend test test-server test-web android-tv-build deploy-tv deploy-tv-reinstall deploy-tv-install deploy-tv-reinstall-install deploy-tv-lr deploy-tv-lr-reinstall deploy-tv-lr-install deploy-tv-lr-reinstall-install
 
 # Default target
 help:
@@ -44,7 +44,7 @@ help:
 	@echo "  make fmt         - 🎨 Format both backend and frontend"
 	@echo ""
 	@echo "$(GREEN)Testing:$(NC)"
-	@echo "  make test        - 🧪 Run backend tests"
+	@echo "  make test        - 🧪 Run backend and web tests"
 	@echo ""
 	@echo "$(GREEN)Android TV:$(NC)"
 	@echo "  make android-tv-build - 🔨 Build the Android TV debug APK"
@@ -75,8 +75,7 @@ docker-dev:
 
 docker-dev-clean:
 	# Remove volumes for a fresh DB (onboarding from scratch) and clean caches.
-	$(DOCKER_COMPOSE) down -v
-	$(DOCKER_COMPOSE) up --build
+	$(DOCKER_COMPOSE) down -v && $(DOCKER_COMPOSE) up --build
 
 build:
 	# Explicit rebuild of all images without starting containers.
@@ -120,8 +119,13 @@ fmt-backend:
 fmt-frontend:
 	cd apps/web && $(BUN) run format
 
-test:
+test: test-server test-web
+
+test-server:
 	cd apps/server && ../../scripts/go.sh test -v ./...
+
+test-web:
+	cd apps/web && $(BUN) run test
 
 android-tv-build:
 	./scripts/android-tv.sh :app:assembleDebug

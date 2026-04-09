@@ -3,7 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,7 +29,8 @@ type LibraryHandler struct {
 	Arr         *arr.Service
 	ScanJobs    *LibraryScanManager
 	SearchIndex *SearchIndexManager
-	identifyRun *identifyRunTracker
+	identifyRunMu sync.RWMutex
+	identifyRun   *identifyRunTracker
 
 	// librarySideJobsMu serializes checks and updates across playback refresh jobs
 	// so at most one side job runs per library at a time.
@@ -147,6 +148,21 @@ func (t *identifyRunTracker) clearLibrary(libraryID int) {
 	t.mu.Lock()
 	delete(t.byLibID, libraryID)
 	t.mu.Unlock()
+}
+
+func (h *LibraryHandler) getIdentifyRun() *identifyRunTracker {
+	h.identifyRunMu.RLock()
+	defer h.identifyRunMu.RUnlock()
+	return h.identifyRun
+}
+
+func (h *LibraryHandler) ensureIdentifyRun() *identifyRunTracker {
+	h.identifyRunMu.Lock()
+	defer h.identifyRunMu.Unlock()
+	if h.identifyRun == nil {
+		h.identifyRun = newIdentifyRunTracker()
+	}
+	return h.identifyRun
 }
 
 type createLibraryRequest struct {
@@ -461,7 +477,7 @@ func (h *LibraryHandler) CreateLibrary(w http.ResponseWriter, r *http.Request) {
 		&libID,
 	)
 	if err != nil {
-		log.Printf("create library: %v", err)
+		slog.Error("create library", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -558,7 +574,7 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 	if err != nil {
-		log.Printf("list libraries: %v", err)
+		slog.Error("list libraries", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -608,7 +624,7 @@ func (h *LibraryHandler) ListLibraries(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 		if err != nil {
-			log.Printf("scan libraries row: %v", err)
+			slog.Error("scan libraries row", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -638,7 +654,7 @@ func (h *LibraryHandler) ListUnidentifiedLibrarySummaries(w http.ResponseWriter,
 	}
 	summaries, err := db.ListUnidentifiedLibrarySummariesForUser(h.DB, u.ID)
 	if err != nil {
-		log.Printf("list unidentified library summaries: %v", err)
+		slog.Error("list unidentified library summaries", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -731,7 +747,7 @@ func (h *LibraryHandler) UpdateLibraryPlaybackPreferences(w http.ResponseWriter,
 			}
 		}
 		if !isMissingColumnError(err, "preferred_audio_language") {
-			log.Printf("update library playback preferences: %v", err)
+			slog.Error("update library playback preferences", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}

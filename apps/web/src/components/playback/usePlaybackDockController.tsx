@@ -4,10 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
-  type ChangeEvent,
   type CSSProperties,
-  type PointerEvent,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
@@ -29,7 +26,6 @@ import {
   usePlayerTransport,
 } from "../../contexts/PlayerContext";
 import {
-  getPlayerLocalSettingsSnapshot,
   isEnglishSubtitleTrackForMenu,
   languageMatchesPreference,
   normalizeLanguagePreference,
@@ -38,15 +34,10 @@ import {
   readStoredPlayerWebDefaults,
   resolveEffectiveWebTrackDefaults,
   resolveLibraryPlaybackPreferences,
-  subscribePlayerLocalSettings,
   subtitleFontSizeValue,
   formatDetectedVideoAspectLabel,
   videoAspectModeOptions,
   writeStoredPlayerWebDefaults,
-  writeStoredSubtitleAppearance,
-  writeStoredVideoAutoplayEnabled,
-  writeStoredVideoAspectMode,
-  type SubtitleAppearance,
   type VideoAspectMode,
 } from "../../lib/playbackPreferences";
 import {
@@ -98,7 +89,10 @@ import { PlaybackTrackMenus } from "./PlaybackTrackMenus";
 import { PlaybackVideoStage } from "./PlaybackVideoStage";
 import { PlayerLoadingOverlay } from "./PlayerLoadingOverlay";
 import { useHlsAttachment } from "./useHlsAttachment";
+import { usePlaybackDockPlayerLocalSettings } from "./usePlaybackDockPlayerLocalSettings";
+import { usePlaybackDockSeekControls } from "./usePlaybackDockSeekControls";
 import { usePlaybackDockUpNext } from "./usePlaybackDockUpNext";
+import { usePlaybackDockWindowChrome } from "./usePlaybackDockWindowChrome";
 import { useSubtitleController } from "./useSubtitleController";
 import { useSubtitleTransport, type LoadedSubtitleTrack } from "./useSubtitleTransport";
 
@@ -126,14 +120,21 @@ type QueuedSubtitlePreference =
       language: string;
     };
 
-const CONTROLS_HIDE_DELAY = 3000;
 export function usePlaybackDockController(): ReactNode {
   const queryClient = useQueryClient();
   const { api: playbackPreferences, librariesFetched } =
     usePlayerPlaybackPreferences();
+  const {
+    playerLocalSettings,
+    subtitleAppearance,
+    setSubtitleAppearance,
+    videoAutoplayEnabled,
+    setVideoAutoplayEnabled,
+    videoAspectMode,
+    setVideoAspectMode,
+  } = usePlaybackDockPlayerLocalSettings();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playerRootRef = useRef<HTMLElement | null>(null);
   const lastPersistedRef = useRef<{
     mediaId: number;
     positionSeconds: number;
@@ -147,30 +148,6 @@ export function usePlaybackDockController(): ReactNode {
     duration: 0,
     isPlaying: false,
   });
-  const playerLocalSettings = useSyncExternalStore(
-    subscribePlayerLocalSettings,
-    getPlayerLocalSettingsSnapshot,
-    getPlayerLocalSettingsSnapshot,
-  );
-  const subtitleAppearance = playerLocalSettings.subtitleAppearance;
-  const setSubtitleAppearance = useCallback((value: SubtitleAppearance) => {
-    writeStoredSubtitleAppearance(value);
-  }, []);
-  const videoAutoplayEnabled = playerLocalSettings.videoAutoplayEnabled;
-  const setVideoAutoplayEnabled = useCallback(
-    (value: boolean | ((prev: boolean) => boolean)) => {
-      const next =
-        typeof value === "function"
-          ? value(getPlayerLocalSettingsSnapshot().videoAutoplayEnabled)
-          : value;
-      writeStoredVideoAutoplayEnabled(next);
-    },
-    [],
-  );
-  const videoAspectMode = playerLocalSettings.videoAspectMode;
-  const setVideoAspectMode = useCallback((value: VideoAspectMode) => {
-    writeStoredVideoAspectMode(value);
-  }, []);
   const [selectedSubtitleKey, setSelectedSubtitleKey] = useState("off");
   /** Mirrored from the video ref so JassubRenderer re-renders when the element mounts (ref alone does not). */
   const [jassubVideoElement, setJassubVideoElement] =
@@ -193,7 +170,6 @@ export function usePlaybackDockController(): ReactNode {
   const [detectedVideoAspectLabel, setDetectedVideoAspectLabel] = useState<
     string | null
   >(null);
-  const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
   const [resumePrompt, setResumePrompt] = useState<{
     seconds: number;
     mediaId: number;
@@ -219,8 +195,6 @@ export function usePlaybackDockController(): ReactNode {
     mediaId: number;
     key: string;
   } | null>(null);
-  const [controlsVisible, setControlsVisible] = useState(true);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(0);
   const handleAssStatusChange = useCallback(
     (status: "loading" | "ready" | "error" | "timeout") => {
       switch (status) {
@@ -240,13 +214,6 @@ export function usePlaybackDockController(): ReactNode {
     },
     [],
   );
-  const resetHideTimer = useCallback(() => {
-    setControlsVisible(true);
-    clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => {
-      setControlsVisible(false);
-    }, CONTROLS_HIDE_DELAY);
-  }, []);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const seekToAfterReloadRef = useRef<number | null>(null);
   const resumePlaybackAfterReloadRef = useRef(false);
@@ -308,6 +275,17 @@ export function usePlaybackDockController(): ReactNode {
     changeAudioTrack,
     changeEmbeddedSubtitleBurn,
   } = usePlayerTransport();
+  const {
+    setPlayerRootNode,
+    playerRootRef,
+    controlsVisible,
+    resetHideTimer,
+    browserFullscreenActive,
+    toggleBrowserFullscreen,
+    handleVideoDoubleClick,
+    handleFullscreenMouseMove,
+    handleOverlayMouseEnter,
+  } = usePlaybackDockWindowChrome(activeMode === "video" && activeItem != null);
   const captureSubtitleResumePosition = useCallback(() => {
     const v = videoRef.current;
     if (v && Number.isFinite(v.currentTime) && v.currentTime > 0) {
@@ -316,9 +294,6 @@ export function usePlaybackDockController(): ReactNode {
     }
   }, []);
 
-  const seekToRef = useRef(seekTo);
-  const seekSliderRef = useRef<HTMLInputElement | null>(null);
-  const scrubWindowListenersRef = useRef<(() => void) | null>(null);
   const playbackQueue = queue ?? EMPTY_PLAYBACK_QUEUE;
   const {
     upNextTarget,
@@ -339,23 +314,6 @@ export function usePlaybackDockController(): ReactNode {
   useEffect(() => {
     playNextInQueueRef.current = playNextInQueue;
   }, [playNextInQueue]);
-
-  useEffect(() => {
-    seekToRef.current = seekTo;
-  }, [seekTo]);
-
-  const removeScrubWindowListeners = useCallback(() => {
-    scrubWindowListenersRef.current?.();
-    scrubWindowListenersRef.current = null;
-  }, []);
-
-  useEffect(
-    () => () => {
-      scrubWindowListenersRef.current?.();
-      scrubWindowListenersRef.current = null;
-    },
-    [],
-  );
 
   const handleResumeFromProgress = useCallback(() => {
     const prompt = resumePrompt;
@@ -1776,57 +1734,6 @@ export function usePlaybackDockController(): ReactNode {
     return () => document.removeEventListener("pointerdown", onClick);
   }, [aspectMenuOpen, audioMenuOpen, playerSettingsOpen, subtitleMenuOpen]);
 
-  const syncBrowserFullscreenState = useCallback(() => {
-    setBrowserFullscreenActive(
-      document.fullscreenElement === playerRootRef.current,
-    );
-  }, []);
-
-  useEffect(() => {
-    syncBrowserFullscreenState();
-    const handleFullscreenChange = () => syncBrowserFullscreenState();
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () =>
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [syncBrowserFullscreenState]);
-
-  const toggleBrowserFullscreen = useCallback(() => {
-    if (document.fullscreenElement === playerRootRef.current) {
-      ignorePromise(
-        document.exitFullscreen(),
-        "PlaybackDock:exitFullscreenToggle",
-      );
-      return;
-    }
-    if (!playerRootRef.current) return;
-    const p = playerRootRef.current.requestFullscreen?.();
-    if (p) ignorePromise(p, "PlaybackDock:requestFullscreen");
-  }, []);
-
-  const handleVideoDoubleClick = useCallback(() => {
-    void toggleBrowserFullscreen();
-    resetHideTimer();
-  }, [resetHideTimer, toggleBrowserFullscreen]);
-
-  useEffect(() => {
-    if (!isWindowPlayer) {
-      setControlsVisible(true);
-      clearTimeout(hideTimerRef.current);
-      return;
-    }
-    resetHideTimer();
-    return () => clearTimeout(hideTimerRef.current);
-  }, [isWindowPlayer, resetHideTimer]);
-
-  const handleFullscreenMouseMove = useCallback(() => {
-    if (isWindowPlayer) resetHideTimer();
-  }, [isWindowPlayer, resetHideTimer]);
-
-  const handleOverlayMouseEnter = useCallback(() => {
-    clearTimeout(hideTimerRef.current);
-    setControlsVisible(true);
-  }, []);
-
   usePlaybackUpNextKeyboard(
     Boolean(upNextTarget && activeMode === "video" && activeItem != null),
     {
@@ -1896,122 +1803,21 @@ export function usePlaybackDockController(): ReactNode {
     [playbackState.duration, playbackDurationSeconds],
   );
 
-  const [seekPreviewSec, setSeekPreviewSec] = useState<number | null>(null);
-  /** True while pointer-dragging the seek slider (synchronous; avoids seek spam before pointerup). */
-  const seekScrubActiveRef = useRef(false);
-  /** Latest slider seconds during scrub; fallback if DOM value is not yet readable. */
-  const seekPreviewValueRef = useRef<number | null>(null);
-
-  const finishSeekScrub = useCallback(
-    (input: HTMLInputElement | null) => {
-      if (!seekScrubActiveRef.current) return;
-      seekScrubActiveRef.current = false;
-      removeScrubWindowListeners();
-      const el = input ?? seekSliderRef.current;
-      const parsed = el ? Number(el.value) : NaN;
-      const preview = seekPreviewValueRef.current;
-      seekPreviewValueRef.current = null;
-      setSeekPreviewSec(null);
-      const v = Number.isFinite(parsed)
-        ? parsed
-        : preview != null && Number.isFinite(preview)
-          ? preview
-          : null;
-      if (v != null && Number.isFinite(v)) {
-        seekToRef.current(v);
-      }
-    },
-    [removeScrubWindowListeners],
-  );
-
-  const handleSeekSliderPointerDown = useCallback(
-    (e: PointerEvent<HTMLInputElement>) => {
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-      removeScrubWindowListeners();
-
-      seekScrubActiveRef.current = true;
-      const pointerId = e.pointerId;
-
-      const onWindowPointerEnd = (ev: Event) => {
-        if (!(ev instanceof PointerEvent) || ev.pointerId !== pointerId) return;
-        removeScrubWindowListeners();
-        queueMicrotask(() => {
-          finishSeekScrub(seekSliderRef.current);
-        });
-      };
-
-      window.addEventListener("pointerup", onWindowPointerEnd);
-      window.addEventListener("pointercancel", onWindowPointerEnd);
-      scrubWindowListenersRef.current = () => {
-        window.removeEventListener("pointerup", onWindowPointerEnd);
-        window.removeEventListener("pointercancel", onWindowPointerEnd);
-      };
-    },
-    [finishSeekScrub, removeScrubWindowListeners],
-  );
-
-  const handleSeekSliderChange = useCallback(
-    (
-      event:
-        | ChangeEvent<HTMLInputElement>
-        | { currentTarget: HTMLInputElement },
-    ) => {
-      const next = Number(event.currentTarget.value);
-      if (!Number.isFinite(next)) return;
-      seekPreviewValueRef.current = next;
-      setSeekPreviewSec(next);
-      /* During pointer scrub, commit once on pointer release — rapid seeks confuse MSE/HLS. */
-      if (!seekScrubActiveRef.current) {
-        seekToRef.current(next);
-      }
-    },
-    [],
-  );
-
-  const seekRelativeSeconds = useCallback(
-    (delta: number) => {
-      removeScrubWindowListeners();
-      seekScrubActiveRef.current = false;
-      seekPreviewValueRef.current = null;
-      setSeekPreviewSec(null);
-      const cap =
-        progressMax > 0 && Number.isFinite(progressMax)
-          ? progressMax
-          : Number.POSITIVE_INFINITY;
-      const el = videoRef.current;
-      const t =
-        el != null && Number.isFinite(el.currentTime)
-          ? el.currentTime
-          : playbackState.currentTime;
-      seekTo(Math.max(0, Math.min(cap, t + delta)));
-      resetHideTimer();
-    },
-    [
-      playbackState.currentTime,
-      progressMax,
-      removeScrubWindowListeners,
-      resetHideTimer,
-      seekTo,
-    ],
-  );
-
-  useEffect(() => {
-    removeScrubWindowListeners();
-    seekScrubActiveRef.current = false;
-    seekPreviewValueRef.current = null;
-    setSeekPreviewSec(null);
-  }, [activeItemId, removeScrubWindowListeners]);
-
-  const seekSliderDisplayValue = Math.min(
-    seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime,
-    progressMax || 0,
-  );
-  const seekTimeLabelSec =
-    seekPreviewSec !== null ? seekPreviewSec : playbackState.currentTime;
+  const {
+    seekSliderRef,
+    seekSliderDisplayValue,
+    seekTimeLabelSec,
+    handleSeekSliderPointerDown,
+    handleSeekSliderChange,
+    seekRelativeSeconds,
+  } = usePlaybackDockSeekControls({
+    activeItemId,
+    playbackCurrentTime: playbackState.currentTime,
+    progressMax,
+    seekTo,
+    videoRef,
+    resetHideTimer,
+  });
 
   const aspectTrackMenuOptions = useMemo(
     () =>
@@ -2167,9 +1973,7 @@ export function usePlaybackDockController(): ReactNode {
 
     return (
       <PlaybackDockShell
-        playerRootRef={(node) => {
-          playerRootRef.current = node;
-        }}
+        playerRootRef={setPlayerRootNode}
         controlsVisible={controlsVisible}
         videoAspectMode={videoAspectMode}
         showPlayerLoadingOverlay={showPlayerLoadingOverlay}

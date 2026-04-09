@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"plum/internal/metadata"
@@ -35,7 +36,7 @@ WHERE provider = ? AND method = ? AND url_path = ? AND query_hash = ? AND body_h
 		key.Provider, key.Method, key.URLPath, key.QueryHash, key.BodyHash).
 		Scan(&responseJSON, &statusCode, &fetchedAtRaw, &expiresAtRaw, &schemaVersion, &contentHash)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, err

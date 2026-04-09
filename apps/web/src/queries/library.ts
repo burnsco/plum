@@ -57,13 +57,13 @@ import {
   invalidateLibraryCatalogQueries,
   invalidateSearchAfterLibraryDataChange,
   METADATA_DETAIL_STALE_MS,
+  libraryBrowseItemToMediaItem,
   normalizeLibraryMediaPage,
   notifyMutationError,
   queryKeys,
   SCAN_SENSITIVE_STALE_MS,
   selectMovieDetailsForPage,
   selectShowDetailsForPage,
-  stripLibraryBrowseMediaItem,
   type LibraryMediaPageResult,
   type MovieDetailsPage,
   type ShowDetailsPage,
@@ -119,7 +119,7 @@ export function useLibraryMedia(
     select: (data) => ({
       pages: data.pages.map((page) => ({
         ...page,
-        items: page.items.map(stripLibraryBrowseMediaItem),
+        items: page.items.map(libraryBrowseItemToMediaItem),
       })),
       pageParams: data.pageParams,
     }),

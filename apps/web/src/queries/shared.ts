@@ -5,6 +5,7 @@ import type {
   DiscoverBrowseCategory,
   DiscoverMediaType,
   HomeDashboard,
+  LibraryBrowseItem,
   MediaItem,
   MovieDetails,
   RecentlyAddedEntry,
@@ -25,7 +26,10 @@ export function notifyMutationError(error: Error, fallback: string): void {
   toast.error(error.message || fallback);
 }
 
-export type LibraryMediaPageResult = Exclude<Awaited<ReturnType<typeof fetchLibraryMedia>>, MediaItem[]>;
+export type LibraryMediaPageResult = Exclude<
+  Awaited<ReturnType<typeof fetchLibraryMedia>>,
+  LibraryBrowseItem[]
+>;
 
 export function normalizeLibraryMediaPage(
   response: Awaited<ReturnType<typeof fetchLibraryMedia>>,
@@ -40,9 +44,21 @@ export function normalizeLibraryMediaPage(
   return response;
 }
 
-/** Library browse lists do not render sidecar / embedded subtitle rows; playback merges tracks from the session response. */
-export function stripLibraryBrowseMediaItem(item: MediaItem): MediaItem {
-  return { ...item, subtitles: undefined, embeddedSubtitles: undefined };
+/** Coerce a library browse row to `MediaItem` with the same defaults the server uses on full `MediaItem` JSON. */
+export function libraryBrowseItemToMediaItem(item: LibraryBrowseItem): MediaItem {
+  return {
+    ...item,
+    library_id: item.library_id ?? 0,
+    tmdb_id: item.tmdb_id ?? 0,
+    overview: item.overview ?? "",
+    poster_path: item.poster_path ?? "",
+    backdrop_path: item.backdrop_path ?? "",
+    release_date: item.release_date ?? "",
+    vote_average: item.vote_average ?? 0,
+    subtitles: undefined,
+    embeddedSubtitles: undefined,
+    embeddedAudioTracks: undefined,
+  };
 }
 
 /** Fields read by `ShowDetail` from `useShowDetails` (avoids caching unused counts/runtime/ids). */

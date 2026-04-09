@@ -3,7 +3,7 @@ ARG ALPINE_VERSION=3.23
 
 # Stage: base — shared Go toolchain and dependencies
 FROM golang:${GO_VERSION} AS base
-RUN apk add --no-cache build-base bash ffmpeg mesa-va-gallium
+RUN apk add --no-cache bash ffmpeg mesa-va-gallium
 WORKDIR /app
 # Pre-download dependencies to leverage Docker layer caching
 COPY apps/server/go.mod apps/server/go.sum ./apps/server/
@@ -11,6 +11,7 @@ RUN cd apps/server && go mod download
 
 # Stage: dev — air hot-reload for development
 FROM base AS dev
+RUN apk add --no-cache build-base
 RUN go install github.com/air-verse/air@latest
 EXPOSE 8080
 WORKDIR /app/apps/server
@@ -46,7 +47,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/main ./cmd/plum
 
 # Stage: production — minimal runtime image
 FROM alpine:${ALPINE_VERSION} AS production
-RUN apk add --no-cache ca-certificates ffmpeg && \
+RUN apk add --no-cache ca-certificates ffmpeg mesa-va-gallium && \
     adduser -D -u 10001 nonroot
 
 WORKDIR /

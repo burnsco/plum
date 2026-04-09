@@ -2803,7 +2803,7 @@ func TestIdentifyLibrary_DoesNotCountMatchedTVMetadataRefreshAsFailed(t *testing
 	if got := atomic.LoadInt32(&getEpisodeCalls); got != 1 {
 		t.Fatalf("episode calls = %d", got)
 	}
-	if states := handler.identifyRun.stateForLibrary(libraryID); len(states) != 0 {
+	if states := handler.getIdentifyRun().stateForLibrary(libraryID); len(states) != 0 {
 		t.Fatalf("unexpected identify states: %+v", states)
 	}
 }
@@ -2872,7 +2872,7 @@ func TestIdentifyLibrary_DoesNotCountMatchedMovieMetadataRefreshAsFailed(t *test
 	if got := atomic.LoadInt32(&identifyCalls); got != 1 {
 		t.Fatalf("identify calls = %d", got)
 	}
-	if states := handler.identifyRun.stateForLibrary(libraryID); len(states) != 0 {
+	if states := handler.getIdentifyRun().stateForLibrary(libraryID); len(states) != 0 {
 		t.Fatalf("unexpected identify states: %+v", states)
 	}
 }
@@ -5711,7 +5711,7 @@ func TestMarkShowWatched_ScopesEpisodes(t *testing.T) {
 			userID,
 			mediaID,
 		).Scan(&done)
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return false
 		}
 		if err != nil {

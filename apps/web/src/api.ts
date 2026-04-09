@@ -1,5 +1,5 @@
 import { createPlumApiClient, ensureBaseUrl } from "@plum/shared";
-import type { LibraryMediaPage, MediaItem } from "@plum/shared";
+import type { LibraryBrowseItem, LibraryMediaPage } from "@plum/shared";
 
 export type {
   AttachPlaybackSessionCommand,
@@ -35,6 +35,7 @@ export type {
   HomeDashboard,
   IdentifyResult,
   Library,
+  LibraryBrowseItem,
   LibraryMediaPage,
   LibraryPlaybackTracksRefreshResult,
   LibraryScanActivity,
@@ -182,8 +183,8 @@ export const {
 export function fetchLibraryMedia(
   id: number,
   options?: { offset?: number; limit?: number },
-): Promise<LibraryMediaPage | MediaItem[]> {
-  return client.fetchLibraryMedia(id, options) as Promise<LibraryMediaPage | MediaItem[]>;
+): Promise<LibraryMediaPage | LibraryBrowseItem[]> {
+  return client.fetchLibraryMedia(id, options) as Promise<LibraryMediaPage | LibraryBrowseItem[]>;
 }
 
 export { client as plumApiClient };

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -365,7 +365,7 @@ func (m *LibraryScanManager) resumeRecoveredEnrichment(
 ) {
 	tasks, err := db.ListLibraryEnrichmentTasks(m.lifecycleCtx, m.db, libraryID, libraryType, identifyRequested)
 	if err != nil {
-		log.Printf("recover enrichment library=%d type=%s: %v", libraryID, libraryType, err)
+		slog.Warn("recover enrichment", "library_id", libraryID, "type", libraryType, "error", err)
 		return
 	}
 	if len(tasks) == 0 {
@@ -885,7 +885,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 	m.jobs[libraryID] = status
 	m.setActivityStageLocked(libraryID, "identify", true, false)
 	m.mu.Unlock()
-	log.Printf("identify library=%d status=queued", libraryID)
+	slog.Info("identify queued", "library_id", libraryID)
 	m.flushStatus(libraryID, true)
 
 	go func() {
@@ -904,7 +904,7 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		m.jobs[libraryID] = status
 		m.setActivityStageLocked(libraryID, "identify", true, false)
 		m.mu.Unlock()
-		log.Printf("identify library=%d type=%s status=started", libraryID, libraryType)
+		slog.Info("identify started", "library_id", libraryID, "type", libraryType)
 		m.flushStatus(libraryID, true)
 
 		handler := m.handler
@@ -943,14 +943,13 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		} else if result.Failed > 0 {
 			outcome = "partial-failed"
 		}
-		log.Printf(
-			"identify library=%d type=%s status=%s identified=%d failed=%d elapsed=%s",
-			libraryID,
-			libraryType,
-			outcome,
-			result.Identified,
-			result.Failed,
-			time.Since(startedAt).Round(time.Millisecond),
+		slog.Info("identify finished",
+			"library_id", libraryID,
+			"type", libraryType,
+			"status", outcome,
+			"identified", result.Identified,
+			"failed", result.Failed,
+			"elapsed", time.Since(startedAt).Round(time.Millisecond),
 		)
 		m.flushStatus(libraryID, true)
 		if result.Identified == 0 {
@@ -1066,9 +1065,13 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 	if usePriorityLane {
 		laneName = "priority"
 	}
-	log.Printf(
-		"library scan enrichment queued library_id=%d type=%s tasks=%d identify_requested=%v lane=%s (workers per library=%d)",
-		libraryID, libraryType, len(tasks), identifyRequested, laneName, db.EnrichmentWorkerCount,
+	slog.Info("library scan enrichment queued",
+		"library_id", libraryID,
+		"type", libraryType,
+		"tasks", len(tasks),
+		"identify_requested", identifyRequested,
+		"lane", laneName,
+		"workers_per_library", db.EnrichmentWorkerCount,
 	)
 
 	go func() {
@@ -1081,9 +1084,11 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		}
 		waitElapsed := time.Since(waitStart).Round(time.Millisecond)
 		if waitElapsed > 0 {
-			log.Printf(
-				"library scan enrichment acquired_slot library_id=%d type=%s lane=%s waited=%s",
-				libraryID, libraryType, laneName, waitElapsed,
+			slog.Info("library scan enrichment acquired slot",
+				"library_id", libraryID,
+				"type", libraryType,
+				"lane", laneName,
+				"waited", waitElapsed,
 			)
 		}
 		defer func() { <-laneAcquireChan(m.enrichSem, m.priorityEnrichSem, usePriorityLane) }()
@@ -1118,16 +1123,22 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 		}
 
 		runStart := time.Now()
-		log.Printf(
-			"library scan enrichment running library_id=%d type=%s tasks=%d music_identify=%v lane=%s subpaths=%d",
-			libraryID, libraryType, len(tasks), musicIdentify, laneName, len(subpaths),
+		slog.Info("library scan enrichment running",
+			"library_id", libraryID,
+			"type", libraryType,
+			"tasks", len(tasks),
+			"music_identify", musicIdentify,
+			"lane", laneName,
+			"subpaths", len(subpaths),
 		)
 		err := enrichLibraryTasks(ctx, m.db, path, libraryType, libraryID, tasks, options)
 		runElapsed := time.Since(runStart).Round(time.Millisecond)
 		if err != nil {
-			log.Printf(
-				"library scan enrichment finished library_id=%d type=%s elapsed=%s err=%v",
-				libraryID, libraryType, runElapsed, err,
+			slog.Warn("library scan enrichment finished with error",
+				"library_id", libraryID,
+				"type", libraryType,
+				"elapsed", runElapsed,
+				"error", err,
 			)
 			if ctx.Err() == nil {
 				m.failEnrichment(libraryID, err.Error())
@@ -1136,9 +1147,10 @@ func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path st
 			m.finishEnrichment(libraryID, false)
 			return
 		}
-		log.Printf(
-			"library scan enrichment finished library_id=%d type=%s elapsed=%s ok",
-			libraryID, libraryType, runElapsed,
+		slog.Info("library scan enrichment finished",
+			"library_id", libraryID,
+			"type", libraryType,
+			"elapsed", runElapsed,
 		)
 		m.finishEnrichment(libraryID, true)
 	}()
@@ -1385,13 +1397,13 @@ func (m *LibraryScanManager) tryMarkImmediateMissingFromPaths(libraryID int, lib
 	}
 	n, err := db.MarkMediaMissingForFilesystemPaths(m.lifecycleCtx, m.db, libraryID, libraryRoot, toMark)
 	if err != nil {
-		log.Printf("library %d immediate missing mark: %v", libraryID, err)
+		slog.Warn("library immediate missing mark", "library_id", libraryID, "error", err)
 		return
 	}
 	if n == 0 {
 		return
 	}
-	log.Printf("library %d marked %d item(s) missing immediately after filesystem removal", libraryID, n)
+	slog.Info("library marked items missing after filesystem removal", "library_id", libraryID, "count", n)
 	if handler := m.handler; handler != nil && handler.SearchIndex != nil {
 		handler.SearchIndex.Queue(libraryID, false)
 	}
@@ -1417,7 +1429,7 @@ func (m *LibraryScanManager) StartThumbnails(libraryID int) {
 
 	tasks, err := db.ListEpisodesMissingThumbnails(m.lifecycleCtx, m.db, libraryID)
 	if err != nil {
-		log.Printf("list thumbnail tasks library=%d: %v", libraryID, err)
+		slog.Error("list thumbnail tasks", "library_id", libraryID, "error", err)
 		m.mu.Lock()
 		if status, ok := m.jobs[libraryID]; ok {
 			m.finalizeActivityLocked(libraryID, status)

@@ -18,14 +18,21 @@ import {
 import { BASE_URL } from "../api";
 import { useAuthActions, useAuthState } from "./AuthContext";
 
-type WsContextValue = {
+export type WsConnectionContextValue = {
   wsConnected: boolean;
-  latestEvent: PlumWebSocketEvent | null;
-  eventSequence: number;
   sendCommand: (command: PlumWebSocketCommand) => boolean;
 };
 
-const WsContext = createContext<WsContextValue | null>(null);
+export type WsEventContextValue = {
+  latestEvent: PlumWebSocketEvent | null;
+  eventSequence: number;
+};
+
+/** @deprecated Prefer `useWsConnection` / `useWsEvent` so components that only need connection state are not tied to every WS message. */
+export type WsContextValue = WsConnectionContextValue & WsEventContextValue;
+
+const WsConnectionContext = createContext<WsConnectionContextValue | null>(null);
+const WsEventContext = createContext<WsEventContextValue | null>(null);
 
 export function WsProvider({ children }: { children: ReactNode }) {
   const { user, loading } = useAuthState();
@@ -133,21 +140,56 @@ export function WsProvider({ children }: { children: ReactNode }) {
     };
   }, [loading, refreshMe, userId]);
 
-  const value = useMemo<WsContextValue>(
+  const connectionValue = useMemo<WsConnectionContextValue>(
     () => ({
       wsConnected,
+      sendCommand,
+    }),
+    [sendCommand, wsConnected],
+  );
+
+  const eventValue = useMemo<WsEventContextValue>(
+    () => ({
       latestEvent,
       eventSequence,
+    }),
+    [eventSequence, latestEvent],
+  );
+
+  return (
+    <WsConnectionContext.Provider value={connectionValue}>
+      <WsEventContext.Provider value={eventValue}>{children}</WsEventContext.Provider>
+    </WsConnectionContext.Provider>
+  );
+}
+
+export function useWsConnection(): WsConnectionContextValue {
+  const ctx = useContext(WsConnectionContext);
+  if (!ctx) {
+    throw new Error("useWsConnection must be used within WsProvider");
+  }
+  return ctx;
+}
+
+export function useWsEvent(): WsEventContextValue {
+  const ctx = useContext(WsEventContext);
+  if (!ctx) {
+    throw new Error("useWsEvent must be used within WsProvider");
+  }
+  return ctx;
+}
+
+/** Subscribes to both connection and event streams; re-renders on every WS message. Prefer `useWsConnection` / `useWsEvent` when you only need one. */
+export function useWs(): WsContextValue {
+  const { wsConnected, sendCommand } = useWsConnection();
+  const { latestEvent, eventSequence } = useWsEvent();
+  return useMemo(
+    () => ({
+      wsConnected,
       sendCommand,
+      latestEvent,
+      eventSequence,
     }),
     [eventSequence, latestEvent, sendCommand, wsConnected],
   );
-
-  return <WsContext.Provider value={value}>{children}</WsContext.Provider>;
-}
-
-export function useWs() {
-  const ctx = useContext(WsContext);
-  if (!ctx) throw new Error("useWs must be used within WsProvider");
-  return ctx;
 }

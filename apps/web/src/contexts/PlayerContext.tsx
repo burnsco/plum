@@ -128,6 +128,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const activeMode = playbackSession?.activeMode ?? null;
   const isDockOpen = playbackSession?.isDockOpen ?? false;
   const viewMode: PlayerViewMode = playbackSession?.viewMode ?? "window";
+
+  // Sync during render so transport callbacks (e.g. seekTo) read the current session before
+  // child layout/effects run in the same commit; layout-effect ref updates are one frame late.
   playbackSessionRef.current = playbackSession;
 
   const {

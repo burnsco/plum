@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -346,7 +346,7 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 	var libraryType string
 	if err := h.DB.QueryRow(`SELECT type FROM libraries WHERE id = ?`, libraryID).Scan(&libraryType); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			h.identifyRun.clearLibrary(libraryID)
+			h.getIdentifyRun().clearLibrary(libraryID)
 			return identifyResult{Identified: 0, Failed: 0}, nil
 		}
 		return identifyResult{}, err
@@ -358,25 +358,22 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 			return identifyResult{}, err
 		}
 		if len(rows) == 0 {
-			h.identifyRun.clearLibrary(libraryID)
+			h.getIdentifyRun().clearLibrary(libraryID)
 			return identifyResult{Identified: 0, Failed: 0}, nil
 		}
 		trackedRows, refreshOnlyRows := splitEpisodeIdentifyRows(rows)
-		if h.identifyRun == nil {
-			h.identifyRun = newIdentifyRunTracker()
-		}
 		if len(trackedRows) > 0 {
-			h.identifyRun.startLibrary(libraryID, identificationRowsFromEpisodeRows(trackedRows))
-			defer h.identifyRun.finishLibrary(libraryID)
+			t := h.ensureIdentifyRun()
+			t.startLibrary(libraryID, identificationRowsFromEpisodeRows(trackedRows))
+			defer t.finishLibrary(libraryID)
 		} else {
-			h.identifyRun.clearLibrary(libraryID)
+			h.getIdentifyRun().clearLibrary(libraryID)
 		}
-		log.Printf(
-			"identify library=%d type=%s tracked_rows=%d refresh_rows=%d",
-			libraryID,
-			libraryType,
-			len(trackedRows),
-			len(refreshOnlyRows),
+		slog.Info("identify episode rows",
+			"library_id", libraryID,
+			"type", libraryType,
+			"tracked_rows", len(trackedRows),
+			"refresh_rows", len(refreshOnlyRows),
 		)
 		identified, failed, err := h.identifyEpisodeRowsWithRefresh(ctx, libraryID, libraryPath, libraryType, trackedRows, refreshOnlyRows)
 		if err != nil {
@@ -393,25 +390,22 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 		return identifyResult{}, err
 	}
 	if len(rows) == 0 {
-		h.identifyRun.clearLibrary(libraryID)
+		h.getIdentifyRun().clearLibrary(libraryID)
 		return identifyResult{Identified: 0, Failed: 0}, nil
 	}
 	trackedRows, refreshOnlyRows := splitIdentifyRows(rows)
-	if h.identifyRun == nil {
-		h.identifyRun = newIdentifyRunTracker()
-	}
 	if len(trackedRows) > 0 {
-		h.identifyRun.startLibrary(libraryID, trackedRows)
-		defer h.identifyRun.finishLibrary(libraryID)
+		t := h.ensureIdentifyRun()
+		t.startLibrary(libraryID, trackedRows)
+		defer t.finishLibrary(libraryID)
 	} else {
-		h.identifyRun.clearLibrary(libraryID)
+		h.getIdentifyRun().clearLibrary(libraryID)
 	}
-	log.Printf(
-		"identify library=%d type=%s tracked_rows=%d refresh_rows=%d",
-		libraryID,
-		libraryType,
-		len(trackedRows),
-		len(refreshOnlyRows),
+	slog.Info("identify rows",
+		"library_id", libraryID,
+		"type", libraryType,
+		"tracked_rows", len(trackedRows),
+		"refresh_rows", len(refreshOnlyRows),
 	)
 
 	identified, failed := 0, 0
@@ -434,7 +428,7 @@ func (h *LibraryHandler) identifyLibrary(ctx context.Context, libraryID int) (id
 	if len(refreshOnlyRows) > 0 {
 		refreshIdentified, refreshErr := h.refreshMatchedRows(ctx, libraryID, libraryPath, refreshOnlyRows, movieCache)
 		if refreshErr != nil {
-			log.Printf("identify refresh-only rows failed library=%d type=%s error=%v", libraryID, libraryType, refreshErr)
+			slog.Warn("identify refresh-only rows failed", "library_id", libraryID, "type", libraryType, "error", refreshErr)
 		}
 		identified += refreshIdentified
 	}
@@ -520,7 +514,7 @@ func (h *LibraryHandler) identifyEpisodeRowsWithRefresh(
 	if len(refreshOnlyRows) > 0 {
 		refreshResult, refreshErr := h.identifyEpisodesByGroup(ctx, libraryID, libraryPath, refreshOnlyRows)
 		if refreshErr != nil {
-			log.Printf("identify refresh-only episode rows failed library=%d type=%s error=%v", libraryID, libraryType, refreshErr)
+			slog.Warn("identify refresh-only episode rows failed", "library_id", libraryID, "type", libraryType, "error", refreshErr)
 		} else {
 			identified += refreshResult.Identified
 		}
@@ -622,13 +616,13 @@ func (h *LibraryHandler) identifyShowFallbacks(
 	groups := make(map[string]*showFallbackGroup)
 	for _, result := range failedResults {
 		if !result.fallbackEligible {
-			h.identifyRun.setState(libraryID, result.job.row.Kind, result.job.row.Path, "failed")
+			h.ensureIdentifyRun().setState(libraryID, result.job.row.Kind, result.job.row.Path, "failed")
 			failed++
 			continue
 		}
 		queries := showFallbackQueries(result.job.row, libraryPath)
 		if len(queries) == 0 {
-			h.identifyRun.setState(libraryID, result.job.row.Kind, result.job.row.Path, "failed")
+			h.ensureIdentifyRun().setState(libraryID, result.job.row.Kind, result.job.row.Path, "failed")
 			failed++
 			continue
 		}
@@ -644,13 +638,13 @@ func (h *LibraryHandler) identifyShowFallbacks(
 	for _, group := range groups {
 		updated, err := h.identifyShowFallbackGroup(ctx, libraryPath, group.queries, group.rows, cache, queueSearch)
 		if err != nil || updated != len(group.rows) {
-			h.identifyRun.failRows(libraryID, group.rows[updated:])
+			h.ensureIdentifyRun().failRows(libraryID, group.rows[updated:])
 			identified += updated
 			failed += len(group.rows) - updated
 			continue
 		}
 		for _, row := range group.rows {
-			h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
+			h.ensureIdentifyRun().setState(libraryID, row.Kind, row.Path, "")
 		}
 		identified += updated
 	}
@@ -1072,7 +1066,7 @@ func (h *LibraryHandler) identifyEpisodeGroup(
 	cache *episodicIdentifyCache,
 	rateLimiter <-chan struct{},
 ) (identified int, retry bool, failed []identifyJobResult) {
-	identifyGroupRowsAsIdentifying(h.identifyRun, libraryID, job.group.rows)
+	identifyGroupRowsAsIdentifying(h.ensureIdentifyRun(), libraryID, job.group.rows)
 	if h.ScanJobs != nil {
 		h.ScanJobs.RecordIdentifyActivity(libraryID, job.group.representative.Path)
 	}
@@ -1088,10 +1082,10 @@ func (h *LibraryHandler) identifyEpisodeGroup(
 	selection, err := h.resolveTMDBSeriesSelectionForGroup(itemCtx, libraryPath, job.group, cache)
 	if err != nil || selection.tmdbID <= 0 {
 		if err == nil && job.attempt == 0 {
-			identifyGroupRowsAsQueued(h.identifyRun, libraryID, job.group.rows)
+			identifyGroupRowsAsQueued(h.ensureIdentifyRun(), libraryID, job.group.rows)
 			return 0, true, nil
 		}
-		identifyGroupRowsFail(h.identifyRun, libraryID, job.group.rows)
+		identifyGroupRowsFail(h.ensureIdentifyRun(), libraryID, job.group.rows)
 		return 0, false, episodeIdentifyFailedResults(job.group)
 	}
 
@@ -1115,10 +1109,10 @@ func (h *LibraryHandler) identifyEpisodeGroup(
 	)
 	if err != nil || len(updatedRefIDs) == 0 {
 		if err == nil && job.attempt == 0 {
-			identifyGroupRowsAsQueued(h.identifyRun, libraryID, job.group.rows)
+			identifyGroupRowsAsQueued(h.ensureIdentifyRun(), libraryID, job.group.rows)
 			return 0, true, nil
 		}
-		identifyGroupRowsFail(h.identifyRun, libraryID, job.group.rows)
+		identifyGroupRowsFail(h.ensureIdentifyRun(), libraryID, job.group.rows)
 		return 0, false, episodeIdentifyFailedResults(job.group)
 	}
 
@@ -1135,9 +1129,9 @@ func (h *LibraryHandler) identifyEpisodeGroup(
 		}
 		unresolved = append(unresolved, row)
 	}
-	identifyGroupRowsClear(h.identifyRun, libraryID, updatedRows)
+	identifyGroupRowsClear(h.ensureIdentifyRun(), libraryID, updatedRows)
 	if len(unresolved) > 0 {
-		identifyGroupRowsFail(h.identifyRun, libraryID, unresolved)
+		identifyGroupRowsFail(h.ensureIdentifyRun(), libraryID, unresolved)
 		failed = append(failed, episodeIdentifyFailedResults(episodeIdentifyGroup{
 			key:             job.group.key,
 			kind:            job.group.kind,
@@ -1206,17 +1200,16 @@ func (h *LibraryHandler) identifyMovieResult(
 func logRetryableMovieIdentifyFailure(libraryID int, title string, err error) {
 	var providerErr *metadata.ProviderError
 	if errors.As(err, &providerErr) {
-		log.Printf(
-			"identify movie retryable failure library=%d provider=%s status=%d title=%q error=%v",
-			libraryID,
-			providerErr.Provider,
-			providerErr.StatusCode,
-			title,
-			err,
+		slog.Warn("identify movie retryable failure",
+			"library_id", libraryID,
+			"provider", providerErr.Provider,
+			"status", providerErr.StatusCode,
+			"title", title,
+			"error", err,
 		)
 		return
 	}
-	log.Printf("identify movie retryable failure library=%d title=%q error=%v", libraryID, title, err)
+	slog.Warn("identify movie retryable failure", "library_id", libraryID, "title", title, "error", err)
 }
 
 func updateMetadataWithRetry(
@@ -1315,7 +1308,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 	rateLimiter <-chan struct{},
 	movieCache *movieIdentifyCache,
 ) identifyJobResult {
-	h.identifyRun.setState(libraryID, job.row.Kind, job.row.Path, "identifying")
+	h.ensureIdentifyRun().setState(libraryID, job.row.Kind, job.row.Path, "identifying")
 	if h.ScanJobs != nil {
 		h.ScanJobs.RecordIdentifyActivity(libraryID, job.row.Path)
 	}
@@ -1363,7 +1356,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 	if row.Kind == db.LibraryTypeMovie && movieErr != nil {
 		if metadata.IsRetryableProviderError(movieErr) && job.attempt == 0 {
 			logRetryableMovieIdentifyFailure(libraryID, row.Title, movieErr)
-			h.identifyRun.setState(libraryID, row.Kind, row.Path, "queued")
+			h.ensureIdentifyRun().setState(libraryID, row.Kind, row.Path, "queued")
 			return identifyJobResult{status: identifyJobRetry, job: job}
 		}
 		if metadata.IsRetryableProviderError(movieErr) {
@@ -1376,7 +1369,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 			return identifyJobResult{status: identifyJobFailed, job: job}
 		}
 		if job.attempt == 0 {
-			h.identifyRun.setState(libraryID, row.Kind, row.Path, "queued")
+			h.ensureIdentifyRun().setState(libraryID, row.Kind, row.Path, "queued")
 			return identifyJobResult{status: identifyJobRetry, job: job}
 		}
 		return identifyJobResult{
@@ -1483,7 +1476,7 @@ func (h *LibraryHandler) identifyLibraryJob(
 	if err := updateMetadataWithRetry(ctx, h.DB, tbl, row.RefID, res.Title, res.Overview, posterPath, res.BackdropURL, res.ReleaseDate, res.VoteAverage, res.IMDbID, res.IMDbRating, tmdbID, tvdbID, seasonNumber, episodeNumber, canonical, false, false, true); err != nil {
 		return identifyJobResult{status: identifyJobFailed, job: job}
 	}
-	h.identifyRun.setState(libraryID, row.Kind, row.Path, "")
+	h.ensureIdentifyRun().setState(libraryID, row.Kind, row.Path, "")
 	return identifyJobResult{status: identifyJobSucceeded, job: job}
 }
 

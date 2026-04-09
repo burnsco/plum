@@ -17,16 +17,21 @@ export function DiscoverOriginProvider({ children }: { children: ReactNode }) {
   const originCountry = normalizeDiscoverOriginKey(searchParams.get("origin"));
   const setOriginCountry = useCallback(
     (code: string) => {
-      const normalized = normalizeDiscoverOriginKey(code);
-      const next = new URLSearchParams(searchParams);
-      if (normalized) {
-        next.set("origin", normalized);
-      } else {
-        next.delete("origin");
-      }
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const normalized = normalizeDiscoverOriginKey(code);
+          const next = new URLSearchParams(prev);
+          if (normalized) {
+            next.set("origin", normalized);
+          } else {
+            next.delete("origin");
+          }
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [searchParams, setSearchParams],
+    [setSearchParams],
   );
   const value = useMemo(
     () => ({ originCountry, setOriginCountry }),

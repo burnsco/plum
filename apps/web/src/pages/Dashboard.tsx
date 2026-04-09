@@ -7,6 +7,7 @@ import { usePlayerQueue } from "@/contexts/PlayerContext";
 import { formatRemainingTime } from "@/lib/progress";
 import { getPreferredMovieRating, getPreferredShowRatingFromBrowseEpisode } from "@/lib/ratings";
 import { useClearMediaProgress, useClearShowProgress, useHomeDashboard } from "@/queries";
+import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -179,63 +180,74 @@ export function Dashboard() {
   const clearMediaProgressMutation = useClearMediaProgress();
   const clearShowProgressMutation = useClearShowProgress();
 
-  const buildDashboardCard = (entry: DashboardEntry, shelf: DashboardShelf): PosterGridItem => {
-    const card = toPosterGridItem(entry, shelf, playMovie, playEpisode);
-    const detailHref = dashboardDetailHref(entry);
-    return {
-      ...card,
-      playActionLabel: "Play",
-      actionLabel: detailHref ? "Details" : undefined,
-      actionTone: detailHref ? "muted" : undefined,
-      onAction: detailHref
-        ? () => {
-            navigate(detailHref);
-          }
-        : undefined,
-      contextMenuContent: (
-        <DashboardCardContextMenu
-          canOpenDetails={Boolean(detailHref)}
-          canRemoveFromContinueWatching={shelf === "continueWatching"}
-          removeDisabled={clearMediaProgressMutation.isPending || clearShowProgressMutation.isPending}
-          onPlay={() => card.onPlay?.()}
-          onOpenDetails={() => {
-            if (detailHref) navigate(detailHref);
-          }}
-          onRemoveFromContinueWatching={() => {
-            const isShowEntry = (entry.kind === "show" || entry.kind === "episode") && !!entry.show_key;
-            const clearOp = isShowEntry && entry.media.library_id
-              ? clearShowProgressMutation.mutateAsync({
-                  libraryId: entry.media.library_id,
-                  showKey: entry.show_key!,
+  const buildDashboardCard = useCallback(
+    (entry: DashboardEntry, shelf: DashboardShelf): PosterGridItem => {
+      const card = toPosterGridItem(entry, shelf, playMovie, playEpisode);
+      const detailHref = dashboardDetailHref(entry);
+      return {
+        ...card,
+        playActionLabel: "Play",
+        actionLabel: detailHref ? "Details" : undefined,
+        actionTone: detailHref ? "muted" : undefined,
+        onAction: detailHref
+          ? () => {
+              navigate(detailHref);
+            }
+          : undefined,
+        contextMenuContent: (
+          <DashboardCardContextMenu
+            canOpenDetails={Boolean(detailHref)}
+            canRemoveFromContinueWatching={shelf === "continueWatching"}
+            removeDisabled={clearMediaProgressMutation.isPending || clearShowProgressMutation.isPending}
+            onPlay={() => card.onPlay?.()}
+            onOpenDetails={() => {
+              if (detailHref) navigate(detailHref);
+            }}
+            onRemoveFromContinueWatching={() => {
+              const isShowEntry = (entry.kind === "show" || entry.kind === "episode") && !!entry.show_key;
+              const clearOp = isShowEntry && entry.media.library_id
+                ? clearShowProgressMutation.mutateAsync({
+                    libraryId: entry.media.library_id,
+                    showKey: entry.show_key!,
+                  })
+                : clearMediaProgressMutation.mutateAsync({
+                    mediaId: entry.media.id,
+                    libraryId: entry.media.library_id ?? undefined,
+                  });
+              void clearOp
+                .then(() => {
+                  toast.success(`Removed “${getDashboardEntryTitle(entry)}” from continue watching.`);
                 })
-              : clearMediaProgressMutation.mutateAsync({
-                  mediaId: entry.media.id,
-                  libraryId: entry.media.library_id ?? undefined,
+                .catch((err: unknown) => {
+                  toast.error(
+                    err instanceof Error ? err.message : "Could not remove item from continue watching.",
+                  );
                 });
-            void clearOp
-              .then(() => {
-                toast.success(`Removed “${getDashboardEntryTitle(entry)}” from continue watching.`);
-              })
-              .catch((err: unknown) => {
-                toast.error(
-                  err instanceof Error ? err.message : "Could not remove item from continue watching.",
-                );
-              });
-          }}
-        />
-      ),
-    };
-  };
+            }}
+          />
+        ),
+      };
+    },
+    [navigate, playMovie, playEpisode, clearMediaProgressMutation, clearShowProgressMutation],
+  );
 
-  const continueWatchingCards: PosterGridItem[] =
-    data?.continueWatching.map((entry) =>
-      buildDashboardCard(entry, "continueWatching"),
-    ) ?? [];
+  const continueWatchingCards = useMemo(
+    () => data?.continueWatching.map((entry) => buildDashboardCard(entry, "continueWatching")) ?? [],
+    [buildDashboardCard, data?.continueWatching],
+  );
 
-  const railData = RECENT_RAILS.map((rail) => ({
-    ...rail,
-    entries: data?.[rail.entriesKey] ?? [],
-  }));
+  const railData = useMemo(
+    () =>
+      RECENT_RAILS.map((rail) => {
+        const entries = data?.[rail.entriesKey] ?? [];
+        return {
+          ...rail,
+          entries,
+          cards: entries.map((entry) => buildDashboardCard(entry, rail.shelf)),
+        };
+      }),
+    [buildDashboardCard, data],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-8">
@@ -292,9 +304,6 @@ export function Dashboard() {
           </section>
 
           {railData.map((rail) => {
-            const cards: PosterGridItem[] = rail.entries.map((entry) =>
-              buildDashboardCard(entry, rail.shelf),
-            );
             const n = rail.entries.length;
             const plural = n === 1 ? "" : "s";
             return (
@@ -315,12 +324,12 @@ export function Dashboard() {
                   ) : null}
                 </div>
 
-                {cards.length === 0 ? (
+                {rail.cards.length === 0 ? (
                   <div className="rounded-(--radius-xl) border border-dashed border-(--plum-border) bg-(--plum-panel)/45 p-8 text-sm text-(--plum-muted)">
                     {rail.emptyMessage}
                   </div>
                 ) : (
-                  <PosterScrollRail label={rail.title} items={cards} />
+                  <PosterScrollRail label={rail.title} items={rail.cards} />
                 )}
               </section>
             );

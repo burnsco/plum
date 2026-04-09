@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -21,7 +22,7 @@ import {
 } from "../api";
 import { detectClientPlaybackCapabilities } from "../lib/playback/playerMedia";
 import { ignorePromiseAlwaysLogUnexpected } from "../lib/ignorePromise";
-import { useWs } from "./WsContext";
+import { useWsConnection, useWsEvent } from "./WsContext";
 import type { PlaybackKind, PlaybackSession } from "./playerTypes";
 import type { PlaybackPreferencesApi } from "./usePlaybackPreferences";
 
@@ -147,27 +148,15 @@ export function usePlaybackSession({
   const lastReadyVideoItemRef = useRef<number | null>(null);
   const prevVideoSessionIdRef = useRef<string | null>(null);
 
-  const { wsConnected, latestEvent, eventSequence, sendCommand } = useWs();
-
-  activeVideoItemIdRef.current = activeMode === "video" ? (activeItem?.id ?? null) : null;
-  videoSessionRef.current = videoSession;
+  const { wsConnected, sendCommand } = useWsConnection();
+  const { latestEvent, eventSequence } = useWsEvent();
 
   // Only expose the stream URL once the server reports "ready" (all initial segments on disk).
   // During "starting" we keep the *previous* ready URL so HLS.js continues playing the old
   // revision instead of loading a partial manifest and stalling at the transcode live-edge —
   // matching Android TV / ExoPlayer behavior.
-  const activeItemId_ = activeItem?.id ?? null;
-  if (activeItemId_ !== lastReadyVideoItemRef.current) {
-    lastReadyVideoUrlRef.current = "";
-    lastReadyVideoItemRef.current = activeItemId_;
-  }
-
+  const activeItemId = activeItem?.id ?? null;
   const sessionId = videoSession?.sessionId ?? null;
-  if (sessionId !== prevVideoSessionIdRef.current) {
-    lastReadyVideoUrlRef.current = "";
-    prevVideoSessionIdRef.current = sessionId;
-  }
-
   const readyUrl =
     activeMode === "video" &&
     videoSession &&
@@ -175,11 +164,11 @@ export function usePlaybackSession({
     videoSession.status === "ready"
       ? videoSession.streamUrl
       : "";
-  if (readyUrl) {
-    lastReadyVideoUrlRef.current = readyUrl;
-  }
-
-  const videoSourceUrl = readyUrl || lastReadyVideoUrlRef.current;
+  const shouldExposeCachedUrl =
+    activeMode === "video" &&
+    activeItemId === lastReadyVideoItemRef.current &&
+    sessionId === prevVideoSessionIdRef.current;
+  const videoSourceUrl = readyUrl || (shouldExposeCachedUrl ? lastReadyVideoUrlRef.current : "");
   const playbackDurationSeconds =
     activeMode === "video"
       ? videoSession?.durationSeconds && videoSession.durationSeconds > 0
@@ -191,6 +180,11 @@ export function usePlaybackSession({
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
   const burnEmbeddedSubtitleStreamIndex =
     activeMode === "video" ? (videoSession?.burnEmbeddedSubtitleStreamIndex ?? null) : null;
+
+  // Sync during render so imperative callbacks and WS handling see the current video session
+  // and active item id in the same commit as state (layout-effect updates are one commit late).
+  activeVideoItemIdRef.current = activeMode === "video" ? activeItemId : null;
+  videoSessionRef.current = videoSession;
 
   const sendPlaybackCommand = useCallback(
     (command: PlumWebSocketCommand) => {
@@ -259,6 +253,26 @@ export function usePlaybackSession({
     if (!sid) return;
     sendPlaybackCommand({ action: "attach_playback_session", sessionId: sid });
   }, [sendPlaybackCommand, videoSession?.sessionId, wsConnected]);
+
+  useLayoutEffect(() => {
+    if (activeItemId !== lastReadyVideoItemRef.current) {
+      lastReadyVideoUrlRef.current = "";
+      lastReadyVideoItemRef.current = activeItemId;
+    }
+  }, [activeItemId]);
+
+  useLayoutEffect(() => {
+    if (sessionId !== prevVideoSessionIdRef.current) {
+      lastReadyVideoUrlRef.current = "";
+      prevVideoSessionIdRef.current = sessionId;
+    }
+  }, [sessionId]);
+
+  useLayoutEffect(() => {
+    if (readyUrl) {
+      lastReadyVideoUrlRef.current = readyUrl;
+    }
+  }, [readyUrl]);
 
   const changeAudioTrack = useCallback(
     async (audioIndex: number) => {

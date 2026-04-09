@@ -122,121 +122,6 @@ export const EmbeddedAudioTrackSchema = Schema.Struct({
   title: Schema.String,
 });
 
-export interface MediaItem {
-  id: number;
-  library_id?: number;
-  title: string;
-  path: string;
-  duration: number;
-  type: MediaType;
-  match_status?: MatchStatus;
-  identify_state?: IdentifyState;
-  subtitles?: Subtitle[];
-  embeddedSubtitles?: EmbeddedSubtitle[];
-  embeddedAudioTracks?: EmbeddedAudioTrack[];
-  tmdb_id?: number;
-  tvdb_id?: string;
-  overview?: string;
-  poster_path?: string;
-  backdrop_path?: string;
-  poster_url?: string;
-  backdrop_url?: string;
-  show_poster_path?: string;
-  show_poster_url?: string;
-  release_date?: string;
-  show_vote_average?: number;
-  /** Series IMDb user rating from `shows` (TV/anime browse rows only). */
-  show_imdb_rating?: number;
-  vote_average?: number;
-  imdb_id?: string;
-  imdb_rating?: number;
-  artist?: string;
-  album?: string;
-  album_artist?: string;
-  disc_number?: number;
-  track_number?: number;
-  release_year?: number;
-  progress_seconds?: number;
-  progress_percent?: number;
-  remaining_seconds?: number;
-  completed?: boolean;
-  last_watched_at?: string;
-  /** Set for TV/anime episodes; 0 when not applicable. */
-  season?: number;
-  episode?: number;
-  metadata_review_needed?: boolean;
-  metadata_confirmed?: boolean;
-  /** Path to generated frame thumbnail (video episodes); served at /api/media/:id/thumbnail. */
-  thumbnail_path?: string;
-  /** Stable Plum-served thumbnail URL when available. */
-  thumbnail_url?: string;
-  missing?: boolean;
-  missing_since?: string;
-  duplicate?: boolean;
-  duplicate_count?: number;
-  /** From container chapter metadata (ffprobe), when present. */
-  intro_start_seconds?: number;
-  intro_end_seconds?: number;
-  intro_locked?: boolean;
-  credits_start_seconds?: number;
-  credits_end_seconds?: number;
-}
-
-export const MediaItemSchema = Schema.Struct({
-  id: Schema.Number,
-  library_id: Schema.optional(Schema.Number),
-  title: Schema.String,
-  path: Schema.String,
-  duration: Schema.Number,
-  type: MediaTypeSchema,
-  match_status: Schema.optional(MatchStatusSchema),
-  identify_state: Schema.optional(IdentifyStateSchema),
-  subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
-  embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
-  embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
-  tmdb_id: Schema.optional(Schema.Number),
-  tvdb_id: Schema.optional(Schema.String),
-  overview: Schema.optional(Schema.String),
-  poster_path: Schema.optional(Schema.String),
-  backdrop_path: Schema.optional(Schema.String),
-  poster_url: Schema.optional(Schema.String),
-  backdrop_url: Schema.optional(Schema.String),
-  show_poster_path: Schema.optional(Schema.String),
-  show_poster_url: Schema.optional(Schema.String),
-  release_date: Schema.optional(Schema.String),
-  show_vote_average: Schema.optional(Schema.Number),
-  show_imdb_rating: Schema.optional(Schema.Number),
-  vote_average: Schema.optional(Schema.Number),
-  imdb_id: Schema.optional(Schema.String),
-  imdb_rating: Schema.optional(Schema.Number),
-  artist: Schema.optional(Schema.String),
-  album: Schema.optional(Schema.String),
-  album_artist: Schema.optional(Schema.String),
-  disc_number: Schema.optional(Schema.Number),
-  track_number: Schema.optional(Schema.Number),
-  release_year: Schema.optional(Schema.Number),
-  progress_seconds: Schema.optional(Schema.Number),
-  progress_percent: Schema.optional(Schema.Number),
-  remaining_seconds: Schema.optional(Schema.Number),
-  completed: Schema.optional(Schema.Boolean),
-  last_watched_at: Schema.optional(Schema.String),
-  season: Schema.optional(Schema.Number),
-  episode: Schema.optional(Schema.Number),
-  metadata_review_needed: Schema.optional(Schema.Boolean),
-  metadata_confirmed: Schema.optional(Schema.Boolean),
-  thumbnail_path: Schema.optional(Schema.String),
-  thumbnail_url: Schema.optional(Schema.String),
-  missing: Schema.optional(Schema.Boolean),
-  missing_since: Schema.optional(Schema.String),
-  duplicate: Schema.optional(Schema.Boolean),
-  duplicate_count: Schema.optional(Schema.Number),
-  intro_start_seconds: Schema.optional(Schema.Number),
-  intro_end_seconds: Schema.optional(Schema.Number),
-  intro_locked: Schema.optional(Schema.Boolean),
-  credits_start_seconds: Schema.optional(Schema.Number),
-  credits_end_seconds: Schema.optional(Schema.Number),
-});
-
 export interface LibraryBrowseItem {
   id: number;
   library_id?: number;
@@ -273,11 +158,14 @@ export interface LibraryBrowseItem {
   remaining_seconds?: number;
   completed?: boolean;
   last_watched_at?: string;
+  /** Set for TV/anime episodes; 0 when not applicable. */
   season?: number;
   episode?: number;
   metadata_review_needed?: boolean;
   metadata_confirmed?: boolean;
+  /** Path to generated frame thumbnail (video episodes); served at /api/media/:id/thumbnail. */
   thumbnail_path?: string;
+  /** Stable Plum-served thumbnail URL when available. */
   thumbnail_url?: string;
   missing?: boolean;
   missing_since?: string;
@@ -337,6 +225,48 @@ export const LibraryBrowseItemSchema = Schema.Struct({
   credits_start_seconds: Schema.optional(Schema.Number),
   credits_end_seconds: Schema.optional(Schema.Number),
 });
+
+/** Full library media row (playback, detail) — browse fields plus required metadata and track lists. */
+export type MediaItem = Omit<
+  LibraryBrowseItem,
+  | "library_id"
+  | "tmdb_id"
+  | "overview"
+  | "poster_path"
+  | "backdrop_path"
+  | "release_date"
+  | "vote_average"
+> & {
+  library_id: number;
+  tmdb_id: number;
+  overview: string;
+  poster_path: string;
+  backdrop_path: string;
+  release_date: string;
+  vote_average: number;
+  subtitles?: Subtitle[];
+  embeddedSubtitles?: EmbeddedSubtitle[];
+  embeddedAudioTracks?: EmbeddedAudioTrack[];
+  duplicate?: boolean;
+  duplicate_count?: number;
+};
+
+export const MediaItemSchema = LibraryBrowseItemSchema.pipe(
+  Schema.fieldsAssign({
+    library_id: Schema.Number,
+    tmdb_id: Schema.Number,
+    overview: Schema.String,
+    poster_path: Schema.String,
+    backdrop_path: Schema.String,
+    release_date: Schema.String,
+    vote_average: Schema.Number,
+    subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
+    embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
+    embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+    duplicate: Schema.optional(Schema.Boolean),
+    duplicate_count: Schema.optional(Schema.Number),
+  }),
+);
 
 export interface LibraryMediaPage {
   items: LibraryBrowseItem[];
@@ -2025,6 +1955,16 @@ export type AdminMaintenanceTaskId =
   | "extract_chapter_images"
   | "check_metadata_updates";
 
+export const AdminMaintenanceTaskIdSchema = Schema.Literals([
+  "optimize_database",
+  "clean_transcode",
+  "clean_logs",
+  "delete_cache",
+  "scan_all_media",
+  "extract_chapter_images",
+  "check_metadata_updates",
+]);
+
 export interface AdminMaintenanceScheduleTask {
   intervalHours: number;
 }
@@ -2048,7 +1988,7 @@ export interface AdminMaintenanceRunRequest {
 }
 
 export const AdminMaintenanceRunRequestSchema = Schema.Struct({
-  task: Schema.String,
+  task: AdminMaintenanceTaskIdSchema,
 });
 
 export interface AdminMaintenanceRunResponse {
