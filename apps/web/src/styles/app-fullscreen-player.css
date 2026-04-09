@@ -474,13 +474,31 @@
 /* Seek bar */
 .fullscreen-player__seek {
   width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   padding: 0.55rem 0 0.25rem;
+}
+
+.fullscreen-player__seek-time {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 3rem;
+}
+
+.fullscreen-player__seek-time--end {
+  text-align: right;
 }
 
 .fullscreen-player__seek-slider {
   -webkit-appearance: none;
   appearance: none;
-  width: 100%;
+  flex: 1;
+  width: 0;
   height: 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
@@ -551,6 +569,18 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  flex: 1;
+}
+
+.fullscreen-player__controls-right {
+  justify-content: flex-end;
+}
+
+.fullscreen-player__controls-center {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .fullscreen-player__ctrl-btn {
@@ -590,14 +620,6 @@
   box-shadow: 0 0 14px var(--plum-accent-glow);
 }
 
-.fullscreen-player__time {
-  font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.78);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-  margin-left: 0.15rem;
-}
 
 /* Subtitle wrap */
 .fullscreen-player__aspect-wrap,

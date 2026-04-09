@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
+import { Ratio, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type Hls from "hls.js";
 import { PLAYBACK_PROGRESS_HEARTBEAT_MS } from "@plum/contracts";
@@ -86,6 +87,7 @@ import { PlaybackDockShell } from "./PlaybackDockShell";
 import { PlaybackInfoPanel } from "./PlaybackInfoPanel";
 import { PlaybackTimeline } from "./PlaybackTimeline";
 import { PlaybackTrackMenus } from "./PlaybackTrackMenus";
+import { TrackMenu } from "./TrackMenu";
 import { PlaybackVideoStage } from "./PlaybackVideoStage";
 import { PlayerLoadingOverlay } from "./PlayerLoadingOverlay";
 import { useHlsAttachment } from "./useHlsAttachment";
@@ -2083,17 +2085,79 @@ export function usePlaybackDockController(): ReactNode {
         >
           <PlaybackTimeline
             progressMax={progressMax}
+            seekTimeLabelSec={seekTimeLabelSec}
             seekSliderRef={seekSliderRef}
             seekSliderDisplayValue={seekSliderDisplayValue}
             onSeekPointerDown={handleSeekSliderPointerDown}
             onSeekChange={handleSeekSliderChange}
           />
           <div className="fullscreen-player__controls-row">
+            {/* LEFT: Aspect ratio + volume */}
+            <div className="fullscreen-player__controls-left">
+              {isVideo && (
+                <div className="fullscreen-player__aspect-wrap">
+                  <button
+                    ref={aspectBtnRef}
+                    type="button"
+                    className={`fullscreen-player__ctrl-btn${videoAspectMode !== "auto" ? " is-active" : ""}`}
+                    aria-label="Aspect ratio"
+                    title="Aspect ratio"
+                    onClick={() => {
+                      setAspectMenuOpen((value) => !value);
+                      setSubtitleMenuOpen(false);
+                      setAudioMenuOpen(false);
+                      setPlayerSettingsOpen(false);
+                      resetHideTimer();
+                    }}
+                  >
+                    <Ratio className="size-[1.125rem]" strokeWidth={2.25} />
+                  </button>
+                  {aspectMenuOpen && (
+                    <TrackMenu
+                      menuRef={aspectMenuRef}
+                      options={aspectTrackMenuOptions}
+                      selectedKey={videoAspectMode}
+                      ariaLabel="Select aspect ratio"
+                      onSelect={(key) => {
+                        setVideoAspectMode(key as VideoAspectMode);
+                        setAspectMenuOpen(false);
+                        resetHideTimer();
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+              <div className="fullscreen-player__volume-group">
+                <button
+                  type="button"
+                  className="fullscreen-player__ctrl-btn"
+                  onClick={() => setMuted(!muted)}
+                  aria-label={muteButtonLabel}
+                  title={muteButtonLabel}
+                >
+                  {muted || volume === 0 ? (
+                    <VolumeX className="size-[1.125rem]" strokeWidth={2.25} />
+                  ) : (
+                    <Volume2 className="size-[1.125rem]" strokeWidth={2.25} />
+                  )}
+                </button>
+                <input
+                  type="range"
+                  className="fullscreen-player__volume-slider"
+                  aria-label="Set volume"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={muted ? 0 : volume}
+                  onChange={(event) => setVolume(Number(event.target.value))}
+                />
+              </div>
+            </div>
+
+            {/* CENTER: Transport controls */}
             <PlaybackControls
-              progressMax={progressMax}
               isPlaying={playbackState.isPlaying}
               onTogglePlayPause={togglePlayPause}
-              seekTimeLabelSec={seekTimeLabelSec}
               onSeekRelative={seekRelativeSeconds}
               hasVideoQueueNavigation={hasVideoQueueNavigation}
               onVideoPrevious={handleVideoPrevious}
@@ -2104,31 +2168,10 @@ export function usePlaybackDockController(): ReactNode {
               }
               autoplayNextLabel={autoplayButtonLabel}
               queueAutoplayActive={videoAutoplayEnabled}
-              muted={muted}
-              volume={volume}
-              onToggleMute={() => setMuted(!muted)}
-              onVolumeSliderChange={setVolume}
-              muteButtonLabel={muteButtonLabel}
             />
+
+            {/* RIGHT: Audio, subtitles, settings */}
             <PlaybackTrackMenus
-              showAspectControls={isVideo}
-              aspectBtnRef={aspectBtnRef}
-              aspectMenuRef={aspectMenuRef}
-              aspectMenuOpen={aspectMenuOpen}
-              onAspectButtonClick={() => {
-                setAspectMenuOpen((value) => !value);
-                setSubtitleMenuOpen(false);
-                setAudioMenuOpen(false);
-                setPlayerSettingsOpen(false);
-                resetHideTimer();
-              }}
-              videoAspectMode={videoAspectMode}
-              aspectTrackMenuOptions={aspectTrackMenuOptions}
-              onSelectAspect={(key) => {
-                setVideoAspectMode(key as VideoAspectMode);
-                setAspectMenuOpen(false);
-                resetHideTimer();
-              }}
               showSubtitleControls={isVideo}
               subtitleBtnRef={subtitleBtnRef}
               subtitleMenuRef={subtitleMenuRef}
