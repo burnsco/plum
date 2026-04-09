@@ -29,7 +29,6 @@ private fun debugDefaultAdminPasswordBuildConfig(): String =
 plugins {
     id("plum.android.application")
     id("plum.android.compose")
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
@@ -91,6 +90,14 @@ android {
         }
     }
     buildFeatures { buildConfig = true }
+
+    packaging {
+        jniLibs {
+            // Prebuilts llvm-strip sometimes rejects these; skipping strip avoids noisy logs and failed strip attempts.
+            keepDebugSymbols += "**/libandroidx.graphics.path.so"
+            keepDebugSymbols += "**/libdatastore_shared_counter.so"
+        }
+    }
 }
 
 kotlin {

@@ -46,6 +46,28 @@ class BrowseRepository @Inject constructor(
         }
     }
 
+    /**
+     * Returns cached pages for a library starting at offset 0 and continuing contiguously.
+     *
+     * Library browse screens can rebuild their loaded rows from this when the user leaves and
+     * comes back, so we do not collapse back to just the first page if more pages were already
+     * fetched in this session.
+     */
+    fun peekContiguousLibraryMediaPages(libraryId: Int, limit: Int): List<LibraryMediaPageJson> {
+        val pages = mutableListOf<LibraryMediaPageJson>()
+        var offset = 0
+        synchronized(mediaCacheLock) {
+            while (true) {
+                val page = mediaPageCache[LibraryMediaCacheKey(libraryId, offset, limit)] ?: break
+                pages += page
+                val nextOffset = page.nextOffset ?: break
+                if (nextOffset <= offset) break
+                offset = nextOffset
+            }
+        }
+        return pages
+    }
+
     fun invalidateLibraryMediaCache() {
         synchronized(mediaCacheLock) {
             mediaPageCache.clear()

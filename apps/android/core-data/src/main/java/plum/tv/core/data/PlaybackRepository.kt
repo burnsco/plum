@@ -132,7 +132,7 @@ class PlaybackRepository @Inject constructor(
             runCatching {
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@use false
-                    val body = resp.body?.string() ?: return@use false
+                    val body = resp.body.string()
                     body.startsWith("#EXTM3U") && body.length >= 32
                 }
             }.getOrDefault(false)

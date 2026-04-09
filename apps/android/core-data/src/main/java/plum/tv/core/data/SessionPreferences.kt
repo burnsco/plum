@@ -20,8 +20,8 @@ private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataS
 
 @Singleton
 class SessionPreferences @Inject constructor(
-    @ApplicationContext private val context: Context,
-    @ApplicationScope private val scope: CoroutineScope,
+    @param:ApplicationContext private val context: Context,
+    @param:ApplicationScope private val scope: CoroutineScope,
 ) {
     private val store get() = context.sessionDataStore
 

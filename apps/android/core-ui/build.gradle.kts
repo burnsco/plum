@@ -1,7 +1,6 @@
 plugins {
     id("plum.android.library")
     id("plum.android.compose")
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 

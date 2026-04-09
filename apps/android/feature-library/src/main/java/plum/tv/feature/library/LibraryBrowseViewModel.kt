@@ -50,13 +50,14 @@ class LibraryBrowseViewModel @Inject constructor(
 
     init {
         // Synchronous peek avoids a one-frame "Loading" flash when prefetch or a prior visit warmed cache.
-        browseRepository.peekLibraryMediaPage(libraryId, offset = 0, limit = pageSize)?.let { page ->
-            nextOffset = page.nextOffset
-            accumulatedItems.addAll(page.items)
+        val cachedPages = browseRepository.peekContiguousLibraryMediaPages(libraryId, pageSize)
+        if (cachedPages.isNotEmpty()) {
+            nextOffset = cachedPages.last().nextOffset
+            cachedPages.forEach { page -> accumulatedItems.addAll(page.items) }
             _state.value =
                 LibraryBrowseUiState.Ready(
                     rows = rebuildRows(),
-                    hasMore = page.hasMore,
+                    hasMore = cachedPages.last().hasMore,
                     loadingMore = false,
                 )
         }
@@ -116,13 +117,17 @@ class LibraryBrowseViewModel @Inject constructor(
     private suspend fun refreshInitialFromNetwork(forceRefresh: Boolean) {
         browseRepository.libraryMedia(libraryId, offset = 0, limit = pageSize, forceRefresh = forceRefresh).fold(
             onSuccess = { page ->
-                // loadMore() may finish before this initial refresh; do not wipe extra pages.
-                if (accumulatedItems.size > page.items.size) {
-                    return@fold
-                }
-                nextOffset = page.nextOffset
+                // loadMore() may finish before this initial refresh; keep any pages already loaded.
+                val existingTail =
+                    if (accumulatedItems.size > page.items.size) {
+                        accumulatedItems.drop(page.items.size)
+                    } else {
+                        emptyList()
+                    }
                 accumulatedItems.clear()
                 accumulatedItems.addAll(page.items)
+                accumulatedItems.addAll(existingTail)
+                nextOffset = page.nextOffset
                 _state.value =
                     LibraryBrowseUiState.Ready(
                         rows = rebuildRows(),

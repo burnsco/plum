@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
@@ -273,7 +273,7 @@ fun MainNavHost(
                                     }
                                 },
                                 variant = PlumButtonVariant.Ghost,
-                                leadingIcon = Icons.Filled.Logout,
+                                leadingIcon = Icons.AutoMirrored.Filled.Logout,
                             )
                         },
                     )
