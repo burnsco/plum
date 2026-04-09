@@ -228,9 +228,7 @@ func parseSidecarSubtitleMetadata(videoPath, subtitleName string) (parsedSidecar
 		return parsedSidecarSubtitle{}, false
 	}
 	rest := strings.TrimPrefix(stem, base)
-	if strings.HasPrefix(rest, ".") {
-		rest = rest[1:]
-	}
+	rest = strings.TrimPrefix(rest, ".")
 	tokens := []string{}
 	if rest != "" {
 		tokens = strings.Split(rest, ".")
