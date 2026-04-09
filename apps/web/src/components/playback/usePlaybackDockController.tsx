@@ -296,6 +296,35 @@ export function usePlaybackDockController(): ReactNode {
     }
   }, []);
 
+  // Attempt autoplay with a muted fallback when the browser's autoplay policy blocks
+  // unmuted play (NotAllowedError). Calling `setMuted(true)` keeps the UI in sync.
+  const attemptAutoplay = useCallback(
+    (element: HTMLVideoElement, label: string) => {
+      void element.play().catch((err: unknown) => {
+        const name =
+          err instanceof Error ||
+          (typeof DOMException !== "undefined" && err instanceof DOMException)
+            ? err.name
+            : "";
+        if (name === "NotAllowedError") {
+          // Browser blocked unmuted autoplay — retry muted so the video at least starts.
+          element.muted = true;
+          setMuted(true);
+          void element.play().catch((err2: unknown) => {
+            if (import.meta.env.DEV) {
+              console.warn(`[${label}] Muted autoplay also blocked`, err2);
+            }
+          });
+        } else if (name !== "AbortError" && name !== "InvalidStateError") {
+          if (import.meta.env.DEV) {
+            console.warn(`[${label}]`, err);
+          }
+        }
+      });
+    },
+    [setMuted],
+  );
+
   const playbackQueue = queue ?? EMPTY_PLAYBACK_QUEUE;
   const {
     upNextTarget,
@@ -1099,7 +1128,7 @@ export function usePlaybackDockController(): ReactNode {
         } else {
           suppressVideoAutoplayOnCanPlayRef.current = false;
           applyResumePosition(element);
-          ignorePromise(element.play(), "PlaybackDock:initialCanPlayPlay");
+          attemptAutoplay(element, "PlaybackDock:loadedMetadataAutoplay");
         }
       }
       syncPlaybackState(element);
@@ -1113,6 +1142,7 @@ export function usePlaybackDockController(): ReactNode {
     [
       activeItem,
       applyResumePosition,
+      attemptAutoplay,
       markSubtitleReady,
       playbackDurationSeconds,
       syncPlaybackState,
@@ -1132,10 +1162,11 @@ export function usePlaybackDockController(): ReactNode {
         !suppressVideoAutoplayOnCanPlayRef.current &&
         kickstartVideoPlaybackRef.current
       ) {
-        ignorePromise(element.play(), "PlaybackDock:canPlayKickstart");
+        attemptAutoplay(element, "PlaybackDock:canPlayKickstart");
       }
     },
     [
+      attemptAutoplay,
       maybeRecoverInitialBufferGap,
       syncPlaybackState,
       syncVideoProgressSnapshot,
@@ -1684,6 +1715,26 @@ export function usePlaybackDockController(): ReactNode {
     [activeItem, audioTracks],
   );
 
+  // Called when HLS.js has parsed the manifest — the earliest HLS-ready moment to
+  // trigger autoplay (standard HLS.js pattern). Uses the same guards as handleVideoCanPlay
+  // plus a resume-progress check to avoid calling play() before the resume prompt appears.
+  const handleHlsManifestParsed = useCallback(() => {
+    if (suppressVideoAutoplayOnCanPlayRef.current) return;
+    if (!kickstartVideoPlaybackRef.current) return;
+    if (seekToAfterReloadRef.current != null) return; // source reload — loadedmetadata handles it
+    const resumeAt = activeItem?.progress_seconds ?? 0;
+    const hasResumableProgress =
+      activeItem != null &&
+      !activeItem.completed &&
+      Number.isFinite(resumeAt) &&
+      resumeAt > 0 &&
+      resumeAppliedRef.current !== activeItem.id;
+    if (hasResumableProgress) return;
+    const video = videoRef.current;
+    if (!video) return;
+    attemptAutoplay(video, "PlaybackDock:manifestParsedAutoplay");
+  }, [activeItem, attemptAutoplay]);
+
   useHlsAttachment({
     isVideo,
     activeItemId,
@@ -1704,6 +1755,7 @@ export function usePlaybackDockController(): ReactNode {
     subtitleReadyVersion,
     subtitleLoadControllersRef,
     setLoadedSubtitleTracks,
+    onManifestParsed: handleHlsManifestParsed,
   });
 
   /* ── Close track menus on outside click ── */

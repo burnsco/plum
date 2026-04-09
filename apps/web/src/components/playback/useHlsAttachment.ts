@@ -31,6 +31,8 @@ export type UseHlsAttachmentParams = {
   subtitleReadyVersion: number;
   subtitleLoadControllersRef: RefObject<Map<string, AbortController>>;
   setLoadedSubtitleTracks: Dispatch<SetStateAction<LoadedSubtitleTrack[]>>;
+  /** Called after manifest is parsed so the controller can kick off autoplay at the earliest HLS-ready moment. */
+  onManifestParsed: () => void;
 };
 
 /**
@@ -57,6 +59,7 @@ export function useHlsAttachment({
   subtitleReadyVersion,
   subtitleLoadControllersRef,
   setLoadedSubtitleTracks,
+  onManifestParsed,
 }: UseHlsAttachmentParams): void {
   useEffect(() => {
     if (hlsRef.current != null) {
@@ -95,6 +98,9 @@ export function useHlsAttachment({
       mediaRecoveryAttemptsRef.current = 0;
       networkRecoveryAttemptsRef.current = 0;
       markSubtitleReady();
+      // HLS.js is ready to buffer: attempt autoplay at the earliest possible moment
+      // (MANIFEST_PARSED is the standard HLS.js-recommended trigger for autoplay).
+      onManifestParsed();
     });
     hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
       markSubtitleReady();
@@ -159,6 +165,7 @@ export function useHlsAttachment({
     maybeRecoverInitialBufferGap,
     mediaRecoveryAttemptsRef,
     networkRecoveryAttemptsRef,
+    onManifestParsed,
     seekToAfterReloadRef,
     setHlsStatusMessage,
     videoAttachmentVersion,
