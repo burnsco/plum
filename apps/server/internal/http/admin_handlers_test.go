@@ -127,3 +127,23 @@ func TestRunMaintenanceTask_ScanAllMedia_EmptyLibraryTable(t *testing.T) {
 		t.Fatalf("detail = %q", detail)
 	}
 }
+
+func TestAdminTaskDue_UsesSeededAtBeforeLastRun(t *testing.T) {
+	t.Parallel()
+
+	seededAt := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	s := db.AdminMaintenanceSchedule{
+		Tasks: map[db.AdminMaintenanceTaskID]db.AdminMaintenanceScheduleTask{
+			db.AdminTaskCleanLogs: {IntervalHours: 24},
+		},
+		LastRun:  map[db.AdminMaintenanceTaskID]string{},
+		SeededAt: seededAt.Format(time.RFC3339),
+	}
+
+	if adminTaskDue(s, db.AdminTaskCleanLogs, seededAt.Add(23*time.Hour+59*time.Minute)) {
+		t.Fatal("task should not be due before the seeded baseline interval passes")
+	}
+	if !adminTaskDue(s, db.AdminTaskCleanLogs, seededAt.Add(24*time.Hour)) {
+		t.Fatal("task should be due once the seeded baseline interval passes")
+	}
+}

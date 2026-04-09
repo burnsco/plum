@@ -576,7 +576,10 @@ func adminTaskDue(s db.AdminMaintenanceSchedule, task db.AdminMaintenanceTaskID,
 	}
 	lastRaw := s.LastRun[task]
 	if lastRaw == "" {
-		return true
+		lastRaw = s.SeededAt
+	}
+	if lastRaw == "" {
+		return false
 	}
 	last, err := time.Parse(time.RFC3339, lastRaw)
 	if err != nil {
