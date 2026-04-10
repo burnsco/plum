@@ -2504,6 +2504,9 @@ class PlumPlayerController(
         scope.launch(Dispatchers.Main) {
             if (player.isPlaying) {
                 player.pause()
+                launch {
+                    runCatching { persistProgressAsync(completed = false) }
+                }
             } else {
                 player.play()
             }
