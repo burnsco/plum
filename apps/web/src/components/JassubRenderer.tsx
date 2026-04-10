@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { devWarn } from "@/lib/devConsole";
 import type JASSUB from "jassub";
 
@@ -40,10 +40,15 @@ export function JassubRenderer({
   timeOffsetSeconds = 0,
   onStatusChange,
 }: JassubRendererProps) {
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+  const fontUrlsKey = fontUrls.join("\n");
+
   useEffect(() => {
     const video = videoElement;
     if (!video || !assSrc) return;
     const videoEl: HTMLVideoElement = video;
+    const resolvedFontUrls = fontUrlsKey === "" ? [] : fontUrlsKey.split("\n");
 
     let instance: JassubInstance | null = null;
     const ac = new AbortController();
@@ -79,7 +84,7 @@ export function JassubRenderer({
 
     async function init() {
       try {
-        onStatusChange?.("loading");
+        onStatusChangeRef.current?.("loading");
         const response = await fetch(assSrc!, {
           credentials: "include",
           signal,
@@ -89,23 +94,17 @@ export function JassubRenderer({
             "[JassubRenderer] Failed to fetch ASS:",
             response.status,
           );
-          onStatusChange?.("error");
+          onStatusChangeRef.current?.("error");
           return;
         }
         const subContent = await response.text();
         if (signal.aborted) {
-          devWarn(
-            "[JassubRenderer] ASS fetch completed after subtitle deselected; discarding load",
-          );
           return;
         }
         const fonts = (
-          await Promise.all(fontUrls.map((url) => fetchFont(url)))
+          await Promise.all(resolvedFontUrls.map((url) => fetchFont(url)))
         ).filter((font): font is Uint8Array => font != null);
         if (signal.aborted) {
-          devWarn(
-            "[JassubRenderer] Font fetch completed after subtitle deselected; discarding load",
-          );
           return;
         }
 
@@ -123,9 +122,6 @@ export function JassubRenderer({
           import("jassub/dist/wasm/jassub-worker.wasm?url"),
         ]);
         if (signal.aborted) {
-          devWarn(
-            "[JassubRenderer] JASSUB load aborted after subtitle deselected",
-          );
           return;
         }
 
@@ -142,18 +138,16 @@ export function JassubRenderer({
           workerUrl,
           wasmUrl,
         });
-        onStatusChange?.("ready");
+        onStatusChangeRef.current?.("ready");
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           if (timedOut) {
-            onStatusChange?.("timeout");
+            onStatusChangeRef.current?.("timeout");
+            devWarn("[JassubRenderer] ASS load timed out");
           }
-          devWarn(
-            "[JassubRenderer] ASS fetch aborted (subtitle deselected or track changed)",
-          );
           return;
         }
-        onStatusChange?.("error");
+        onStatusChangeRef.current?.("error");
         console.error("[JassubRenderer] Initialization failed:", err);
       }
     }
@@ -165,7 +159,7 @@ export function JassubRenderer({
       ac.abort();
       void instance?.destroy();
     };
-  }, [assSrc, fontUrls, onStatusChange, timeOffsetSeconds, videoElement]);
+  }, [assSrc, fontUrlsKey, timeOffsetSeconds, videoElement]);
 
   // JASSUB manages its own canvas; no DOM output from this component.
   return null;

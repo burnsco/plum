@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,15 @@ func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 		return nil
 	}
 
-	if s.Format == "srt" || s.Format == "ass" || s.Format == "ssa" {
+	if s.Format == "ass" || s.Format == "ssa" {
+		return streamFFmpegWebVTTCompactingOverlaps(
+			w,
+			r,
+			[]string{"-i", s.Path, "-f", "webvtt", "-"}...,
+		)
+	}
+
+	if s.Format == "srt" {
 		return streamFFmpegWebVTT(
 			w,
 			r,
@@ -301,11 +310,18 @@ func transcodeEmbeddedSubtitleToWebVTT(
 	mediaID int,
 	startedAt time.Time,
 ) error {
+	compactOverlaps := shouldCompactConvertedSubtitleOverlaps(codec)
 	if demuxFmt, ok := subtitleDemuxFormat(codec); ok {
 		tmpPath, cleanup, extractErr := extractEmbeddedSubtitleStreamToTemp(r.Context(), sourcePath, streamIndex, demuxFmt)
 		if extractErr == nil {
 			defer cleanup()
-			err := streamFFmpegWebVTTWithOptionalTee(w, r, tee, []string{"-i", tmpPath, "-f", "webvtt", "-"}...)
+			err := streamFFmpegWebVTTWithOptionalTeeAndTransform(
+				w,
+				r,
+				tee,
+				webVTTTransformForCompaction(compactOverlaps),
+				[]string{"-i", tmpPath, "-f", "webvtt", "-"}...,
+			)
 			if err == nil {
 				slog.Info("stream embedded subtitle served (demux+convert)",
 					"media_id", mediaID,
@@ -324,7 +340,13 @@ func transcodeEmbeddedSubtitleToWebVTT(
 	}
 	ffmpegIn := append(append([]string{}, ffopts.InputProbeEmbeddedExtract...),
 		"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-")
-	err := streamFFmpegWebVTTWithOptionalTee(w, r, tee, ffmpegIn...)
+	err := streamFFmpegWebVTTWithOptionalTeeAndTransform(
+		w,
+		r,
+		tee,
+		webVTTTransformForCompaction(compactOverlaps),
+		ffmpegIn...,
+	)
 	if err != nil {
 		slog.Warn("stream embedded subtitle failed",
 			"media_id", mediaID,
@@ -345,11 +367,16 @@ func transcodeEmbeddedSubtitleToWebVTT(
 }
 
 // ffmpegSubtitleTranscodeToWriter runs ffmpeg with stdout wired to out (disk cache materialization).
-func ffmpegSubtitleTranscodeToWriter(ctx context.Context, out io.Writer, args ...string) error {
+func ffmpegSubtitleTranscodeToWriter(ctx context.Context, out io.Writer, transform webVTTTransform, args ...string) error {
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
 	ffmpegArgs = append(ffmpegArgs, args...)
 	cmd := exec.CommandContext(ctx, "ffmpeg", ffmpegArgs...)
-	cmd.Stdout = out
+	var stdout bytes.Buffer
+	if transform != nil {
+		cmd.Stdout = &stdout
+	} else {
+		cmd.Stdout = out
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -363,6 +390,15 @@ func ffmpegSubtitleTranscodeToWriter(ctx context.Context, out io.Writer, args ..
 		}
 		slog.Warn("ffmpeg subtitle cache materialize", "stderr_tail", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	if transform != nil {
+		transformed, err := transform(stdout.Bytes())
+		if err != nil {
+			return err
+		}
+		if _, err := out.Write(transformed); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -393,8 +429,9 @@ func materializeEmbeddedSubtitleCacheFile(ctx context.Context, sourcePath string
 		}
 	}()
 
+	transform := webVTTTransformForCompaction(shouldCompactConvertedSubtitleOverlaps(codec))
 	tryWrite := func(args ...string) error {
-		return ffmpegSubtitleTranscodeToWriter(ctx, f, args...)
+		return ffmpegSubtitleTranscodeToWriter(ctx, f, transform, args...)
 	}
 
 	startedAt := time.Now()
@@ -530,7 +567,7 @@ func embeddedSubtitleVTTCachePath(sourcePath string, streamIndex int) (string, e
 		return "", err
 	}
 	payload := fmt.Sprintf(
-		"%s\x1e%d\x1e%d\x1e%d",
+		"v2\x1e%s\x1e%d\x1e%d\x1e%d",
 		filepath.Clean(sourcePath),
 		st.Size(),
 		st.ModTime().UnixNano(),
@@ -867,7 +904,33 @@ func streamFFmpegWebVTT(w http.ResponseWriter, r *http.Request, args ...string) 
 	return streamFFmpegWebVTTWithOptionalTee(w, r, nil, args...)
 }
 
+func streamFFmpegWebVTTCompactingOverlaps(w http.ResponseWriter, r *http.Request, args ...string) error {
+	return streamFFmpegWebVTTWithOptionalTeeAndTransform(w, r, nil, compactWebVTTCueOverlaps, args...)
+}
+
 func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, tee io.Writer, args ...string) error {
+	return streamFFmpegWebVTTWithOptionalTeeAndTransform(w, r, tee, nil, args...)
+}
+
+type webVTTTransform func([]byte) ([]byte, error)
+
+func webVTTTransformForCompaction(enabled bool) webVTTTransform {
+	if enabled {
+		return compactWebVTTCueOverlaps
+	}
+	return nil
+}
+
+func shouldCompactConvertedSubtitleOverlaps(codec string) bool {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "ass", "ssa":
+		return true
+	default:
+		return false
+	}
+}
+
+func streamFFmpegWebVTTWithOptionalTeeAndTransform(w http.ResponseWriter, r *http.Request, tee io.Writer, transform webVTTTransform, args ...string) error {
 	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
 	// Response is generated on the fly (conversion or first-fill of disk cache); avoid storing partial streams.
 	w.Header().Set("Cache-Control", "no-store")
@@ -875,7 +938,12 @@ func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, t
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
 	ffmpegArgs = append(ffmpegArgs, args...)
 	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
-	cmd.Stdout = responseWriterForFFmpegStdoutAndTee(w, tee)
+	var stdout bytes.Buffer
+	if transform != nil {
+		cmd.Stdout = &stdout
+	} else {
+		cmd.Stdout = responseWriterForFFmpegStdoutAndTee(w, tee)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -890,5 +958,155 @@ func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, t
 		slog.Warn("ffmpeg subtitle stream", "stderr_tail", msg)
 		return fmt.Errorf("ffmpeg error: %s", msg)
 	}
+	if transform != nil {
+		transformed, err := transform(stdout.Bytes())
+		if err != nil {
+			return err
+		}
+		if _, err := responseWriterForFFmpegStdoutAndTee(w, tee).Write(transformed); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+type webVTTCueBlock struct {
+	lines     []string
+	timingIdx int
+	startMs   int64
+	endMs     int64
+	settings  string
+	parsedCue bool
+}
+
+func compactWebVTTCueOverlaps(raw []byte) ([]byte, error) {
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return raw, nil
+	}
+
+	parts := strings.Split(text, "\n\n")
+	blocks := make([]webVTTCueBlock, 0, len(parts))
+	for _, part := range parts {
+		block := webVTTCueBlock{lines: strings.Split(part, "\n"), timingIdx: -1}
+		for i, line := range block.lines {
+			start, end, settings, ok := parseWebVTTCueTimingLine(line)
+			if !ok {
+				continue
+			}
+			block.timingIdx = i
+			block.startMs = start
+			block.endMs = end
+			block.settings = settings
+			block.parsedCue = true
+			break
+		}
+
+		if block.parsedCue {
+			for i := range blocks {
+				if !blocks[i].parsedCue {
+					continue
+				}
+				if block.startMs > blocks[i].startMs && block.startMs < blocks[i].endMs {
+					blocks[i].endMs = block.startMs
+					blocks[i].lines[blocks[i].timingIdx] =
+						formatWebVTTCueTimingLine(blocks[i].startMs, blocks[i].endMs, blocks[i].settings)
+				}
+			}
+		}
+
+		blocks = append(blocks, block)
+	}
+
+	var b strings.Builder
+	for i, block := range blocks {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		for j, line := range block.lines {
+			if j > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(line)
+		}
+	}
+	b.WriteByte('\n')
+	return []byte(b.String()), nil
+}
+
+func parseWebVTTCueTimingLine(line string) (startMs int64, endMs int64, settings string, ok bool) {
+	left, right, found := strings.Cut(line, "-->")
+	if !found {
+		return 0, 0, "", false
+	}
+	start, err := parseWebVTTTimestamp(strings.TrimSpace(left))
+	if err != nil {
+		return 0, 0, "", false
+	}
+	right = strings.TrimSpace(right)
+	fields := strings.Fields(right)
+	if len(fields) == 0 {
+		return 0, 0, "", false
+	}
+	endToken := fields[0]
+	end, err := parseWebVTTTimestamp(endToken)
+	if err != nil || end <= start {
+		return 0, 0, "", false
+	}
+	settings = strings.TrimSpace(strings.TrimPrefix(right, endToken))
+	return start, end, settings, true
+}
+
+func parseWebVTTTimestamp(raw string) (int64, error) {
+	value := strings.ReplaceAll(strings.TrimSpace(raw), ",", ".")
+	main, millisRaw, ok := strings.Cut(value, ".")
+	if !ok {
+		return 0, fmt.Errorf("webvtt timestamp missing milliseconds: %q", raw)
+	}
+	millis, err := strconv.Atoi(millisRaw)
+	if err != nil {
+		return 0, err
+	}
+	parts := strings.Split(main, ":")
+	if len(parts) != 2 && len(parts) != 3 {
+		return 0, fmt.Errorf("webvtt timestamp has invalid field count: %q", raw)
+	}
+	hours := 0
+	minutesIdx := 0
+	if len(parts) == 3 {
+		hours, err = strconv.Atoi(parts[0])
+		if err != nil {
+			return 0, err
+		}
+		minutesIdx = 1
+	}
+	minutes, err := strconv.Atoi(parts[minutesIdx])
+	if err != nil {
+		return 0, err
+	}
+	seconds, err := strconv.Atoi(parts[minutesIdx+1])
+	if err != nil {
+		return 0, err
+	}
+	return int64(hours*3600000 + minutes*60000 + seconds*1000 + millis), nil
+}
+
+func formatWebVTTCueTimingLine(startMs int64, endMs int64, settings string) string {
+	line := formatWebVTTTimestamp(startMs) + " --> " + formatWebVTTTimestamp(endMs)
+	if strings.TrimSpace(settings) != "" {
+		line += " " + strings.TrimSpace(settings)
+	}
+	return line
+}
+
+func formatWebVTTTimestamp(ms int64) string {
+	hours := ms / 3600000
+	ms %= 3600000
+	minutes := ms / 60000
+	ms %= 60000
+	seconds := ms / 1000
+	millis := ms % 1000
+	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis)
 }

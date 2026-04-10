@@ -615,6 +615,43 @@ func TestHandleStreamEmbeddedSubtitle_ServesConvertedVTT(t *testing.T) {
 	}
 }
 
+func TestCompactWebVTTCueOverlaps_TrimsEarlierASSDialogueCue(t *testing.T) {
+	input := []byte("WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:04.000 align:middle\n" +
+		"First line\n\n" +
+		"00:00:03.000 --> 00:00:05.000 align:middle\n" +
+		"Second line\n")
+
+	got, err := compactWebVTTCueOverlaps(input)
+	if err != nil {
+		t.Fatalf("compactWebVTTCueOverlaps: %v", err)
+	}
+	want := "WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:03.000 align:middle\n" +
+		"First line\n\n" +
+		"00:00:03.000 --> 00:00:05.000 align:middle\n" +
+		"Second line\n"
+	if string(got) != want {
+		t.Fatalf("unexpected VTT:\n%s", got)
+	}
+}
+
+func TestCompactWebVTTCueOverlaps_LeavesSameStartCuesTogether(t *testing.T) {
+	input := []byte("WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:04.000\n" +
+		"First line\n\n" +
+		"00:00:01.000 --> 00:00:05.000\n" +
+		"Second line\n")
+
+	got, err := compactWebVTTCueOverlaps(input)
+	if err != nil {
+		t.Fatalf("compactWebVTTCueOverlaps: %v", err)
+	}
+	if string(got) != string(input) {
+		t.Fatalf("expected same-start cues to remain unchanged, got:\n%s", got)
+	}
+}
+
 func TestListIdentifiableByLibrary_SkipsConfirmedEpisodes(t *testing.T) {
 	dbConn := newTestDB(t)
 	tvLibID := getLibraryID(t, dbConn, "tv")
