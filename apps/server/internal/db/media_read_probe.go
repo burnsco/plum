@@ -39,6 +39,10 @@ func attachSubtitlesBatch(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
 	if err != nil {
 		return nil, err
 	}
+	attachmentsByID, err := getMediaAttachmentsByMediaIDs(db, ids)
+	if err != nil {
+		return nil, err
+	}
 	for i := range items {
 		if subs := subsByID[items[i].ID]; subs != nil {
 			items[i].Subtitles = subs
@@ -55,6 +59,11 @@ func attachSubtitlesBatch(db *sql.DB, items []MediaItem) ([]MediaItem, error) {
 		} else {
 			items[i].EmbeddedAudioTracks = []EmbeddedAudioTrack{}
 		}
+		if attachments := attachmentsByID[items[i].ID]; attachments != nil {
+			items[i].MediaAttachments = attachments
+		} else {
+			items[i].MediaAttachments = []MediaAttachment{}
+		}
 	}
 	return items, nil
 }
@@ -69,6 +78,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		Subtitles:           []Subtitle{},
 		EmbeddedSubtitles:   []EmbeddedSubtitle{},
 		EmbeddedAudioTracks: []EmbeddedAudioTrack{},
+		MediaAttachments:    []MediaAttachment{},
 	}
 	if item == nil || item.ID <= 0 {
 		return metadata, nil
@@ -96,21 +106,25 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		metadata.Subtitles = subtitles
 	}
 
-	embeddedSubtitles, embeddedAudioTracks, getErr := getPersistedPlaybackTracks(db, item.ID)
+	embeddedSubtitles, embeddedAudioTracks, mediaAttachments, getErr := getPersistedPlaybackTracks(db, item.ID)
 	if getErr != nil {
 		return metadata, getErr
 	}
-	if canReusePersistedPlaybackTracks(item, sourcePath, embeddedSubtitles, embeddedAudioTracks) {
+	if canReusePersistedPlaybackTracks(item, sourcePath, embeddedSubtitles, embeddedAudioTracks, mediaAttachments) {
 		metadata.EmbeddedSubtitles = embeddedSubtitles
 		metadata.EmbeddedAudioTracks = embeddedAudioTracks
+		metadata.MediaAttachments = mediaAttachments
 	} else if probed, err := readVideoMetadata(ctx, sourcePath); err != nil {
 		slog.Warn("refresh playback embedded tracks", "media_id", item.ID, "path", sourcePath, "error", err)
 		metadata.EmbeddedSubtitles = embeddedSubtitles
 		metadata.EmbeddedAudioTracks = embeddedAudioTracks
+		metadata.MediaAttachments = mediaAttachments
 	} else {
-		persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks)
+		probedMediaAttachments := mediaAttachmentsWithMediaID(item.ID, probed.MediaAttachments)
+		persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks, probedMediaAttachments)
 		metadata.EmbeddedSubtitles = append(metadata.EmbeddedSubtitles, probed.EmbeddedSubtitles...)
 		metadata.EmbeddedAudioTracks = append(metadata.EmbeddedAudioTracks, probed.EmbeddedAudioTracks...)
+		metadata.MediaAttachments = append(metadata.MediaAttachments, probedMediaAttachments...)
 		if err := UpdateMediaFileIntroFromProbe(ctx, db, item.ID, sourcePath, probed); err != nil {
 			slog.Warn("persist intro chapters", "media_id", item.ID, "path", sourcePath, "error", err)
 		}
@@ -141,6 +155,7 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 	item.Subtitles = append([]Subtitle{}, metadata.Subtitles...)
 	item.EmbeddedSubtitles = append([]EmbeddedSubtitle{}, metadata.EmbeddedSubtitles...)
 	item.EmbeddedAudioTracks = append([]EmbeddedAudioTrack{}, metadata.EmbeddedAudioTracks...)
+	item.MediaAttachments = append([]MediaAttachment{}, metadata.MediaAttachments...)
 	return metadata, nil
 }
 
@@ -240,14 +255,18 @@ func RefreshIntroProbeOnlyForLibrary(ctx context.Context, dbConn *sql.DB, librar
 	return refreshed, failed, nil
 }
 
-func getPersistedPlaybackTracks(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, []EmbeddedAudioTrack, error) {
+func getPersistedPlaybackTracks(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, []EmbeddedAudioTrack, []MediaAttachment, error) {
 	embeddedSubtitles, err := getEmbeddedSubtitlesForMedia(db, mediaID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	embeddedAudioTracks, err := getEmbeddedAudioTracksForMedia(db, mediaID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	mediaAttachments, err := getMediaAttachmentsForMedia(db, mediaID)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	if embeddedSubtitles == nil {
 		embeddedSubtitles = []EmbeddedSubtitle{}
@@ -255,14 +274,29 @@ func getPersistedPlaybackTracks(db *sql.DB, mediaID int) ([]EmbeddedSubtitle, []
 	if embeddedAudioTracks == nil {
 		embeddedAudioTracks = []EmbeddedAudioTrack{}
 	}
-	return embeddedSubtitles, embeddedAudioTracks, nil
+	if mediaAttachments == nil {
+		mediaAttachments = []MediaAttachment{}
+	}
+	return embeddedSubtitles, embeddedAudioTracks, mediaAttachments, nil
 }
 
-func canReusePersistedPlaybackTracks(item *MediaItem, sourcePath string, embeddedSubtitles []EmbeddedSubtitle, embeddedAudioTracks []EmbeddedAudioTrack) bool {
+func mediaAttachmentsWithMediaID(mediaID int, attachments []MediaAttachment) []MediaAttachment {
+	if len(attachments) == 0 {
+		return attachments
+	}
+	copied := make([]MediaAttachment, len(attachments))
+	for i, attachment := range attachments {
+		attachment.MediaID = mediaID
+		copied[i] = attachment
+	}
+	return copied
+}
+
+func canReusePersistedPlaybackTracks(item *MediaItem, sourcePath string, embeddedSubtitles []EmbeddedSubtitle, embeddedAudioTracks []EmbeddedAudioTrack, mediaAttachments []MediaAttachment) bool {
 	if item == nil || item.FileSizeBytes <= 0 || strings.TrimSpace(item.FileModTime) == "" {
 		return false
 	}
-	if len(embeddedSubtitles) == 0 && len(embeddedAudioTracks) == 0 {
+	if len(embeddedSubtitles) == 0 && len(embeddedAudioTracks) == 0 && len(mediaAttachments) == 0 {
 		return false
 	}
 	fi, err := os.Stat(sourcePath)
@@ -362,6 +396,33 @@ func getEmbeddedAudioTracksByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]Emb
 			return nil, err
 		}
 		out[track.MediaID] = append(out[track.MediaID], track)
+	}
+	return out, rows.Err()
+}
+
+func getMediaAttachmentsByMediaIDs(db *sql.DB, mediaIDs []int) (map[int][]MediaAttachment, error) {
+	if len(mediaIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(mediaIDs))
+	args := make([]interface{}, len(mediaIDs))
+	for i := range mediaIDs {
+		placeholders[i] = "?"
+		args[i] = mediaIDs[i]
+	}
+	query := `SELECT media_id, stream_index, file_name, mime_type, codec, comment FROM media_attachments WHERE media_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY media_id, stream_index`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int][]MediaAttachment)
+	for rows.Next() {
+		var attachment MediaAttachment
+		if err := rows.Scan(&attachment.MediaID, &attachment.StreamIndex, &attachment.FileName, &attachment.MimeType, &attachment.Codec, &attachment.Comment); err != nil {
+			return nil, err
+		}
+		out[attachment.MediaID] = append(out[attachment.MediaID], attachment)
 	}
 	return out, rows.Err()
 }
@@ -539,6 +600,15 @@ func GetMediaByID(db *sql.DB, id int) (*MediaItem, error) {
 		m.EmbeddedAudioTracks = audioTracks
 	} else {
 		m.EmbeddedAudioTracks = []EmbeddedAudioTrack{}
+	}
+	attachments, err := getMediaAttachmentsForMedia(db, id)
+	if err != nil {
+		return nil, err
+	}
+	if attachments != nil {
+		m.MediaAttachments = attachments
+	} else {
+		m.MediaAttachments = []MediaAttachment{}
 	}
 	dupSlice := []MediaItem{m}
 	dupSlice, err = attachDuplicateState(db, dupSlice)
@@ -1045,6 +1115,40 @@ func getEmbeddedAudioTracksForMedia(db *sql.DB, mediaID int) ([]EmbeddedAudioTra
 	return tracks, rows.Err()
 }
 
+func getMediaAttachmentsForMedia(db *sql.DB, mediaID int) ([]MediaAttachment, error) {
+	rows, err := db.Query(`SELECT media_id, stream_index, file_name, mime_type, codec, comment FROM media_attachments WHERE media_id = ? ORDER BY stream_index`, mediaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var attachments []MediaAttachment
+	for rows.Next() {
+		var attachment MediaAttachment
+		if err := rows.Scan(&attachment.MediaID, &attachment.StreamIndex, &attachment.FileName, &attachment.MimeType, &attachment.Codec, &attachment.Comment); err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, attachment)
+	}
+	return attachments, rows.Err()
+}
+
+func GetMediaAttachmentForMedia(db *sql.DB, mediaID int, streamIndex int) (*MediaAttachment, error) {
+	var attachment MediaAttachment
+	err := db.QueryRow(
+		`SELECT media_id, stream_index, file_name, mime_type, codec, comment FROM media_attachments WHERE media_id = ? AND stream_index = ?`,
+		mediaID,
+		streamIndex,
+	).Scan(&attachment.MediaID, &attachment.StreamIndex, &attachment.FileName, &attachment.MimeType, &attachment.Codec, &attachment.Comment)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &attachment, nil
+}
+
 func GetSubtitleByID(db *sql.DB, id int) (*Subtitle, error) {
 	var s Subtitle
 	var forcedInt, defaultInt, hearingInt int
@@ -1085,6 +1189,7 @@ type VideoProbeResult struct {
 	Duration            int
 	EmbeddedSubtitles   []EmbeddedSubtitle
 	EmbeddedAudioTracks []EmbeddedAudioTrack
+	MediaAttachments    []MediaAttachment
 	IntroStartSeconds   *float64
 	IntroEndSeconds     *float64
 }
@@ -1097,7 +1202,7 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 	args := []string{"-v", "error"}
 	args = append(args, ffopts.InputProbeBeforeI...)
 	args = append(args,
-		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
+		"-show_entries", "format=duration:stream=index,codec_type,codec_name:stream_tags=language,title,filename,mimetype,comment:stream_disposition=default,forced,hearing_impaired",
 		"-show_entries", "chapter=start_time,end_time:chapter_tags=title",
 		"-of", "json",
 		path,
@@ -1124,6 +1229,9 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 			Tags struct {
 				Language string `json:"language"`
 				Title    string `json:"title"`
+				FileName string `json:"filename"`
+				MimeType string `json:"mimetype"`
+				Comment  string `json:"comment"`
 			} `json:"tags"`
 		} `json:"streams"`
 		Chapters []struct {
@@ -1187,6 +1295,14 @@ func probeVideoMetadata(ctx context.Context, path string) (VideoProbeResult, err
 				StreamIndex: stream.Index,
 				Language:    audioLang,
 				Title:       title,
+			})
+		case "attachment":
+			result.MediaAttachments = append(result.MediaAttachments, MediaAttachment{
+				StreamIndex: stream.Index,
+				FileName:    strings.TrimSpace(stream.Tags.FileName),
+				MimeType:    strings.TrimSpace(stream.Tags.MimeType),
+				Codec:       strings.TrimSpace(stream.CodecName),
+				Comment:     strings.TrimSpace(stream.Tags.Comment),
 			})
 		}
 	}
@@ -1360,7 +1476,7 @@ func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPat
 	return tx.Commit()
 }
 
-func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, subtitles []EmbeddedSubtitle, audioTracks []EmbeddedAudioTrack) {
+func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, subtitles []EmbeddedSubtitle, audioTracks []EmbeddedAudioTrack, attachments []MediaAttachment) {
 	if mediaID <= 0 {
 		return
 	}
@@ -1391,6 +1507,24 @@ func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, su
 		for _, track := range audioTracks {
 			if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, mediaID, track.StreamIndex, track.Language, track.Title); err != nil {
 				slog.Warn("insert embedded_audio_tracks", "media_id", mediaID, "error", err)
+			}
+		}
+	}
+
+	if _, err := dbConn.ExecContext(ctx, `DELETE FROM media_attachments WHERE media_id = ?`, mediaID); err != nil {
+		slog.Warn("clear media_attachments", "media_id", mediaID, "error", err)
+	} else {
+		for _, attachment := range attachments {
+			if _, err := dbConn.ExecContext(ctx,
+				`INSERT INTO media_attachments (media_id, stream_index, file_name, mime_type, codec, comment) VALUES (?, ?, ?, ?, ?, ?)`,
+				mediaID,
+				attachment.StreamIndex,
+				attachment.FileName,
+				attachment.MimeType,
+				attachment.Codec,
+				attachment.Comment,
+			); err != nil {
+				slog.Warn("insert media_attachments", "media_id", mediaID, "error", err)
 			}
 		}
 	}

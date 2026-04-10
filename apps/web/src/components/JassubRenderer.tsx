@@ -18,6 +18,10 @@ interface JassubRendererProps {
   videoElement: HTMLVideoElement | null;
   /** URL of the raw ASS/SSA file to render. Null disables the renderer. */
   assSrc: string | null;
+  /** Authenticated URLs for MKV font attachments used by ASS/SSA styles. */
+  fontUrls?: readonly string[];
+  /** Offset between the current stream timeline and the media timeline. */
+  timeOffsetSeconds?: number;
   onStatusChange?: (status: "loading" | "ready" | "error" | "timeout") => void;
 }
 
@@ -32,6 +36,8 @@ const EMBEDDED_ASS_LOAD_TIMEOUT_MS = 600_000;
 export function JassubRenderer({
   videoElement,
   assSrc,
+  fontUrls = [],
+  timeOffsetSeconds = 0,
   onStatusChange,
 }: JassubRendererProps) {
   useEffect(() => {
@@ -50,6 +56,26 @@ export function JassubRenderer({
       timedOut = true;
       ac.abort();
     }, timeoutMs);
+
+    async function fetchFont(url: string): Promise<Uint8Array | null> {
+      try {
+        const response = await fetch(url, {
+          credentials: "include",
+          signal,
+        });
+        if (!response.ok) {
+          devWarn(`[JassubRenderer] Font fetch failed (${response.status}): ${url}`);
+          return null;
+        }
+        return new Uint8Array(await response.arrayBuffer());
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          throw err;
+        }
+        devWarn(`[JassubRenderer] Font fetch failed: ${url}`);
+        return null;
+      }
+    }
 
     async function init() {
       try {
@@ -70,6 +96,15 @@ export function JassubRenderer({
         if (signal.aborted) {
           devWarn(
             "[JassubRenderer] ASS fetch completed after subtitle deselected; discarding load",
+          );
+          return;
+        }
+        const fonts = (
+          await Promise.all(fontUrls.map((url) => fetchFont(url)))
+        ).filter((font): font is Uint8Array => font != null);
+        if (signal.aborted) {
+          devWarn(
+            "[JassubRenderer] Font fetch completed after subtitle deselected; discarding load",
           );
           return;
         }
@@ -97,6 +132,13 @@ export function JassubRenderer({
         instance = new JASSUB({
           video: videoEl,
           subContent,
+          fonts,
+          timeOffset: timeOffsetSeconds,
+          prescaleFactor: 0.8,
+          prescaleHeightLimit: 1080,
+          maxRenderHeight: 2160,
+          libassMemoryLimit: 40,
+          libassGlyphLimit: 40,
           workerUrl,
           wasmUrl,
         });
@@ -123,7 +165,7 @@ export function JassubRenderer({
       ac.abort();
       void instance?.destroy();
     };
-  }, [assSrc, onStatusChange, videoElement]);
+  }, [assSrc, fontUrls, onStatusChange, timeOffsetSeconds, videoElement]);
 
   // JASSUB manages its own canvas; no DOM output from this component.
   return null;

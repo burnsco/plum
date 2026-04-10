@@ -57,6 +57,7 @@ type PlaybackSessionState struct {
 	Subtitles                       []db.Subtitle                  `json:"subtitles,omitempty"`
 	EmbeddedSubtitles               []PlaybackEmbeddedSubtitleJSON `json:"embeddedSubtitles,omitempty"`
 	EmbeddedAudioTracks             []db.EmbeddedAudioTrack        `json:"embeddedAudioTracks,omitempty"`
+	MediaAttachments                []db.MediaAttachment           `json:"mediaAttachments,omitempty"`
 	BurnEmbeddedSubtitleStreamIndex *int                           `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
 	Error                           string                         `json:"error,omitempty"`
 	IntroStartSeconds               *float64                       `json:"intro_start_seconds,omitempty"`
@@ -375,6 +376,7 @@ func (m *PlaybackSessionManager) Create(
 			Subtitles:                       media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(media, decision.Delivery),
 			EmbeddedAudioTracks:             media.EmbeddedAudioTracks,
+			MediaAttachments:                media.MediaAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnStored),
 		}
 		attachIntroFields(&state, media)
@@ -464,6 +466,7 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 			Subtitles:                       session.media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, decision.Delivery),
 			EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+			MediaAttachments:                session.media.MediaAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnPtr),
 		}
 		attachIntroFields(&state, session.media)
@@ -514,6 +517,7 @@ func (m *PlaybackSessionManager) Seek(sessionID string, settings db.TranscodingS
 			Subtitles:                       session.media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, decision.Delivery),
 			EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+			MediaAttachments:                session.media.MediaAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnPtr),
 		}
 		attachIntroFields(&state, session.media)
@@ -648,6 +652,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		MediaAttachments:                session.media.MediaAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnClosed),
 	}
 	attachIntroFields(&closed, session.media)
@@ -685,6 +690,7 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			Subtitles:                       s.media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(s.media, revision.delivery),
 			EmbeddedAudioTracks:             s.media.EmbeddedAudioTracks,
+			MediaAttachments:                s.media.MediaAttachments,
 			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(s.burnEmbeddedSubtitleStream),
 			Error:                           revision.err,
 		}
@@ -916,6 +922,7 @@ func (m *PlaybackSessionManager) startRevisionAt(
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		MediaAttachments:                session.media.MediaAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
 	attachIntroFields(&starting, session.media)
@@ -1000,6 +1007,7 @@ func (m *PlaybackSessionManager) runRevision(
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		MediaAttachments:                session.media.MediaAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(session.burnEmbeddedSubtitleStream),
 	}
 	attachIntroFields(&finalState, session.media)
@@ -1163,6 +1171,7 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+		MediaAttachments:                session.media.MediaAttachments,
 		BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnReady),
 	}
 	attachIntroFields(&ready, session.media)

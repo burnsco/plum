@@ -1,4 +1,5 @@
 import {
+  buildBackendUrl,
   embeddedSubtitleAssUrl,
   embeddedSubtitleNeedsWebBurnIn,
   embeddedSubtitleUrl,
@@ -11,6 +12,7 @@ import {
   type EmbeddedSubtitle,
   type EmbeddedSubtitleDeliveryMode,
   type EmbeddedSubtitleDeliveryOption,
+  type MediaAttachment,
   type PlaybackTrackMetadata,
   type Subtitle,
 } from "../../api";
@@ -25,6 +27,7 @@ export type PlaybackTrackMetadataInput = {
   subtitles?: readonly Subtitle[];
   embeddedSubtitles?: readonly EmbeddedSubtitle[];
   embeddedAudioTracks?: readonly EmbeddedAudioTrack[];
+  mediaAttachments?: readonly MediaAttachment[];
 };
 
 export type PlaybackTrackSource = PlaybackTrackMetadataInput & {
@@ -33,6 +36,17 @@ export type PlaybackTrackSource = PlaybackTrackMetadataInput & {
 
 /** Avoid unbounded growth of failed subtitle keys over a long session (oldest entries drop first). */
 export const MAX_BLOCKED_SUBTITLE_RETRY_KEYS = 64;
+
+const ASS_FONT_MIME_TYPES = new Set([
+  "application/vnd.ms-opentype",
+  "application/x-truetype-font",
+  "font/otf",
+  "font/ttf",
+  "font/woff",
+  "font/woff2",
+]);
+
+const ASS_FONT_EXTENSIONS = new Set([".otf", ".ttf", ".woff", ".woff2"]);
 
 export function rememberBlockedSubtitleKey(set: Set<string>, key: string) {
   set.add(key);
@@ -50,6 +64,30 @@ export function embeddedStreamIndexFromKey(key: string): number | null {
 function isAssFormat(format: string): boolean {
   const f = format.trim().toLowerCase();
   return f === "ass" || f === "ssa";
+}
+
+function mediaAttachmentExtension(fileName: string | undefined): string {
+  const clean = (fileName ?? "").split(/[?#]/, 1)[0] ?? "";
+  const dot = clean.lastIndexOf(".");
+  if (dot < 0) return "";
+  return clean.slice(dot).toLowerCase();
+}
+
+function isAssFontAttachment(attachment: MediaAttachment): boolean {
+  const mime = attachment.mimeType?.trim().toLowerCase() ?? "";
+  if (mime !== "") return ASS_FONT_MIME_TYPES.has(mime);
+  return ASS_FONT_EXTENSIONS.has(mediaAttachmentExtension(attachment.fileName));
+}
+
+export function buildAssFontUrls(
+  baseUrl: string,
+  attachments: readonly MediaAttachment[] | undefined,
+): string[] {
+  return (
+    attachments
+      ?.filter(isAssFontAttachment)
+      .map((attachment) => buildBackendUrl(baseUrl, attachment.deliveryUrl)) ?? []
+  );
 }
 
 function inferredEmbeddedDeliveryModes(
@@ -183,6 +221,9 @@ export function clonePlaybackTrackMetadata(
     })),
     embeddedAudioTracks: metadata.embeddedAudioTracks?.map((track) => ({
       ...track,
+    })),
+    mediaAttachments: metadata.mediaAttachments?.map((attachment) => ({
+      ...attachment,
     })),
   };
 }

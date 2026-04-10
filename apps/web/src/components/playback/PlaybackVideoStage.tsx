@@ -7,6 +7,8 @@ type PlaybackVideoStageProps = {
   videoSubtitleStyle: CSSProperties;
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
+  activeAssFontUrls: readonly string[];
+  videoStreamOffsetSeconds: number;
   onAssStatusChange: (
     status: "loading" | "ready" | "error" | "timeout",
   ) => void;
@@ -32,6 +34,8 @@ export function PlaybackVideoStage({
   videoSubtitleStyle,
   jassubVideoElement,
   activeAssSource,
+  activeAssFontUrls,
+  videoStreamOffsetSeconds,
   onAssStatusChange,
   onVideoDoubleClick,
   onLoadStart,
@@ -76,6 +80,8 @@ export function PlaybackVideoStage({
       <JassubRenderer
         videoElement={jassubVideoElement}
         assSrc={activeAssSource}
+        fontUrls={activeAssFontUrls}
+        timeOffsetSeconds={videoStreamOffsetSeconds}
         onStatusChange={onAssStatusChange}
       />
     </div>

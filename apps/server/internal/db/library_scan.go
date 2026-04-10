@@ -710,6 +710,7 @@ func enrichTask(
 	var (
 		embeddedSubtitles []EmbeddedSubtitle
 		embeddedAudio     []EmbeddedAudioTrack
+		mediaAttachments  []MediaAttachment
 		probedVideo       *VideoProbeResult
 	)
 	if mediaType == LibraryTypeMusic {
@@ -751,6 +752,7 @@ func enrichTask(
 				embeddedSubtitles = probed.EmbeddedSubtitles
 			}
 			embeddedAudio = probed.EmbeddedAudioTracks
+			mediaAttachments = probed.MediaAttachments
 		}
 	}
 
@@ -794,7 +796,7 @@ func enrichTask(
 			slog.Warn("scan subtitles", "path", task.Path, "error", err)
 		}
 	}
-	persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubtitles, embeddedAudio)
+	persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubtitles, embeddedAudio, mediaAttachments)
 	return nil
 }
 
@@ -1075,15 +1077,17 @@ func HandleScanLibraryWithOptions(
 					if probeMedia && !SkipFFprobeInScan && kind != LibraryTypeMusic && !existing.PrimaryIntroProbed {
 						var embeddedSubs []EmbeddedSubtitle
 						var embeddedAudioTracks []EmbeddedAudioTrack
+						var mediaAttachments []MediaAttachment
 						if probed, err := readVideoMetadata(ctx, path); err == nil {
 							if probeEmbeddedSubtitleStreams {
 								embeddedSubs = probed.EmbeddedSubtitles
 							}
 							embeddedAudioTracks = probed.EmbeddedAudioTracks
+							mediaAttachments = probed.MediaAttachments
 							if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, existing.GlobalID, path, probed); err != nil {
 								slog.Warn("persist intro chapters", "media_id", existing.GlobalID, "path", path, "error", err)
 							}
-							persistEmbeddedStreams(ctx, dbConn, existing.GlobalID, embeddedSubs, embeddedAudioTracks)
+							persistEmbeddedStreams(ctx, dbConn, existing.GlobalID, embeddedSubs, embeddedAudioTracks, mediaAttachments)
 						}
 					}
 				}
@@ -1196,6 +1200,7 @@ func HandleScanLibraryWithOptions(
 			var (
 				embeddedSubs        []EmbeddedSubtitle
 				embeddedAudioTracks []EmbeddedAudioTrack
+				mediaAttachments    []MediaAttachment
 			)
 			if probeMedia && !SkipFFprobeInScan {
 				if probed, err := readVideoMetadata(ctx, path); err == nil {
@@ -1214,6 +1219,7 @@ func HandleScanLibraryWithOptions(
 						embeddedSubs = probed.EmbeddedSubtitles
 					}
 					embeddedAudioTracks = probed.EmbeddedAudioTracks
+					mediaAttachments = probed.MediaAttachments
 					if globalID > 0 {
 						if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, path, probed); err != nil {
 							slog.Warn("persist intro chapters", "media_id", globalID, "path", path, "error", err)
@@ -1221,7 +1227,7 @@ func HandleScanLibraryWithOptions(
 					}
 				}
 			}
-			persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubs, embeddedAudioTracks)
+			persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubs, embeddedAudioTracks, mediaAttachments)
 			return nil
 		})
 		if err != nil {

@@ -55,6 +55,7 @@ export type {
   MediaStackServiceValidationResult,
   MediaStackSettings,
   MediaStackValidationResult,
+  MediaAttachment,
   MediaItem,
   EpisodeMetadataArtworkFetchers,
   PlumWebSocketCommand,

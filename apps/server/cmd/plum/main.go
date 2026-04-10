@@ -363,6 +363,8 @@ func buildRouter(
 		protected.Head("/api/playback/sessions/{sessionId}/revisions/{revision}/*", playbackHandler.ServeSessionRevision)
 		protected.Get("/api/stream/{id}", playbackHandler.StreamMedia)
 		protected.Head("/api/stream/{id}", playbackHandler.StreamMedia)
+		protected.Get("/api/media/{id}/attachments/{index}", playbackHandler.StreamMediaAttachment)
+		protected.Head("/api/media/{id}/attachments/{index}", playbackHandler.StreamMediaAttachment)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}/sup", playbackHandler.StreamEmbeddedSubtitleSup)
 		protected.Head("/api/media/{id}/subtitles/embedded/{index}/sup", playbackHandler.StreamEmbeddedSubtitleSup)
 		protected.Get("/api/media/{id}/subtitles/embedded/{index}/ass", playbackHandler.StreamEmbeddedSubtitleAss)

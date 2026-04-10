@@ -401,6 +401,31 @@ func (h *PlaybackHandler) StreamEmbeddedSubtitle(w http.ResponseWriter, r *http.
 	}
 }
 
+func (h *PlaybackHandler) StreamMediaAttachment(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
+	if !ok {
+		return
+	}
+	user := UserFromContext(r.Context())
+	if _, ok := h.mediaItemForUser(w, user, id); !ok {
+		return
+	}
+	streamIndex, ok := parsePathInt(w, chi.URLParam(r, "index"), "invalid index")
+	if !ok {
+		return
+	}
+	httputil.ClearStreamWriteDeadline(w)
+	var bodyStarted bool
+	tw := &trackStreamBody{ResponseWriter: w, started: &bodyStarted}
+	if err := db.HandleStreamMediaAttachment(tw, r, h.DB, id, streamIndex); err != nil {
+		if !bodyStarted {
+			writePlaybackError(w, err)
+		} else {
+			slog.Error("media attachment stream ended after response started", "media_id", id, "stream_index", streamIndex, "error", err)
+		}
+	}
+}
+
 func (h *PlaybackHandler) StreamEmbeddedSubtitleSup(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathInt(w, chi.URLParam(r, "id"), "invalid id")
 	if !ok {

@@ -152,6 +152,32 @@ type EmbeddedAudioTrack struct {
 	Title       string `json:"title"`
 }
 
+type MediaAttachment struct {
+	MediaID     int    `json:"-"`
+	StreamIndex int    `json:"streamIndex"`
+	FileName    string `json:"fileName,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	Codec       string `json:"codec,omitempty"`
+	Comment     string `json:"-"`
+}
+
+func (a MediaAttachment) MarshalJSON() ([]byte, error) {
+	type mediaAttachmentJSON struct {
+		StreamIndex int    `json:"streamIndex"`
+		FileName    string `json:"fileName,omitempty"`
+		MimeType    string `json:"mimeType,omitempty"`
+		Codec       string `json:"codec,omitempty"`
+		DeliveryURL string `json:"deliveryUrl"`
+	}
+	return json.Marshal(mediaAttachmentJSON{
+		StreamIndex: a.StreamIndex,
+		FileName:    a.FileName,
+		MimeType:    a.MimeType,
+		Codec:       a.Codec,
+		DeliveryURL: fmt.Sprintf("/api/media/%d/attachments/%d", a.MediaID, a.StreamIndex),
+	})
+}
+
 type MediaItem struct {
 	ID                        int                  `json:"id"`
 	LibraryID                 int                  `json:"library_id"`
@@ -164,6 +190,7 @@ type MediaItem struct {
 	Subtitles                 []Subtitle           `json:"subtitles"`
 	EmbeddedSubtitles         []EmbeddedSubtitle   `json:"embeddedSubtitles"`
 	EmbeddedAudioTracks       []EmbeddedAudioTrack `json:"embeddedAudioTracks"`
+	MediaAttachments          []MediaAttachment    `json:"mediaAttachments,omitempty"`
 	TMDBID                    int                  `json:"tmdb_id"`
 	TVDBID                    string               `json:"tvdb_id,omitempty"`
 	Overview                  string               `json:"overview"`
@@ -236,6 +263,7 @@ type PlaybackTrackMetadata struct {
 	Subtitles           []Subtitle           `json:"subtitles"`
 	EmbeddedSubtitles   []EmbeddedSubtitle   `json:"embeddedSubtitles"`
 	EmbeddedAudioTracks []EmbeddedAudioTrack `json:"embeddedAudioTracks"`
+	MediaAttachments    []MediaAttachment    `json:"mediaAttachments,omitempty"`
 }
 
 type User struct {

@@ -42,6 +42,7 @@ import {
   type VideoAspectMode,
 } from "../../lib/playbackPreferences";
 import {
+  buildAssFontUrls,
   buildSubtitleTrackRequests,
   clonePlaybackTrackMetadata,
   embeddedStreamIndexFromKey,
@@ -591,8 +592,16 @@ export function usePlaybackDockController(): ReactNode {
       embeddedAudioTracks:
         refreshedPlaybackTracks?.embeddedAudioTracks ??
         activeItem.embeddedAudioTracks,
+      mediaAttachments:
+        refreshedPlaybackTracks?.mediaAttachments ??
+        activeItem.mediaAttachments,
     };
   }, [activeItem, isVideo, refreshedPlaybackTracks]);
+
+  const activeAssFontUrls = useMemo(
+    () => buildAssFontUrls(BASE_URL, playbackTrackSource?.mediaAttachments),
+    [playbackTrackSource?.mediaAttachments],
+  );
 
   const subtitleTrackRequests = useMemo<SubtitleTrackOption[]>(
     () => buildSubtitleTrackRequests(playbackTrackSource),
@@ -1546,6 +1555,10 @@ export function usePlaybackDockController(): ReactNode {
         subtitles: metadata?.subtitles ?? playbackTrackSource?.subtitles,
         embeddedSubtitles:
           metadata?.embeddedSubtitles ?? playbackTrackSource?.embeddedSubtitles,
+        embeddedAudioTracks:
+          metadata?.embeddedAudioTracks ?? playbackTrackSource?.embeddedAudioTracks,
+        mediaAttachments:
+          metadata?.mediaAttachments ?? playbackTrackSource?.mediaAttachments,
       }).find((candidate) => candidate.key === key);
       if (!refreshedTrack || refreshedTrack.supported === false) {
         setPendingSubtitleKey(null);
@@ -2084,6 +2097,8 @@ export function usePlaybackDockController(): ReactNode {
           videoSubtitleStyle={videoSubtitleStyle}
           jassubVideoElement={jassubVideoElement}
           activeAssSource={activeAssSource}
+          activeAssFontUrls={activeAssFontUrls}
+          videoStreamOffsetSeconds={videoStreamOffsetSeconds}
           onAssStatusChange={handleAssStatusChange}
           onVideoDoubleClick={handleVideoDoubleClick}
           onLoadStart={() => {

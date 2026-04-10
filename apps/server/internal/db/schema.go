@@ -363,6 +363,16 @@ CREATE TABLE IF NOT EXISTS embedded_audio_tracks (
 );
 CREATE INDEX IF NOT EXISTS idx_embedded_audio_tracks_media_id ON embedded_audio_tracks(media_id);
 
+CREATE TABLE IF NOT EXISTS media_attachments (
+  media_id INTEGER NOT NULL,
+  stream_index INTEGER NOT NULL,
+  file_name TEXT NOT NULL DEFAULT '',
+  mime_type TEXT NOT NULL DEFAULT '',
+  codec TEXT NOT NULL DEFAULT '',
+  comment TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_attachments_media_stream ON media_attachments(media_id, stream_index);
+
 CREATE TABLE IF NOT EXISTS media_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   media_id INTEGER NOT NULL REFERENCES media_global(id) ON DELETE CASCADE,
@@ -1267,6 +1277,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(is_admin) WHER
 				}
 			}
 			return nil
+		},
+	},
+	{
+		version: 36,
+		name:    "media_attachments",
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS media_attachments (
+  media_id INTEGER NOT NULL,
+  stream_index INTEGER NOT NULL,
+  file_name TEXT NOT NULL DEFAULT '',
+  mime_type TEXT NOT NULL DEFAULT '',
+  codec TEXT NOT NULL DEFAULT '',
+  comment TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_attachments_media_stream ON media_attachments(media_id, stream_index);
+`)
+			return err
 		},
 	},
 }

@@ -6,6 +6,7 @@ export {
   ensureBaseUrl,
   externalSubtitleAssUrl,
   externalSubtitleUrl,
+  mediaAttachmentUrl,
   mediaStreamUrl,
   playbackSessionPlaylistUrl,
 } from "./backend";
@@ -65,6 +66,7 @@ export type {
   LibraryType,
   MarkShowWatchedPayload,
   MatchStatus,
+  MediaAttachment,
   MediaItem,
   PatchMediaIntroPayload,
   MediaStackQualityProfileOption,

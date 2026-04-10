@@ -538,6 +538,144 @@ func embeddedSubtitleVTTCachePath(sourcePath string, streamIndex int) (string, e
 	return filepath.Join(subtitleVTTCacheRoot(), name), nil
 }
 
+func mediaAttachmentCacheRoot() string {
+	if d := strings.TrimSpace(os.Getenv("PLUM_ATTACHMENT_CACHE_DIR")); d != "" {
+		return d
+	}
+	return filepath.Join(os.TempDir(), "plum_attachment_cache")
+}
+
+func mediaAttachmentCachePath(sourcePath string, attachment MediaAttachment) (string, error) {
+	st, err := os.Stat(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	payload := fmt.Sprintf(
+		"%s\x1e%d\x1e%d\x1e%d\x1e%s",
+		filepath.Clean(sourcePath),
+		st.Size(),
+		st.ModTime().UnixNano(),
+		attachment.StreamIndex,
+		attachment.FileName,
+	)
+	sum := sha256.Sum256([]byte(payload))
+	ext := strings.ToLower(filepath.Ext(attachment.FileName))
+	name := hex.EncodeToString(sum[:]) + ext
+	return filepath.Join(mediaAttachmentCacheRoot(), name), nil
+}
+
+func tryServeMediaAttachmentFromCache(w http.ResponseWriter, r *http.Request, cachePath string, mimeType string) bool {
+	if cachePath == "" {
+		return false
+	}
+	fi, err := os.Stat(cachePath)
+	if err != nil || fi.Size() == 0 {
+		return false
+	}
+	contentType := strings.TrimSpace(mimeType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
+	http.ServeFile(w, r, cachePath)
+	return true
+}
+
+func extractMediaAttachmentToCache(ctx context.Context, sourcePath string, attachment MediaAttachment, cachePath string) error {
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		return err
+	}
+	partialPath := cachePath + ".partial"
+	_ = os.Remove(partialPath)
+	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
+	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeEmbeddedExtract...)
+	ffmpegArgs = append(ffmpegArgs,
+		fmt.Sprintf("-dump_attachment:%d", attachment.StreamIndex),
+		partialPath,
+		"-i", sourcePath,
+		"-t", "0",
+		"-f", "null",
+		"null",
+	)
+	cmd := exec.CommandContext(ctx, "ffmpeg", ffmpegArgs...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		_ = os.Remove(partialPath)
+		msg := strings.TrimSpace(stderr.String())
+		msg = trimFFmpegStderrProgress(msg)
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		slog.Warn("ffmpeg media attachment extract", "stderr_tail", msg)
+		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	if fi, err := os.Stat(partialPath); err != nil || fi.Size() == 0 {
+		_ = os.Remove(partialPath)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("ffmpeg produced empty attachment stream %d", attachment.StreamIndex)
+	}
+	if err := os.Rename(partialPath, cachePath); err != nil {
+		_ = os.Remove(partialPath)
+		return err
+	}
+	return nil
+}
+
+func HandleStreamMediaAttachment(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
+	item, err := GetMediaByID(dbConn, mediaID)
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return ErrNotFound
+	}
+	attachment, err := GetMediaAttachmentForMedia(dbConn, mediaID, streamIndex)
+	if err != nil {
+		return err
+	}
+	if attachment == nil {
+		return ErrNotFound
+	}
+	sourcePath, err := ResolveMediaSourcePath(dbConn, *item)
+	if err != nil {
+		return err
+	}
+
+	cachePath, cacheErr := mediaAttachmentCachePath(sourcePath, *attachment)
+	if cacheErr == nil && tryServeMediaAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
+		return nil
+	}
+
+	lockKey := cachePath
+	if lockKey == "" {
+		lockKey = fmt.Sprintf("attachment|%s|%d", sourcePath, streamIndex)
+	}
+	mu := lockEmbeddedSubtitle(lockKey)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if cacheErr == nil && tryServeMediaAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
+		return nil
+	}
+	if cacheErr != nil {
+		return cacheErr
+	}
+	if err := extractMediaAttachmentToCache(r.Context(), sourcePath, *attachment, cachePath); err != nil {
+		return err
+	}
+	if !tryServeMediaAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
+		return fmt.Errorf("media attachment stream %d was not cached", streamIndex)
+	}
+	return nil
+}
+
 func tryServeEmbeddedSubtitleFromCache(w http.ResponseWriter, r *http.Request, cachePath string) bool {
 	if cachePath == "" {
 		return false

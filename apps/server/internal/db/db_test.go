@@ -261,6 +261,9 @@ CREATE TABLE library_job_status (
 		{table: "library_job_status", column: "queued_at"},
 		{table: "library_job_status", column: "estimated_items"},
 		{table: "library_job_status", column: "updated_at"},
+		{table: "media_attachments", column: "stream_index"},
+		{table: "media_attachments", column: "file_name"},
+		{table: "media_attachments", column: "mime_type"},
 	} {
 		if !columnExistsForTest(t, dbConn, tc.table, tc.column) {
 			t.Fatalf("expected %s.%s to exist after migration", tc.table, tc.column)
@@ -276,6 +279,7 @@ CREATE TABLE library_job_status (
 		{table: "movies", index: "idx_movies_library_match_status"},
 		{table: "tv_episodes", index: "idx_tv_episodes_library_match_status"},
 		{table: "anime_episodes", index: "idx_anime_episodes_library_match_status"},
+		{table: "media_attachments", index: "idx_media_attachments_media_stream"},
 	} {
 		if !indexExistsForTest(t, dbConn, tc.table, tc.index) {
 			t.Fatalf("expected index %s on %s", tc.index, tc.table)

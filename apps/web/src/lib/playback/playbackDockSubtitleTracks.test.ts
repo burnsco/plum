@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAssFontUrls,
   buildSubtitleTrackRequests,
   embeddedStreamIndexFromKey,
 } from "./playbackDockSubtitleTracks";
@@ -30,6 +31,39 @@ describe("buildSubtitleTrackRequests", () => {
 
     expect(tracks.map((track) => track.key)).toContain("ext:7");
     expect(tracks.map((track) => track.key)).toContain("emb:3");
+  });
+});
+
+describe("buildAssFontUrls", () => {
+  it("keeps ASS font attachments by MIME type or extension", () => {
+    const urls = buildAssFontUrls("http://plum.test", [
+      {
+        streamIndex: 7,
+        fileName: "Fancy Font.otf",
+        mimeType: "",
+        codec: "otf",
+        deliveryUrl: "/api/media/42/attachments/7",
+      },
+      {
+        streamIndex: 8,
+        fileName: "cover.jpg",
+        mimeType: "image/jpeg",
+        codec: "mjpeg",
+        deliveryUrl: "/api/media/42/attachments/8",
+      },
+      {
+        streamIndex: 9,
+        fileName: "font.bin",
+        mimeType: "FONT/WOFF2",
+        codec: "woff2",
+        deliveryUrl: "/api/media/42/attachments/9",
+      },
+    ]);
+
+    expect(urls).toEqual([
+      "http://plum.test/api/media/42/attachments/7",
+      "http://plum.test/api/media/42/attachments/9",
+    ]);
   });
 });
 

@@ -122,6 +122,22 @@ export const EmbeddedAudioTrackSchema = Schema.Struct({
   title: Schema.String,
 });
 
+export interface MediaAttachment {
+  streamIndex: number;
+  fileName?: string;
+  mimeType?: string;
+  codec?: string;
+  deliveryUrl: string;
+}
+
+export const MediaAttachmentSchema = Schema.Struct({
+  streamIndex: Schema.Number,
+  fileName: Schema.optional(Schema.String),
+  mimeType: Schema.optional(Schema.String),
+  codec: Schema.optional(Schema.String),
+  deliveryUrl: Schema.String,
+});
+
 export interface LibraryBrowseItem {
   id: number;
   library_id?: number;
@@ -247,6 +263,7 @@ export type MediaItem = Omit<
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  mediaAttachments?: MediaAttachment[];
   duplicate?: boolean;
   duplicate_count?: number;
 };
@@ -263,6 +280,7 @@ export const MediaItemSchema = LibraryBrowseItemSchema.pipe(
     subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
     embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
     embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+    mediaAttachments: Schema.optional(Schema.Array(MediaAttachmentSchema)),
     duplicate: Schema.optional(Schema.Boolean),
     duplicate_count: Schema.optional(Schema.Number),
   }),
@@ -409,6 +427,7 @@ export interface DirectPlaybackSession {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  mediaAttachments?: MediaAttachment[];
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_start_seconds?: number;
@@ -430,6 +449,7 @@ export interface HlsPlaybackSession {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  mediaAttachments?: MediaAttachment[];
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_start_seconds?: number;
@@ -451,6 +471,7 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  mediaAttachments: Schema.optional(Schema.Array(MediaAttachmentSchema)),
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_start_seconds: Schema.optional(Schema.Number),
@@ -472,6 +493,7 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  mediaAttachments: Schema.optional(Schema.Array(MediaAttachmentSchema)),
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_start_seconds: Schema.optional(Schema.Number),
@@ -489,12 +511,14 @@ export interface PlaybackTrackMetadata {
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
+  mediaAttachments?: MediaAttachment[];
 }
 
 export const PlaybackTrackMetadataSchema = Schema.Struct({
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
+  mediaAttachments: Schema.optional(Schema.Array(MediaAttachmentSchema)),
 });
 
 export interface ContinueWatchingEntry {

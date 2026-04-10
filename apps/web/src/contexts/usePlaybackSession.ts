@@ -76,6 +76,8 @@ function mergePlaybackTracks(item: MediaItem, session: ApiPlaybackSession): Medi
       session.embeddedSubtitles?.map((subtitle) => ({ ...subtitle })) ?? item.embeddedSubtitles,
     embeddedAudioTracks:
       session.embeddedAudioTracks?.map((track) => ({ ...track })) ?? item.embeddedAudioTracks,
+    mediaAttachments:
+      session.mediaAttachments?.map((attachment) => ({ ...attachment })) ?? item.mediaAttachments,
     intro_start_seconds: item.intro_start_seconds ?? session.intro_start_seconds,
     intro_end_seconds: item.intro_end_seconds ?? session.intro_end_seconds,
     credits_start_seconds: item.credits_start_seconds ?? session.credits_start_seconds,

@@ -270,6 +270,15 @@
   background: #000;
 }
 
+.fullscreen-player__video-frame > .JASSUB {
+  position: absolute !important;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
 .fullscreen-player--aspect-zoom .fullscreen-player__video {
   object-fit: cover;
 }
