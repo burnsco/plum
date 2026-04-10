@@ -233,11 +233,35 @@ func (m *PlaybackSessionManager) countSessionsForUser(userID int) int {
 	defer m.mu.RUnlock()
 	n := 0
 	for _, s := range m.sessions {
-		if s.userID == userID {
+		if s.userID != userID {
+			continue
+		}
+		s.mu.Lock()
+		active := s.countsTowardPlaybackLimitLocked()
+		s.mu.Unlock()
+		if active {
 			n++
 		}
 	}
 	return n
+}
+
+// countsTowardPlaybackLimitLocked reports whether a session should be included in the
+// per-user concurrency limit and active-session listings.
+//
+// Terminal-error sessions stay in memory long enough for clients to observe the failure,
+// but they should not block a fresh retry or clutter the active-session view.
+func (s *playbackSession) countsTowardPlaybackLimitLocked() bool {
+	for _, revision := range s.revisions {
+		if revision == nil {
+			continue
+		}
+		switch revision.status {
+		case "starting", "ready":
+			return true
+		}
+	}
+	return false
 }
 
 // ActiveSessionIDSet returns the set of in-memory playback session IDs (transcode workdirs use these names).
@@ -248,8 +272,13 @@ func (m *PlaybackSessionManager) ActiveSessionIDSet() map[string]struct{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make(map[string]struct{}, len(m.sessions))
-	for id := range m.sessions {
-		out[id] = struct{}{}
+	for id, session := range m.sessions {
+		session.mu.Lock()
+		active := session.countsTowardPlaybackLimitLocked()
+		session.mu.Unlock()
+		if active {
+			out[id] = struct{}{}
+		}
 	}
 	return out
 }
@@ -287,6 +316,10 @@ func (m *PlaybackSessionManager) ListActiveSessionsForAdmin() []ActivePlaybackSe
 	for _, item := range pairs {
 		session := item.s
 		session.mu.Lock()
+		if !session.countsTowardPlaybackLimitLocked() {
+			session.mu.Unlock()
+			continue
+		}
 		media := session.media
 		userID := session.userID
 		duration := session.durationSeconds
@@ -387,7 +420,13 @@ func (m *PlaybackSessionManager) Create(
 	if lim := maxPlaybackSessionsPerUser(); lim > 0 {
 		n := 0
 		for _, s := range m.sessions {
-			if s.userID == userID {
+			if s.userID != userID {
+				continue
+			}
+			s.mu.Lock()
+			active := s.countsTowardPlaybackLimitLocked()
+			s.mu.Unlock()
+			if active {
 				n++
 			}
 		}

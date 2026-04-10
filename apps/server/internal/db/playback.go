@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	completedProgressPercent = 95.0
-	completedRemainingSecs   = 120.0
+	completedProgressPercent = 90.0
+	completedRemainingSecs   = 30.0
 	recentlyAddedLimit       = 24
 
 	// Home dashboard "recently added" merges newest rows across movie/tv/anime; per-kind caps bound DB work.

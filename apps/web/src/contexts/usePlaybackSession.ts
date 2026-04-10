@@ -217,6 +217,18 @@ export function usePlaybackSession({
 
   const applyPlaybackSession = useCallback(
     (session: PlaybackSessionSource) => {
+      // createPlaybackSession resolves asynchronously; a faster second next/prev can move the queue
+      // ahead while an older request is still in flight. Never attach a stale session to the player.
+      const expectedId = activeVideoItemIdRef.current;
+      if (expectedId != null && expectedId !== session.mediaId) {
+        if (session.delivery !== "direct") {
+          ignorePromiseAlwaysLogUnexpected(
+            closePlaybackSession(session.sessionId),
+            "Player:closeStalePlaybackSession",
+          );
+        }
+        return;
+      }
       const nextSession = toVideoSessionState(session);
       setVideoSession(nextSession);
       setPlaybackSession((current) => {

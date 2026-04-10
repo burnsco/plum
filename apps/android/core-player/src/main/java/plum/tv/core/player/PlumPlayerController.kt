@@ -2244,6 +2244,16 @@ class PlumPlayerController(
         val audioIndex = serverAudioIndex.takeIf { it >= 0 }
         playbackRepository.createSession(mediaId, audioIndex = audioIndex, burnEmbeddedSubtitleStreamIndex = activeBurnSubtitleStreamIndex).fold(
             onSuccess = { session ->
+                // A newer next/prev (or initial load superseded) may have moved [mediaId] while
+                // createSession was in flight; applying a stale response corrupts Exo + transcode state.
+                if (this.mediaId != mediaId) {
+                    session.sessionId?.let { staleSessionId ->
+                        withContext(Dispatchers.IO) {
+                            runCatching { playbackRepository.closeSession(staleSessionId) }
+                        }
+                    }
+                    return@fold
+                }
                 createdSessionApplicator.apply(
                     session,
                     resumeSec,
@@ -2251,11 +2261,14 @@ class PlumPlayerController(
                 )
             },
             onFailure = { e ->
+                if (this.mediaId != mediaId) return@fold
                 updateError(e.message ?: "Playback failed")
                 updateStatus("Error")
             },
         )
-        refreshUiState()
+        if (this.mediaId == mediaId) {
+            refreshUiState()
+        }
     }
 
     private suspend fun openMedia(mediaId: Int, resumeSec: Float) {

@@ -7,7 +7,7 @@ export function clampProgressPercent(value?: number): number {
 
 export function shouldShowProgress(item: Pick<MediaItem, "progress_percent" | "completed">): boolean {
   const percent = clampProgressPercent(item.progress_percent);
-  return !item.completed && percent > 0 && percent < 95;
+  return !item.completed && percent > 0 && percent < 90;
 }
 
 export function formatRemainingTime(seconds?: number): string {

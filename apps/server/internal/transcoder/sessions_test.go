@@ -181,6 +181,85 @@ func TestCreateRespectsMaxSessionsPerUser(t *testing.T) {
 	}
 }
 
+func TestCreateIgnoresErroredSessionsForMaxSessions(t *testing.T) {
+	t.Setenv("PLUM_MAX_PLAYBACK_SESSIONS_PER_USER", "1")
+
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "media.mkv")
+	if err := os.WriteFile(mediaPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	previousProbeCommandContext := ffprobeCommandContext
+	ffprobeCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeFFProbeCommand(
+			ctx,
+			`{"format":{"format_name":"matroska","bit_rate":"0","duration":"120"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","bit_rate":"0"},{"index":1,"codec_type":"audio","codec_name":"aac","bit_rate":"0"}]}`,
+		)
+	}
+	t.Cleanup(func() {
+		ffprobeCommandContext = previousProbeCommandContext
+	})
+
+	previousCommandContext := ffmpegCommandContext
+	ffmpegCommandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		return fakeHLSCommand(ctx, args, "1")
+	}
+	t.Cleanup(func() {
+		ffmpegCommandContext = previousCommandContext
+	})
+
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
+	caps := ClientPlaybackCapabilities{
+		SupportsNativeHLS: true,
+		SupportsMSEHLS:    true,
+		VideoCodecs:       nil,
+		AudioCodecs:       []string{"aac"},
+		Containers:        []string{"mkv"},
+	}
+
+	first, err := manager.Create(
+		context.Background(),
+		db.MediaItem{ID: 601, Path: mediaPath},
+		db.DefaultTranscodingSettings(),
+		-1,
+		77,
+		caps,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("first Create: %v", err)
+	}
+
+	manager.mu.RLock()
+	session := manager.sessions[first.SessionID]
+	manager.mu.RUnlock()
+	if session == nil {
+		t.Fatalf("missing first session %q", first.SessionID)
+	}
+
+	waitForRevisionStatus(t, session, 1, "error")
+
+	second, err := manager.Create(
+		context.Background(),
+		db.MediaItem{ID: 602, Path: mediaPath},
+		db.DefaultTranscodingSettings(),
+		-1,
+		77,
+		caps,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("second Create after errored session: %v", err)
+	}
+	if second.SessionID == "" {
+		t.Fatal("expected second session id")
+	}
+
+	manager.Close(first.SessionID)
+	manager.Close(second.SessionID)
+}
+
 func TestCreateReturnsDurationSecondsFromProbe(t *testing.T) {
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "media.mp4")
