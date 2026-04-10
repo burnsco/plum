@@ -94,6 +94,7 @@ import type {
     UpdateLibraryPlaybackPreferencesPayload,
     UpdateMediaProgressPayload,
     UpdatePlaybackSessionAudioPayload,
+    UpdatePlaybackSessionSeekPayload,
     User,
     VaapiDecodeCodec,
 } from "@plum/contracts";
@@ -157,6 +158,7 @@ import {
     UpdateLibraryPlaybackPreferencesPayloadSchema,
     UpdateMediaProgressPayloadSchema,
     UpdatePlaybackSessionAudioPayloadSchema,
+    UpdatePlaybackSessionSeekPayloadSchema,
     UserSchema,
 } from "@plum/contracts";
 import { Data, Duration, Effect, Option, Schedule, Schema } from "effect";
@@ -232,7 +234,7 @@ export type {
     PatchMediaIntroPayload,
     MarkShowWatchedPayload,
     UpdateLibraryPlaybackPreferencesPayload,
-    UpdateMediaProgressPayload, UpdatePlaybackSessionAudioPayload, User,
+    UpdateMediaProgressPayload, UpdatePlaybackSessionAudioPayload, UpdatePlaybackSessionSeekPayload, User,
     VaapiDecodeCodec
 };
 
@@ -1184,6 +1186,24 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
           }),
         ),
       ),
+    updatePlaybackSessionSeek: (sessionId: string, payload: UpdatePlaybackSessionSeekPayload) =>
+      decodeSchemaEffect(
+        UpdatePlaybackSessionSeekPayloadSchema,
+        payload,
+        "PATCH",
+        `/api/playback/sessions/${sessionId}/seek`,
+        "Invalid playback session seek payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          jsonRequestEffect({
+            method: "PATCH",
+            path: `/api/playback/sessions/${sessionId}/seek`,
+            schema: PlaybackSessionSchema,
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Seek playback session: ${status}`,
+          }),
+        ),
+      ),
     closePlaybackSession: (sessionId: string) =>
       voidRequestEffect({
         method: "DELETE",
@@ -1573,6 +1593,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
       run(effects.patchMediaIntro(mediaId, payload)),
     updatePlaybackSessionAudio: (sessionId: string, payload: UpdatePlaybackSessionAudioPayload) =>
       run(effects.updatePlaybackSessionAudio(sessionId, payload)),
+    updatePlaybackSessionSeek: (sessionId: string, payload: UpdatePlaybackSessionSeekPayload) =>
+      run(effects.updatePlaybackSessionSeek(sessionId, payload)),
     closePlaybackSession: (sessionId: string) => run(effects.closePlaybackSession(sessionId)),
     getTranscodingSettings: () => run(effects.getTranscodingSettings()),
     updateTranscodingSettings: (payload: TranscodingSettings) =>

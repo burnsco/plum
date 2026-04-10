@@ -390,6 +390,14 @@ export const UpdatePlaybackSessionAudioPayloadSchema = Schema.Struct({
   audioIndex: Schema.Number,
 });
 
+export interface UpdatePlaybackSessionSeekPayload {
+  positionSeconds: number;
+}
+
+export const UpdatePlaybackSessionSeekPayloadSchema = Schema.Struct({
+  positionSeconds: Schema.Number,
+});
+
 export interface DirectPlaybackSession {
   delivery: "direct";
   mediaId: number;
@@ -397,6 +405,7 @@ export interface DirectPlaybackSession {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  streamOffsetSeconds?: number;
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
@@ -417,6 +426,7 @@ export interface HlsPlaybackSession {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  streamOffsetSeconds?: number;
   subtitles?: Subtitle[];
   embeddedSubtitles?: EmbeddedSubtitle[];
   embeddedAudioTracks?: EmbeddedAudioTrack[];
@@ -437,6 +447,7 @@ export const DirectPlaybackSessionSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  streamOffsetSeconds: Schema.optional(Schema.Number),
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
@@ -457,6 +468,7 @@ export const HlsPlaybackSessionSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  streamOffsetSeconds: Schema.optional(Schema.Number),
   subtitles: Schema.optional(Schema.Array(SubtitleSchema)),
   embeddedSubtitles: Schema.optional(Schema.Array(EmbeddedSubtitleSchema)),
   embeddedAudioTracks: Schema.optional(Schema.Array(EmbeddedAudioTrackSchema)),
@@ -1842,6 +1854,7 @@ export interface PlaybackSessionUpdateEvent {
   status: PlaybackSessionStatus;
   streamUrl: string;
   durationSeconds: number;
+  streamOffsetSeconds?: number;
   burnEmbeddedSubtitleStreamIndex?: number;
   error?: string;
   intro_start_seconds?: number;
@@ -1899,6 +1912,7 @@ export const PlaybackSessionUpdateEventSchema = Schema.Struct({
   status: PlaybackSessionStatusSchema,
   streamUrl: Schema.String,
   durationSeconds: Schema.Number,
+  streamOffsetSeconds: Schema.optional(Schema.Number),
   burnEmbeddedSubtitleStreamIndex: Schema.optional(Schema.Number),
   error: Schema.optional(Schema.String),
   intro_start_seconds: Schema.optional(Schema.Number),

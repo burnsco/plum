@@ -315,6 +315,69 @@ func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 	}
 }
 
+func TestSeekStartsOffsetRevisionPreservingTracks(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "media.mkv")
+	if err := os.WriteFile(mediaPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	previousProbeCommandContext := ffprobeCommandContext
+	ffprobeCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeFFProbeCommand(
+			ctx,
+			`{"format":{"format_name":"matroska","bit_rate":"0","duration":"3600"},"streams":[{"index":0,"codec_type":"video","codec_name":"hevc","pix_fmt":"yuv420p","height":1080,"bit_rate":"0"},{"index":2,"codec_type":"audio","codec_name":"aac","bit_rate":"0"},{"index":7,"codec_type":"subtitle","codec_name":"hdmv_pgs_subtitle"}]}`,
+		)
+	}
+	t.Cleanup(func() {
+		ffprobeCommandContext = previousProbeCommandContext
+	})
+
+	previousCommandContext := ffmpegCommandContext
+	ffmpegCommandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		return fakeHLSCommand(ctx, args, "0")
+	}
+	t.Cleanup(func() {
+		ffmpegCommandContext = previousCommandContext
+	})
+
+	burnStream := 7
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
+	session := &playbackSession{
+		id:                         "session-seek",
+		userID:                     42,
+		media:                      db.MediaItem{ID: 55, Path: mediaPath, Duration: 3600},
+		durationSeconds:            3600,
+		audioIndex:                 2,
+		revisions:                  make(map[int]*playbackRevision),
+		burnEmbeddedSubtitleStream: &burnStream,
+	}
+	manager.sessions[session.id] = session
+
+	state, err := manager.Seek(session.id, db.DefaultTranscodingSettings(), 120.25)
+	if err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+	if state.Status != "starting" || state.Revision != 1 || state.AudioIndex != 2 || state.StreamOffsetSeconds != 120.25 {
+		t.Fatalf("unexpected seek state: %+v", state)
+	}
+	if state.BurnEmbeddedSubtitleStreamIndex == nil || *state.BurnEmbeddedSubtitleStreamIndex != burnStream {
+		t.Fatalf("burn stream = %v, want %d", state.BurnEmbeddedSubtitleStreamIndex, burnStream)
+	}
+
+	session.mu.Lock()
+	revision := session.revisions[1]
+	sessionOffset := session.streamOffsetSeconds
+	session.mu.Unlock()
+	if revision == nil {
+		t.Fatal("expected revision 1")
+	}
+	if revision.startOffsetSeconds != 120.25 || sessionOffset != 120.25 {
+		t.Fatalf("offsets = revision %v session %v, want 120.25", revision.startOffsetSeconds, sessionOffset)
+	}
+	waitForRevisionStatus(t, session, 1, "ready")
+}
+
 func TestServeFileWaitsForDelayedSegment(t *testing.T) {
 	root := t.TempDir()
 	manager := NewPlaybackSessionManager(context.Background(), root, nil)

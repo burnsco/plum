@@ -177,6 +177,7 @@ function defaultPlaybackDockUsePlayer() {
       "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
     playbackDurationSeconds: 120,
     videoDelivery: "transcode" as const,
+    videoStreamOffsetSeconds: 0,
     videoAudioIndex: -1,
     burnEmbeddedSubtitleStreamIndex: null,
     wsConnected: false,

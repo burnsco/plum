@@ -11,6 +11,7 @@ import {
 type UsePlaybackDockSeekControlsArgs = {
   activeItemId: number | null;
   playbackCurrentTime: number;
+  playbackStreamOffsetSeconds: number;
   progressMax: number;
   seekTo: (seconds: number) => void;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -20,6 +21,7 @@ type UsePlaybackDockSeekControlsArgs = {
 export function usePlaybackDockSeekControls({
   activeItemId,
   playbackCurrentTime,
+  playbackStreamOffsetSeconds,
   progressMax,
   seekTo,
   videoRef,
@@ -132,12 +134,14 @@ export function usePlaybackDockSeekControls({
       const t =
         el != null && Number.isFinite(el.currentTime)
           ? el.currentTime
+            + playbackStreamOffsetSeconds
           : playbackCurrentTime;
       seekTo(Math.max(0, Math.min(cap, t + delta)));
       resetHideTimer();
     },
     [
       playbackCurrentTime,
+      playbackStreamOffsetSeconds,
       progressMax,
       removeScrubWindowListeners,
       resetHideTimer,

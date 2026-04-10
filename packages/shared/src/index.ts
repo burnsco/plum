@@ -122,6 +122,7 @@ export type {
   UpdateLibraryPlaybackPreferencesPayload,
   UpdateMediaProgressPayload,
   UpdatePlaybackSessionAudioPayload,
+  UpdatePlaybackSessionSeekPayload,
   User,
   VaapiDecodeCodec,
 } from "./api";

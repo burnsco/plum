@@ -24,23 +24,24 @@ func buildPlaybackHLSPlans(
 	settings db.TranscodingSettings,
 	probe playbackSourceProbe,
 	decision playbackDecision,
+	startOffsetSeconds float64,
 ) []transcodePlan {
 	if decision.BurnEmbeddedSubtitleStreamIdx >= 0 {
 		variants := buildAdaptiveVariants(probe, settings)
 		// Subtitle overlay is CPU filtergraph-only today; skip VAAPI attempts.
-		return []transcodePlan{buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, probe, decision, variants)}
+		return []transcodePlan{buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, probe, decision, variants, startOffsetSeconds)}
 	}
 	switch decision.Delivery {
 	case "remux":
-		return []transcodePlan{buildRemuxHLSPlan(itemPath, outDir, settings, decision)}
+		return []transcodePlan{buildRemuxHLSPlan(itemPath, outDir, settings, decision, startOffsetSeconds)}
 	default:
 		stream := probe.videoStreamInfo()
 		variants := buildAdaptiveVariants(probe, settings)
 		plans := make([]transcodePlan, 0, 2)
-		if hardwarePlan, ok := buildHardwareAdaptiveHLSPlan(itemPath, outDir, settings, stream, decision, variants); ok {
+		if hardwarePlan, ok := buildHardwareAdaptiveHLSPlan(itemPath, outDir, settings, stream, decision, variants, startOffsetSeconds); ok {
 			plans = append(plans, hardwarePlan)
 		}
-		plans = append(plans, buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, probe, decision, variants))
+		plans = append(plans, buildSoftwareAdaptiveHLSPlan(itemPath, outDir, settings, probe, decision, variants, startOffsetSeconds))
 		return plans
 	}
 }
@@ -50,8 +51,9 @@ func buildRemuxHLSPlan(
 	outDir string,
 	settings db.TranscodingSettings,
 	decision playbackDecision,
+	startOffsetSeconds float64,
 ) transcodePlan {
-	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	args := appendFFmpegInputAt([]string{"-y"}, itemPath, startOffsetSeconds)
 	args = append(args, "-map", "0:v:0")
 	if decision.AudioIndex >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", decision.AudioIndex))
@@ -80,8 +82,9 @@ func buildSoftwareAdaptiveHLSPlan(
 	probe playbackSourceProbe,
 	decision playbackDecision,
 	variants []adaptiveVariant,
+	startOffsetSeconds float64,
 ) transcodePlan {
-	args := appendFFmpegInput([]string{"-y"}, itemPath)
+	args := appendFFmpegInputAt([]string{"-y"}, itemPath, startOffsetSeconds)
 
 	filterParts := make([]string, 0, len(variants)+2)
 	videoSrc := "[0:v:0]"
@@ -166,6 +169,7 @@ func buildHardwareAdaptiveHLSPlan(
 	stream videoStreamInfo,
 	decision playbackDecision,
 	variants []adaptiveVariant,
+	startOffsetSeconds float64,
 ) (transcodePlan, bool) {
 	if !settings.VAAPIEnabled || !settings.HardwareEncodingEnabled || !settings.EncodeFormats.AnyEnabled() {
 		return transcodePlan{}, false
@@ -192,14 +196,14 @@ func buildHardwareAdaptiveHLSPlan(
 			"-hwaccel_device", settings.VAAPIDevicePath,
 			"-hwaccel_output_format", "vaapi",
 		)
-		args = appendFFmpegInput(args, itemPath)
+		args = appendFFmpegInputAt(args, itemPath, startOffsetSeconds)
 		prefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, true)
 		filterParts = append(
 			filterParts,
 			fmt.Sprintf("[0:v:0]%ssplit=%d%s", prefix, len(variants), strings.Join(splitTargets, "")),
 		)
 	} else {
-		args = appendFFmpegInput(args, itemPath)
+		args = appendFFmpegInputAt(args, itemPath, startOffsetSeconds)
 		tonemapPrefix := vaapiPrefixWithOptionalOpenCLTonemap(settings, stream, false)
 		if tonemapPrefix != "" {
 			filterParts = append(

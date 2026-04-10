@@ -44,6 +44,7 @@ export type PlayerSessionContextValue = {
   playbackDurationSeconds: number;
   /** Active video session delivery; null when not playing video. */
   videoDelivery: ApiPlaybackSession["delivery"] | null;
+  videoStreamOffsetSeconds: number;
   videoAudioIndex: number;
   /** Active burned-in embedded subtitle stream, or null. */
   burnEmbeddedSubtitleStreamIndex: number | null;
@@ -139,12 +140,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     videoSourceUrl,
     playbackDurationSeconds,
     videoDelivery,
+    videoStreamOffsetSeconds,
     videoAudioIndex,
     burnEmbeddedSubtitleStreamIndex,
     closeVideoSession,
     applyPlaybackSession,
     createClientPlaybackSession,
     changeAudioTrack,
+    seekVideoSession,
     changeEmbeddedSubtitleBurn,
     wsConnected,
   } = usePlaybackSession({
@@ -257,6 +260,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     active.pause();
   }, [getActiveMediaElement]);
 
+  const isMediaTimeSeekable = useCallback((element: HTMLMediaElement, seconds: number) => {
+    try {
+      for (let index = 0; index < element.seekable.length; index += 1) {
+        if (seconds >= element.seekable.start(index) && seconds <= element.seekable.end(index)) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }, []);
+
   const seekTo = useCallback(
     (seconds: number) => {
       const active = getActiveMediaElement();
@@ -267,9 +283,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const idx = playbackSessionRef.current?.queueIndex ?? 0;
         const item = queue?.[idx];
         const delivery = session?.delivery ?? "direct";
+        const streamOffset = session?.streamOffsetSeconds ?? 0;
+        const relativeSeconds = Math.max(0, seconds - streamOffset);
+        if (
+          delivery !== "direct" &&
+          session?.sessionId &&
+          !isMediaTimeSeekable(active, relativeSeconds)
+        ) {
+          ignorePromise(seekVideoSession(seconds), "Player:seekVideoSession");
+          return;
+        }
         active.currentTime = clampVideoSeekSeconds(
           active,
-          seconds,
+          delivery === "direct" ? seconds : relativeSeconds,
           session?.durationSeconds ?? 0,
           item?.duration ?? 0,
           delivery,
@@ -283,7 +309,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         active.currentTime = t;
       }
     },
-    [getActiveMediaElement, videoSessionRef],
+    [getActiveMediaElement, isMediaTimeSeekable, seekVideoSession, videoSessionRef],
   );
 
   const setMuted = useCallback((nextMuted: boolean) => {
@@ -319,6 +345,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       videoSourceUrl,
       playbackDurationSeconds,
       videoDelivery,
+      videoStreamOffsetSeconds,
       videoAudioIndex,
       burnEmbeddedSubtitleStreamIndex,
       dismissDock,
@@ -334,6 +361,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       videoSourceUrl,
       playbackDurationSeconds,
       videoDelivery,
+      videoStreamOffsetSeconds,
       videoAudioIndex,
       burnEmbeddedSubtitleStreamIndex,
       dismissDock,

@@ -224,6 +224,7 @@ export function usePlaybackDockController(): ReactNode {
   /** True until the first `playing` event for the current item — avoids resuming on every `canplay` after the user pauses. */
   const kickstartVideoPlaybackRef = useRef(false);
   const previousVideoSourceUrlRef = useRef("");
+  const previousVideoStreamOffsetRef = useRef(0);
   /** Tracks stream URL / item for a deferred play() after the async session URL lands (user activation is gone by then). */
   const prevAutoplayStreamUrlRef = useRef("");
   const prevAutoplayItemIdRef = useRef<number | null>(null);
@@ -253,6 +254,7 @@ export function usePlaybackDockController(): ReactNode {
     videoSourceUrl,
     playbackDurationSeconds,
     videoDelivery,
+    videoStreamOffsetSeconds,
     videoAudioIndex,
     wsConnected,
     lastEvent,
@@ -291,10 +293,10 @@ export function usePlaybackDockController(): ReactNode {
   const captureSubtitleResumePosition = useCallback(() => {
     const v = videoRef.current;
     if (v && Number.isFinite(v.currentTime) && v.currentTime > 0) {
-      seekToAfterReloadRef.current = v.currentTime;
+      seekToAfterReloadRef.current = v.currentTime + videoStreamOffsetSeconds;
       resumePlaybackAfterReloadRef.current = !v.paused && !v.ended;
     }
-  }, []);
+  }, [videoStreamOffsetSeconds]);
 
   // Attempt autoplay with a muted fallback when the browser's autoplay policy blocks
   // unmuted play (NotAllowedError). Calling `setMuted(true)` keeps the UI in sync.
@@ -324,6 +326,10 @@ export function usePlaybackDockController(): ReactNode {
     },
     [setMuted],
   );
+  const attemptAutoplayRef = useRef(attemptAutoplay);
+  useEffect(() => {
+    attemptAutoplayRef.current = attemptAutoplay;
+  }, [attemptAutoplay]);
 
   const playbackQueue = queue ?? EMPTY_PLAYBACK_QUEUE;
   const {
@@ -352,9 +358,11 @@ export function usePlaybackDockController(): ReactNode {
     const element = videoRef.current;
     if (element && activeItem) {
       const delivery = videoDelivery ?? "direct";
+      const relativeResume =
+        delivery === "direct" ? prompt.seconds : Math.max(0, prompt.seconds - videoStreamOffsetSeconds);
       element.currentTime = clampVideoSeekSeconds(
         element,
-        prompt.seconds,
+        relativeResume,
         playbackDurationSeconds,
         activeItem.duration,
         delivery,
@@ -363,7 +371,7 @@ export function usePlaybackDockController(): ReactNode {
     }
     resumeAppliedRef.current = prompt.mediaId;
     setResumePrompt(null);
-  }, [activeItem, playbackDurationSeconds, resumePrompt, videoDelivery]);
+  }, [activeItem, playbackDurationSeconds, resumePrompt, videoDelivery, videoStreamOffsetSeconds]);
 
   const handleStartFromBeginning = useCallback(() => {
     const prompt = resumePrompt;
@@ -514,9 +522,12 @@ export function usePlaybackDockController(): ReactNode {
 
   useEffect(() => {
     const previousUrl = previousVideoSourceUrlRef.current;
+    const previousOffset = previousVideoStreamOffsetRef.current;
     previousVideoSourceUrlRef.current = videoSourceUrl;
     const sourceChanged = previousUrl !== videoSourceUrl;
+    const streamOffsetChanged = previousOffset !== videoStreamOffsetSeconds;
     if (sourceChanged) {
+      previousVideoStreamOffsetRef.current = videoStreamOffsetSeconds;
       setIsVideoLoading(true);
       setHlsStatusMessage("");
       mediaRecoveryAttemptsRef.current = 0;
@@ -528,14 +539,15 @@ export function usePlaybackDockController(): ReactNode {
     if (!videoSourceUrl || !previousUrl || !sourceChanged) return;
     const video = videoRef.current;
     if (!video) return;
-    seekToAfterReloadRef.current =
-      Number.isFinite(video.currentTime) && video.currentTime > 0
+    seekToAfterReloadRef.current = streamOffsetChanged
+      ? 0
+      : Number.isFinite(video.currentTime) && video.currentTime > 0
         ? video.currentTime
-        : playbackState.currentTime;
+        : Math.max(0, playbackState.currentTime - videoStreamOffsetSeconds);
     resumePlaybackAfterReloadRef.current = !video.paused && !video.ended;
     video.pause();
     video.load();
-  }, [playbackState.currentTime, videoSourceUrl]);
+  }, [playbackState.currentTime, videoSourceUrl, videoStreamOffsetSeconds]);
 
   useEffect(() => {
     const prevUrl = prevAutoplayStreamUrlRef.current;
@@ -816,7 +828,7 @@ export function usePlaybackDockController(): ReactNode {
           : 0;
       setPlaybackState({
         currentTime: Number.isFinite(element.currentTime)
-          ? element.currentTime
+          ? element.currentTime + (isVideo ? videoStreamOffsetSeconds : 0)
           : 0,
         duration: isVideo
           ? resolvedVideoDuration(
@@ -828,7 +840,7 @@ export function usePlaybackDockController(): ReactNode {
         isPlaying: !element.paused && !element.ended,
       });
     },
-    [activeItem?.duration, isVideo, playbackDurationSeconds],
+    [activeItem?.duration, isVideo, playbackDurationSeconds, videoStreamOffsetSeconds],
   );
   const syncPlaybackStateRef = useRef(syncPlaybackState);
 
@@ -888,7 +900,7 @@ export function usePlaybackDockController(): ReactNode {
       if (!Number.isFinite(duration) || duration <= 0) return null;
       const rawPosition =
         candidate && Number.isFinite(candidate.currentTime)
-          ? candidate.currentTime
+          ? candidate.currentTime + videoStreamOffsetSeconds
           : fallbackPosition;
       const delivery = videoDelivery ?? "direct";
       let positionCap = duration;
@@ -900,7 +912,10 @@ export function usePlaybackDockController(): ReactNode {
           delivery,
         );
         if (ub > 0) {
-          positionCap = Math.min(positionCap, ub);
+          positionCap = Math.min(
+            positionCap,
+            ub + (delivery === "direct" ? 0 : videoStreamOffsetSeconds),
+          );
         }
       }
       const positionSeconds = Math.max(0, Math.min(rawPosition, positionCap));
@@ -926,6 +941,7 @@ export function usePlaybackDockController(): ReactNode {
       playbackDurationSeconds,
       playbackState.currentTime,
       videoDelivery,
+      videoStreamOffsetSeconds,
     ],
   );
 
@@ -1018,16 +1034,18 @@ export function usePlaybackDockController(): ReactNode {
         return;
       }
       const delivery = videoDelivery ?? "direct";
+      const relativeResumeAt =
+        delivery === "direct" ? resumeAt : Math.max(0, resumeAt - videoStreamOffsetSeconds);
       element.currentTime = clampVideoSeekSeconds(
         element,
-        resumeAt,
+        relativeResumeAt,
         playbackDurationSeconds,
         activeItem.duration,
         delivery,
       );
       resumeAppliedRef.current = activeItem.id;
     },
-    [activeItem, isVideo, playbackDurationSeconds, videoDelivery],
+    [activeItem, isVideo, playbackDurationSeconds, videoDelivery, videoStreamOffsetSeconds],
   );
 
   const persistInitialPlaybackProgress = useCallback(
@@ -1088,16 +1106,20 @@ export function usePlaybackDockController(): ReactNode {
       const seekToAfterReload = seekToAfterReloadRef.current;
       if (seekToAfterReload != null) {
         const delivery = videoDelivery ?? "direct";
+        const relativeSeek =
+          delivery === "direct"
+            ? seekToAfterReload
+            : Math.max(0, seekToAfterReload - videoStreamOffsetSeconds);
         element.currentTime =
           activeItem != null
             ? clampVideoSeekSeconds(
                 element,
-                seekToAfterReload,
+                relativeSeek,
                 playbackDurationSeconds,
                 activeItem.duration,
                 delivery,
               )
-            : Math.max(0, seekToAfterReload);
+            : Math.max(0, relativeSeek);
         seekToAfterReloadRef.current = null;
         const shouldResumePlayback = resumePlaybackAfterReloadRef.current;
         resumePlaybackAfterReloadRef.current = false;
@@ -1147,6 +1169,7 @@ export function usePlaybackDockController(): ReactNode {
       playbackDurationSeconds,
       syncPlaybackState,
       videoDelivery,
+      videoStreamOffsetSeconds,
     ],
   );
 
@@ -1211,6 +1234,7 @@ export function usePlaybackDockController(): ReactNode {
     resumePlaybackAfterReloadRef.current = false;
     suppressVideoAutoplayOnCanPlayRef.current = false;
     previousVideoSourceUrlRef.current = "";
+    previousVideoStreamOffsetRef.current = 0;
     setHlsStatusMessage("");
     mediaRecoveryAttemptsRef.current = 0;
     networkRecoveryAttemptsRef.current = 0;
@@ -1718,22 +1742,23 @@ export function usePlaybackDockController(): ReactNode {
   // Called when HLS.js has parsed the manifest — the earliest HLS-ready moment to
   // trigger autoplay (standard HLS.js pattern). Uses the same guards as handleVideoCanPlay
   // plus a resume-progress check to avoid calling play() before the resume prompt appears.
+  const activeItemCompleted = activeItem?.completed ?? false;
+  const activeItemProgressSeconds = activeItem?.progress_seconds ?? 0;
   const handleHlsManifestParsed = useCallback(() => {
     if (suppressVideoAutoplayOnCanPlayRef.current) return;
     if (!kickstartVideoPlaybackRef.current) return;
     if (seekToAfterReloadRef.current != null) return; // source reload — loadedmetadata handles it
-    const resumeAt = activeItem?.progress_seconds ?? 0;
     const hasResumableProgress =
-      activeItem != null &&
-      !activeItem.completed &&
-      Number.isFinite(resumeAt) &&
-      resumeAt > 0 &&
-      resumeAppliedRef.current !== activeItem.id;
+      activeItemId != null &&
+      !activeItemCompleted &&
+      Number.isFinite(activeItemProgressSeconds) &&
+      activeItemProgressSeconds > 0 &&
+      resumeAppliedRef.current !== activeItemId;
     if (hasResumableProgress) return;
     const video = videoRef.current;
     if (!video) return;
-    attemptAutoplay(video, "PlaybackDock:manifestParsedAutoplay");
-  }, [activeItem, attemptAutoplay]);
+    attemptAutoplayRef.current(video, "PlaybackDock:manifestParsedAutoplay");
+  }, [activeItemCompleted, activeItemId, activeItemProgressSeconds]);
 
   useHlsAttachment({
     isVideo,
@@ -1815,7 +1840,9 @@ export function usePlaybackDockController(): ReactNode {
 
   const handleVideoPrevious = useCallback(() => {
     const currentTime =
-      videoRef.current?.currentTime ?? playbackState.currentTime;
+      videoRef.current != null && Number.isFinite(videoRef.current.currentTime)
+        ? videoRef.current.currentTime + videoStreamOffsetSeconds
+        : playbackState.currentTime;
     if (
       shouldRestartCurrentVideoOnPrevious(
         currentTime,
@@ -1826,7 +1853,7 @@ export function usePlaybackDockController(): ReactNode {
       return;
     }
     playPreviousInQueue();
-  }, [playPreviousInQueue, playbackState.currentTime, seekTo]);
+  }, [playPreviousInQueue, playbackState.currentTime, seekTo, videoStreamOffsetSeconds]);
 
   const handleVideoEnded = useCallback(
     (event: SyntheticEvent<HTMLVideoElement>) => {
@@ -1867,6 +1894,7 @@ export function usePlaybackDockController(): ReactNode {
   } = usePlaybackDockSeekControls({
     activeItemId,
     playbackCurrentTime: playbackState.currentTime,
+    playbackStreamOffsetSeconds: videoStreamOffsetSeconds,
     progressMax,
     seekTo,
     videoRef,

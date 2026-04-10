@@ -19,6 +19,7 @@ import {
   type PlaybackSession as ApiPlaybackSession,
   type PlumWebSocketCommand,
   updatePlaybackSessionAudio,
+  updatePlaybackSessionSeek,
 } from "../api";
 import { detectClientPlaybackCapabilities } from "../lib/playback/playerMedia";
 import { ignorePromiseAlwaysLogUnexpected } from "../lib/ignorePromise";
@@ -36,6 +37,7 @@ export type VideoSessionState = {
   status: "starting" | "ready" | "error" | "closed";
   streamUrl: string;
   durationSeconds: number;
+  streamOffsetSeconds: number;
   error: string;
   burnEmbeddedSubtitleStreamIndex: number | null;
 };
@@ -48,6 +50,7 @@ export type PlaybackSessionSource =
       status: ApiPlaybackSession["status"];
       streamUrl: string;
       durationSeconds: number;
+      streamOffsetSeconds?: number;
       error?: string;
       burnEmbeddedSubtitleStreamIndex?: number;
     }
@@ -60,6 +63,7 @@ export type PlaybackSessionSource =
       status: ApiPlaybackSession["status"];
       streamUrl: string;
       durationSeconds: number;
+      streamOffsetSeconds?: number;
       error?: string;
       burnEmbeddedSubtitleStreamIndex?: number;
     };
@@ -100,6 +104,7 @@ function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState 
       status: session.status,
       streamUrl: resolvePlaybackStreamUrl(session.streamUrl),
       durationSeconds: session.durationSeconds,
+      streamOffsetSeconds: session.streamOffsetSeconds ?? 0,
       error: session.error ?? "",
       burnEmbeddedSubtitleStreamIndex: burn,
     };
@@ -115,6 +120,7 @@ function toVideoSessionState(session: PlaybackSessionSource): VideoSessionState 
     status: session.status,
     streamUrl: resolvePlaybackStreamUrl(session.streamUrl),
     durationSeconds: session.durationSeconds,
+    streamOffsetSeconds: session.streamOffsetSeconds ?? 0,
     error: session.error ?? "",
     burnEmbeddedSubtitleStreamIndex: burn,
   };
@@ -177,6 +183,8 @@ export function usePlaybackSession({
       : 0;
   const videoDelivery =
     activeMode === "video" && videoSession != null ? videoSession.delivery : null;
+  const videoStreamOffsetSeconds =
+    activeMode === "video" ? (videoSession?.streamOffsetSeconds ?? 0) : 0;
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
   const burnEmbeddedSubtitleStreamIndex =
     activeMode === "video" ? (videoSession?.burnEmbeddedSubtitleStreamIndex ?? null) : null;
@@ -313,6 +321,10 @@ export function usePlaybackSession({
                     ? current.streamUrl
                     : resolvePlaybackStreamUrl(nextSession.streamUrl),
                 durationSeconds: nextSession.durationSeconds,
+                streamOffsetSeconds:
+                  nextSession.status === "starting"
+                    ? current.streamOffsetSeconds
+                    : (nextSession.streamOffsetSeconds ?? 0),
                 error: nextSession.error ?? "",
                 burnEmbeddedSubtitleStreamIndex:
                   nextSession.burnEmbeddedSubtitleStreamIndex ??
@@ -327,6 +339,54 @@ export function usePlaybackSession({
       }
     },
     [activeItem, activeMode, applyPlaybackSession, createClientPlaybackSession, setLastEvent],
+  );
+
+  const seekVideoSession = useCallback(
+    async (positionSeconds: number) => {
+      const session = videoSessionRef.current;
+      if (activeMode !== "video" || !activeItem || !session?.sessionId) return;
+      setLastEvent("Seeking...");
+      try {
+        const nextSession = await updatePlaybackSessionSeek(session.sessionId, {
+          positionSeconds,
+        });
+        if (!mountedRef.current) return;
+        if (nextSession.delivery === "direct") {
+          applyPlaybackSession(nextSession);
+          return;
+        }
+        setVideoSession((current) =>
+          current == null || current.sessionId !== session.sessionId
+            ? current
+            : {
+                ...current,
+                delivery: nextSession.delivery,
+                desiredRevision: nextSession.revision,
+                audioIndex: nextSession.audioIndex,
+                status: nextSession.status,
+                streamUrl:
+                  nextSession.status === "starting"
+                    ? current.streamUrl
+                    : resolvePlaybackStreamUrl(nextSession.streamUrl),
+                durationSeconds: nextSession.durationSeconds,
+                streamOffsetSeconds:
+                  nextSession.status === "starting"
+                    ? current.streamOffsetSeconds
+                    : (nextSession.streamOffsetSeconds ?? positionSeconds),
+                error: nextSession.error ?? "",
+                burnEmbeddedSubtitleStreamIndex:
+                  nextSession.burnEmbeddedSubtitleStreamIndex ??
+                  current.burnEmbeddedSubtitleStreamIndex,
+              },
+        );
+      } catch (err) {
+        console.error("[Player] seekVideoSession failed", err);
+        setLastEvent(
+          `Error: ${err instanceof Error ? err.message : "Failed to seek playback"}`,
+        );
+      }
+    },
+    [activeItem, activeMode, applyPlaybackSession, mountedRef, setLastEvent],
   );
 
   const changeEmbeddedSubtitleBurn = useCallback(
@@ -399,6 +459,7 @@ export function usePlaybackSession({
                 latestEvent.durationSeconds > 0
                   ? latestEvent.durationSeconds
                   : current.durationSeconds,
+              streamOffsetSeconds: latestEvent.streamOffsetSeconds ?? current.streamOffsetSeconds,
               error: latestEvent.error ?? "",
               burnEmbeddedSubtitleStreamIndex:
                 latestEvent.burnEmbeddedSubtitleStreamIndex ??
@@ -442,12 +503,14 @@ export function usePlaybackSession({
     videoSourceUrl,
     playbackDurationSeconds,
     videoDelivery,
+    videoStreamOffsetSeconds,
     videoAudioIndex,
     burnEmbeddedSubtitleStreamIndex,
     closeVideoSession,
     applyPlaybackSession,
     createClientPlaybackSession,
     changeAudioTrack,
+    seekVideoSession,
     changeEmbeddedSubtitleBurn,
     wsConnected,
   };

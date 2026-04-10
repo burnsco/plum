@@ -357,6 +357,7 @@ func buildRouter(
 		protected.Post("/api/media/{id}/embedded-subtitles/warm-cache", playbackHandler.WarmEmbeddedSubtitleCaches)
 		protected.Post("/api/playback/sessions/{id}", playbackHandler.CreateSession)
 		protected.Patch("/api/playback/sessions/{sessionId}/audio", playbackHandler.UpdateSessionAudio)
+		protected.Patch("/api/playback/sessions/{sessionId}/seek", playbackHandler.UpdateSessionSeek)
 		protected.Delete("/api/playback/sessions/{sessionId}", playbackHandler.CloseSession)
 		protected.Get("/api/playback/sessions/{sessionId}/revisions/{revision}/*", playbackHandler.ServeSessionRevision)
 		protected.Head("/api/playback/sessions/{sessionId}/revisions/{revision}/*", playbackHandler.ServeSessionRevision)

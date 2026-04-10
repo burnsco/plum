@@ -53,6 +53,7 @@ type PlaybackSessionState struct {
 	Status                          string                         `json:"status"`
 	StreamURL                       string                         `json:"streamUrl"`
 	DurationSeconds                 int                            `json:"durationSeconds"`
+	StreamOffsetSeconds             float64                        `json:"streamOffsetSeconds"`
 	Subtitles                       []db.Subtitle                  `json:"subtitles,omitempty"`
 	EmbeddedSubtitles               []PlaybackEmbeddedSubtitleJSON `json:"embeddedSubtitles,omitempty"`
 	EmbeddedAudioTracks             []db.EmbeddedAudioTrack        `json:"embeddedAudioTracks,omitempty"`
@@ -82,6 +83,7 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		Status                          string   `json:"status"`
 		StreamURL                       string   `json:"streamUrl"`
 		DurationSeconds                 int      `json:"durationSeconds"`
+		StreamOffsetSeconds             float64  `json:"streamOffsetSeconds"`
 		Error                           string   `json:"error,omitempty"`
 		BurnEmbeddedSubtitleStreamIndex *int     `json:"burnEmbeddedSubtitleStreamIndex,omitempty"`
 		IntroStartSeconds               *float64 `json:"intro_start_seconds,omitempty"`
@@ -99,6 +101,7 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 		Status:                          s.Status,
 		StreamURL:                       s.StreamURL,
 		DurationSeconds:                 s.DurationSeconds,
+		StreamOffsetSeconds:             s.StreamOffsetSeconds,
 		Error:                           s.Error,
 		BurnEmbeddedSubtitleStreamIndex: s.BurnEmbeddedSubtitleStreamIndex,
 		IntroStartSeconds:               s.IntroStartSeconds,
@@ -109,15 +112,16 @@ func (s PlaybackSessionState) MarshalWSPayload() ([]byte, error) {
 }
 
 type playbackRevision struct {
-	number     int
-	delivery   string
-	audioIndex int
-	dir        string
-	streamURL  string
-	status     string
-	err        string
-	cancel     context.CancelFunc
-	readySent  bool
+	number             int
+	delivery           string
+	audioIndex         int
+	dir                string
+	streamURL          string
+	startOffsetSeconds float64
+	status             string
+	err                string
+	cancel             context.CancelFunc
+	readySent          bool
 	// Frozen subtitle rendition set for this revision, captured at revision creation.
 	subtitleTracksByPlaylistFile map[string]HlsWebSubtitle
 	subtitleTracksForMaster      []HlsWebSubtitle
@@ -134,6 +138,7 @@ type playbackSession struct {
 	userID                     int
 	media                      db.MediaItem
 	durationSeconds            int
+	streamOffsetSeconds        float64
 	capabilities               ClientPlaybackCapabilities
 	audioIndex                 int
 	activeRevision             int
@@ -467,6 +472,56 @@ func (m *PlaybackSessionManager) UpdateAudio(sessionID string, settings db.Trans
 	return m.startRevision(session, settings, audioIndex, decision, &probe)
 }
 
+func (m *PlaybackSessionManager) Seek(sessionID string, settings db.TranscodingSettings, positionSeconds float64) (PlaybackSessionState, error) {
+	m.mu.RLock()
+	session := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if session == nil {
+		return PlaybackSessionState{}, db.ErrNotFound
+	}
+	if math.IsNaN(positionSeconds) || math.IsInf(positionSeconds, 0) {
+		positionSeconds = 0
+	}
+	probe, err := probePlaybackSource(m.shutdownCtx, session.media.Path)
+	if err != nil {
+		slog.Warn("playback probe failed", "media_id", session.media.ID, "path", session.media.Path, "error", err)
+	}
+	durationSeconds := resolvePlaybackDurationSeconds(session.media.Duration, probe.DurationSeconds)
+	session.mu.Lock()
+	if durationSeconds > 0 {
+		session.durationSeconds = durationSeconds
+	} else {
+		durationSeconds = session.durationSeconds
+	}
+	audioIndex := session.audioIndex
+	burnPtr := session.burnEmbeddedSubtitleStream
+	session.mu.Unlock()
+
+	maxPosition := float64(durationSeconds)
+	if maxPosition > 0 {
+		positionSeconds = math.Min(positionSeconds, math.Max(0, maxPosition-0.05))
+	}
+	positionSeconds = math.Max(0, positionSeconds)
+	decision := decidePlayback(session.media.ID, probe, session.capabilities, audioIndex, burnPtr)
+	if decision.Delivery == "direct" {
+		state := PlaybackSessionState{
+			Delivery:                        "direct",
+			MediaID:                         session.media.ID,
+			AudioIndex:                      audioIndex,
+			Status:                          "ready",
+			StreamURL:                       decision.StreamURL,
+			DurationSeconds:                 durationSeconds,
+			Subtitles:                       session.media.Subtitles,
+			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, decision.Delivery),
+			EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
+			BurnEmbeddedSubtitleStreamIndex: burnStreamJSON(burnPtr),
+		}
+		attachIntroFields(&state, session.media)
+		return state, nil
+	}
+	return m.startRevisionAt(session, settings, audioIndex, decision, &probe, positionSeconds)
+}
+
 func (m *PlaybackSessionManager) Attach(sessionID string, userID int, clientID string) (*PlaybackSessionState, error) {
 	m.mu.Lock()
 	session := m.sessions[sessionID]
@@ -557,6 +612,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 	audioIndex := session.audioIndex
 	mediaID := session.media.ID
 	durationSeconds := session.durationSeconds
+	streamOffsetSeconds := session.streamOffsetSeconds
 	ownerClientID := session.ownerClientID
 	delivery := "transcode"
 	if active := session.revisions[activeRevision]; active != nil && active.delivery != "" {
@@ -588,6 +644,7 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 		AudioIndex:                      audioIndex,
 		Status:                          "closed",
 		DurationSeconds:                 durationSeconds,
+		StreamOffsetSeconds:             streamOffsetSeconds,
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
@@ -624,6 +681,7 @@ func (s *playbackSession) stateForReplayLocked() *PlaybackSessionState {
 			Status:                          revision.status,
 			StreamURL:                       revision.streamURL,
 			DurationSeconds:                 s.durationSeconds,
+			StreamOffsetSeconds:             revision.startOffsetSeconds,
 			Subtitles:                       s.media.Subtitles,
 			EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(s.media, revision.delivery),
 			EmbeddedAudioTracks:             s.media.EmbeddedAudioTracks,
@@ -787,10 +845,25 @@ func (m *PlaybackSessionManager) startRevision(
 	decision playbackDecision,
 	cachedProbe *playbackSourceProbe,
 ) (PlaybackSessionState, error) {
+	return m.startRevisionAt(session, settings, audioIndex, decision, cachedProbe, 0)
+}
+
+func (m *PlaybackSessionManager) startRevisionAt(
+	session *playbackSession,
+	settings db.TranscodingSettings,
+	audioIndex int,
+	decision playbackDecision,
+	cachedProbe *playbackSourceProbe,
+	startOffsetSeconds float64,
+) (PlaybackSessionState, error) {
+	if math.IsNaN(startOffsetSeconds) || math.IsInf(startOffsetSeconds, 0) || startOffsetSeconds < 0 {
+		startOffsetSeconds = 0
+	}
 	session.mu.Lock()
 	session.desiredRevision += 1
 	revisionNumber := session.desiredRevision
 	session.audioIndex = audioIndex
+	session.streamOffsetSeconds = startOffsetSeconds
 	durationSeconds := session.durationSeconds
 
 	for _, revision := range session.revisions {
@@ -807,13 +880,14 @@ func (m *PlaybackSessionManager) startRevision(
 
 	ctx, cancel := context.WithCancel(m.shutdownCtx)
 	revision := &playbackRevision{
-		number:     revisionNumber,
-		delivery:   decision.Delivery,
-		audioIndex: audioIndex,
-		dir:        dir,
-		streamURL:  fmt.Sprintf("/api/playback/sessions/%s/revisions/%d/index.m3u8", session.id, revisionNumber),
-		status:     "starting",
-		cancel:     cancel,
+		number:             revisionNumber,
+		delivery:           decision.Delivery,
+		audioIndex:         audioIndex,
+		dir:                dir,
+		streamURL:          fmt.Sprintf("/api/playback/sessions/%s/revisions/%d/index.m3u8", session.id, revisionNumber),
+		startOffsetSeconds: startOffsetSeconds,
+		status:             "starting",
+		cancel:             cancel,
 	}
 	revision.subtitleTracksByPlaylistFile, revision.subtitleTracksForMaster = freezeRevisionSubtitleTracks(session.media)
 	session.revisions[revisionNumber] = revision
@@ -838,6 +912,7 @@ func (m *PlaybackSessionManager) startRevision(
 		Status:                          revision.status,
 		StreamURL:                       revision.streamURL,
 		DurationSeconds:                 durationSeconds,
+		StreamOffsetSeconds:             startOffsetSeconds,
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
@@ -910,7 +985,8 @@ func (m *PlaybackSessionManager) runRevision(
 		durationSeconds = session.durationSeconds
 	}
 	session.mu.Unlock()
-	plans := buildPlaybackHLSPlans(session.media.Path, revision.dir, settings, probe, decision)
+	readyDurationSeconds := math.Max(0, float64(durationSeconds)-revision.startOffsetSeconds)
+	plans := buildPlaybackHLSPlans(session.media.Path, revision.dir, settings, probe, decision, revision.startOffsetSeconds)
 	finalState := PlaybackSessionState{
 		SessionID:                       session.id,
 		Delivery:                        revision.delivery,
@@ -920,6 +996,7 @@ func (m *PlaybackSessionManager) runRevision(
 		Status:                          "error",
 		StreamURL:                       revision.streamURL,
 		DurationSeconds:                 durationSeconds,
+		StreamOffsetSeconds:             revision.startOffsetSeconds,
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,
@@ -1001,7 +1078,7 @@ func (m *PlaybackSessionManager) runRevision(
 					)
 					break loop
 				}
-				if !ready && revisionReady(revision.dir, float64(durationSeconds)) {
+				if !ready && revisionReady(revision.dir, readyDurationSeconds) {
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
@@ -1014,7 +1091,7 @@ func (m *PlaybackSessionManager) runRevision(
 				)
 				return
 			case <-ticker.C:
-				if !ready && revisionReady(revision.dir, float64(durationSeconds)) {
+				if !ready && revisionReady(revision.dir, readyDurationSeconds) {
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
@@ -1063,6 +1140,7 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 	if revision.number == session.desiredRevision {
 		session.activeRevision = revision.number
 		session.audioIndex = revision.audioIndex
+		session.streamOffsetSeconds = revision.startOffsetSeconds
 	}
 	activeRevision := session.activeRevision
 	audioIndex := session.audioIndex
@@ -1081,6 +1159,7 @@ func (m *PlaybackSessionManager) markRevisionReady(session *playbackSession, rev
 		Status:                          "ready",
 		StreamURL:                       revision.streamURL,
 		DurationSeconds:                 durationSeconds,
+		StreamOffsetSeconds:             revision.startOffsetSeconds,
 		Subtitles:                       session.media.Subtitles,
 		EmbeddedSubtitles:               embeddedSubtitlesForPlaybackJSON(session.media, revision.delivery),
 		EmbeddedAudioTracks:             session.media.EmbeddedAudioTracks,

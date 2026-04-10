@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"time"
 
@@ -280,6 +281,41 @@ func (h *PlaybackHandler) UpdateSessionAudio(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	state, err := h.Sessions.UpdateAudio(sessionID, settings, payload.AudioIndex)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(state)
+}
+
+func (h *PlaybackHandler) UpdateSessionSeek(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionId")
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := h.Sessions.EnsureSessionOwner(sessionID, user.ID); err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	var payload struct {
+		PositionSeconds float64 `json:"positionSeconds"`
+	}
+	if !decodeRequestJSON(w, r, &payload) {
+		return
+	}
+	if math.IsNaN(payload.PositionSeconds) || math.IsInf(payload.PositionSeconds, 0) {
+		http.Error(w, "invalid seek position", http.StatusBadRequest)
+		return
+	}
+	settings, err := db.GetTranscodingSettings(h.DB)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	state, err := h.Sessions.Seek(sessionID, settings, payload.PositionSeconds)
 	if err != nil {
 		writePlaybackError(w, err)
 		return

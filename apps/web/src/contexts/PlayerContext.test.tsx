@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Effect } from "effect";
+import { useEffect, useRef, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAuthSessionEffect } from "@plum/shared";
 import type { MediaItem } from "../api";
@@ -288,6 +289,69 @@ function PreferredTracksHarness() {
   );
 }
 
+function makeSeekableRange(start: number, end: number): TimeRanges {
+  return {
+    length: 1,
+    start: (index: number) => {
+      if (index !== 0) throw new DOMException("Index out of range", "IndexSizeError");
+      return start;
+    },
+    end: (index: number) => {
+      if (index !== 0) throw new DOMException("Index out of range", "IndexSizeError");
+      return end;
+    },
+  };
+}
+
+function SeekHarness({ seekableEnd }: { seekableEnd: number }) {
+  const { playMovie, registerMediaElement, seekTo, videoSourceUrl, lastEvent } = usePlayer();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    Object.defineProperty(video, "duration", { value: 7200, configurable: true });
+    Object.defineProperty(video, "seekable", {
+      value: makeSeekableRange(0, seekableEnd),
+      configurable: true,
+    });
+    registerMediaElement("video", video);
+    return () => registerMediaElement("video", null);
+  }, [registerMediaElement, seekableEnd]);
+
+  return (
+    <div>
+      <button type="button" onClick={() => playMovie(movie)}>
+        Play Seek Movie
+      </button>
+      <button type="button" onClick={() => seekTo(120)}>
+        Seek 120
+      </button>
+      <video ref={videoRef} data-testid="seek-video" />
+      <div data-testid="seek-video-url">{videoSourceUrl}</div>
+      <div data-testid="seek-last-event">{lastEvent}</div>
+    </div>
+  );
+}
+
+function renderWithPlayerProvider(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <WsProvider>
+          <PlayerProvider>{ui}</PlayerProvider>
+        </WsProvider>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+}
+
 describe("PlayerContext playback session updates", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -330,12 +394,65 @@ describe("PlayerContext playback session updates", () => {
       streamUrl: "/api/playback/sessions/session-99/revisions/2/index.m3u8",
       durationSeconds: 7200,
     });
+    vi.spyOn(api, "updatePlaybackSessionSeek").mockResolvedValue({
+      sessionId: "session-99",
+      delivery: "transcode",
+      mediaId: 99,
+      revision: 3,
+      audioIndex: -1,
+      status: "starting",
+      streamUrl: "/api/playback/sessions/session-99/revisions/3/index.m3u8",
+      durationSeconds: 7200,
+      streamOffsetSeconds: 120,
+    });
     window.localStorage.removeItem(playerWebDefaultsStorageKey);
     (globalThis.WebSocket as unknown as MockWebSocketClass).reset();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("uses native currentTime for direct video seeks", async () => {
+    vi.mocked(api.createPlaybackSession).mockResolvedValueOnce({
+      delivery: "direct",
+      mediaId: 99,
+      audioIndex: -1,
+      status: "ready",
+      streamUrl: "/api/stream/99",
+      durationSeconds: 7200,
+    });
+
+    renderWithPlayerProvider(<SeekHarness seekableEnd={7200} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Seek Movie" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("seek-video-url")).toHaveTextContent("/api/stream/99");
+    });
+
+    const video = screen.getByTestId("seek-video") as HTMLVideoElement;
+    fireEvent.click(screen.getByRole("button", { name: "Seek 120" }));
+
+    expect(video.currentTime).toBe(120);
+    expect(api.updatePlaybackSessionSeek).not.toHaveBeenCalled();
+  });
+
+  it("restarts an HLS session when seek target is outside the seekable window", async () => {
+    renderWithPlayerProvider(<SeekHarness seekableEnd={30} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Play Seek Movie" }));
+    await waitFor(() => {
+      expect(api.createPlaybackSession).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Seek 120" }));
+
+    await waitFor(() => {
+      expect(api.updatePlaybackSessionSeek).toHaveBeenCalledWith("session-99", {
+        positionSeconds: 120,
+      });
+      expect(screen.getByTestId("seek-last-event")).toHaveTextContent("Seeking...");
+    });
   });
 
   it("ignores unrelated playback events and applies the active session revision", async () => {

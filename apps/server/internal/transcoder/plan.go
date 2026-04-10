@@ -3,6 +3,7 @@ package transcoder
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,13 @@ const hlsSegmentDurationSeconds = 2
 
 func appendFFmpegInput(args []string, itemPath string) []string {
 	return append(args, append(ffopts.InputProbeBeforeI, "-i", itemPath)...)
+}
+
+func appendFFmpegInputAt(args []string, itemPath string, startOffsetSeconds float64) []string {
+	if startOffsetSeconds > 0 && !math.IsNaN(startOffsetSeconds) && !math.IsInf(startOffsetSeconds, 0) {
+		args = append(args, "-ss", strconv.FormatFloat(startOffsetSeconds, 'f', 3, 64))
+	}
+	return appendFFmpegInput(args, itemPath)
 }
 
 func GetSettingsWarnings(settings db.TranscodingSettings) []db.TranscodingSettingsWarning {

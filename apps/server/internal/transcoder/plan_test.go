@@ -435,6 +435,49 @@ func TestBuildTranscodePlans_ProbeFlagsBeforeInput(t *testing.T) {
 	}
 }
 
+func TestBuildPlaybackHLSPlans_StartOffsetBeforeInput(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	probe := playbackSourceProbe{
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "hevc", PixelFmt: "yuv420p", Height: 1080},
+			{Index: 1, CodecType: "audio", CodecName: "aac"},
+		},
+	}
+
+	withOffset := buildPlaybackHLSPlans(
+		"/media/test.mkv",
+		"/tmp/out",
+		settings,
+		probe,
+		playbackDecision{Delivery: "transcode"},
+		123.456,
+	)
+	if len(withOffset) == 0 {
+		t.Fatal("expected HLS plans")
+	}
+	args := withOffset[0].Args
+	iSS := indexOfArg(args, "-ss")
+	iInput := indexOfArg(args, "-i")
+	if iSS < 0 || iInput < 0 || iSS >= iInput {
+		t.Fatalf("expected -ss before -i, got %v", args)
+	}
+	if args[iSS+1] != "123.456" {
+		t.Fatalf("offset arg = %q, want 123.456", args[iSS+1])
+	}
+
+	withoutOffset := buildPlaybackHLSPlans(
+		"/media/test.mkv",
+		"/tmp/out",
+		settings,
+		probe,
+		playbackDecision{Delivery: "transcode"},
+		0,
+	)
+	if containsArgs(withoutOffset[0].Args, "-ss") {
+		t.Fatalf("did not expect -ss without offset: %v", withoutOffset[0].Args)
+	}
+}
+
 func containsArgs(args []string, needle string) bool {
 	for _, arg := range args {
 		if arg == needle {
@@ -442,6 +485,15 @@ func containsArgs(args []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func indexOfArg(args []string, needle string) int {
+	for i, arg := range args {
+		if arg == needle {
+			return i
+		}
+	}
+	return -1
 }
 
 func containsFilter(args []string, needle string) bool {
