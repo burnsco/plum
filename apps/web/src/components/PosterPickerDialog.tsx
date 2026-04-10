@@ -166,7 +166,7 @@ export function PosterPickerDialog(props: PosterPickerDialogProps) {
                         <img
                           src={candidate.image_url}
                           alt={`${props.title} poster from ${candidate.label}`}
-                          className="size-full object-cover"
+                          className="size-full object-contain"
                         />
                       </div>
                       <div className="space-y-1 px-3 py-2">

@@ -106,6 +106,25 @@ describe("groupMediaByShow", () => {
     expect(groups[0]?.identifiedCount).toBe(1);
   });
 
+  it("prefers server canonical show titles over release-prefixed episode titles", () => {
+    const groups = groupMediaByShow([
+      makeMediaItem({
+        id: 1,
+        title: "[MTBB] Dragon Ball - S01E01",
+        path: "/anime/[MTBB] Dragon Ball/S01E01.mkv",
+        duration: 1800,
+        type: "anime",
+        match_status: "identified",
+        tmdb_id: 123,
+        show_title: "Dragon Ball",
+        season: 1,
+        episode: 1,
+      }),
+    ]);
+
+    expect(groups[0]?.showTitle).toBe("Dragon Ball");
+  });
+
   it("prefers canonical show TMDb scores when episode scores are missing", () => {
     const groups = groupMediaByShow([
       makeMediaItem({

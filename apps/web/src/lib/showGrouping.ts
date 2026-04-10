@@ -82,7 +82,7 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
     const backdropEpisode = episodes.find((episode) => episode.backdrop_path);
     groups.push({
       showKey,
-      showTitle: getShowName(first.title),
+      showTitle: first.show_title?.trim() || getShowName(first.title),
       posterPath: posterEpisode?.show_poster_path ?? posterEpisode?.poster_path,
       posterUrl: posterEpisode?.show_poster_url ?? posterEpisode?.poster_url,
       backdropPath: backdropEpisode?.backdrop_path,

@@ -200,6 +200,7 @@ type MediaItem struct {
 	BackdropURL               string               `json:"backdrop_url,omitempty"`
 	ShowPosterPath            string               `json:"show_poster_path,omitempty"`
 	ShowPosterURL             string               `json:"show_poster_url,omitempty"`
+	ShowTitle                 string               `json:"show_title,omitempty"`
 	ReleaseDate               string               `json:"release_date"`
 	ShowVoteAverage           float64              `json:"show_vote_average,omitempty"`
 	ShowIMDbRating            float64              `json:"show_imdb_rating,omitempty"`

@@ -941,6 +941,116 @@ func TestIdentifyShow_ClearsMetadataReviewNeeded(t *testing.T) {
 	}
 }
 
+func TestIdentifyShow_TMDBKeyUpdatesUnmatchedTitleSibling(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "test@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Anime", db.LibraryTypeAnime, "/anime", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+
+	insertEpisode := func(title, path, status string, tmdbID, season, episode int) int {
+		var episodeID int
+		if err := dbConn.QueryRow(`INSERT INTO anime_episodes (library_id, title, path, duration, match_status, tmdb_id, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			libraryID,
+			title,
+			path,
+			0,
+			status,
+			tmdbID,
+			season,
+			episode,
+		).Scan(&episodeID); err != nil {
+			t.Fatalf("insert anime episode %q: %v", title, err)
+		}
+		if _, err := dbConn.Exec(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?)`, db.LibraryTypeAnime, episodeID); err != nil {
+			t.Fatalf("insert media global row for %q: %v", title, err)
+		}
+		return episodeID
+	}
+
+	_ = insertEpisode(
+		"Dragon Ball - S01E01 - Secret of the Dragon Balls",
+		"/anime/Dragon Ball/S01E01.mkv",
+		db.MatchStatusIdentified,
+		123,
+		1,
+		1,
+	)
+	unmatchedID := insertEpisode(
+		"Dragonball - S01E02 - The Emperor's Quest",
+		"/anime/Dragonball/S01E02.mkv",
+		db.MatchStatusUnmatched,
+		0,
+		1,
+		2,
+	)
+
+	handler := &LibraryHandler{
+		DB: dbConn,
+		SeriesQuery: &seriesQueryStub{
+			getEpisode: func(_ context.Context, provider, seriesID string, season, episode int) (*metadata.MatchResult, error) {
+				if provider != "tmdb" || seriesID != "123" {
+					t.Fatalf("unexpected provider/series = %q/%q", provider, seriesID)
+				}
+				return &metadata.MatchResult{
+					Title:      fmt.Sprintf("Dragon Ball - S%02dE%02d - Episode %d", season, episode, episode),
+					Provider:   "tmdb",
+					ExternalID: "123",
+				}, nil
+			},
+		},
+	}
+
+	body := strings.NewReader(`{"showKey":"tmdb-123","provider":"tmdb","externalId":"123","tmdbId":123}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/libraries/"+strconv.Itoa(libraryID)+"/shows/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.Itoa(libraryID))
+	req = req.WithContext(context.WithValue(withUser(req.Context(), &db.User{ID: userID, IsAdmin: true}), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.IdentifyShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Updated != 2 {
+		t.Fatalf("updated = %d", payload.Updated)
+	}
+
+	var matchStatus string
+	var tmdbID int
+	var metadataConfirmed bool
+	if err := dbConn.QueryRow(`SELECT match_status, COALESCE(tmdb_id, 0), COALESCE(metadata_confirmed, 0) FROM anime_episodes WHERE id = ?`, unmatchedID).Scan(&matchStatus, &tmdbID, &metadataConfirmed); err != nil {
+		t.Fatalf("query unmatched sibling: %v", err)
+	}
+	if matchStatus != db.MatchStatusIdentified {
+		t.Fatalf("match_status = %q", matchStatus)
+	}
+	if tmdbID != 123 {
+		t.Fatalf("tmdb_id = %d", tmdbID)
+	}
+	if !metadataConfirmed {
+		t.Fatal("expected metadata_confirmed to be set")
+	}
+}
+
 func TestIdentifyShow_UsesTitleShowKeyForUnmatchedRows(t *testing.T) {
 	dbConn, err := db.InitDB(":memory:")
 	if err != nil {

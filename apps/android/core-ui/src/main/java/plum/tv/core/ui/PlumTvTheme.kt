@@ -79,7 +79,7 @@ data class PlumTvPalette(
     val surfaceHover: Color,
     val accent: Color,
     val accentSoft: Color,
-    val accentGlow: Color,
+    val onAccent: Color,
     val accentSecondary: Color,
     val text: Color,
     val textSecondary: Color,
@@ -129,7 +129,7 @@ private val plumPalette =
         surfaceHover = Color(0xEB202029),
         accent = Color(0xFFCFB1FF),
         accentSoft = Color(0x1ECFB1FF),
-        accentGlow = Color.Transparent,
+        onAccent = Color(0xFF1A1030),
         accentSecondary = Color(0xFFE879C0),
         text = Color(0xFFF0EEFF),
         textSecondary = Color(0xFFD8D3F2),
@@ -170,8 +170,16 @@ private val plumMetrics =
 private val LocalPlumPalette = staticCompositionLocalOf { plumPalette }
 private val LocalPlumMetrics = staticCompositionLocalOf { plumMetrics }
 
-private val interFamily = FontFamily(Font(R.font.inter_variable, weight = FontWeight.Normal))
-private val outfitFamily = FontFamily(Font(R.font.outfit_variable, weight = FontWeight.SemiBold))
+private val interFamily = FontFamily(
+    Font(R.font.inter_variable, weight = FontWeight.Normal),
+    Font(R.font.inter_variable, weight = FontWeight.Medium),
+    Font(R.font.inter_variable, weight = FontWeight.SemiBold),
+)
+private val outfitFamily = FontFamily(
+    Font(R.font.outfit_variable, weight = FontWeight.Medium),
+    Font(R.font.outfit_variable, weight = FontWeight.SemiBold),
+    Font(R.font.outfit_variable, weight = FontWeight.Bold),
+)
 
 private val plumTypography =
     Typography(

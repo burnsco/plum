@@ -2378,6 +2378,9 @@ library_id, title, path, duration, match_status, tmdb_id, show_id, season_id, se
 	if got := items[0].ShowPosterPath; got != "/show-poster.jpg" {
 		t.Fatalf("show poster path = %q", got)
 	}
+	if got := items[0].ShowTitle; got != "Slow Horses" {
+		t.Fatalf("show title = %q", got)
+	}
 }
 
 func TestQueryMediaByLibraryID_EpisodeShowPosterFallsBackByTMDBID(t *testing.T) {
@@ -2411,6 +2414,9 @@ library_id, title, path, duration, match_status, tmdb_id, season, episode
 	if got := items[0].ShowPosterPath; got != "/andor-show.jpg" {
 		t.Fatalf("show poster path = %q", got)
 	}
+	if got := items[0].ShowTitle; got != "Andor" {
+		t.Fatalf("show title = %q", got)
+	}
 }
 
 func TestQueryMediaByLibraryID_EpisodeShowPosterFallsBackByTitleKey(t *testing.T) {
@@ -2443,6 +2449,9 @@ library_id, title, path, duration, match_status, season, episode
 	}
 	if got := items[0].ShowPosterPath; got != "/bsg-2004.jpg" {
 		t.Fatalf("show poster path = %q", got)
+	}
+	if got := items[0].ShowTitle; got != "Battlestar Galactica (2004)" {
+		t.Fatalf("show title = %q", got)
 	}
 }
 

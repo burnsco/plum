@@ -17,25 +17,25 @@ import (
 )
 
 type LibraryHandler struct {
-	DB          *sql.DB
-	Meta        metadata.Identifier
-	Artwork     metadata.MetadataArtworkProvider
-	Movies      metadata.MovieDetailsProvider
-	MovieQuery  metadata.MovieProvider
-	MovieLookup metadata.MovieLookupProvider
-	Series      metadata.SeriesDetailsProvider
-	SeriesQuery metadata.SeriesSearchProvider
-	Discover    metadata.DiscoverProvider
-	Arr         *arr.Service
-	ScanJobs    *LibraryScanManager
-	SearchIndex *SearchIndexManager
+	DB            *sql.DB
+	Meta          metadata.Identifier
+	Artwork       metadata.MetadataArtworkProvider
+	Movies        metadata.MovieDetailsProvider
+	MovieQuery    metadata.MovieProvider
+	MovieLookup   metadata.MovieLookupProvider
+	Series        metadata.SeriesDetailsProvider
+	SeriesQuery   metadata.SeriesSearchProvider
+	Discover      metadata.DiscoverProvider
+	Arr           *arr.Service
+	ScanJobs      *LibraryScanManager
+	SearchIndex   *SearchIndexManager
 	identifyRunMu sync.RWMutex
 	identifyRun   *identifyRunTracker
 
 	// librarySideJobsMu serializes checks and updates across playback refresh jobs
 	// so at most one side job runs per library at a time.
-	librarySideJobsMu        sync.Mutex
-	playbackRefreshStatus    map[int]*playbackRefreshProgress
+	librarySideJobsMu     sync.Mutex
+	playbackRefreshStatus map[int]*playbackRefreshProgress
 }
 
 type identifyRunTracker struct {
@@ -175,27 +175,27 @@ type createLibraryRequest struct {
 }
 
 type updateLibraryPlaybackPreferencesRequest struct {
-	PreferredAudioLanguage    string   `json:"preferred_audio_language"`
-	PreferredSubtitleLanguage string   `json:"preferred_subtitle_language"`
-	SubtitlesEnabledByDefault bool     `json:"subtitles_enabled_by_default"`
-	IntroSkipMode             string   `json:"intro_skip_mode,omitempty"`
-	WatcherEnabled            *bool    `json:"watcher_enabled,omitempty"`
-	WatcherMode               string   `json:"watcher_mode,omitempty"`
-	ScanIntervalMinutes       *int     `json:"scan_interval_minutes,omitempty"`
+	PreferredAudioLanguage    string `json:"preferred_audio_language"`
+	PreferredSubtitleLanguage string `json:"preferred_subtitle_language"`
+	SubtitlesEnabledByDefault bool   `json:"subtitles_enabled_by_default"`
+	IntroSkipMode             string `json:"intro_skip_mode,omitempty"`
+	WatcherEnabled            *bool  `json:"watcher_enabled,omitempty"`
+	WatcherMode               string `json:"watcher_mode,omitempty"`
+	ScanIntervalMinutes       *int   `json:"scan_interval_minutes,omitempty"`
 }
 
 type libraryResponse struct {
-	ID                        int      `json:"id"`
-	Name                      string   `json:"name"`
-	Type                      string   `json:"type"`
-	Path                      string   `json:"path"`
-	UserID                    int      `json:"user_id"`
-	PreferredAudioLanguage    string   `json:"preferred_audio_language,omitempty"`
-	PreferredSubtitleLanguage string   `json:"preferred_subtitle_language,omitempty"`
-	SubtitlesEnabledByDefault bool     `json:"subtitles_enabled_by_default"`
-	WatcherEnabled            bool     `json:"watcher_enabled"`
-	WatcherMode               string   `json:"watcher_mode,omitempty"`
-	ScanIntervalMinutes       int      `json:"scan_interval_minutes"`
+	ID                        int    `json:"id"`
+	Name                      string `json:"name"`
+	Type                      string `json:"type"`
+	Path                      string `json:"path"`
+	UserID                    int    `json:"user_id"`
+	PreferredAudioLanguage    string `json:"preferred_audio_language,omitempty"`
+	PreferredSubtitleLanguage string `json:"preferred_subtitle_language,omitempty"`
+	SubtitlesEnabledByDefault bool   `json:"subtitles_enabled_by_default"`
+	WatcherEnabled            bool   `json:"watcher_enabled"`
+	WatcherMode               string `json:"watcher_mode,omitempty"`
+	ScanIntervalMinutes       int    `json:"scan_interval_minutes"`
 }
 
 type libraryBrowseItemResponse struct {
@@ -216,6 +216,7 @@ type libraryBrowseItemResponse struct {
 	BackdropURL          string   `json:"backdrop_url,omitempty"`
 	ShowPosterPath       string   `json:"show_poster_path,omitempty"`
 	ShowPosterURL        string   `json:"show_poster_url,omitempty"`
+	ShowTitle            string   `json:"show_title,omitempty"`
 	ReleaseDate          string   `json:"release_date,omitempty"`
 	ShowVoteAverage      float64  `json:"show_vote_average,omitempty"`
 	ShowIMDbRating       float64  `json:"show_imdb_rating,omitempty"`
@@ -271,6 +272,7 @@ func buildLibraryBrowseItemResponse(item db.MediaItem) libraryBrowseItemResponse
 		BackdropURL:          item.BackdropURL,
 		ShowPosterPath:       item.ShowPosterPath,
 		ShowPosterURL:        item.ShowPosterURL,
+		ShowTitle:            item.ShowTitle,
 		ReleaseDate:          item.ReleaseDate,
 		ShowVoteAverage:      item.ShowVoteAverage,
 		ShowIMDbRating:       item.ShowIMDbRating,

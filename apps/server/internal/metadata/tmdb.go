@@ -59,10 +59,11 @@ type tmdbCredits struct {
 
 type tmdbMovieDetails struct {
 	TMDBResult
-	Runtime     int                     `json:"runtime"`
-	Genres      []tmdbGenre             `json:"genres"`
-	Credits     tmdbCredits             `json:"credits"`
-	ExternalIDs tmdbExternalIDsResponse `json:"external_ids"`
+	Runtime      int                     `json:"runtime"`
+	Genres       []tmdbGenre             `json:"genres"`
+	Credits      tmdbCredits             `json:"credits"`
+	ExternalIDs  tmdbExternalIDsResponse `json:"external_ids"`
+	Translations tmdbTranslations        `json:"translations"`
 }
 
 type tmdbTVDetails struct {
@@ -73,6 +74,7 @@ type tmdbTVDetails struct {
 	NumberOfEpisodes int                     `json:"number_of_episodes"`
 	Credits          tmdbCredits             `json:"credits"`
 	ExternalIDs      tmdbExternalIDsResponse `json:"external_ids"`
+	Translations     tmdbTranslations        `json:"translations"`
 }
 
 type tmdbExternalIDsResponse struct {
@@ -91,13 +93,30 @@ type tmdbImagesResponse struct {
 }
 
 type tmdbEpisodeDetails struct {
-	Name         string  `json:"name"`
-	Overview     string  `json:"overview"`
-	StillPath    string  `json:"still_path"`
-	AirDate      string  `json:"air_date"`
-	VoteAverage  float64 `json:"vote_average"`
-	SeasonNumber int     `json:"season_number"`
-	EpisodeNum   int     `json:"episode_number"`
+	Name         string           `json:"name"`
+	Overview     string           `json:"overview"`
+	StillPath    string           `json:"still_path"`
+	AirDate      string           `json:"air_date"`
+	VoteAverage  float64          `json:"vote_average"`
+	SeasonNumber int              `json:"season_number"`
+	EpisodeNum   int              `json:"episode_number"`
+	Translations tmdbTranslations `json:"translations"`
+}
+
+type tmdbTranslations struct {
+	Translations []tmdbTranslation `json:"translations"`
+}
+
+type tmdbTranslation struct {
+	ISO31661 string              `json:"iso_3166_1"`
+	ISO6391  string              `json:"iso_639_1"`
+	Data     tmdbTranslationData `json:"data"`
+}
+
+type tmdbTranslationData struct {
+	Name     string `json:"name"`
+	Title    string `json:"title"`
+	Overview string `json:"overview"`
 }
 
 type TMDBSearchResponse struct {
@@ -120,7 +139,7 @@ func (c *TMDBClient) SetCache(cache ProviderCache) {
 }
 
 func (c *TMDBClient) SearchTV(ctx context.Context, query string) ([]MatchResult, error) {
-	u := fmt.Sprintf("%s/search/tv?api_key=%s&query=%s", c.baseURL, c.APIKey, url.QueryEscape(query))
+	u := fmt.Sprintf("%s/search/tv?api_key=%s&language=en-US&query=%s", c.baseURL, c.APIKey, url.QueryEscape(query))
 	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -137,7 +156,7 @@ func (c *TMDBClient) SearchTV(ctx context.Context, query string) ([]MatchResult,
 }
 
 func (c *TMDBClient) SearchMovie(ctx context.Context, query string) ([]MatchResult, error) {
-	u := fmt.Sprintf("%s/search/movie?api_key=%s&query=%s", c.baseURL, c.APIKey, url.QueryEscape(query))
+	u := fmt.Sprintf("%s/search/movie?api_key=%s&language=en-US&query=%s", c.baseURL, c.APIKey, url.QueryEscape(query))
 	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -162,7 +181,7 @@ func (c *TMDBClient) GetMovie(ctx context.Context, movieID string) (*MatchResult
 	if err != nil || detail == nil {
 		return nil, err
 	}
-	m := c.tmdbResultToMatch(detail.TMDBResult, detail.Title, detail.ReleaseDate)
+	m := c.tmdbResultToMatch(detail.TMDBResult, tmdbPreferredMovieTitle(detail), detail.ReleaseDate)
 	m.IMDbID, _ = c.getMovieIMDbID(ctx, id)
 	m.Genres = tmdbGenresToNames(detail.Genres)
 	m.Cast = tmdbCreditsToCast(detail.Credits)
@@ -188,14 +207,20 @@ func (c *TMDBClient) GetEpisode(ctx context.Context, seriesID string, season, ep
 	if releaseDate == "" && series != nil {
 		releaseDate = series.FirstAirDate
 	}
-	title := ep.Name
-	if title == "" && series != nil {
-		title = fmt.Sprintf("%s - S%02dE%02d", series.Name, season, episode)
-	} else if series != nil {
-		title = fmt.Sprintf("%s - S%02dE%02d - %s", series.Name, season, episode, ep.Name)
+	seriesName := ""
+	if series != nil {
+		seriesName = tmdbPreferredSeriesName(series)
 	}
+	episodeName := tmdbPreferredEpisodeName(ep)
+	title := episodeName
+	if title == "" && series != nil {
+		title = fmt.Sprintf("%s - S%02dE%02d", seriesName, season, episode)
+	} else if series != nil {
+		title = fmt.Sprintf("%s - S%02dE%02d - %s", seriesName, season, episode, episodeName)
+	}
+	overview := tmdbPreferredOverview(ep.Translations, ep.Overview)
 	m := c.tmdbResultToMatch(TMDBResult{
-		Overview:     ep.Overview,
+		Overview:     overview,
 		PosterPath:   posterPath,
 		BackdropPath: ep.StillPath,
 		ReleaseDate:  releaseDate,
@@ -237,7 +262,7 @@ func (c *TMDBClient) getTVDetails(ctx context.Context, id int) (*tmdbTVDetails, 
 		return &copy, nil
 	}
 	c.mu.Unlock()
-	u := fmt.Sprintf("%s/tv/%d?api_key=%s&append_to_response=credits,external_ids", c.baseURL, id, c.APIKey)
+	u := fmt.Sprintf("%s/tv/%d?api_key=%s&language=en-US&append_to_response=credits,external_ids,translations", c.baseURL, id, c.APIKey)
 	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -260,7 +285,7 @@ func (c *TMDBClient) getMovieDetails(ctx context.Context, id int) (*tmdbMovieDet
 		return &copy, nil
 	}
 	c.mu.Unlock()
-	u := fmt.Sprintf("%s/movie/%d?api_key=%s&append_to_response=credits,external_ids", c.baseURL, id, c.APIKey)
+	u := fmt.Sprintf("%s/movie/%d?api_key=%s&language=en-US&append_to_response=credits,external_ids,translations", c.baseURL, id, c.APIKey)
 	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -330,8 +355,8 @@ func (c *TMDBClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesD
 		tvdbID = strconv.Itoa(detail.ExternalIDs.TVDBID)
 	}
 	return &SeriesDetails{
-		Name:             detail.Name,
-		Overview:         detail.Overview,
+		Name:             tmdbPreferredSeriesName(detail),
+		Overview:         tmdbPreferredOverview(detail.Translations, detail.Overview),
 		PosterPath:       tmdbImageURL(detail.PosterPath, "w500"),
 		BackdropPath:     tmdbImageURL(detail.BackdropPath, "w500"),
 		FirstAirDate:     detail.FirstAirDate,
@@ -353,8 +378,8 @@ func (c *TMDBClient) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDet
 	}
 	imdbID, _ := c.getMovieIMDbID(ctx, tmdbID)
 	return &MovieDetails{
-		Title:        detail.Title,
-		Overview:     detail.Overview,
+		Title:        tmdbPreferredMovieTitle(detail),
+		Overview:     tmdbPreferredOverview(detail.Translations, detail.Overview),
 		PosterPath:   tmdbImageURL(detail.PosterPath, "w500"),
 		BackdropPath: tmdbImageURL(detail.BackdropPath, "w500"),
 		ReleaseDate:  detail.ReleaseDate,
@@ -418,7 +443,7 @@ func (c *TMDBClient) getIMDbID(ctx context.Context, endpoint string) (string, er
 }
 
 func (c *TMDBClient) getEpisodeDetails(ctx context.Context, tvID, season, episode int) (*tmdbEpisodeDetails, error) {
-	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s", c.baseURL, tvID, season, episode, c.APIKey)
+	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s&language=en-US&append_to_response=translations", c.baseURL, tvID, season, episode, c.APIKey)
 	resp, err := doCachedJSONRequest(ctx, providerHTTPClient, c.cache, "tmdb", http.MethodGet, u, nil, nil, 7*24*time.Hour, 1)
 	if err != nil {
 		return nil, err
@@ -495,4 +520,74 @@ func tmdbPrimaryRuntime(values []int) int {
 		}
 	}
 	return 0
+}
+
+func tmdbPreferredMovieTitle(detail *tmdbMovieDetails) string {
+	if detail == nil {
+		return ""
+	}
+	if title := tmdbPreferredEnglishTitle(detail.Translations, true); title != "" {
+		return title
+	}
+	return detail.Title
+}
+
+func tmdbPreferredSeriesName(detail *tmdbTVDetails) string {
+	if detail == nil {
+		return ""
+	}
+	if title := tmdbPreferredEnglishTitle(detail.Translations, false); title != "" {
+		return title
+	}
+	return detail.Name
+}
+
+func tmdbPreferredEpisodeName(detail *tmdbEpisodeDetails) string {
+	if detail == nil {
+		return ""
+	}
+	if title := tmdbPreferredEnglishTitle(detail.Translations, false); title != "" {
+		return title
+	}
+	return detail.Name
+}
+
+func tmdbPreferredEnglishTitle(translations tmdbTranslations, movie bool) string {
+	if title := tmdbTranslationTitle(translations, movie, "US"); title != "" {
+		return title
+	}
+	return tmdbTranslationTitle(translations, movie, "")
+}
+
+func tmdbTranslationTitle(translations tmdbTranslations, movie bool, country string) string {
+	for _, translation := range translations.Translations {
+		if translation.ISO6391 != "en" {
+			continue
+		}
+		if country != "" && translation.ISO31661 != country {
+			continue
+		}
+		if movie {
+			if translation.Data.Title != "" {
+				return translation.Data.Title
+			}
+		} else if translation.Data.Name != "" {
+			return translation.Data.Name
+		}
+	}
+	return ""
+}
+
+func tmdbPreferredOverview(translations tmdbTranslations, fallback string) string {
+	for _, translation := range translations.Translations {
+		if translation.ISO6391 == "en" && translation.ISO31661 == "US" && translation.Data.Overview != "" {
+			return translation.Data.Overview
+		}
+	}
+	for _, translation := range translations.Translations {
+		if translation.ISO6391 == "en" && translation.Data.Overview != "" {
+			return translation.Data.Overview
+		}
+	}
+	return fallback
 }

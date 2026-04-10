@@ -244,7 +244,7 @@ func ListShowEpisodeRefs(db *sql.DB, libraryID int, showKey string) ([]ShowEpiso
 	if table != "tv_episodes" && table != "anime_episodes" {
 		return nil, nil
 	}
-	q := `SELECT g.id, m.id, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.tmdb_id, 0), m.title
+	q := `SELECT g.id, m.id, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.tmdb_id, 0), COALESCE(m.show_id, 0), m.title
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 WHERE m.library_id = ?
@@ -254,18 +254,68 @@ ORDER BY g.id`
 		return nil, err
 	}
 	defer rows.Close()
-	var out []ShowEpisodeRef
+
+	type rowCandidate struct {
+		ref      ShowEpisodeRef
+		showID   int
+		titleKey string
+	}
+	candidates := make([]rowCandidate, 0)
+	tmdbTitleKeys := make(map[string]struct{})
+	tmdbShowIDs := make(map[int]struct{})
+	requestedTMDBID := 0
+	if strings.HasPrefix(showKey, "tmdb-") {
+		requestedTMDBID, _ = strconv.Atoi(strings.TrimPrefix(showKey, "tmdb-"))
+	}
+
 	for rows.Next() {
-		var globalID, refID, season, episode, tmdbID int
+		var globalID, refID, season, episode, tmdbID, showID int
 		var title string
-		if err := rows.Scan(&globalID, &refID, &season, &episode, &tmdbID, &title); err != nil {
+		if err := rows.Scan(&globalID, &refID, &season, &episode, &tmdbID, &showID, &title); err != nil {
 			return nil, err
 		}
-		key := showKeyFromItem(tmdbID, title)
-		if key != showKey {
+		titleKey := normalizeShowKeyTitle(title)
+		if requestedTMDBID > 0 && tmdbID == requestedTMDBID {
+			tmdbTitleKeys[titleKey] = struct{}{}
+			if showID > 0 {
+				tmdbShowIDs[showID] = struct{}{}
+			}
+		}
+		candidates = append(candidates, rowCandidate{
+			ref: ShowEpisodeRef{
+				GlobalID: globalID,
+				RefID:    refID,
+				Kind:     typ,
+				Season:   season,
+				Episode:  episode,
+				TMDBID:   tmdbID,
+			},
+			showID:   showID,
+			titleKey: titleKey,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var out []ShowEpisodeRef
+	for _, candidate := range candidates {
+		key := showKeyFromItem(candidate.ref.TMDBID, candidate.titleKey)
+		if key == showKey {
+			out = append(out, candidate.ref)
 			continue
 		}
-		out = append(out, ShowEpisodeRef{GlobalID: globalID, RefID: refID, Kind: typ, Season: season, Episode: episode, TMDBID: tmdbID})
+		if requestedTMDBID > 0 && candidate.ref.TMDBID == 0 {
+			if _, ok := tmdbTitleKeys[candidate.titleKey]; ok {
+				out = append(out, candidate.ref)
+				continue
+			}
+			if candidate.showID > 0 {
+				if _, ok := tmdbShowIDs[candidate.showID]; ok {
+					out = append(out, candidate.ref)
+				}
+			}
+		}
 	}
-	return out, rows.Err()
+	return out, nil
 }

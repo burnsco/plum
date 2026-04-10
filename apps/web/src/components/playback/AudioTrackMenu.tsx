@@ -39,6 +39,7 @@ export function AudioTrackMenu({
       {open && (
         <TrackMenu
           menuRef={menuRef}
+          menuAlign="end"
           options={tracks}
           selectedKey={selectedKey}
           ariaLabel="Select audio track"

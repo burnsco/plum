@@ -1543,7 +1543,7 @@ private fun PlayerControlButton(
         else    -> Color.White.copy(alpha = 0.34f)
     }
     val contentColor = when {
-        primary -> Color(0xFF1A1030)
+        primary -> palette.onAccent
         ghost   -> Color.White.copy(alpha = 0.70f)
         else    -> Color.White
     }
@@ -1557,9 +1557,9 @@ private fun PlayerControlButton(
             containerColor = containerColor,
             contentColor = contentColor,
             focusedContainerColor = focusedContainerColor,
-            focusedContentColor = if (primary) Color(0xFF1A1030) else Color.White,
+            focusedContentColor = if (primary) palette.onAccent else Color.White,
             pressedContainerColor = focusedContainerColor,
-            pressedContentColor = if (primary) Color(0xFF1A1030) else Color.White,
+            pressedContentColor = if (primary) palette.onAccent else Color.White,
             disabledContainerColor = if (ghost) Color.Transparent else Color.White.copy(alpha = 0.05f),
             disabledContentColor = Color.White.copy(alpha = 0.25f),
         ),

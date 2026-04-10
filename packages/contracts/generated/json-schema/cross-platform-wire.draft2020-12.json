@@ -226,6 +226,16 @@
                       }
                     ]
                   },
+                  "show_title": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "release_date": {
                     "type": "string"
                   },
@@ -1221,6 +1231,84 @@
                       }
                     ]
                   },
+                  "mediaAttachments": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "streamIndex": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "NaN"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "Infinity"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "-Infinity"
+                                  ]
+                                }
+                              ]
+                            },
+                            "fileName": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "mimeType": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "codec": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "deliveryUrl": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "streamIndex",
+                            "deliveryUrl"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "duplicate": {
                     "anyOf": [
                       {
@@ -1566,6 +1654,16 @@
                           }
                         ]
                       },
+                      "show_title": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "release_date": {
                         "type": "string"
                       },
@@ -2552,6 +2650,84 @@
                                 "streamIndex",
                                 "language",
                                 "title"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mediaAttachments": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "streamIndex": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "NaN"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "Infinity"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "-Infinity"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "fileName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "mimeType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "codec": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "streamIndex",
+                                "deliveryUrl"
                               ],
                               "additionalProperties": false
                             }
@@ -2885,6 +3061,16 @@
                           }
                         ]
                       },
+                      "show_title": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "release_date": {
                         "type": "string"
                       },
@@ -3871,6 +4057,84 @@
                                 "streamIndex",
                                 "language",
                                 "title"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mediaAttachments": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "streamIndex": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "NaN"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "Infinity"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "-Infinity"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "fileName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "mimeType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "codec": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "streamIndex",
+                                "deliveryUrl"
                               ],
                               "additionalProperties": false
                             }
@@ -4204,6 +4468,16 @@
                           }
                         ]
                       },
+                      "show_title": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "release_date": {
                         "type": "string"
                       },
@@ -5190,6 +5464,84 @@
                                 "streamIndex",
                                 "language",
                                 "title"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mediaAttachments": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "streamIndex": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "NaN"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "Infinity"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "-Infinity"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "fileName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "mimeType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "codec": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "streamIndex",
+                                "deliveryUrl"
                               ],
                               "additionalProperties": false
                             }
@@ -5523,6 +5875,16 @@
                           }
                         ]
                       },
+                      "show_title": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "release_date": {
                         "type": "string"
                       },
@@ -6509,6 +6871,84 @@
                                 "streamIndex",
                                 "language",
                                 "title"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mediaAttachments": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "streamIndex": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "NaN"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "Infinity"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "-Infinity"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "fileName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "mimeType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "codec": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "streamIndex",
+                                "deliveryUrl"
                               ],
                               "additionalProperties": false
                             }
@@ -6842,6 +7282,16 @@
                           }
                         ]
                       },
+                      "show_title": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "release_date": {
                         "type": "string"
                       },
@@ -7828,6 +8278,84 @@
                                 "streamIndex",
                                 "language",
                                 "title"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mediaAttachments": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "streamIndex": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "NaN"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "Infinity"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "-Infinity"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "fileName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "mimeType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "codec": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "streamIndex",
+                                "deliveryUrl"
                               ],
                               "additionalProperties": false
                             }
@@ -8161,6 +8689,16 @@
                           }
                         ]
                       },
+                      "show_title": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "release_date": {
                         "type": "string"
                       },
@@ -9147,6 +9685,84 @@
                                 "streamIndex",
                                 "language",
                                 "title"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mediaAttachments": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "streamIndex": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "NaN"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "Infinity"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "-Infinity"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "fileName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "mimeType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "codec": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deliveryUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "streamIndex",
+                                "deliveryUrl"
                               ],
                               "additionalProperties": false
                             }
@@ -9749,6 +10365,84 @@
                       "streamIndex",
                       "language",
                       "title"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mediaAttachments": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "streamIndex": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "NaN"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "-Infinity"
+                            ]
+                          }
+                        ]
+                      },
+                      "fileName": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mimeType": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "codec": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "deliveryUrl": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "streamIndex",
+                      "deliveryUrl"
                     ],
                     "additionalProperties": false
                   }
@@ -10443,6 +11137,84 @@
                       "streamIndex",
                       "language",
                       "title"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mediaAttachments": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "streamIndex": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "NaN"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "-Infinity"
+                            ]
+                          }
+                        ]
+                      },
+                      "fileName": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mimeType": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "codec": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "deliveryUrl": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "streamIndex",
+                      "deliveryUrl"
                     ],
                     "additionalProperties": false
                   }

@@ -35,6 +35,7 @@ export function SubtitleTrackMenu({
       {open && (
         <TrackMenu
           menuRef={menuRef}
+          menuAlign="end"
           options={options}
           selectedKey={selectedKey}
           ariaLabel="Select subtitle track"

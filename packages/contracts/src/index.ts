@@ -156,6 +156,7 @@ export interface LibraryBrowseItem {
   backdrop_url?: string;
   show_poster_path?: string;
   show_poster_url?: string;
+  show_title?: string;
   release_date?: string;
   show_vote_average?: number;
   /** Series IMDb user rating from `shows` (TV/anime browse rows only). */
@@ -210,6 +211,7 @@ export const LibraryBrowseItemSchema = Schema.Struct({
   backdrop_url: Schema.optional(Schema.String),
   show_poster_path: Schema.optional(Schema.String),
   show_poster_url: Schema.optional(Schema.String),
+  show_title: Schema.optional(Schema.String),
   release_date: Schema.optional(Schema.String),
   show_vote_average: Schema.optional(Schema.Number),
   show_imdb_rating: Schema.optional(Schema.Number),

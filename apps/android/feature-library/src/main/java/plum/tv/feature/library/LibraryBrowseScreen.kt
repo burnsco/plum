@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import plum.tv.core.network.LibraryBrowseItemJson
@@ -180,7 +179,6 @@ private fun BrowseMoviePosterCard(
         progressPercent = item.progressPercent,
         watched = item.completed == true,
         focusedScale = 1f,
-        imageContentScale = ContentScale.Crop,
     )
 }
 
@@ -213,6 +211,5 @@ private fun BrowseShowPosterCard(
         compact = true,
         watched = unwatched == 0 && row.episodes.isNotEmpty(),
         focusedScale = 1f,
-        imageContentScale = ContentScale.Crop,
     )
 }

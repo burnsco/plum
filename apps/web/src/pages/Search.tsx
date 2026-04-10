@@ -139,7 +139,7 @@ export function SearchPage() {
                 <img
                   src={resolveSearchPoster(result.poster_url, result.poster_path) || "/placeholder-poster.svg"}
                   alt=""
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain"
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">

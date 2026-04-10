@@ -224,8 +224,9 @@ func HandleStreamSubtitleAss(w http.ResponseWriter, r *http.Request, dbConn *sql
 	return nil
 }
 
-// HandleStreamEmbeddedSubtitleAss extracts a raw ASS subtitle stream for clients that render
-// ASS natively (e.g. JASSUB in web browsers). Only ASS/SSA codec streams are eligible.
+// HandleStreamEmbeddedSubtitleAss serves subtitles as ASS for clients that render ASS natively
+// (e.g. JASSUB in web browsers). ASS/SSA streams are stream-copied; other text codecs are
+// transcoded to ASS by ffmpeg.
 func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
 	item, err := GetMediaByID(dbConn, mediaID)
 	if err != nil {
@@ -258,13 +259,15 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
 	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeSubtitleDemux...)
-	ffmpegArgs = append(ffmpegArgs,
-		"-i", sourcePath,
-		"-map", fmt.Sprintf("0:%d", streamIndex),
-		"-c", "copy",
-		"-f", "ass",
-		"-",
-	)
+	codecLower := strings.ToLower(strings.TrimSpace(stored.Codec))
+	streamCopy := codecLower == "ass" || codecLower == "ssa"
+	ffmpegArgs = append(ffmpegArgs, "-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex))
+	if streamCopy {
+		ffmpegArgs = append(ffmpegArgs, "-c", "copy")
+	} else {
+		ffmpegArgs = append(ffmpegArgs, "-c:s", "ass")
+	}
+	ffmpegArgs = append(ffmpegArgs, "-f", "ass", "-")
 	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
 	var stdoutBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf

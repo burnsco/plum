@@ -349,7 +349,7 @@ fun PlumActionButton(
         }
     val focusedContentColor =
         when (variant) {
-            PlumButtonVariant.Primary -> Color(0xFF1A1030)
+            PlumButtonVariant.Primary -> palette.onAccent
             PlumButtonVariant.Secondary -> palette.text
             PlumButtonVariant.Ghost -> palette.text
         }
@@ -703,7 +703,6 @@ fun PlumSideRail(
             .width(railWidth)
             .fillMaxHeight()
             .background(palette.panel)
-            .clip(RoundedCornerShape(0.dp))
             .onFocusChanged { railHasFocus = it.hasFocus }
             .padding(horizontal = railHorizontalPadding, vertical = 20.dp),
         horizontalAlignment = Alignment.Start,

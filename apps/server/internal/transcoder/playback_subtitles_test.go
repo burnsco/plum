@@ -49,6 +49,36 @@ func TestValidateBurnEmbeddedSubtitle_RejectsTextCodec(t *testing.T) {
 	}
 }
 
+func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesSubripTranscodePrefersAss(t *testing.T) {
+	subs := embeddedSubtitlesForPlaybackJSON(
+		db.MediaItem{
+			EmbeddedSubtitles: []db.EmbeddedSubtitle{
+				{
+					StreamIndex: 2,
+					Language:    "en",
+					Title:       "English",
+					Codec:       "subrip",
+					Supported:   boolPtr(true),
+				},
+			},
+		},
+		"transcode",
+	)
+	if len(subs) != 1 {
+		t.Fatalf("len(subs) = %d", len(subs))
+	}
+	got := subs[0]
+	if !got.VttEligible || !got.AssEligible {
+		t.Fatalf("expected vtt and ass eligibility for subrip, got %#v", got)
+	}
+	if got.PreferredWebDeliveryMode == nil || *got.PreferredWebDeliveryMode != PlaybackEmbeddedSubtitleDeliveryModeASS {
+		t.Fatalf("preferredWebDeliveryMode = %#v", got.PreferredWebDeliveryMode)
+	}
+	if len(got.DeliveryModes) != 2 {
+		t.Fatalf("deliveryModes = %#v", got.DeliveryModes)
+	}
+}
+
 func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesDirectASS(t *testing.T) {
 	subs := embeddedSubtitlesForPlaybackJSON(
 		db.MediaItem{

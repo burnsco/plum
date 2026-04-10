@@ -175,6 +175,73 @@ func TestTMDBClientSearchAndDetailMapDiscoverPayloads(t *testing.T) {
 	}
 }
 
+func TestTMDBClientGetEpisodePrefersEnglishTranslations(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/tv/12":
+			if got := r.URL.Query().Get("language"); got != "en-US" {
+				t.Fatalf("series language = %q", got)
+			}
+			_, _ = w.Write([]byte(`{
+				"id": 12,
+				"name": "ダンダダン",
+				"overview": "Japanese overview",
+				"poster_path": "/show.jpg",
+				"backdrop_path": "/show-backdrop.jpg",
+				"first_air_date": "2024-10-04",
+				"episode_run_time": [24],
+				"external_ids": {"imdb_id": "tt30217403"},
+				"translations": {"translations": [
+					{"iso_639_1": "en", "iso_3166_1": "US", "data": {"name": "Dan Da Dan", "overview": "English overview"}}
+				]}
+			}`))
+		case "/tv/12/season/1/episode/1":
+			if got := r.URL.Query().Get("language"); got != "en-US" {
+				t.Fatalf("episode language = %q", got)
+			}
+			_, _ = w.Write([]byte(`{
+				"name": "それって恋のはじまりじゃんよ",
+				"overview": "Japanese episode overview",
+				"still_path": "/still.jpg",
+				"air_date": "2024-10-04",
+				"vote_average": 8.1,
+				"translations": {"translations": [
+					{"iso_639_1": "en", "iso_3166_1": "US", "data": {"name": "That's How Love Starts, Ya Know!", "overview": "English episode overview"}}
+				]}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewTMDBClient("test-key")
+	client.baseURL = server.URL
+
+	episode, err := client.GetEpisode(context.Background(), "12", 1, 1)
+	if err != nil {
+		t.Fatalf("get episode: %v", err)
+	}
+	if episode == nil {
+		t.Fatal("expected episode")
+	}
+	if episode.Title != "Dan Da Dan - S01E01 - That's How Love Starts, Ya Know!" {
+		t.Fatalf("title = %q", episode.Title)
+	}
+	if episode.Overview != "English episode overview" {
+		t.Fatalf("overview = %q", episode.Overview)
+	}
+
+	series, err := client.GetSeriesDetails(context.Background(), 12)
+	if err != nil {
+		t.Fatalf("get series: %v", err)
+	}
+	if series == nil || series.Name != "Dan Da Dan" || series.Overview != "English overview" {
+		t.Fatalf("series = %+v", series)
+	}
+}
+
 func TestTMDBClientBrowseDiscoverAndGenres(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

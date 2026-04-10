@@ -616,7 +616,7 @@ func batchLoadEpisodeMediaItems(db *sql.DB, libraryID int, kind string, globalID
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(m.show_id, 0), COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(m.show_id, 0), COALESCE(s.poster_path, ''), COALESCE(s.title, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 LEFT JOIN shows s ON s.id = m.show_id
@@ -643,13 +643,13 @@ func scanEpisodeMediaItems(rows *sql.Rows, kind string) ([]MediaItem, error) {
 		var m MediaItem
 		m.Type = kind
 		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
-		var showPosterPath sql.NullString
+		var showPosterPath, showTitle sql.NullString
 		var voteAvg, showVoteAvg, showImdbAvg, imdbRating sql.NullFloat64
 		var tmdbID sql.NullInt64
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
 		var metadataConfirmed sql.NullBool
-		err := rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &m.ShowID, &showPosterPath, &showVoteAvg, &showImdbAvg)
+		err := rows.Scan(&m.ID, &m.LibraryID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &m.ShowID, &showPosterPath, &showTitle, &showVoteAvg, &showImdbAvg)
 		if err != nil {
 			return nil, err
 		}
@@ -689,6 +689,9 @@ func scanEpisodeMediaItems(rows *sql.Rows, kind string) ([]MediaItem, error) {
 		}
 		if showPosterPath.Valid {
 			m.ShowPosterPath = showPosterPath.String
+		}
+		if showTitle.Valid {
+			m.ShowTitle = showTitle.String
 		}
 		if showVoteAvg.Valid {
 			m.ShowVoteAverage = showVoteAvg.Float64
@@ -838,7 +841,7 @@ func batchLoadEpisodeMediaByKindAndGlobalIDs(db *sql.DB, userID int, kind string
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
+	q := `SELECT g.id, m.library_id, m.title, m.path, m.duration, COALESCE(m.file_size_bytes, 0), COALESCE(m.file_mod_time, ''), COALESCE(m.file_hash, ''), COALESCE(m.file_hash_kind, ''), COALESCE(m.missing_since, ''), m.match_status, m.tmdb_id, m.tvdb_id, m.overview, m.poster_path, m.backdrop_path, m.release_date, m.vote_average, m.imdb_id, m.imdb_rating, COALESCE(m.season, 0), COALESCE(m.episode, 0), COALESCE(m.metadata_review_needed, 0), COALESCE(m.metadata_confirmed, 0), m.thumbnail_path, COALESCE(s.poster_path, ''), COALESCE(s.title, ''), COALESCE(s.vote_average, 0), COALESCE(s.imdb_rating, 0)
 FROM ` + table + ` m
 JOIN media_global g ON g.kind = ? AND g.ref_id = m.id
 JOIN libraries l ON l.id = m.library_id AND l.user_id = ?
@@ -856,13 +859,13 @@ ORDER BY g.id`
 		m.Type = kind
 		var libID int
 		var overview, posterPath, backdropPath, releaseDate, thumbnailPath, matchStatus, imdbID sql.NullString
-		var showPosterPath sql.NullString
+		var showPosterPath, showTitle sql.NullString
 		var voteAvg, showVoteAvg, showImdbAvg, imdbRating sql.NullFloat64
 		var tmdbID sql.NullInt64
 		var tvdbID sql.NullString
 		var metadataReviewNeeded sql.NullBool
 		var metadataConfirmed sql.NullBool
-		err := rows.Scan(&m.ID, &libID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showVoteAvg, &showImdbAvg)
+		err := rows.Scan(&m.ID, &libID, &m.Title, &m.Path, &m.Duration, &m.FileSizeBytes, &m.FileModTime, &m.FileHash, &m.FileHashKind, &m.MissingSince, &matchStatus, &tmdbID, &tvdbID, &overview, &posterPath, &backdropPath, &releaseDate, &voteAvg, &imdbID, &imdbRating, &m.Season, &m.Episode, &metadataReviewNeeded, &metadataConfirmed, &thumbnailPath, &showPosterPath, &showTitle, &showVoteAvg, &showImdbAvg)
 		if err != nil {
 			return nil, err
 		}
@@ -903,6 +906,9 @@ ORDER BY g.id`
 		}
 		if showPosterPath.Valid {
 			m.ShowPosterPath = showPosterPath.String
+		}
+		if showTitle.Valid {
+			m.ShowTitle = showTitle.String
 		}
 		if showVoteAvg.Valid {
 			m.ShowVoteAverage = showVoteAvg.Float64

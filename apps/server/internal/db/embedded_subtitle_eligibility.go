@@ -38,14 +38,25 @@ func EmbeddedSubtitlePgsBinaryDeliveryEligible(e EmbeddedSubtitle) bool {
 	}
 }
 
-// EmbeddedSubtitleAssDeliveryEligible returns true when the stream can be served as raw ASS for
-// clients that render ASS natively (e.g. JASSUB in web browsers).
+// EmbeddedSubtitleAssDeliveryEligible returns true when the stream can be served as ASS for
+// clients that render ASS natively (e.g. JASSUB in web browsers). Native ASS/SSA use stream copy;
+// subrip/mov_text/webvtt are converted to ASS by ffmpeg on read.
 func EmbeddedSubtitleAssDeliveryEligible(e EmbeddedSubtitle) bool {
 	if e.Supported != nil && !*e.Supported {
 		return false
 	}
+	if EmbeddedSubtitleCodecLikelyBitmap(e.Codec) {
+		return false
+	}
 	c := strings.ToLower(strings.TrimSpace(e.Codec))
-	return c == "ass" || c == "ssa"
+	switch c {
+	case "ass", "ssa":
+		return true
+	case "subrip", "srt", "mov_text", "webvtt":
+		return true
+	default:
+		return false
+	}
 }
 
 // PlaybackEmbeddedSubtitles returns embedded entries safe for WebVTT APIs and playback JSON.

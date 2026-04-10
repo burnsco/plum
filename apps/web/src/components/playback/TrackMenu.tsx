@@ -8,6 +8,8 @@ export function TrackMenu({
   onSelect,
   menuRef,
   position = "above",
+  /** `end`: align menu to the control's right edge (e.g. right-cluster track pickers). */
+  menuAlign = "center",
   ariaLabel,
   offLabel,
 }: {
@@ -16,13 +18,16 @@ export function TrackMenu({
   onSelect: (key: string) => void;
   menuRef: RefObject<HTMLDivElement | null>;
   position?: "above" | "below";
+  menuAlign?: "center" | "end";
   ariaLabel: string;
   offLabel?: string;
 }) {
+  const alignClass =
+    menuAlign === "end" ? " subtitle-menu--align-end" : "";
   return (
     <div
       ref={menuRef}
-      className={`subtitle-menu subtitle-menu--${position}`}
+      className={`subtitle-menu subtitle-menu--${position}${alignClass}`}
       role="listbox"
       aria-label={ariaLabel}
     >
