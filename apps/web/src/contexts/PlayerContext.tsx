@@ -36,6 +36,10 @@ export type {
 /** Track / stream / dock chrome — updates on item switch, WS, duration, etc. */
 export type PlayerSessionContextValue = {
   playbackSession: PlaybackSession | null;
+  /** Set when the current video session was started from Home continue watching. */
+  videoResumeIntent: "continue_watching" | undefined;
+  /** Active backend video session id for remux/transcode playback; null for direct playback. */
+  videoSessionId: string | null;
   activeItem: MediaItem | null;
   activeMode: PlaybackKind | null;
   isDockOpen: boolean;
@@ -60,14 +64,22 @@ export type PlayerQueueContextValue = {
   shuffle: boolean;
   repeatMode: MusicRepeatMode;
   playMedia: (item: MediaItem) => void;
-  playMovie: (item: MediaItem) => void;
-  playEpisode: (item: MediaItem, options?: { showKey?: string }) => void;
+  playMovie: (item: MediaItem, options?: { resumeIntent?: "continue_watching" }) => void;
+  playEpisode: (
+    item: MediaItem,
+    options?: { showKey?: string; resumeIntent?: "continue_watching" },
+  ) => void;
   playShowGroup: (items: MediaItem[], startItem?: MediaItem) => void;
   playMusicCollection: (items: MediaItem[], startItem?: MediaItem) => void;
   playNextInQueue: () => void;
   playPreviousInQueue: () => void;
   toggleShuffle: () => void;
   cycleRepeatMode: () => void;
+  /** Clears [PlaybackSession.resumeIntent] after the dock handles the first open. */
+  clearVideoResumeIntent: (expected: {
+    mediaId: number;
+    sessionId: string | null;
+  }) => void;
 };
 
 /** High-frequency controls — volume, seek, play/pause; avoids queue/session churn. */
@@ -113,6 +125,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const volumeRef = useRef(1);
   const mutedRef = useRef(false);
   const playbackSessionRef = useRef<PlaybackSession | null>(null);
+  const videoSessionIdRef = useRef<string | null>(null);
   const mediaElementsRef = useRef<
     Record<MediaElementSlot, HTMLMediaElement | null>
   >({
@@ -136,6 +149,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const {
     videoSessionRef,
+    videoSessionId,
     setVideoSession,
     videoSourceUrl,
     playbackDurationSeconds,
@@ -158,6 +172,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLastEvent,
     mountedRef,
   });
+
+  // Sync during render so late media events see the latest session identity before effects run.
+  videoSessionIdRef.current = videoSessionId;
 
   const {
     queue,
@@ -250,6 +267,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     videoSessionRef,
   ]);
 
+  const clearVideoResumeIntent = useCallback(
+    (expected: { mediaId: number; sessionId: string | null }) => {
+      setPlaybackSession((current) => {
+        if (current?.activeMode !== "video") return current;
+        const currentItem = current.queue[current.queueIndex];
+        if (!currentItem || currentItem.id !== expected.mediaId) return current;
+        if (videoSessionIdRef.current !== expected.sessionId) return current;
+        return { ...current, resumeIntent: undefined };
+      });
+    },
+    [],
+  );
+
   const togglePlayPause = useCallback(() => {
     const active = getActiveMediaElement();
     if (!active) return;
@@ -335,9 +365,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     exitBrowserFullscreen();
   }, [exitBrowserFullscreen]);
 
+  const videoResumeIntent =
+    activeMode === "video" ? playbackSession?.resumeIntent : undefined;
+
   const sessionValue = useMemo<PlayerSessionContextValue>(
     () => ({
       playbackSession,
+      videoResumeIntent,
+      videoSessionId,
       activeItem,
       activeMode,
       isDockOpen,
@@ -354,6 +389,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }),
     [
       playbackSession,
+      videoResumeIntent,
+      videoSessionId,
       activeItem,
       activeMode,
       isDockOpen,
@@ -385,6 +422,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playPreviousInQueue,
       toggleShuffle,
       cycleRepeatMode,
+      clearVideoResumeIntent,
     }),
     [
       queue,
@@ -400,6 +438,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playPreviousInQueue,
       toggleShuffle,
       cycleRepeatMode,
+      clearVideoResumeIntent,
     ],
   );
 

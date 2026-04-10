@@ -14,4 +14,9 @@ export type PlaybackSession = {
   queueIndex: number;
   shuffle: boolean;
   repeatMode: MusicRepeatMode;
+  /**
+   * User already chose to resume from Home "Continue watching" — skip the in-player resume/restart
+   * overlay and seek to [MediaItem.progress_seconds] immediately (including server seek for transcodes).
+   */
+  resumeIntent?: "continue_watching";
 };

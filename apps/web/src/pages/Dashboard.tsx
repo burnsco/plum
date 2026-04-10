@@ -77,17 +77,24 @@ function dashboardPosterFields(entry: DashboardEntry): { posterPath?: string; po
 function toPosterGridItem(
   entry: DashboardEntry,
   shelf: DashboardShelf,
-  playMovie: (item: DashboardEntry["media"]) => void,
-  playEpisode: (item: DashboardEntry["media"], options?: { showKey?: string }) => void,
+  playMovie: (
+    item: DashboardEntry["media"],
+    options?: { resumeIntent?: "continue_watching" },
+  ) => void,
+  playEpisode: (
+    item: DashboardEntry["media"],
+    options?: { showKey?: string; resumeIntent?: "continue_watching" },
+  ) => void,
 ): PosterGridItem {
+  const cw = shelf === "continueWatching";
   const playItem =
     entry.kind === "movie"
-      ? () => playMovie(entry.media)
+      ? () => playMovie(entry.media, cw ? { resumeIntent: "continue_watching" } : undefined)
       : () =>
-          playEpisode(
-            entry.media,
-            entry.show_key?.trim() ? { showKey: entry.show_key } : undefined,
-          );
+          playEpisode(entry.media, {
+            ...(entry.show_key?.trim() ? { showKey: entry.show_key } : {}),
+            ...(cw ? { resumeIntent: "continue_watching" as const } : {}),
+          });
   const rating =
     entry.kind === "movie"
       ? getPreferredMovieRating(entry.media)

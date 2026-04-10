@@ -190,6 +190,7 @@ export function usePlaybackSession({
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
   const burnEmbeddedSubtitleStreamIndex =
     activeMode === "video" ? (videoSession?.burnEmbeddedSubtitleStreamIndex ?? null) : null;
+  const videoSessionId = activeMode === "video" ? videoSession?.sessionId ?? null : null;
 
   // Sync during render so imperative callbacks and WS handling see the current video session
   // and active item id in the same commit as state (layout-effect updates are one commit late).
@@ -514,6 +515,7 @@ export function usePlaybackSession({
   return {
     setVideoSession,
     videoSessionRef,
+    videoSessionId,
     videoSourceUrl,
     playbackDurationSeconds,
     videoDelivery,

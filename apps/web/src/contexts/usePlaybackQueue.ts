@@ -74,7 +74,11 @@ export function usePlaybackQueue({
   }, []);
 
   const playVideoQueue = useCallback(
-    (items: MediaItem[], startIndex = 0) => {
+    (
+      items: MediaItem[],
+      startIndex = 0,
+      options?: { resumeIntent?: "continue_watching" },
+    ) => {
       if (items.length === 0) return;
       pauseAllMediaElements();
       const clampedIndex = Math.max(0, Math.min(startIndex, items.length - 1));
@@ -87,6 +91,7 @@ export function usePlaybackQueue({
         queueIndex: clampedIndex,
         shuffle: false,
         repeatMode: current?.repeatMode ?? "off",
+        resumeIntent: options?.resumeIntent,
       }));
       closeVideoSession(videoSessionRef.current?.sessionId);
       setVideoSession(null);
@@ -139,6 +144,7 @@ export function usePlaybackQueue({
               isDockOpen: true,
               viewMode: "window",
               queueIndex: clampedIndex,
+              resumeIntent: undefined,
             }
           : current,
       );
@@ -190,14 +196,14 @@ export function usePlaybackQueue({
   );
 
   const playMovie = useCallback(
-    (item: MediaItem) => {
-      playVideoQueue([item]);
+    (item: MediaItem, options?: { resumeIntent?: "continue_watching" }) => {
+      playVideoQueue([item], 0, options);
     },
     [playVideoQueue],
   );
 
   const playEpisode = useCallback(
-    (item: MediaItem, options?: { showKey?: string }) => {
+    (item: MediaItem, options?: { showKey?: string; resumeIntent?: "continue_watching" }) => {
       const libId = item.library_id;
       const explicitKey = options?.showKey?.trim();
       const derivedKey =
@@ -219,18 +225,20 @@ export function usePlaybackQueue({
             if (episodes.length > 0) {
               sortEpisodes(episodes);
               const idx = episodes.findIndex((e) => e.id === item.id);
-              playVideoQueue(episodes, idx >= 0 ? idx : 0);
+              playVideoQueue(episodes, idx >= 0 ? idx : 0, {
+                resumeIntent: options?.resumeIntent,
+              });
               return;
             }
-            playVideoQueue([item]);
+            playVideoQueue([item], 0, { resumeIntent: options?.resumeIntent });
           })
           .catch((err) => {
             console.error("[Player] getShowEpisodes failed", err);
-            playVideoQueue([item]);
+            playVideoQueue([item], 0, { resumeIntent: options?.resumeIntent });
           });
         return;
       }
-      playVideoQueue([item]);
+      playVideoQueue([item], 0, { resumeIntent: options?.resumeIntent });
     },
     [mountedRef, playVideoQueue],
   );

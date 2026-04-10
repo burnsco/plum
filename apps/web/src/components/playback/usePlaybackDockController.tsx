@@ -257,10 +257,12 @@ export function usePlaybackDockController(): ReactNode {
     videoDelivery,
     videoStreamOffsetSeconds,
     videoAudioIndex,
+    videoSessionId,
     wsConnected,
     lastEvent,
     dismissDock,
     burnEmbeddedSubtitleStreamIndex,
+    videoResumeIntent,
   } = usePlayerSession();
   const {
     queue,
@@ -268,6 +270,7 @@ export function usePlaybackDockController(): ReactNode {
     repeatMode,
     playNextInQueue,
     playPreviousInQueue,
+    clearVideoResumeIntent,
   } = usePlayerQueue();
   const {
     volume,
@@ -358,21 +361,12 @@ export function usePlaybackDockController(): ReactNode {
     if (!prompt) return;
     const element = videoRef.current;
     if (element && activeItem) {
-      const delivery = videoDelivery ?? "direct";
-      const relativeResume =
-        delivery === "direct" ? prompt.seconds : Math.max(0, prompt.seconds - videoStreamOffsetSeconds);
-      element.currentTime = clampVideoSeekSeconds(
-        element,
-        relativeResume,
-        playbackDurationSeconds,
-        activeItem.duration,
-        delivery,
-      );
+      seekTo(prompt.seconds);
       ignorePromise(element.play(), "PlaybackDock:resumeFromProgressPlay");
     }
     resumeAppliedRef.current = prompt.mediaId;
     setResumePrompt(null);
-  }, [activeItem, playbackDurationSeconds, resumePrompt, videoDelivery, videoStreamOffsetSeconds]);
+  }, [activeItem, resumePrompt, seekTo]);
 
   const handleStartFromBeginning = useCallback(() => {
     const prompt = resumePrompt;
@@ -546,6 +540,12 @@ export function usePlaybackDockController(): ReactNode {
         ? video.currentTime
         : Math.max(0, playbackState.currentTime - videoStreamOffsetSeconds);
     resumePlaybackAfterReloadRef.current = !video.paused && !video.ended;
+    if (resumePlaybackAfterReloadRef.current) {
+      // After the first `playing` event, [kickstartVideoPlaybackRef] is false; a transcode revision
+      // or stream URL swap calls `load()` and we must allow `canplay` / HLS manifest hooks to
+      // drive play() again like the user pressing play.
+      kickstartVideoPlaybackRef.current = true;
+    }
     video.pause();
     video.load();
   }, [playbackState.currentTime, videoSourceUrl, videoStreamOffsetSeconds]);
@@ -574,9 +574,11 @@ export function usePlaybackDockController(): ReactNode {
     const video = videoRef.current;
     if (!video) return;
 
+    kickstartVideoPlaybackRef.current = true;
+
     const handle = window.setTimeout(() => {
       if (videoRef.current !== video) return;
-      ignorePromise(video.play(), "PlaybackDock:autoplayAfterStreamReady");
+      attemptAutoplayRef.current(video, "PlaybackDock:autoplayAfterStreamReady");
     }, 0);
     return () => window.clearTimeout(handle);
   }, [activeItemId, isVideo, videoSourceUrl]);
@@ -1028,7 +1030,7 @@ export function usePlaybackDockController(): ReactNode {
   }, [persistPlaybackProgress]);
 
   const applyResumePosition = useCallback(
-    (element: HTMLMediaElement) => {
+    (_element: HTMLMediaElement) => {
       if (
         !isVideo ||
         !activeItem ||
@@ -1042,19 +1044,10 @@ export function usePlaybackDockController(): ReactNode {
         resumeAppliedRef.current = activeItem.id;
         return;
       }
-      const delivery = videoDelivery ?? "direct";
-      const relativeResumeAt =
-        delivery === "direct" ? resumeAt : Math.max(0, resumeAt - videoStreamOffsetSeconds);
-      element.currentTime = clampVideoSeekSeconds(
-        element,
-        relativeResumeAt,
-        playbackDurationSeconds,
-        activeItem.duration,
-        delivery,
-      );
+      seekTo(resumeAt);
       resumeAppliedRef.current = activeItem.id;
     },
-    [activeItem, isVideo, playbackDurationSeconds, videoDelivery, videoStreamOffsetSeconds],
+    [activeItem, isVideo, seekTo],
   );
 
   const persistInitialPlaybackProgress = useCallback(
@@ -1112,72 +1105,91 @@ export function usePlaybackDockController(): ReactNode {
 
   const handleVideoLoadedMetadata = useCallback(
     (element: HTMLVideoElement) => {
-      const seekToAfterReload = seekToAfterReloadRef.current;
-      if (seekToAfterReload != null) {
-        const delivery = videoDelivery ?? "direct";
-        const relativeSeek =
-          delivery === "direct"
-            ? seekToAfterReload
-            : Math.max(0, seekToAfterReload - videoStreamOffsetSeconds);
-        element.currentTime =
-          activeItem != null
-            ? clampVideoSeekSeconds(
-                element,
-                relativeSeek,
-                playbackDurationSeconds,
-                activeItem.duration,
-                delivery,
-              )
-            : Math.max(0, relativeSeek);
-        seekToAfterReloadRef.current = null;
-        const shouldResumePlayback = resumePlaybackAfterReloadRef.current;
-        resumePlaybackAfterReloadRef.current = false;
-        if (shouldResumePlayback) {
-          suppressVideoAutoplayOnCanPlayRef.current = false;
-          ignorePromise(
-            element.play(),
-            "PlaybackDock:resumePlaybackAfterReload",
-          );
+      const startedFromContinueWatching = videoResumeIntent === "continue_watching";
+      try {
+        const seekToAfterReload = seekToAfterReloadRef.current;
+        if (seekToAfterReload != null) {
+          const delivery = videoDelivery ?? "direct";
+          const relativeSeek =
+            delivery === "direct"
+              ? seekToAfterReload
+              : Math.max(0, seekToAfterReload - videoStreamOffsetSeconds);
+          element.currentTime =
+            activeItem != null
+              ? clampVideoSeekSeconds(
+                  element,
+                  relativeSeek,
+                  playbackDurationSeconds,
+                  activeItem.duration,
+                  delivery,
+                )
+              : Math.max(0, relativeSeek);
+          seekToAfterReloadRef.current = null;
+          const shouldResumePlayback = resumePlaybackAfterReloadRef.current;
+          resumePlaybackAfterReloadRef.current = false;
+          if (shouldResumePlayback) {
+            suppressVideoAutoplayOnCanPlayRef.current = false;
+            ignorePromise(
+              element.play(),
+              "PlaybackDock:resumePlaybackAfterReload",
+            );
+          } else {
+            element.pause();
+            suppressVideoAutoplayOnCanPlayRef.current = true;
+            kickstartVideoPlaybackRef.current = false;
+          }
         } else {
-          element.pause();
-          suppressVideoAutoplayOnCanPlayRef.current = true;
-          kickstartVideoPlaybackRef.current = false;
+          const resumeAt = activeItem?.progress_seconds ?? 0;
+          const hasResumableProgress =
+            activeItem != null &&
+            !activeItem.completed &&
+            Number.isFinite(resumeAt) &&
+            resumeAt > 0 &&
+            resumeAppliedRef.current !== activeItem.id;
+          if (hasResumableProgress && startedFromContinueWatching) {
+            seekTo(resumeAt);
+            resumeAppliedRef.current = activeItem.id;
+            suppressVideoAutoplayOnCanPlayRef.current = false;
+            attemptAutoplay(element, "PlaybackDock:loadedMetadataAutoplay");
+          } else if (hasResumableProgress) {
+            element.pause();
+            suppressVideoAutoplayOnCanPlayRef.current = true;
+            kickstartVideoPlaybackRef.current = false;
+            setResumePrompt({ seconds: resumeAt, mediaId: activeItem.id });
+          } else {
+            suppressVideoAutoplayOnCanPlayRef.current = false;
+            applyResumePosition(element);
+            attemptAutoplay(element, "PlaybackDock:loadedMetadataAutoplay");
+          }
         }
-      } else {
-        const resumeAt = activeItem?.progress_seconds ?? 0;
-        const hasResumableProgress =
-          activeItem != null &&
-          !activeItem.completed &&
-          Number.isFinite(resumeAt) &&
-          resumeAt > 0 &&
-          resumeAppliedRef.current !== activeItem.id;
-        if (hasResumableProgress) {
-          element.pause();
-          suppressVideoAutoplayOnCanPlayRef.current = true;
-          kickstartVideoPlaybackRef.current = false;
-          setResumePrompt({ seconds: resumeAt, mediaId: activeItem.id });
-        } else {
-          suppressVideoAutoplayOnCanPlayRef.current = false;
-          applyResumePosition(element);
-          attemptAutoplay(element, "PlaybackDock:loadedMetadataAutoplay");
+        syncPlaybackState(element);
+        setAudioTrackVersion((value) => value + 1);
+        markSubtitleReady();
+        setIsVideoLoading(false);
+        setDetectedVideoAspectLabel(
+          formatDetectedVideoAspectLabel(element.videoWidth, element.videoHeight),
+        );
+      } finally {
+        if (startedFromContinueWatching && activeItem) {
+          clearVideoResumeIntent({
+            mediaId: activeItem.id,
+            sessionId: videoSessionId,
+          });
         }
       }
-      syncPlaybackState(element);
-      setAudioTrackVersion((value) => value + 1);
-      markSubtitleReady();
-      setIsVideoLoading(false);
-      setDetectedVideoAspectLabel(
-        formatDetectedVideoAspectLabel(element.videoWidth, element.videoHeight),
-      );
     },
     [
       activeItem,
       applyResumePosition,
       attemptAutoplay,
+      clearVideoResumeIntent,
       markSubtitleReady,
       playbackDurationSeconds,
+      seekTo,
       syncPlaybackState,
       videoDelivery,
+      videoSessionId,
+      videoResumeIntent,
       videoStreamOffsetSeconds,
     ],
   );
