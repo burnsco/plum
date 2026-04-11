@@ -162,8 +162,10 @@ func classifyPlaybackEmbeddedSubtitle(
 		)
 	}
 
+	// Prefer ASS only for native ASS/SSA tracks so styled subtitles stay styled in the web client.
+	// Plain text codecs like subrip still prefer native WebVTT/HLS in browsers even when ASS is possible.
 	switch {
-	case classification.AssEligible:
+	case db.EmbeddedSubtitleCodecIsNativeASS(embedded.Codec):
 		classification.PreferredWebDeliveryMode = preferredDeliveryMode(PlaybackEmbeddedSubtitleDeliveryModeASS)
 	case classification.VttEligible && playbackDelivery == "direct":
 		classification.PreferredWebDeliveryMode = preferredDeliveryMode(PlaybackEmbeddedSubtitleDeliveryModeDirectVTT)

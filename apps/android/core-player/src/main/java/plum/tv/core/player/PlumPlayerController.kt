@@ -79,6 +79,31 @@ private fun formatDetectedVideoAspectLabel(videoSize: VideoSize): String? {
     return "$text:1"
 }
 
+internal fun subtitleSelectionFlags(
+    default: Boolean,
+    forced: Boolean,
+    hearingImpaired: Boolean,
+): Int {
+    var flags = 0
+    if (default) {
+        flags = flags or C.SELECTION_FLAG_DEFAULT
+    }
+    if (forced) {
+        flags = flags or C.SELECTION_FLAG_FORCED
+    }
+    if (default || forced || !hearingImpaired) {
+        flags = flags or C.SELECTION_FLAG_AUTOSELECT
+    }
+    return flags
+}
+
+internal fun subtitleRoleFlags(hearingImpaired: Boolean): Int =
+    if (hearingImpaired) {
+        C.ROLE_FLAG_CAPTION
+    } else {
+        C.ROLE_FLAG_SUBTITLE
+    }
+
 data class PlayerQueueItem(
     val mediaId: Int,
     val title: String,
@@ -2167,6 +2192,14 @@ class PlumPlayerController(
                     .setId(logicalId)
                     // Server converts sidecars to WebVTT on the fly (see HandleStreamSubtitle).
                     .setMimeType(MimeTypes.TEXT_VTT)
+                    .setSelectionFlags(
+                        subtitleSelectionFlags(
+                            default = subtitle.default,
+                            forced = subtitle.forced,
+                            hearingImpaired = subtitle.hearingImpaired,
+                        ),
+                    )
+                    .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
             if (subtitle.language.isNotBlank()) {
                 builder.setLanguage(subtitle.language)
             }
@@ -2199,6 +2232,14 @@ class PlumPlayerController(
                         .setId(logicalId)
                         // Embedded extract endpoint always serves text/vtt (ffmpeg).
                         .setMimeType(MimeTypes.TEXT_VTT)
+                        .setSelectionFlags(
+                            subtitleSelectionFlags(
+                                default = subtitle.default,
+                                forced = subtitle.forced,
+                                hearingImpaired = subtitle.hearingImpaired,
+                            ),
+                        )
+                        .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
                 if (subtitle.language.isNotBlank()) {
                     builder.setLanguage(subtitle.language)
                 }
@@ -2222,6 +2263,14 @@ class PlumPlayerController(
                 MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
                     .setId(logicalId)
                     .setMimeType(MimeTypes.APPLICATION_PGS)
+                    .setSelectionFlags(
+                        subtitleSelectionFlags(
+                            default = subtitle.default,
+                            forced = subtitle.forced,
+                            hearingImpaired = subtitle.hearingImpaired,
+                        ),
+                    )
+                    .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
             if (subtitle.language.isNotBlank()) {
                 builder.setLanguage(subtitle.language)
             }

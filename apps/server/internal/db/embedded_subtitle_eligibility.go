@@ -59,6 +59,18 @@ func EmbeddedSubtitleAssDeliveryEligible(e EmbeddedSubtitle) bool {
 	}
 }
 
+// EmbeddedSubtitleCodecIsNativeASS reports codecs that are already ASS/SSA and can be stream-copied
+// for the raw ASS delivery endpoint.
+func EmbeddedSubtitleCodecIsNativeASS(codec string) bool {
+	c := strings.ToLower(strings.TrimSpace(codec))
+	switch c {
+	case "ass", "ssa":
+		return true
+	default:
+		return false
+	}
+}
+
 // PlaybackEmbeddedSubtitles returns embedded entries safe for WebVTT APIs and playback JSON.
 func PlaybackEmbeddedSubtitles(in []EmbeddedSubtitle) []EmbeddedSubtitle {
 	if len(in) == 0 {

@@ -11,7 +11,7 @@ import (
 func TestInjectHlsSubtitleRenditions_NoStreamInf(t *testing.T) {
 	body := "#EXTM3U\n#EXTINF:2,\nseg.ts\n"
 	got := InjectHlsSubtitleRenditions(body, []HlsWebSubtitle{
-		{LogicalID: "emb:2", PlaylistFile: "plum_subs_656d623a32.m3u8", VTTPath: "/api/media/1/subtitles/embedded/2", DisplayName: "English", Language: "en"},
+		{LogicalID: "emb:2", PlaylistFile: "plum_subs_656d623a32.m3u8", VTTPath: "/api/media/1/subtitles/embedded/2", DisplayName: "English", Language: "en", Autoselect: true},
 	})
 	if got != body {
 		t.Fatalf("expected unchanged media playlist, got %q", got)
@@ -25,7 +25,7 @@ func TestInjectHlsSubtitleRenditions_PrependsMediaAndAddsGroup(t *testing.T) {
 variant_0/index.m3u8
 `
 	tracks := []HlsWebSubtitle{
-		{LogicalID: "emb:3", PlaylistFile: "plum_subs_656d623a33.m3u8", VTTPath: "/api/media/9/subtitles/embedded/3", DisplayName: `Eng "test"`, Language: "en"},
+		{LogicalID: "emb:3", PlaylistFile: "plum_subs_656d623a33.m3u8", VTTPath: "/api/media/9/subtitles/embedded/3", DisplayName: `Eng "test"`, Language: "en", Default: true, Forced: true, Autoselect: true},
 	}
 	got := InjectHlsSubtitleRenditions(body, tracks)
 	if !strings.Contains(got, `TYPE=SUBTITLES`) {
@@ -40,6 +40,9 @@ variant_0/index.m3u8
 	if strings.Count(got, `GROUP-ID="subs"`) < 1 {
 		t.Fatalf("expected subs group: %q", got)
 	}
+	if !strings.Contains(got, `DEFAULT=YES`) || !strings.Contains(got, `FORCED=YES`) || !strings.Contains(got, `AUTOSELECT=YES`) {
+		t.Fatalf("expected subtitle flags in media line: %q", got)
+	}
 }
 
 func TestInjectHlsSubtitleRenditions_Idempotent(t *testing.T) {
@@ -48,10 +51,24 @@ func TestInjectHlsSubtitleRenditions_Idempotent(t *testing.T) {
 #EXT-X-STREAM-INF:BANDWIDTH=1,SUBTITLES="subs"
 v/index.m3u8
 `
-	tracks := []HlsWebSubtitle{{LogicalID: "emb:1", PlaylistFile: "plum_subs_656d623a31.m3u8", VTTPath: "/x", DisplayName: "A", Language: "en"}}
+	tracks := []HlsWebSubtitle{{LogicalID: "emb:1", PlaylistFile: "plum_subs_656d623a31.m3u8", VTTPath: "/x", DisplayName: "A", Language: "en", Autoselect: true}}
 	got := InjectHlsSubtitleRenditions(body, tracks)
 	if got != body {
 		t.Fatalf("expected no double inject, got %q", got)
+	}
+}
+
+func TestInjectHlsSubtitleRenditions_DoesNotSkipWhenOtherSubtitleGroupsExist(t *testing.T) {
+	body := `#EXTM3U
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="existing",NAME="legacy",URI="legacy.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=1
+v/index.m3u8
+`
+	got := InjectHlsSubtitleRenditions(body, []HlsWebSubtitle{
+		{LogicalID: "emb:1", PlaylistFile: "plum_subs_656d623a31.m3u8", VTTPath: "/x", DisplayName: "A", Language: "en", Autoselect: true},
+	})
+	if !strings.Contains(got, `GROUP-ID="subs"`) {
+		t.Fatalf("expected Plum subtitle group to be injected, got %q", got)
 	}
 }
 

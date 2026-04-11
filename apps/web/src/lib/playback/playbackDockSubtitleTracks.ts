@@ -125,7 +125,8 @@ function inferredPreferredWebDeliveryMode(
   if (requiresBurn) {
     return "burn_in";
   }
-  if (assEligible) {
+  const codec = (subtitle.codec ?? "").trim().toLowerCase();
+  if (assEligible && (codec === "ass" || codec === "ssa")) {
     return "ass";
   }
   return "direct_vtt";

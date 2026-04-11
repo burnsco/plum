@@ -32,6 +32,41 @@ describe("buildSubtitleTrackRequests", () => {
     expect(tracks.map((track) => track.key)).toContain("ext:7");
     expect(tracks.map((track) => track.key)).toContain("emb:3");
   });
+
+  it("prefers direct vtt over ass for embedded subrip when session omits preferred mode", () => {
+    const tracks = buildSubtitleTrackRequests({
+      mediaId: 99,
+      embeddedSubtitles: [
+        {
+          streamIndex: 3,
+          language: "en",
+          title: "English",
+          codec: "subrip",
+          assEligible: true,
+        },
+      ],
+    });
+    const emb = tracks.find((t) => t.key === "emb:3");
+    expect(emb?.preferredWebDeliveryMode).toBe("direct_vtt");
+    expect(emb?.assSrc).toMatch(/\/ass$/);
+  });
+
+  it("prefers ass for native embedded ass when session omits preferred mode", () => {
+    const tracks = buildSubtitleTrackRequests({
+      mediaId: 99,
+      embeddedSubtitles: [
+        {
+          streamIndex: 5,
+          language: "en",
+          title: "Styled",
+          codec: "ass",
+          assEligible: true,
+        },
+      ],
+    });
+    const emb = tracks.find((t) => t.key === "emb:5");
+    expect(emb?.preferredWebDeliveryMode).toBe("ass");
+  });
 });
 
 describe("buildAssFontUrls", () => {

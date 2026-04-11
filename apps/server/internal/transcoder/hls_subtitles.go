@@ -20,6 +20,9 @@ type HlsWebSubtitle struct {
 	VTTPath      string // root-relative URL to full WebVTT (e.g. /api/media/12/subtitles/embedded/3)
 	DisplayName  string
 	Language     string
+	Default      bool
+	Forced       bool
+	Autoselect   bool
 }
 
 func hlsSubtitlePlaylistFileForLogicalID(logicalID string) string {
@@ -61,6 +64,9 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 			VTTPath:      fmt.Sprintf("/api/subtitles/%d", s.ID),
 			DisplayName:  name,
 			Language:     normalizeHlsLanguage(s.Language),
+			Default:      s.Default,
+			Forced:       s.Forced,
+			Autoselect:   s.Default || s.Forced || !s.HearingImpaired,
 		})
 	}
 
@@ -79,6 +85,9 @@ func CollectHlsWebSubtitles(media db.MediaItem) []HlsWebSubtitle {
 			VTTPath:      fmt.Sprintf("/api/media/%d/subtitles/embedded/%d", media.ID, e.StreamIndex),
 			DisplayName:  name,
 			Language:     normalizeHlsLanguage(e.Language),
+			Default:      e.Default,
+			Forced:       e.Forced,
+			Autoselect:   e.Default || e.Forced || !e.HearingImpaired,
 		})
 	}
 
@@ -134,6 +143,13 @@ func hlsQuoteAttr(value string) string {
 	return `"` + escaped + `"`
 }
 
+func hlsYesNo(value bool) string {
+	if value {
+		return "YES"
+	}
+	return "NO"
+}
+
 // InjectHlsSubtitleRenditions prepends #EXT-X-MEDIA subtitle entries and adds SUBTITLES="subs"
 // to each #EXT-X-STREAM-INF line. If the playlist is not a multivariant master (no STREAM-INF),
 // body is returned unchanged.
@@ -141,7 +157,7 @@ func InjectHlsSubtitleRenditions(body string, tracks []HlsWebSubtitle) string {
 	if len(tracks) == 0 {
 		return body
 	}
-	if strings.Contains(body, "TYPE=SUBTITLES") {
+	if strings.Contains(body, fmt.Sprintf(`TYPE=SUBTITLES,GROUP-ID=%s`, hlsQuoteAttr(hlsSubtitleGroupID))) {
 		return body
 	}
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
@@ -160,9 +176,12 @@ func InjectHlsSubtitleRenditions(body string, tracks []HlsWebSubtitle) string {
 	for _, t := range tracks {
 		uri := path.Base(t.PlaylistFile)
 		line := fmt.Sprintf(
-			`#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=%s,NAME=%s,DEFAULT=NO,FORCED=NO,AUTOSELECT=YES,LANGUAGE=%s,URI=%s`,
+			`#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=%s,NAME=%s,DEFAULT=%s,FORCED=%s,AUTOSELECT=%s,LANGUAGE=%s,URI=%s`,
 			hlsQuoteAttr(hlsSubtitleGroupID),
 			hlsQuoteAttr(t.DisplayName),
+			hlsYesNo(t.Default),
+			hlsYesNo(t.Forced),
+			hlsYesNo(t.Autoselect),
 			hlsQuoteAttr(t.Language),
 			hlsQuoteAttr(uri),
 		)

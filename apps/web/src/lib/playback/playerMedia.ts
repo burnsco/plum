@@ -519,7 +519,6 @@ export function subtitleTrackPriority(
 ): number {
   if (track.supported === false) return 90;
   if (track.requiresBurn) return 60;
-  if (track.assEligible) return 5;
   if (track.default) return 15;
   if (track.forced) return options?.preferForced ? 10 : 25;
   if (track.hearingImpaired) return options?.preferHearingImpaired ? 12 : 40;

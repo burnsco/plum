@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -102,9 +103,8 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	if lockKey == "" {
 		lockKey = fmt.Sprintf("%s|%d", sourcePath, streamIndex)
 	}
-	mu := lockEmbeddedSubtitle(lockKey)
-	mu.Lock()
-	defer mu.Unlock()
+	lock := acquireSharedKeyLock(lockKey)
+	defer releaseSharedKeyLock(lockKey, lock)
 
 	if cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
 		slog.Debug("embedded subtitle cache hit after lock", "media_id", mediaID, "stream_index", streamIndex)
@@ -315,13 +315,23 @@ func transcodeEmbeddedSubtitleToWebVTT(
 		tmpPath, cleanup, extractErr := extractEmbeddedSubtitleStreamToTemp(r.Context(), sourcePath, streamIndex, demuxFmt)
 		if extractErr == nil {
 			defer cleanup()
-			err := streamFFmpegWebVTTWithOptionalTeeAndTransform(
-				w,
-				r,
-				tee,
-				webVTTTransformForCompaction(compactOverlaps),
-				[]string{"-i", tmpPath, "-f", "webvtt", "-"}...,
-			)
+			var err error
+			if compactOverlaps {
+				err = streamFFmpegWebVTTCompactingOverlapsWithOptionalTee(
+					w,
+					r,
+					tee,
+					[]string{"-i", tmpPath, "-f", "webvtt", "-"}...,
+				)
+			} else {
+				err = streamFFmpegWebVTTWithOptionalTeeAndTransform(
+					w,
+					r,
+					tee,
+					nil,
+					[]string{"-i", tmpPath, "-f", "webvtt", "-"}...,
+				)
+			}
 			if err == nil {
 				slog.Info("stream embedded subtitle served (demux+convert)",
 					"media_id", mediaID,
@@ -340,13 +350,23 @@ func transcodeEmbeddedSubtitleToWebVTT(
 	}
 	ffmpegIn := append(append([]string{}, ffopts.InputProbeEmbeddedExtract...),
 		"-i", sourcePath, "-map", fmt.Sprintf("0:%d", streamIndex), "-f", "webvtt", "-")
-	err := streamFFmpegWebVTTWithOptionalTeeAndTransform(
-		w,
-		r,
-		tee,
-		webVTTTransformForCompaction(compactOverlaps),
-		ffmpegIn...,
-	)
+	var err error
+	if compactOverlaps {
+		err = streamFFmpegWebVTTCompactingOverlapsWithOptionalTee(
+			w,
+			r,
+			tee,
+			ffmpegIn...,
+		)
+	} else {
+		err = streamFFmpegWebVTTWithOptionalTeeAndTransform(
+			w,
+			r,
+			tee,
+			nil,
+			ffmpegIn...,
+		)
+	}
 	if err != nil {
 		slog.Warn("stream embedded subtitle failed",
 			"media_id", mediaID,
@@ -529,29 +549,70 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 			continue
 		}
 		lockKey := cachePath
-		mu := lockEmbeddedSubtitle(lockKey)
-		mu.Lock()
+		lock := acquireSharedKeyLock(lockKey)
 		if fi, statErr := os.Stat(cachePath); statErr == nil && fi.Size() > 0 {
-			mu.Unlock()
+			releaseSharedKeyLock(lockKey, lock)
 			continue
 		}
 		if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr != nil {
 			slog.Warn("subtitle cache warm mkdir", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", mkErr)
-			mu.Unlock()
+			releaseSharedKeyLock(lockKey, lock)
 			continue
 		}
 		if matErr := materializeEmbeddedSubtitleCacheFile(ctx, sourcePath, sub.StreamIndex, sub.Codec, cachePath, mediaID); matErr != nil {
 			slog.Warn("subtitle cache warm failed", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
 		}
-		mu.Unlock()
+		releaseSharedKeyLock(lockKey, lock)
 	}
 }
 
-var embeddedSubtitleLocks sync.Map // key string -> *sync.Mutex
+type sharedKeyLock struct {
+	mu       sync.Mutex
+	refs     int
+	attached bool
+}
 
-func lockEmbeddedSubtitle(key string) *sync.Mutex {
-	v, _ := embeddedSubtitleLocks.LoadOrStore(key, &sync.Mutex{})
-	return v.(*sync.Mutex)
+var embeddedSubtitleLocks sync.Map // key string -> *sharedKeyLock
+
+func acquireSharedKeyLock(key string) *sharedKeyLock {
+	for {
+		if existing, ok := embeddedSubtitleLocks.Load(key); ok {
+			lock := existing.(*sharedKeyLock)
+			lock.mu.Lock()
+			if lock.attached {
+				lock.refs++
+				return lock
+			}
+			lock.mu.Unlock()
+			continue
+		}
+
+		lock := &sharedKeyLock{
+			refs:     1,
+			attached: true,
+		}
+		actual, loaded := embeddedSubtitleLocks.LoadOrStore(key, lock)
+		if loaded {
+			continue
+		}
+		actualLock := actual.(*sharedKeyLock)
+		actualLock.mu.Lock()
+		return actualLock
+	}
+}
+
+func releaseSharedKeyLock(key string, lock *sharedKeyLock) {
+	if lock == nil {
+		return
+	}
+	if lock.refs > 0 {
+		lock.refs--
+	}
+	if lock.refs == 0 {
+		lock.attached = false
+		embeddedSubtitleLocks.Delete(key)
+	}
+	lock.mu.Unlock()
 }
 
 func subtitleVTTCacheRoot() string {
@@ -697,9 +758,8 @@ func HandleStreamMediaAttachment(w http.ResponseWriter, r *http.Request, dbConn 
 	if lockKey == "" {
 		lockKey = fmt.Sprintf("attachment|%s|%d", sourcePath, streamIndex)
 	}
-	mu := lockEmbeddedSubtitle(lockKey)
-	mu.Lock()
-	defer mu.Unlock()
+	lock := acquireSharedKeyLock(lockKey)
+	defer releaseSharedKeyLock(lockKey, lock)
 
 	if cacheErr == nil && tryServeMediaAttachmentFromCache(w, r, cachePath, attachment.MimeType) {
 		return nil
@@ -905,7 +965,48 @@ func streamFFmpegWebVTT(w http.ResponseWriter, r *http.Request, args ...string) 
 }
 
 func streamFFmpegWebVTTCompactingOverlaps(w http.ResponseWriter, r *http.Request, args ...string) error {
-	return streamFFmpegWebVTTWithOptionalTeeAndTransform(w, r, nil, compactWebVTTCueOverlaps, args...)
+	return streamFFmpegWebVTTCompactingOverlapsWithOptionalTee(w, r, nil, args...)
+}
+
+func streamFFmpegWebVTTCompactingOverlapsWithOptionalTee(w http.ResponseWriter, r *http.Request, tee io.Writer, args ...string) error {
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+
+	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
+	ffmpegArgs = append(ffmpegArgs, args...)
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	out := responseWriterForFFmpegStdoutAndTee(w, tee)
+	streamErr := streamCompactWebVTTCueOverlaps(stdout, out)
+	waitErr := cmd.Wait()
+	if streamErr != nil {
+		if waitErr != nil {
+			slog.Warn("ffmpeg subtitle stream compact read", "error", streamErr)
+		}
+		return streamErr
+	}
+	if waitErr != nil {
+		msg := strings.TrimSpace(stderr.String())
+		msg = trimFFmpegStderrProgress(msg)
+		if msg == "" {
+			msg = waitErr.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		slog.Warn("ffmpeg subtitle stream", "stderr_tail", msg)
+		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	return nil
 }
 
 func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, tee io.Writer, args ...string) error {
@@ -928,6 +1029,131 @@ func shouldCompactConvertedSubtitleOverlaps(codec string) bool {
 	default:
 		return false
 	}
+}
+
+type streamingWebVTTBlockWriter struct {
+	out     io.Writer
+	written bool
+}
+
+func (w *streamingWebVTTBlockWriter) WriteBlock(block webVTTCueBlock) error {
+	if w.written {
+		if _, err := io.WriteString(w.out, "\n\n"); err != nil {
+			return err
+		}
+	}
+	for i, line := range block.lines {
+		if i > 0 {
+			if _, err := io.WriteString(w.out, "\n"); err != nil {
+				return err
+			}
+		}
+		if _, err := io.WriteString(w.out, line); err != nil {
+			return err
+		}
+	}
+	w.written = true
+	return nil
+}
+
+func flushStreamingWebVTTBlocks(writer *streamingWebVTTBlockWriter, blocks []webVTTCueBlock) error {
+	for _, block := range blocks {
+		if err := writer.WriteBlock(block); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func streamCompactWebVTTCueOverlaps(in io.Reader, out io.Writer) error {
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	writer := &streamingWebVTTBlockWriter{out: out}
+	buffered := make([]webVTTCueBlock, 0, 4)
+	currentLines := make([]string, 0, 4)
+	flushCurrent := func() error {
+		if len(currentLines) == 0 {
+			return nil
+		}
+		block := parseStreamingWebVTTCueBlock(currentLines)
+		buffered = append(buffered, block)
+		currentLines = nil
+		if !block.parsedCue {
+			return nil
+		}
+
+		for i := 0; i < len(buffered)-1; i++ {
+			if !buffered[i].parsedCue {
+				continue
+			}
+			if block.startMs > buffered[i].startMs && block.startMs < buffered[i].endMs {
+				buffered[i].endMs = block.startMs
+				buffered[i].lines[buffered[i].timingIdx] =
+					formatWebVTTCueTimingLine(buffered[i].startMs, buffered[i].endMs, buffered[i].settings)
+			}
+		}
+
+		firstUnresolvedIdx := -1
+		for i, candidate := range buffered {
+			if candidate.parsedCue && candidate.endMs > block.startMs {
+				firstUnresolvedIdx = i
+				break
+			}
+		}
+		if firstUnresolvedIdx > 0 {
+			if err := flushStreamingWebVTTBlocks(writer, buffered[:firstUnresolvedIdx]); err != nil {
+				return err
+			}
+			buffered = append(buffered[:0], buffered[firstUnresolvedIdx:]...)
+		}
+		return nil
+	}
+
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if err := flushCurrent(); err != nil {
+				return err
+			}
+			continue
+		}
+		currentLines = append(currentLines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if err := flushCurrent(); err != nil {
+		return err
+	}
+	if err := flushStreamingWebVTTBlocks(writer, buffered); err != nil {
+		return err
+	}
+	if writer.written {
+		_, err := io.WriteString(out, "\n")
+		return err
+	}
+	return nil
+}
+
+func parseStreamingWebVTTCueBlock(lines []string) webVTTCueBlock {
+	block := webVTTCueBlock{
+		lines:     append([]string(nil), lines...),
+		timingIdx: -1,
+	}
+	for i, line := range block.lines {
+		start, end, settings, ok := parseWebVTTCueTimingLine(line)
+		if !ok {
+			continue
+		}
+		block.timingIdx = i
+		block.startMs = start
+		block.endMs = end
+		block.settings = settings
+		block.parsedCue = true
+		break
+	}
+	return block
 }
 
 func streamFFmpegWebVTTWithOptionalTeeAndTransform(w http.ResponseWriter, r *http.Request, tee io.Writer, transform webVTTTransform, args ...string) error {

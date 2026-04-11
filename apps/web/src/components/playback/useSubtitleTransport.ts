@@ -74,7 +74,12 @@ export function useSubtitleTransport({
         (candidate) => candidate.key === trackKey,
       );
       if (!track) return;
-      if (track.requiresBurn || (track.assEligible && track.assSrc)) {
+      if (
+        track.requiresBurn ||
+        (track.assEligible &&
+          track.assSrc &&
+          track.preferredWebDeliveryMode === "ass")
+      ) {
         setPendingSubtitleKey(null);
         setTrackLoadState(trackKey, "idle");
         return;

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -652,6 +653,53 @@ func TestCompactWebVTTCueOverlaps_LeavesSameStartCuesTogether(t *testing.T) {
 	}
 }
 
+func TestStreamCompactWebVTTCueOverlaps_TrimsAndStreamsCueBoundaries(t *testing.T) {
+	input := "WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:04.000 align:middle\n" +
+		"First line\n\n" +
+		"NOTE marker\n\n" +
+		"00:00:03.000 --> 00:00:05.000 align:middle\n" +
+		"Second line\n"
+
+	var out bytes.Buffer
+	if err := streamCompactWebVTTCueOverlaps(strings.NewReader(input), &out); err != nil {
+		t.Fatalf("streamCompactWebVTTCueOverlaps: %v", err)
+	}
+	want := "WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:03.000 align:middle\n" +
+		"First line\n\n" +
+		"NOTE marker\n\n" +
+		"00:00:03.000 --> 00:00:05.000 align:middle\n" +
+		"Second line\n"
+	if out.String() != want {
+		t.Fatalf("unexpected streamed VTT:\n%s", out.String())
+	}
+}
+
+func TestStreamCompactWebVTTCueOverlaps_TrimsAllEarlierOverlappingCues(t *testing.T) {
+	input := "WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:10.000\n" +
+		"First line\n\n" +
+		"00:00:01.000 --> 00:00:08.000\n" +
+		"Second line\n\n" +
+		"00:00:03.000 --> 00:00:05.000\n" +
+		"Third line\n"
+
+	var out bytes.Buffer
+	if err := streamCompactWebVTTCueOverlaps(strings.NewReader(input), &out); err != nil {
+		t.Fatalf("streamCompactWebVTTCueOverlaps: %v", err)
+	}
+	want := "WEBVTT\n\n" +
+		"00:00:01.000 --> 00:00:03.000\n" +
+		"First line\n\n" +
+		"00:00:01.000 --> 00:00:03.000\n" +
+		"Second line\n\n" +
+		"00:00:03.000 --> 00:00:05.000\n" +
+		"Third line\n"
+	if out.String() != want {
+		t.Fatalf("unexpected streamed VTT:\n%s", out.String())
+	}
+}
 func TestListIdentifiableByLibrary_SkipsConfirmedEpisodes(t *testing.T) {
 	dbConn := newTestDB(t)
 	tvLibID := getLibraryID(t, dbConn, "tv")

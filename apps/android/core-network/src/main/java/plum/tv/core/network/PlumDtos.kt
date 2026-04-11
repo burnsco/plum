@@ -10,6 +10,9 @@ data class SubtitleJson(
     @param:Json(name = "language") val language: String = "",
     @param:Json(name = "format") val format: String = "",
     @param:Json(name = "logicalId") val logicalId: String? = null,
+    @param:Json(name = "forced") val forced: Boolean = false,
+    @param:Json(name = "default") val default: Boolean = false,
+    @param:Json(name = "hearingImpaired") val hearingImpaired: Boolean = false,
 )
 
 @JsonClass(generateAdapter = true)
@@ -27,6 +30,9 @@ data class EmbeddedSubtitleJson(
     @param:Json(name = "logicalId") val logicalId: String? = null,
     /** When false, server rejects WebVTT extract; PGS may still sideload via pgsBinaryEligible and /sup. */
     @param:Json(name = "supported") val supported: Boolean? = null,
+    @param:Json(name = "forced") val forced: Boolean = false,
+    @param:Json(name = "default") val default: Boolean = false,
+    @param:Json(name = "hearingImpaired") val hearingImpaired: Boolean = false,
     /** Playback session: always set by server. Browse rows may omit keys — Moshi defaults apply. */
     @param:Json(name = "vttEligible") val vttEligible: Boolean = false,
     /** Playback session: always set by server. Browse rows may omit keys — Moshi defaults apply. */

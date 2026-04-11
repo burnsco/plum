@@ -86,7 +86,11 @@ export function resolveWebSubtitleSelection({
     };
   }
 
-  if (selectedTrack.assEligible && selectedTrack.assSrc) {
+  if (
+    selectedTrack.assEligible &&
+    selectedTrack.assSrc &&
+    selectedTrack.preferredWebDeliveryMode === "ass"
+  ) {
     return {
       selectedTrack,
       logicalId: selectedTrack.logicalId ?? null,

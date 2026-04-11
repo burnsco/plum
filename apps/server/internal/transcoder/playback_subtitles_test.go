@@ -49,7 +49,7 @@ func TestValidateBurnEmbeddedSubtitle_RejectsTextCodec(t *testing.T) {
 	}
 }
 
-func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesSubripTranscodePrefersAss(t *testing.T) {
+func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesSubripTranscodePrefersHlsVttOverAss(t *testing.T) {
 	subs := embeddedSubtitlesForPlaybackJSON(
 		db.MediaItem{
 			EmbeddedSubtitles: []db.EmbeddedSubtitle{
@@ -71,7 +71,7 @@ func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesSubripTranscodePrefersAss(t 
 	if !got.VttEligible || !got.AssEligible {
 		t.Fatalf("expected vtt and ass eligibility for subrip, got %#v", got)
 	}
-	if got.PreferredWebDeliveryMode == nil || *got.PreferredWebDeliveryMode != PlaybackEmbeddedSubtitleDeliveryModeASS {
+	if got.PreferredWebDeliveryMode == nil || *got.PreferredWebDeliveryMode != PlaybackEmbeddedSubtitleDeliveryModeHlsVTT {
 		t.Fatalf("preferredWebDeliveryMode = %#v", got.PreferredWebDeliveryMode)
 	}
 	if len(got.DeliveryModes) != 2 {

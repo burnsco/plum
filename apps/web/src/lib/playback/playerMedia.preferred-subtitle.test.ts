@@ -198,6 +198,24 @@ describe("getPreferredSubtitleKey", () => {
     expect(getPreferredSubtitleKey(tracks, "en", true)).toBe("emb-1");
     expect(getPreferredSubtitleKey(tracks, "en", true, "Forced")).toBe("emb-0");
   });
+
+  it("prefers a default text track over a non-default ASS-capable track", () => {
+    const tracks = [
+      track({
+        key: "emb-0",
+        srcLang: "eng",
+        label: "English Styled",
+        assEligible: true,
+      }),
+      track({
+        key: "emb-1",
+        srcLang: "eng",
+        label: "English",
+        default: true,
+      }),
+    ];
+    expect(getPreferredSubtitleKey(tracks, "en", true)).toBe("emb-1");
+  });
 });
 
 describe("sortSubtitleTrackOptions", () => {
@@ -229,5 +247,23 @@ describe("sortSubtitleTrackOptions", () => {
       "emb-2",
       "emb-3",
     ]);
+  });
+
+  it("orders server-default tracks before non-default ASS-capable tracks", () => {
+    const tracks = sortSubtitleTrackOptions([
+      track({
+        key: "emb-1",
+        srcLang: "eng",
+        label: "English Styled",
+        assEligible: true,
+      }),
+      track({
+        key: "emb-0",
+        srcLang: "eng",
+        label: "English",
+        default: true,
+      }),
+    ]);
+    expect(tracks.map((entry) => entry.key)).toEqual(["emb-0", "emb-1"]);
   });
 });

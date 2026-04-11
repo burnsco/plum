@@ -80,6 +80,30 @@ func TestEmbeddedSubtitleAssDeliveryEligible(t *testing.T) {
 	}
 }
 
+func TestEmbeddedSubtitleCodecIsNativeASS(t *testing.T) {
+	cases := []struct {
+		name  string
+		codec string
+		want  bool
+	}{
+		{"ass", "ass", true},
+		{"ssa", "ssa", true},
+		{"ASS casing", "ASS", true},
+		{"ssa whitespace", "  ssa  ", true},
+		{"subrip", "subrip", false},
+		{"mov_text", "mov_text", false},
+		{"webvtt", "webvtt", false},
+		{"pgs", "hdmv_pgs_subtitle", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EmbeddedSubtitleCodecIsNativeASS(tc.codec); got != tc.want {
+				t.Fatalf("got %v want %v for %q", got, tc.want, tc.codec)
+			}
+		})
+	}
+}
+
 func TestPlaybackEmbeddedSubtitles(t *testing.T) {
 	in := []EmbeddedSubtitle{
 		{StreamIndex: 1, Codec: "subrip"},
