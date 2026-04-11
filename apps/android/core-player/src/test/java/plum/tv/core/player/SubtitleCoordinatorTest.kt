@@ -64,6 +64,76 @@ class SubtitleCoordinatorTest {
     }
 
     @Test
+    fun buildPickerOptions_keepsLabelOnlyFallbackWhenLogicalIdsDoNotMatch() {
+        val options =
+            coordinator.buildPickerOptions(
+                SubtitlePickerBuildInput(
+                    textDisabled = false,
+                    textTracks =
+                        listOf(
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 0,
+                                trackIndex = 0,
+                                pickerId = "t:0:0",
+                                logicalId = null,
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = true,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 1,
+                                trackIndex = 0,
+                                pickerId = "t:1:0",
+                                logicalId = "ext:7",
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 300,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                        ),
+                    burnTracks = emptyList(),
+                ),
+            )
+
+        assertEquals(listOf("off", "t:0:0", "t:1:0"), options.map { it.id })
+        assertEquals("WEBVTT · fallback", options[1].detail)
+        assertEquals("WEBVTT · sideload", options[2].detail)
+    }
+
+    @Test
+    fun buildPickerOptions_fallsBackToCeaWhenThatIsAllExoReported() {
+        val options =
+            coordinator.buildPickerOptions(
+                SubtitlePickerBuildInput(
+                    textDisabled = false,
+                    textTracks =
+                        listOf(
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 0,
+                                trackIndex = 0,
+                                pickerId = "t:0:0",
+                                logicalId = null,
+                                label = "CEA-608",
+                                detail = "CEA608",
+                                selected = true,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = true,
+                            ),
+                        ),
+                    burnTracks = emptyList(),
+                ),
+            )
+
+        assertEquals(listOf("off", "t:0:0"), options.map { it.id })
+    }
+
+    @Test
     fun isBurnInEmbeddedTrack_prefersNewDeliveryContract() {
         val burnOnly =
             EmbeddedSubtitleJson(

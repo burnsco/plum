@@ -84,7 +84,7 @@ class SubtitleCoordinator {
                     id = track.pickerId,
                     label = track.label,
                     selected = track.selected,
-                    detail = track.detail,
+                    detail = track.detailWithSourceTag(visibleTextTracks),
                 )
         }
 
@@ -164,26 +164,54 @@ class SubtitleCoordinator {
     private fun filterVisibleTextTracks(
         textTracks: List<SubtitleTextTrackCandidate>,
     ): List<SubtitleTextTrackCandidate> {
+        if (textTracks.isEmpty()) return emptyList()
         val sideLoaded = textTracks.filter { it.sideLoadPriority > 0 }
-        return textTracks.filter { candidate ->
-            if (candidate.isCeaClosedCaption) return@filter false
-            if (candidate.sideLoadPriority > 0) return@filter true
-            sideLoaded.none { other -> shouldDropDemuxedDuplicate(candidate, other) }
-        }
+        val withoutCeaOrDeduped =
+            textTracks.filter { candidate ->
+                if (candidate.isCeaClosedCaption) return@filter false
+                if (candidate.sideLoadPriority > 0) return@filter true
+                sideLoaded.none { other -> shouldDropDemuxedDuplicate(candidate, other) }
+            }
+        if (withoutCeaOrDeduped.isNotEmpty()) return withoutCeaOrDeduped
+        // Exo sometimes only reports CEA-608 before HLS WebVTT renditions arrive; hiding every row
+        // left the TV app with a single "Off" option and [openSubtitlePicker] refused to open.
+        val ceaOnly = textTracks.filter { it.isCeaClosedCaption }
+        if (ceaOnly.isNotEmpty()) return ceaOnly
+        // Dedupe removed everything (unexpected); show raw list so the user can still pick a track.
+        return textTracks
     }
 
     private fun shouldDropDemuxedDuplicate(
         candidate: SubtitleTextTrackCandidate,
         other: SubtitleTextTrackCandidate,
     ): Boolean {
-        if (candidate.label != other.label) return false
-        if (candidate.renderKind != other.renderKind) return false
         val candidateLogical = candidate.logicalId
         val otherLogical = other.logicalId
         if (candidateLogical != null && otherLogical != null && candidateLogical == otherLogical) {
             return true
         }
-        return otherLogical?.startsWith("ext:") == true && candidate.renderKind == SubtitleLogicalRenderKind.TextCue
+        return false
+    }
+
+    private fun SubtitleTextTrackCandidate.detailWithSourceTag(
+        allVisibleTextTracks: List<SubtitleTextTrackCandidate>,
+    ): String? {
+        val parts = mutableListOf<String>()
+        detail?.trim()?.takeIf { it.isNotEmpty() }?.let { parts += it }
+        val sourceTag =
+            when {
+                sideLoadPriority > 0 -> "sideload"
+                allVisibleTextTracks.any {
+                    it.sideLoadPriority > 0 &&
+                        it.label == label &&
+                        it.renderKind == renderKind
+                } -> "fallback"
+                else -> null
+            }
+        if (sourceTag != null) {
+            parts += sourceTag
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
 
     fun buildBurnTrackCandidate(

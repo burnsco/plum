@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import android.net.Uri
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -104,6 +105,22 @@ internal fun subtitleRoleFlags(hearingImpaired: Boolean): Int =
         C.ROLE_FLAG_SUBTITLE
     }
 
+internal fun subtitleTrackSourceLabelForFormatId(formatId: String?): String? {
+    val id = formatId?.trim().orEmpty()
+    if (id.isEmpty()) return null
+    return when {
+        id.startsWith("ext:") || id.startsWith("emb:") -> "sideload"
+        else -> "fallback"
+    }
+}
+
+internal fun isPreferredAndroidTvSubtitleLanguage(language: String?, title: String?): Boolean {
+    if (TrackLanguagePreference.matchesLanguage(language, "en")) return true
+    val normalizedTitle = title?.trim()?.lowercase(Locale.US).orEmpty()
+    if (normalizedTitle.isEmpty()) return false
+    return normalizedTitle.contains("english") || normalizedTitle.contains("british")
+}
+
 data class PlayerQueueItem(
     val mediaId: Int,
     val title: String,
@@ -157,6 +174,7 @@ data class PlayerUiState(
     val canCycleSubtitles: Boolean = false,
     val audioTrackLabel: String? = null,
     val subtitleTrackLabel: String? = null,
+    val subtitleTrackSourceLabel: String? = null,
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
     /** Display aspect ratio detected from the video stream (e.g. `1.85:1`), for UI hints when mode is auto. */
@@ -478,6 +496,14 @@ class PlumPlayerController(
     private var pendingSubtitleRestore: SubtitleRestoreState? = null
 
     /**
+     * When the user picks a session-catalog subtitle row before Exo exposes that [Format.id]
+     * (common with HLS: CEA-608 appears before WebVTT renditions), retry applying it on each
+     * [Player.Listener.onTracksChanged] until it succeeds.
+     */
+    @Volatile
+    private var pendingCatalogConfigurationId: String? = null
+
+    /**
      * Non-null when a bitmap subtitle (DVD, DVB, XSUB) is being burned into the transcode stream.
      * Persists across HLS stream swaps so [createAndLoadMedia] can pass it to [PlaybackRepository.createSession].
      */
@@ -518,6 +544,9 @@ class PlumPlayerController(
     @Volatile
     private var cachedVideoAspectLabel: String? = null
 
+    @Volatile
+    private var lastLoggedSubtitleSnapshot: String? = null
+
     init {
         // Register the listener synchronously. The constructor is always invoked on the main thread
         // (via PlayerViewModel which Hilt creates on the main thread), so this is safe without a
@@ -534,8 +563,11 @@ class PlumPlayerController(
                         }
                         Player.STATE_BUFFERING -> refreshUiState()
                         Player.STATE_READY -> {
+                            tryApplyPendingCatalogSubtitleIfNeeded()
                             preferNonCea608TextTrackOnceIfNeeded()
                             preferPlumSideloadOverInBandCea608IfNeeded()
+                            preferSideloadTextOverDemuxedManifestIfNeeded()
+                            logSubtitleSnapshot("state_ready")
                             refreshUiState()
                         }
                     }
@@ -564,9 +596,12 @@ class PlumPlayerController(
 
                 override fun onTracksChanged(tracks: Tracks) {
                     restorePendingSubtitlesIfNeeded()
+                    tryApplyPendingCatalogSubtitleIfNeeded()
                     preferNonCea608TextTrackOnceIfNeeded()
                     applyStoredManualTrackPreferencesAfterTrackLoad()
                     preferPlumSideloadOverInBandCea608IfNeeded()
+                    preferSideloadTextOverDemuxedManifestIfNeeded()
+                    logSubtitleSnapshot("tracks_changed")
                     refreshUiState()
                 }
 
@@ -805,11 +840,15 @@ class PlumPlayerController(
                 canNext = queueIndex >= 0 && queueIndex < episodeQueue.lastIndex,
                 canCycleAudio = serverEmbeddedAudioChoiceCount() > 1 || exoAudioTrackCount() > 1,
                 // Subtitle picker lists Exo text tracks once manifests are loaded (sidecars + embedded).
+                // Also surface the control when the session lists subs so the menu can open (e.g. Off only)
+                // while HLS renditions are still loading — see [openSubtitlePicker].
                 canCycleSubtitles =
                     trackGroups(C.TRACK_TYPE_TEXT).isNotEmpty() ||
-                        serverBurnInEmbeddedSubtitleTracks().isNotEmpty(),
+                        serverBurnInEmbeddedSubtitleTracks().isNotEmpty() ||
+                        sessionHasServerListedSubtitles(),
                 audioTrackLabel = currentAudioTrackLabel(),
                 subtitleTrackLabel = currentSubtitleTrackLabel(),
+                subtitleTrackSourceLabel = currentSubtitleTrackSourceLabel(),
                 queueIndex = queueIndex,
                 queueSize = episodeQueue.size,
                 detectedVideoAspectLabel = cachedVideoAspectLabel,
@@ -890,13 +929,38 @@ class PlumPlayerController(
     private fun trackGroups(trackType: Int): List<Tracks.Group> =
         player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
 
+    private fun visibleExternalSubtitles(): List<SubtitleJson> =
+        externalSubtitles.filter { subtitle ->
+            isPreferredAndroidTvSubtitleLanguage(subtitle.language, subtitle.title)
+        }
+
+    private fun visibleEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> =
+        embeddedSubtitleTracks.filter { subtitle ->
+            isPreferredAndroidTvSubtitleLanguage(subtitle.language, subtitle.title)
+        }
+
     /**
      * Embedded subs that only work in HLS via server burn-in (no WebVTT / binary PGS sideload path).
      * When these exist without Exo [C.TRACK_TYPE_TEXT] groups, the subtitle button must still appear.
      */
     private fun serverBurnInEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> {
         if (hlsSessionId == null) return emptyList()
-        return embeddedSubtitleTracks.filter(subtitleCoordinator::isBurnInEmbeddedTrack)
+        return visibleEmbeddedSubtitleTracks().filter(subtitleCoordinator::isBurnInEmbeddedTrack)
+    }
+
+    /** True when the playback session payload lists any subtitle the app could offer (even before Exo exposes text groups). */
+    private fun sessionHasServerListedSubtitles(): Boolean {
+        if (visibleExternalSubtitles().isNotEmpty()) return true
+        for (sub in visibleEmbeddedSubtitleTracks()) {
+            if (sub.supported == false) continue
+            if (sub.supportsAndroidTextDelivery() ||
+                sub.supportsAndroidPgsBinaryDelivery() ||
+                subtitleCoordinator.isBurnInEmbeddedTrack(sub)
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun EmbeddedSubtitleJson.supportsAndroidTextDelivery(): Boolean {
@@ -915,6 +979,51 @@ class PlumPlayerController(
         return pgsBinaryEligible
     }
 
+    private fun logSubtitleSnapshot(reason: String) {
+        val groups = player.currentTracks.groups
+        val disabled = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        val selected = selectedSubtitleFormat()
+        val snapshot =
+            buildString {
+                append("reason=")
+                append(reason)
+                append(" disabled=")
+                append(disabled)
+                append(" burn=")
+                append(activeBurnSubtitleStreamIndex?.toString() ?: "none")
+                append(" selectedId=")
+                append(selected?.id.orEmpty().ifBlank { "none" })
+                append(" selectedMime=")
+                append(selected?.sampleMimeType.orEmpty().ifBlank { "none" })
+                append(" selectedLabel=")
+                append(selected?.label.orEmpty().ifBlank { "none" })
+                append(" selectedLang=")
+                append(selected?.language.orEmpty().ifBlank { "none" })
+                append(" textTracks=")
+                val textEntries =
+                    groups.mapIndexedNotNull { groupIndex, group ->
+                        if (group.type != C.TRACK_TYPE_TEXT || group.length == 0) return@mapIndexedNotNull null
+                        (0 until group.length).joinToString(
+                            separator = ",",
+                            prefix = "g$groupIndex[",
+                            postfix = "]",
+                        ) { trackIndex ->
+                            val fmt = group.mediaTrackGroup.getFormat(trackIndex)
+                            val selectedMark = if (group.isTrackSelected(trackIndex)) "*" else ""
+                            "${trackIndex}${selectedMark}:{id=${fmt.id.orEmpty()},mime=${fmt.sampleMimeType.orEmpty()},label=${fmt.label.orEmpty()},lang=${fmt.language.orEmpty()}}"
+                        }
+                    }
+                append(if (textEntries.isEmpty()) "none" else textEntries.joinToString(" "))
+                append(" externalCount=")
+                append(externalSubtitles.size)
+                append(" embeddedCount=")
+                append(embeddedSubtitleTracks.size)
+            }
+        if (snapshot == lastLoggedSubtitleSnapshot) return
+        lastLoggedSubtitleSnapshot = snapshot
+        Log.d("PlumTV", "subtitle snapshot $snapshot")
+    }
+
     private fun exoAudioTrackCount(): Int =
         trackGroups(C.TRACK_TYPE_AUDIO).sumOf { it.length }
 
@@ -931,14 +1040,23 @@ class PlumPlayerController(
         return null
     }
 
-    private fun selectedSubtitleFormat(): Format? {
-        for (g in trackGroups(C.TRACK_TYPE_TEXT)) {
+    private data class SelectedTextTrack(val groupIndex: Int, val trackIndex: Int, val format: Format)
+
+    private fun selectedSubtitleTrack(): SelectedTextTrack? {
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
             for (j in 0 until g.length) {
-                if (g.isTrackSelected(j)) return g.mediaTrackGroup.getFormat(j)
+                if (g.isTrackSelected(j)) {
+                    return SelectedTextTrack(gi, j, g.mediaTrackGroup.getFormat(j))
+                }
             }
         }
         return null
     }
+
+    private fun selectedSubtitleFormat(): Format? = selectedSubtitleTrack()?.format
 
     private data class FlatAudioTrack(
         val groupIndex: Int,
@@ -1120,6 +1238,13 @@ class PlumPlayerController(
         return selectedSubtitleFormat()?.computeSubtitlePickerLabel() ?: "Off"
     }
 
+    private fun currentSubtitleTrackSourceLabel(): String? {
+        val burnIdx = activeBurnSubtitleStreamIndex
+        if (burnIdx != null) return "burn-in"
+        val fmt = selectedSubtitleFormat() ?: return null
+        return subtitleTrackSourceLabelForFormatId(fmt.id)
+    }
+
     private fun EmbeddedAudioTrackJson.displayLabel(): String? =
         listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
 
@@ -1180,8 +1305,10 @@ class PlumPlayerController(
         if (c.isEmpty()) return false
         val m = mime.lowercase(Locale.US)
         return when {
-            c.contains("subrip") || c == "srt" -> m.contains("subrip") || m.contains("x-subrip")
-            c.contains("ass") || c.contains("ssa") -> m.contains("ass") || m.contains("ssa")
+            // Server converts subrip/ass to WebVTT for HLS subtitle groups, so text/vtt is a valid
+            // mime match for any text codec that the HLS manifest would carry.
+            c.contains("subrip") || c == "srt" -> m.contains("subrip") || m.contains("x-subrip") || m.contains("vtt")
+            c.contains("ass") || c.contains("ssa") -> m.contains("ass") || m.contains("ssa") || m.contains("vtt")
             c.contains("webvtt") || c == "text" || c == "mov_text" || c == "hdmv_text_subtitle" ->
                 m.contains("vtt") || m.contains("webvtt")
             c.contains("ttml") || c == "tx3g" -> m.contains("ttml")
@@ -1343,6 +1470,71 @@ class PlumPlayerController(
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
 
+    private fun sidecarCatalogPickerLabel(sub: SubtitleJson): String =
+        listOfNotNull(
+            sub.title.trim().takeIf { it.isNotEmpty() },
+            languageLabel(sub.language),
+        ).firstOrNull() ?: "Subtitle ${sub.id}"
+
+    /**
+     * Rows from the playback session catalog that are not yet represented in [textCandidates]
+     * (Exo often reports only CEA-608 before HLS WebVTT / sideload formats appear).
+     */
+    private fun buildSubtitleCatalogPickerOptions(
+        textCandidates: List<SubtitleTextTrackCandidate>,
+        groups: List<Tracks.Group>,
+        textDisabled: Boolean,
+    ): List<TrackPickerOption> {
+        val covered = mutableSetOf<String>()
+        for (c in textCandidates) {
+            c.logicalId?.trim()?.takeIf { it.isNotEmpty() }?.let { covered += it }
+            val g = groups.getOrNull(c.groupIndex) ?: continue
+            if (g.type != C.TRACK_TYPE_TEXT || c.trackIndex !in 0 until g.length) continue
+            g.mediaTrackGroup.getFormat(c.trackIndex).id?.trim()?.takeIf { it.isNotEmpty() }?.let { covered += it }
+        }
+        val sel = selectedSubtitleFormat()
+        fun isSelectedForConfig(cfg: String): Boolean =
+            activeBurnSubtitleStreamIndex == null &&
+                !textDisabled &&
+                sel?.id?.trim() == cfg
+
+        val out = mutableListOf<TrackPickerOption>()
+        for (sub in visibleExternalSubtitles()) {
+            val cfg = subtitleCoordinator.logicalIdForSidecar(sub)
+            if (cfg in covered) continue
+            covered += cfg
+            out +=
+                TrackPickerOption(
+                    id = "catalog-ext:${sub.id}",
+                    label = sidecarCatalogPickerLabel(sub),
+                    selected = isSelectedForConfig(cfg),
+                    detail = "Library",
+                )
+        }
+        for (emb in visibleEmbeddedSubtitleTracks()) {
+            if (emb.supported == false) continue
+            if (subtitleCoordinator.isBurnInEmbeddedTrack(emb)) continue
+            if (!emb.supportsAndroidTextDelivery() && !emb.supportsAndroidPgsBinaryDelivery()) continue
+            val cfg = subtitleCoordinator.logicalIdForEmbedded(emb)
+            if (cfg in covered) continue
+            covered += cfg
+            val detail =
+                when {
+                    emb.supportsAndroidPgsBinaryDelivery() && !emb.supportsAndroidTextDelivery() -> "PGS"
+                    hlsSessionId != null -> "Session"
+                    else -> null
+                }
+            out +=
+                TrackPickerOption(
+                    id = "catalog-emb:${emb.streamIndex}",
+                    label = emb.displayLabel() ?: "Subtitle ${emb.streamIndex + 1}",
+                    selected = isSelectedForConfig(cfg),
+                    detail = detail,
+                )
+        }
+        return out
+    }
+
     private fun buildSubtitlePickerOptions(): List<TrackPickerOption> {
         val textDisabled =
             player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
@@ -1384,13 +1576,26 @@ class PlumPlayerController(
                     label = subtitle.burnInPickerLabel(),
                 )
             }
-        return subtitleCoordinator.buildPickerOptions(
-            SubtitlePickerBuildInput(
-                textDisabled = textDisabled,
-                textTracks = textCandidates,
-                burnTracks = burnTracks,
-            ),
-        )
+        val base =
+            subtitleCoordinator.buildPickerOptions(
+                SubtitlePickerBuildInput(
+                    textDisabled = textDisabled,
+                    textTracks = textCandidates,
+                    burnTracks = burnTracks,
+                ),
+            )
+        val catalogExtras = buildSubtitleCatalogPickerOptions(textCandidates, groups, textDisabled)
+        if (catalogExtras.isEmpty()) return base
+        val merged = base + catalogExtras
+        // [buildPickerOptions] can mark Off selected when no visible Exo row matched; catalog rows
+        // carry selection by configuration id and must not leave two "selected" rows.
+        return if (catalogExtras.any { it.selected }) {
+            merged.map {
+                if (it.id == SubtitlePickerTrackId.Off.toWireId()) it.copy(selected = false) else it
+            }
+        } else {
+            merged
+        }
     }
 
     private fun EmbeddedSubtitleJson.burnInPickerLabel(): String {
@@ -1461,6 +1666,7 @@ class PlumPlayerController(
         b.clearOverridesOfType(C.TRACK_TYPE_TEXT)
         b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
         player.trackSelectionParameters = b.build()
+        pendingCatalogConfigurationId = null
     }
 
     private fun applyTextTrackOverride(groupIndex: Int, trackIndex: Int) {
@@ -1469,11 +1675,63 @@ class PlumPlayerController(
         val g = groups[groupIndex]
         if (g.type != C.TRACK_TYPE_TEXT || trackIndex !in 0 until g.length) return
         val mg = g.mediaTrackGroup
+        val fmt = mg.getFormat(trackIndex)
+        Log.d(
+            "PlumTV",
+            "apply text override group=$groupIndex track=$trackIndex id=${fmt.id.orEmpty()} mime=${fmt.sampleMimeType.orEmpty()} label=${fmt.label.orEmpty()} lang=${fmt.language.orEmpty()}",
+        )
         val b = player.trackSelectionParameters.buildUpon()
         b.clearOverridesOfType(C.TRACK_TYPE_TEXT)
         b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
         b.addOverride(TrackSelectionOverride(mg, listOf(trackIndex)))
         player.trackSelectionParameters = b.build()
+    }
+
+    /** Applies the text track whose [Format.id] matches [configurationId] (e.g. `emb:2`, `ext:5`). */
+    private fun applyTextTrackByConfigurationId(configurationId: String): Boolean {
+        val want = configurationId.trim()
+        if (want.isEmpty()) return false
+        val groups = player.currentTracks.groups
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val sid = g.mediaTrackGroup.getFormat(j).id?.trim() ?: continue
+                if (sid == want) {
+                    applyTextTrackOverride(gi, j)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun tryApplyPendingCatalogSubtitleIfNeeded() {
+        val cfg = pendingCatalogConfigurationId?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        if (applyTextTrackByConfigurationId(cfg)) {
+            pendingCatalogConfigurationId = null
+            return
+        }
+        // HLS manifest VTT tracks don't carry Format.id matching our logical ids (e.g. "emb:3"),
+        // so fall back to language-based selection using the catalog entry for this configurationId.
+        val (lang, label) = when {
+            cfg.startsWith("emb:") -> {
+                val emb = embeddedSubtitleTracks.firstOrNull {
+                    subtitleCoordinator.logicalIdForEmbedded(it) == cfg
+                } ?: return
+                TrackLanguagePreference.normalize(emb.language) to emb.title.trim()
+            }
+            cfg.startsWith("ext:") -> {
+                val sub = externalSubtitles.firstOrNull {
+                    subtitleCoordinator.logicalIdForSidecar(it) == cfg
+                } ?: return
+                TrackLanguagePreference.normalize(sub.language) to sub.title.trim()
+            }
+            else -> return
+        }
+        if (lang.isNotEmpty() && trySelectStoredTextSubtitle(lang, label)) {
+            pendingCatalogConfigurationId = null
+        }
     }
 
     private fun Format.isCea608ClosedCaptionTrack(): Boolean {
@@ -1571,6 +1829,60 @@ class PlumPlayerController(
         val fmt = groups[idx.first].mediaTrackGroup.getFormat(idx.second)
         if (subtitleSideloadPriority(fmt) <= 0) return
         applyTextTrackOverride(idx.first, idx.second)
+    }
+
+    /**
+     * When Exo selects a manifest/demuxed text track but Plum sideloads the same stream (emb:/ext:),
+     * cues often fail to reach [androidx.media3.ui.PlayerView]; prefer the sideload row when it matches
+     * the catalog logical id or the same normalized language as the current selection.
+     */
+    private fun preferSideloadTextOverDemuxedManifestIfNeeded() {
+        if (player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return
+        val sel = selectedSubtitleTrack() ?: return
+        if (sel.format.isCea608ClosedCaptionTrack()) return
+        if (subtitleSideloadPriority(sel.format) > 0) return
+
+        val selLogical =
+            embeddedCatalogForDemuxedTextFormat(sel.format)?.let(subtitleCoordinator::logicalIdForEmbedded)
+
+        val normSel =
+            TrackLanguagePreference.normalize(sel.format.language).ifEmpty {
+                TrackLanguagePreference.normalize(sel.format.label)
+            }
+
+        val groups = player.currentTracks.groups
+        var bestGi = -1
+        var bestJ = -1
+        var bestPri = -1
+        for (gi in groups.indices) {
+            val g = groups[gi]
+            if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
+            for (j in 0 until g.length) {
+                val fmt = g.mediaTrackGroup.getFormat(j)
+                if (fmt.isCea608ClosedCaptionTrack()) continue
+                val pri = subtitleSideloadPriority(fmt)
+                if (pri <= 0) continue
+
+                val sid = fmt.id?.trim().orEmpty()
+                val sameLogical = selLogical != null && sid.isNotEmpty() && selLogical == sid
+                val langMatch =
+                    normSel.isNotEmpty() &&
+                        (
+                            TrackLanguagePreference.matchesLanguage(fmt.language, normSel) ||
+                                TrackLanguagePreference.matchesLanguage(fmt.label, normSel)
+                        )
+                if (!sameLogical && !langMatch) continue
+
+                if (pri > bestPri) {
+                    bestPri = pri
+                    bestGi = gi
+                    bestJ = j
+                }
+            }
+        }
+        if (bestGi < 0 || bestJ < 0) return
+        if (bestGi == sel.groupIndex && bestJ == sel.trackIndex) return
+        applyTextTrackOverride(bestGi, bestJ)
     }
 
     private fun showTrackCompositeKey(): String? {
@@ -1751,47 +2063,46 @@ class PlumPlayerController(
         }
     }
 
-    private fun trySelectStoredTextSubtitle(subLang: String, labelHint: String): Boolean {
-        if (subLang.isEmpty()) return false
+    private data class FlatTextTrack(val groupIndex: Int, val trackIndex: Int, val format: Format)
+
+    private fun enumerateNonCeaTextTracks(): List<FlatTextTrack> {
         val groups = player.currentTracks.groups
-        val hint = labelHint.trim()
-        if (hint.isNotEmpty()) {
-            for (gi in groups.indices) {
-                val g = groups[gi]
-                if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
-                for (j in 0 until g.length) {
-                    val fmt = g.mediaTrackGroup.getFormat(j)
-                    if (fmt.isCea608ClosedCaptionTrack()) continue
-                    val langOk =
-                        TrackLanguagePreference.matchesLanguage(fmt.language, subLang) ||
-                            TrackLanguagePreference.matchesLanguage(fmt.label, subLang)
-                    if (langOk &&
-                        TrackLanguagePreference.subtitleLabelMatchesHint(
-                            fmt.label?.trim().orEmpty().ifEmpty { fmt.language?.trim().orEmpty() },
-                            hint,
-                        )
-                    ) {
-                        applyTextTrackOverride(gi, j)
-                        return true
-                    }
-                }
-            }
-        }
+        val out = mutableListOf<FlatTextTrack>()
         for (gi in groups.indices) {
             val g = groups[gi]
             if (g.type != C.TRACK_TYPE_TEXT || g.length == 0) continue
             for (j in 0 until g.length) {
                 val fmt = g.mediaTrackGroup.getFormat(j)
                 if (fmt.isCea608ClosedCaptionTrack()) continue
-                if (TrackLanguagePreference.matchesLanguage(fmt.language, subLang) ||
-                    TrackLanguagePreference.matchesLanguage(fmt.label, subLang)
-                ) {
-                    applyTextTrackOverride(gi, j)
-                    return true
-                }
+                out += FlatTextTrack(gi, j, fmt)
             }
         }
-        return false
+        return out
+    }
+
+    private fun trySelectStoredTextSubtitle(subLang: String, labelHint: String): Boolean {
+        if (subLang.isEmpty()) return false
+        val hint = labelHint.trim()
+        val langMatched =
+            enumerateNonCeaTextTracks().filter { pick ->
+                TrackLanguagePreference.matchesLanguage(pick.format.language, subLang) ||
+                    TrackLanguagePreference.matchesLanguage(pick.format.label, subLang)
+            }
+        val hinted =
+            if (hint.isNotEmpty()) {
+                langMatched.filter { pick ->
+                    TrackLanguagePreference.subtitleLabelMatchesHint(
+                        pick.format.label?.trim().orEmpty().ifEmpty { pick.format.language?.trim().orEmpty() },
+                        hint,
+                    )
+                }
+            } else {
+                emptyList()
+            }
+        val pool = if (hint.isNotEmpty() && hinted.isNotEmpty()) hinted else langMatched
+        val best = pool.maxByOrNull { subtitleSideloadPriority(it.format) } ?: return false
+        applyTextTrackOverride(best.groupIndex, best.trackIndex)
+        return true
     }
 
     private fun findStoredBurnSubtitleStreamIndex(subLang: String, labelHint: String): Int? {
@@ -1916,7 +2227,101 @@ class PlumPlayerController(
         }
     }
 
+    private suspend fun suspendPersistSidecarSubtitlePreference(sub: SubtitleJson) {
+        val lang =
+            TrackLanguagePreference.normalize(sub.language).ifEmpty {
+                TrackLanguagePreference.normalize(sub.title)
+            }.ifEmpty { "und" }
+        playerSubtitlePreferences.setDefaultSubtitlePreference(lang, sub.title.trim())
+        showTrackCompositeKey()?.let { ck ->
+            playerSubtitlePreferences.mergeShowTrackLanguageOverride(
+                ck,
+                defaultSubtitleLanguage = lang,
+                defaultSubtitleLabelHint = sub.title.trim(),
+            )
+        }
+    }
+
+    private suspend fun suspendPersistEmbeddedSubtitleCatalogPreference(emb: EmbeddedSubtitleJson) {
+        val lang =
+            TrackLanguagePreference.normalize(emb.language).ifEmpty {
+                TrackLanguagePreference.normalize(emb.title)
+            }.ifEmpty { "und" }
+        playerSubtitlePreferences.setDefaultSubtitlePreference(lang, emb.title.trim())
+        showTrackCompositeKey()?.let { ck ->
+            playerSubtitlePreferences.mergeShowTrackLanguageOverride(
+                ck,
+                defaultSubtitleLanguage = lang,
+                defaultSubtitleLabelHint = emb.title.trim(),
+            )
+        }
+    }
+
+    /**
+     * Applies a subtitle chosen from [buildSubtitleCatalogPickerOptions] (session catalog row).
+     * When burn-in is active on HLS, mirrors text-track selection by reloading without burn.
+     */
+    private suspend fun applyCatalogSubtitleBySessionRow(
+        configurationId: String,
+        language: String,
+        label: String,
+        persist: suspend () -> Unit,
+    ) {
+        persist()
+        val cfg = configurationId.trim()
+        val needsBurnReload = activeBurnSubtitleStreamIndex != null && hlsSessionId != null
+        val burnReloadLockHeld = needsBurnReload && burnSessionCoordinator.tryLockConcurrentBurnReload()
+        if (needsBurnReload && !burnReloadLockHeld) return
+        try {
+            if (needsBurnReload) {
+                val resumeSec = player.currentPosition / 1000.0f
+                pendingSubtitleRestore =
+                    SubtitleRestoreState(
+                        disabled = false,
+                        language = language,
+                        label = label,
+                        configurationId = cfg,
+                    )
+                activeBurnSubtitleStreamIndex = null
+                burnSessionCoordinator.reloadForBurnSubtitle(resumeSec)
+                pendingCatalogConfigurationId = null
+                return
+            }
+            if (applyTextTrackByConfigurationId(cfg)) {
+                pendingCatalogConfigurationId = null
+            } else {
+                pendingCatalogConfigurationId = cfg
+            }
+        } finally {
+            burnSessionCoordinator.unlockConcurrentBurnReload(burnReloadLockHeld)
+        }
+    }
+
     private suspend fun applySubtitlePickerSelection(id: String) {
+        when {
+            id.startsWith("catalog-ext:") -> {
+                val subId = id.removePrefix("catalog-ext:").toIntOrNull() ?: return
+                val sub = externalSubtitles.firstOrNull { it.id == subId } ?: return
+                applyCatalogSubtitleBySessionRow(
+                    configurationId = subtitleCoordinator.logicalIdForSidecar(sub),
+                    language = sub.language,
+                    label = sub.title,
+                    persist = { suspendPersistSidecarSubtitlePreference(sub) },
+                )
+                return
+            }
+            id.startsWith("catalog-emb:") -> {
+                val stream = id.removePrefix("catalog-emb:").toIntOrNull() ?: return
+                val emb = embeddedSubtitleTracks.firstOrNull { it.streamIndex == stream } ?: return
+                applyCatalogSubtitleBySessionRow(
+                    configurationId = subtitleCoordinator.logicalIdForEmbedded(emb),
+                    language = emb.language,
+                    label = emb.title,
+                    persist = { suspendPersistEmbeddedSubtitleCatalogPreference(emb) },
+                )
+                return
+            }
+        }
         val trackId = SubtitlePickerTrackId.parse(id) ?: return
         val selectedTextRestore =
             when (trackId) {
@@ -2095,7 +2500,8 @@ class PlumPlayerController(
     fun openSubtitlePicker() {
         scope.launch(Dispatchers.Main) {
             val options = buildSubtitlePickerOptions()
-            if (options.size < 2) return@launch
+            // Always open: [buildPickerOptions] always includes Off; requiring 2+ rows meant repeated
+            // clicks did nothing when only CEA existed, dedupe removed all rows, or tracks were not ready yet.
             _trackPicker.value = TrackPicker.Subtitles(options = options)
         }
     }
@@ -2184,7 +2590,7 @@ class PlumPlayerController(
         // Always sideload sidecar subtitles. Native HLS subtitle discovery can miss external tracks
         // on some Android/Media3 paths even though the same server endpoint works when attached
         // directly as a SubtitleConfiguration. Picker de-dupe keeps duplicate HLS rows hidden.
-        externalSubtitles.forEach { subtitle ->
+        visibleExternalSubtitles().forEach { subtitle ->
             val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
             val logicalId = subtitleCoordinator.logicalIdForSidecar(subtitle)
             val builder =
@@ -2209,50 +2615,49 @@ class PlumPlayerController(
             subtitleConfigurations += builder.build()
         }
 
-        // HLS masters already include embedded text subtitle renditions, but direct sessions need them
-        // attached explicitly.
-        if (hlsSessionId == null) {
-            embeddedSubtitleTracks.forEach { subtitle ->
-                // Session payload omits bitmap/unsupported streams server-side; keep client guard for older servers.
-                if (subtitle.supported == false) {
-                    android.util.Log.d(
-                        "PlumTV",
-                        "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}",
-                    )
-                    return@forEach
-                }
-                if (!subtitle.supportsAndroidTextDelivery()) {
-                    return@forEach
-                }
-                val subtitleUrl =
-                    playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
-                val logicalId = subtitleCoordinator.logicalIdForEmbedded(subtitle)
-                val builder =
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                        .setId(logicalId)
-                        // Embedded extract endpoint always serves text/vtt (ffmpeg).
-                        .setMimeType(MimeTypes.TEXT_VTT)
-                        .setSelectionFlags(
-                            subtitleSelectionFlags(
-                                default = subtitle.default,
-                                forced = subtitle.forced,
-                                hearingImpaired = subtitle.hearingImpaired,
-                            ),
-                        )
-                        .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
-                if (subtitle.language.isNotBlank()) {
-                    builder.setLanguage(subtitle.language)
-                }
-                if (subtitle.title.isNotBlank()) {
-                    builder.setLabel(subtitle.title)
-                }
-                subtitleConfigurations += builder.build()
+        // Native HLS subtitle discovery is unreliable on Android/Media3 for Plum's embedded subtitle
+        // renditions as well, so sideload WebVTT for every embedded text track regardless of delivery.
+        // Picker de-dupe hides duplicate HLS/native rows when both paths appear.
+        visibleEmbeddedSubtitleTracks().forEach { subtitle ->
+            // Session payload omits bitmap/unsupported streams server-side; keep client guard for older servers.
+            if (subtitle.supported == false) {
+                android.util.Log.d(
+                    "PlumTV",
+                    "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}",
+                )
+                return@forEach
             }
+            if (!subtitle.supportsAndroidTextDelivery()) {
+                return@forEach
+            }
+            val subtitleUrl =
+                playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+            val logicalId = subtitleCoordinator.logicalIdForEmbedded(subtitle)
+            val builder =
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                    .setId(logicalId)
+                    // Embedded extract endpoint always serves text/vtt (ffmpeg).
+                    .setMimeType(MimeTypes.TEXT_VTT)
+                    .setSelectionFlags(
+                        subtitleSelectionFlags(
+                            default = subtitle.default,
+                            forced = subtitle.forced,
+                            hearingImpaired = subtitle.hearingImpaired,
+                        ),
+                    )
+                    .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
+            if (subtitle.language.isNotBlank()) {
+                builder.setLanguage(subtitle.language)
+            }
+            if (subtitle.title.isNotBlank()) {
+                builder.setLabel(subtitle.title)
+            }
+            subtitleConfigurations += builder.build()
         }
 
         // Blu-ray style: many language tracks are HDMV PGS (not WebVTT). HLS manifests only carry our
         // WebVTT renditions, so sideload raw PGS for every eligible stream (direct + transcode).
-        embeddedSubtitleTracks.forEach { subtitle ->
+        visibleEmbeddedSubtitleTracks().forEach { subtitle ->
             if (!subtitle.supportsAndroidPgsBinaryDelivery()) {
                 return@forEach
             }
@@ -2322,6 +2727,7 @@ class PlumPlayerController(
 
     private suspend fun openMedia(mediaId: Int, resumeSec: Float) {
         pendingSubtitleRestore = null
+        pendingCatalogConfigurationId = null
         activeBurnSubtitleStreamIndex = null
         appliedStoredSubtitlePreferenceForMedia = false
         appliedStoredExoAudioPreferenceForMedia = false

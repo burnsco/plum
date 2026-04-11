@@ -90,10 +90,12 @@ import androidx.core.view.updateLayoutParams
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.R as Media3UiR
 import coil3.compose.AsyncImage
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -146,6 +148,7 @@ fun PlayerRoute(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val timeFormat = remember(context) { DateFormat.getTimeFormat(context) }
+    var subtitleCues by remember { mutableStateOf(emptyList<androidx.media3.common.text.Cue>()) }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -157,6 +160,27 @@ fun PlayerRoute(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    DisposableEffect(viewModel.player) {
+        val listener =
+            object : Player.Listener {
+                override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                    val cueCount = cueGroup.cues.size
+                    val selectedSubtitle = viewModel.uiState.value.subtitleTrackLabel ?: "off"
+                    val selectedSource = viewModel.uiState.value.subtitleTrackSourceLabel ?: "none"
+                    android.util.Log.d(
+                        "PlumTV",
+                        "subtitle cues cueCount=$cueCount selected=$selectedSubtitle source=$selectedSource",
+                    )
+                    subtitleCues = cueGroup.cues
+                }
+            }
+        viewModel.player.addListener(listener)
+        onDispose {
+            viewModel.player.removeListener(listener)
+            subtitleCues = emptyList()
+        }
     }
 
     fun showControls() {
@@ -371,6 +395,7 @@ fun PlayerRoute(
                     descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     player = viewModel.player
+                    subtitleView?.visibility = android.view.View.GONE
                     applyPlumSubtitleAppearance(viewModel.subtitleAppearance.value)
                     applyVideoAspectToPlayerView(this, viewModel.videoAspectRatioMode.value)
                 }
@@ -382,8 +407,25 @@ fun PlayerRoute(
                 view.isFocusable = false
                 view.isFocusableInTouchMode = false
                 view.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                view.subtitleView?.visibility = android.view.View.GONE
                 view.applyPlumSubtitleAppearance(subtitleAppearance)
                 applyVideoAspectToPlayerView(view, videoAspectRatioMode)
+            },
+        )
+
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                SubtitleView(ctx).apply {
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    setCues(subtitleCues)
+                    applyPlumSubtitleAppearance(subtitleAppearance)
+                }
+            },
+            update = { view ->
+                view.setCues(subtitleCues)
+                view.applyPlumSubtitleAppearance(subtitleAppearance)
             },
         )
 
@@ -578,7 +620,10 @@ fun PlayerRoute(
                             if (ui.canCycleSubtitles) {
                                 PlayerControlButton(
                                     icon = Icons.Filled.Subtitles,
-                                    contentDescription = subtitleContentDescription(ui.subtitleTrackLabel),
+                                    contentDescription = subtitleContentDescription(
+                                        ui.subtitleTrackLabel,
+                                        ui.subtitleTrackSourceLabel,
+                                    ),
                                     onClick = {
                                         viewModel.openSubtitlePicker()
                                         showControls()
@@ -968,11 +1013,15 @@ private fun TrackPickerRow(
 ) {
     val palette = PlumTheme.palette
     val shape = RoundedCornerShape(10.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val selected = option.selected
     Surface(
         onClick = onActivate,
         modifier =
             modifier
                 .fillMaxWidth()
+                .focusable(interactionSource = interactionSource)
                 .onPreviewKeyEvent { event ->
                     if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_UP) {
                         return@onPreviewKeyEvent false
@@ -990,19 +1039,46 @@ private fun TrackPickerRow(
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors =
             ClickableSurfaceDefaults.colors(
-                containerColor = Color.White.copy(alpha = 0.06f),
+                containerColor =
+                    when {
+                        selected -> Color.White.copy(alpha = 0.11f)
+                        else -> Color.White.copy(alpha = 0.06f)
+                    },
                 contentColor = Color.White,
-                focusedContainerColor = Color.White.copy(alpha = 0.12f),
+                focusedContainerColor =
+                    when {
+                        selected -> palette.accent.copy(alpha = 0.28f)
+                        else -> Color.White.copy(alpha = 0.18f)
+                    },
                 focusedContentColor = Color.White,
-                pressedContainerColor = Color.White.copy(alpha = 0.12f),
+                pressedContainerColor =
+                    when {
+                        selected -> palette.accent.copy(alpha = 0.30f)
+                        else -> Color.White.copy(alpha = 0.18f)
+                    },
                 pressedContentColor = Color.White,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (focused) 1.02f else 1f),
         border =
             ClickableSurfaceDefaults.border(
-                border = plumBorder(Color.White.copy(alpha = 0.08f), 1.dp, shape),
-                focusedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.dp, shape),
-                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.65f), 1.dp, shape),
+                border =
+                    plumBorder(
+                        if (selected) palette.accent.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                        if (selected) 1.5.dp else 1.dp,
+                        shape,
+                    ),
+                focusedBorder =
+                    plumBorder(
+                        palette.accent.copy(alpha = 0.9f),
+                        2.dp,
+                        shape,
+                    ),
+                pressedBorder =
+                    plumBorder(
+                        palette.accent.copy(alpha = 0.9f),
+                        2.dp,
+                        shape,
+                    ),
             ),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
     ) {
@@ -1013,11 +1089,21 @@ private fun TrackPickerRow(
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
+                if (focused) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .padding(end = 10.dp)
+                                .size(width = 4.dp, height = 30.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(palette.accent),
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
                 Text(
                     text = option.label,
                     style = PlumTheme.typography.bodyMedium,
@@ -1034,13 +1120,23 @@ private fun TrackPickerRow(
                     )
                 }
             }
-            if (option.selected) {
-                Text(
-                    text = "●",
-                    style = PlumTheme.typography.labelSmall,
-                    color = palette.accent,
-                    modifier = Modifier.padding(start = 10.dp),
-                )
+            when {
+                focused -> {
+                    Text(
+                        text = "▶",
+                        style = PlumTheme.typography.labelSmall,
+                        color = palette.accent,
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
+                option.selected -> {
+                    Text(
+                        text = "●",
+                        style = PlumTheme.typography.labelSmall,
+                        color = palette.accent,
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
             }
         }
     }
@@ -1595,50 +1691,60 @@ private fun audioContentDescription(value: String?): String =
     if (!value.isNullOrBlank()) "Audio: ${value.trim()}"
     else "Change audio track"
 
-private fun subtitleContentDescription(value: String?): String =
-    if (!value.isNullOrBlank()) "Subtitles: ${value.trim()}"
-    else "Change subtitles"
+private fun subtitleContentDescription(value: String?, source: String?): String =
+    if (!value.isNullOrBlank()) {
+        val label = value.trim()
+        val sourceLabel = source?.trim().takeUnless { it.isNullOrBlank() }
+        if (sourceLabel != null) "Subtitles: $label · $sourceLabel" else "Subtitles: $label"
+    } else {
+        "Change subtitles"
+    }
 
 @OptIn(UnstableApi::class)
 private fun PlayerView.applyPlumSubtitleAppearance(appearance: SubtitleAppearance) {
-    subtitleView?.apply {
-        val fg =
-            runCatching { AndroidGraphicsColor.parseColor(appearance.colorHex) }
-                .getOrElse { AndroidGraphicsColor.WHITE }
-        setStyle(
-            CaptionStyleCompat(
-                fg,
-                AndroidGraphicsColor.TRANSPARENT,
-                AndroidGraphicsColor.TRANSPARENT,
-                CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
-                AndroidGraphicsColor.BLACK,
-                null,
-            ),
-        )
-        setApplyEmbeddedStyles(false)
-        setApplyEmbeddedFontSizes(false)
-        val sp =
-            when (appearance.size) {
-                SubtitleSize.SMALL -> 26f
-                SubtitleSize.MEDIUM -> 34f
-                SubtitleSize.LARGE -> 42f
-            }
-        setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
-        setBottomPaddingFraction(
-            when (appearance.position) {
-                SubtitlePosition.BOTTOM -> 0.12f
-                SubtitlePosition.TOP -> 0.04f
-            },
-        )
-        updateLayoutParams<FrameLayout.LayoutParams> {
-            gravity =
-                when (appearance.position) {
-                    SubtitlePosition.TOP ->
-                        Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                    SubtitlePosition.BOTTOM ->
-                        Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                }
+    subtitleView?.applyPlumSubtitleAppearance(appearance)
+}
+
+@OptIn(UnstableApi::class)
+private fun SubtitleView.applyPlumSubtitleAppearance(appearance: SubtitleAppearance) {
+    val fg =
+        runCatching { AndroidGraphicsColor.parseColor(appearance.colorHex) }
+            .getOrElse { AndroidGraphicsColor.WHITE }
+    setStyle(
+        CaptionStyleCompat(
+            fg,
+            AndroidGraphicsColor.TRANSPARENT,
+            AndroidGraphicsColor.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+            AndroidGraphicsColor.BLACK,
+            null,
+        ),
+    )
+    setApplyEmbeddedStyles(false)
+    setApplyEmbeddedFontSizes(false)
+    val sp =
+        when (appearance.size) {
+            SubtitleSize.SMALL -> 26f
+            SubtitleSize.MEDIUM -> 34f
+            SubtitleSize.LARGE -> 42f
         }
+    setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
+    setBottomPaddingFraction(
+        when (appearance.position) {
+            SubtitlePosition.BOTTOM -> 0.12f
+            SubtitlePosition.TOP -> 0.04f
+        },
+    )
+    val frameLayoutParams = layoutParams as? FrameLayout.LayoutParams
+    if (frameLayoutParams != null) {
+        frameLayoutParams.gravity =
+            when (appearance.position) {
+                SubtitlePosition.TOP ->
+                    Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                SubtitlePosition.BOTTOM ->
+                    Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            }
+        layoutParams = frameLayoutParams
     }
 }
 
