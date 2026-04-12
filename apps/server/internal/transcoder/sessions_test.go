@@ -63,25 +63,25 @@ func TestRunRevisionFallsBackToSoftwareBeforeReady(t *testing.T) {
 
 func TestRevisionReadyRequiresBufferedSegments(t *testing.T) {
 	dir := t.TempDir()
-	if revisionReady(dir, 3600) {
+	if revisionReady(dir, 3600, "") {
 		t.Fatal("expected false for missing playlist")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "index.m3u8"), []byte("#EXTM3U\n"), 0o644); err != nil {
 		t.Fatalf("write playlist: %v", err)
 	}
-	if revisionReady(dir, 3600) {
+	if revisionReady(dir, 3600, "") {
 		t.Fatal("expected false with playlist but no segments")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "segment_00000.ts"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write segment: %v", err)
 	}
-	if revisionReady(dir, 3600) {
+	if revisionReady(dir, 3600, "") {
 		t.Fatal("expected false with only one segment for long content")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "segment_00001.ts"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write segment: %v", err)
 	}
-	if !revisionReady(dir, 3600) {
+	if !revisionReady(dir, 3600, "") {
 		t.Fatal("expected true once two segments exist")
 	}
 }
@@ -95,14 +95,34 @@ func TestRevisionReadyShortMediaUsesFewerSegments(t *testing.T) {
 		t.Fatalf("write segment: %v", err)
 	}
 	// ~3s total → ceil(3/2)=2 segments required; one is not enough.
-	if revisionReady(dir, 3) {
+	if revisionReady(dir, 3, "") {
 		t.Fatal("expected false with one segment when two are required")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "segment_00001.ts"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write segment: %v", err)
 	}
-	if !revisionReady(dir, 3) {
+	if !revisionReady(dir, 3, "") {
 		t.Fatal("expected true for short media once required segments exist")
+	}
+}
+
+func TestRevisionReadySplitMasterUsesMainPlaylist(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.m3u8"), []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmain.m3u8\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if revisionReady(dir, 1, "main.m3u8") {
+		t.Fatal("expected false before main.m3u8 exists")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.m3u8"), []byte("#EXTM3U\n#EXTINF:2,\nsegment_00000.ts\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment_00000.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Short media: only one listed segment is required for readiness.
+	if !revisionReady(dir, 1, "main.m3u8") {
+		t.Fatal("expected true when segmentHlsMediaPlaylistPath resolves to main.m3u8 with one EXTINF")
 	}
 }
 

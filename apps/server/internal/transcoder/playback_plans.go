@@ -25,6 +25,7 @@ func buildPlaybackHLSPlans(
 	probe playbackSourceProbe,
 	decision playbackDecision,
 	startOffsetSeconds float64,
+	media db.MediaItem,
 ) []transcodePlan {
 	if decision.BurnEmbeddedSubtitleStreamIdx >= 0 {
 		variants := buildAdaptiveVariants(probe, settings)
@@ -33,7 +34,7 @@ func buildPlaybackHLSPlans(
 	}
 	switch decision.Delivery {
 	case "remux":
-		return []transcodePlan{buildRemuxHLSPlan(itemPath, outDir, settings, decision, startOffsetSeconds)}
+		return []transcodePlan{buildRemuxHLSPlan(itemPath, outDir, settings, probe, decision, startOffsetSeconds, media)}
 	default:
 		stream := probe.videoStreamInfo()
 		variants := buildAdaptiveVariants(probe, settings)
@@ -46,12 +47,38 @@ func buildPlaybackHLSPlans(
 	}
 }
 
+func remuxUsesSplitHlsMasterForSubtitles(media db.MediaItem, decision playbackDecision) bool {
+	if decision.BurnEmbeddedSubtitleStreamIdx >= 0 {
+		return false
+	}
+	return len(CollectHlsWebSubtitles(media)) > 0
+}
+
+func estimateHlsRemuxBandwidth(probe playbackSourceProbe) int64 {
+	var bw int64
+	if v, ok := probe.primaryVideoStream(); ok && v.BitRate > 0 {
+		bw += v.BitRate
+	}
+	if a, ok := probe.primaryAudioStream(); ok && a.BitRate > 0 {
+		bw += a.BitRate
+	}
+	if bw <= 0 && probe.BitRate > 0 {
+		bw = probe.BitRate
+	}
+	if bw <= 0 {
+		return defaultHlsRemuxBandwidthBps
+	}
+	return bw
+}
+
 func buildRemuxHLSPlan(
 	itemPath string,
 	outDir string,
 	settings db.TranscodingSettings,
+	probe playbackSourceProbe,
 	decision playbackDecision,
 	startOffsetSeconds float64,
+	media db.MediaItem,
 ) transcodePlan {
 	args := appendFFmpegInputAt([]string{"-y"}, itemPath, startOffsetSeconds)
 	args = append(args, "-map", "0:v:0")
@@ -68,11 +95,14 @@ func buildRemuxHLSPlan(
 		args = appendTranscodedStreamingAACArgs(args, settings, -1)
 	}
 
-	args = appendSingleVariantHLSOutputArgs(args, outDir)
-	return transcodePlan{
-		Args: args,
-		Mode: "remux",
+	var plan transcodePlan
+	if remuxUsesSplitHlsMasterForSubtitles(media, decision) {
+		plan.RemuxHlsMediaPlaylistBase = hlsRemuxMediaPlaylistBase
+		plan.RemuxHlsVariantStreamBandwidth = estimateHlsRemuxBandwidth(probe)
 	}
+	plan.Args = appendSingleVariantHLSOutputArgs(args, outDir, plan.RemuxHlsMediaPlaylistBase)
+	plan.Mode = "remux"
+	return plan
 }
 
 func buildSoftwareAdaptiveHLSPlan(
@@ -305,8 +335,11 @@ func buildAdaptiveVariants(probe playbackSourceProbe, settings db.TranscodingSet
 	return []adaptiveVariant{fallback}
 }
 
-func appendSingleVariantHLSOutputArgs(args []string, outDir string) []string {
-	playlistPath := filepath.Join(outDir, "index.m3u8")
+func appendSingleVariantHLSOutputArgs(args []string, outDir string, playlistBase string) []string {
+	if playlistBase == "" {
+		playlistBase = "index"
+	}
+	playlistPath := filepath.Join(outDir, playlistBase+".m3u8")
 	segmentPath := filepath.Join(outDir, "segment_%05d.ts")
 	return append(args,
 		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", hlsSegmentDurationSeconds),

@@ -31,6 +31,7 @@ var ErrTooManyPlaybackSessions = errors.New("too many concurrent playback sessio
 var ffmpegCommandContext = exec.CommandContext
 var previousRevisionCancelDelay = 20 * time.Second
 var playbackDisconnectGracePeriod = 10 * time.Second
+var playbackCloseWait = 2 * time.Second
 
 func maxPlaybackSessionsPerUser() int {
 	raw := strings.TrimSpace(os.Getenv("PLUM_MAX_PLAYBACK_SESSIONS_PER_USER"))
@@ -122,10 +123,13 @@ type playbackRevision struct {
 	status             string
 	err                string
 	cancel             context.CancelFunc
+	done               chan struct{}
 	readySent          bool
 	// Frozen subtitle rendition set for this revision, captured at revision creation.
 	subtitleTracksByPlaylistFile map[string]HlsWebSubtitle
 	subtitleTracksForMaster      []HlsWebSubtitle
+	// HLS event playlist path relative to revision.dir (e.g. "main.m3u8" when index.m3u8 is a bootstrap multivariant master).
+	segmentMediaPlaylistName string
 
 	masterMu          sync.Mutex
 	cachedMaster      string
@@ -678,6 +682,19 @@ func (m *PlaybackSessionManager) Close(sessionID string) {
 			revision.cancel()
 		}
 	}
+	var wg sync.WaitGroup
+	deadline := time.Now().Add(playbackCloseWait)
+	for _, revision := range revisions {
+		wg.Add(1)
+		go func(done <-chan struct{}) {
+			defer wg.Done()
+			select {
+			case <-done:
+			case <-time.After(time.Until(deadline)):
+			}
+		}(revision.done)
+	}
+	wg.Wait()
 	_ = os.RemoveAll(filepath.Join(m.root, sessionID))
 	closed := PlaybackSessionState{
 		SessionID:                       sessionID,
@@ -933,6 +950,7 @@ func (m *PlaybackSessionManager) startRevisionAt(
 		startOffsetSeconds: startOffsetSeconds,
 		status:             "starting",
 		cancel:             cancel,
+		done:               make(chan struct{}),
 	}
 	revision.subtitleTracksByPlaylistFile, revision.subtitleTracksForMaster = freezeRevisionSubtitleTracks(session.media)
 	session.revisions[revisionNumber] = revision
@@ -1013,6 +1031,7 @@ func (m *PlaybackSessionManager) runRevision(
 	decision playbackDecision,
 	cachedProbe *playbackSourceProbe,
 ) {
+	defer close(revision.done)
 	var probe playbackSourceProbe
 	var err error
 	if cachedProbe != nil {
@@ -1032,7 +1051,7 @@ func (m *PlaybackSessionManager) runRevision(
 	}
 	session.mu.Unlock()
 	readyDurationSeconds := math.Max(0, float64(durationSeconds)-revision.startOffsetSeconds)
-	plans := buildPlaybackHLSPlans(session.media.Path, revision.dir, settings, probe, decision, revision.startOffsetSeconds)
+	plans := buildPlaybackHLSPlans(session.media.Path, revision.dir, settings, probe, decision, revision.startOffsetSeconds, session.media)
 	finalState := PlaybackSessionState{
 		SessionID:                       session.id,
 		Delivery:                        revision.delivery,
@@ -1067,6 +1086,23 @@ func (m *PlaybackSessionManager) runRevision(
 
 		if err := os.RemoveAll(revision.dir); err == nil {
 			_ = os.MkdirAll(revision.dir, 0o755)
+		}
+
+		revision.segmentMediaPlaylistName = ""
+		if base := strings.TrimSpace(plan.RemuxHlsMediaPlaylistBase); base != "" {
+			mediaPlaylist := base + ".m3u8"
+			revision.segmentMediaPlaylistName = mediaPlaylist
+			bootstrap := fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=%d\n%s\n", plan.RemuxHlsVariantStreamBandwidth, filepath.Base(mediaPlaylist))
+			if err := os.WriteFile(filepath.Join(revision.dir, "index.m3u8"), []byte(bootstrap), 0o644); err != nil {
+				finalState.Error = err.Error()
+				slog.Error("playback revision bootstrap master write failed",
+					"session_id", session.id,
+					"media_id", session.media.ID,
+					"revision", revision.number,
+					"error", err,
+				)
+				continue
+			}
 		}
 
 		// Quiet ffmpeg: default stderr is endless HLS progress (frame/size/time lines). Keep stderr
@@ -1125,7 +1161,7 @@ func (m *PlaybackSessionManager) runRevision(
 					)
 					break loop
 				}
-				if !ready && revisionReady(revision.dir, readyDurationSeconds) {
+				if !ready && revisionReady(revision.dir, readyDurationSeconds, revision.segmentMediaPlaylistName) {
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
@@ -1138,7 +1174,7 @@ func (m *PlaybackSessionManager) runRevision(
 				)
 				return
 			case <-ticker.C:
-				if !ready && revisionReady(revision.dir, readyDurationSeconds) {
+				if !ready && revisionReady(revision.dir, readyDurationSeconds, revision.segmentMediaPlaylistName) {
 					ready = true
 					m.markRevisionReady(session, revision)
 				}
@@ -1250,20 +1286,22 @@ func (m *PlaybackSessionManager) broadcast(state PlaybackSessionState) {
 
 // revisionReady reports whether enough HLS media is on disk for the client to start without
 // immediately stalling at the transcode live edge (previously we required only one segment).
-func revisionReady(dir string, durationSeconds float64) bool {
-	playlistPath := filepath.Join(dir, "index.m3u8")
-	playlistInfo, err := os.Stat(playlistPath)
-	if err != nil || playlistInfo.Size() == 0 {
-		return false
+func segmentHlsMediaPlaylistPath(dir string, segmentMediaPlaylistName string) string {
+	name := strings.TrimSpace(segmentMediaPlaylistName)
+	if name != "" {
+		return filepath.Join(dir, filepath.Base(name))
 	}
+	if st, err := os.Stat(filepath.Join(dir, "variant_0")); err == nil && st.IsDir() {
+		return filepath.Join(dir, "variant_0", "index.m3u8")
+	}
+	return filepath.Join(dir, "index.m3u8")
+}
 
-	segCount := countHlsSegmentEntriesFromPlaylist(dir)
+func revisionReady(dir string, durationSeconds float64, segmentMediaPlaylistName string) bool {
+	playlistPath := segmentHlsMediaPlaylistPath(dir, segmentMediaPlaylistName)
+	segCount := countHlsSegmentEntriesFromPlaylist(playlistPath)
 	if segCount < 1 {
-		segmentRoot := dir
-		if st, statErr := os.Stat(filepath.Join(dir, "variant_0")); statErr == nil && st.IsDir() {
-			segmentRoot = filepath.Join(dir, "variant_0")
-		}
-		segCount = countNonEmptyHlsSegments(segmentRoot)
+		segCount = countNonEmptyHlsSegments(filepath.Dir(playlistPath))
 	}
 	if segCount < 1 {
 		return false
@@ -1288,11 +1326,7 @@ func revisionReady(dir string, durationSeconds float64) bool {
 
 // countHlsSegmentEntriesFromPlaylist counts #EXTINF entries in the active media playlist (one read),
 // which tracks what ffmpeg has committed to the playlist. Falls back to countNonEmptyHlsSegments when empty.
-func countHlsSegmentEntriesFromPlaylist(revisionDir string) int {
-	playlist := filepath.Join(revisionDir, "index.m3u8")
-	if st, err := os.Stat(filepath.Join(revisionDir, "variant_0")); err == nil && st.IsDir() {
-		playlist = filepath.Join(revisionDir, "variant_0", "index.m3u8")
-	}
+func countHlsSegmentEntriesFromPlaylist(playlist string) int {
 	raw, err := os.ReadFile(playlist)
 	if err != nil || len(raw) == 0 {
 		return 0

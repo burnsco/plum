@@ -9,6 +9,11 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -28,7 +33,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -60,6 +64,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.layout.ContentScale
@@ -83,7 +90,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.updateLayoutParams
@@ -120,6 +126,7 @@ import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.plumBorder
 
 private const val CONTROLS_HIDE_DELAY_MS = 3_000L
+private const val CONTROLS_FADE_DURATION_MS = 200
 
 @UnstableApi
 @Composable
@@ -166,13 +173,6 @@ fun PlayerRoute(
         val listener =
             object : Player.Listener {
                 override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
-                    val cueCount = cueGroup.cues.size
-                    val selectedSubtitle = viewModel.uiState.value.subtitleTrackLabel ?: "off"
-                    val selectedSource = viewModel.uiState.value.subtitleTrackSourceLabel ?: "none"
-                    android.util.Log.d(
-                        "PlumTV",
-                        "subtitle cues cueCount=$cueCount selected=$selectedSubtitle source=$selectedSource",
-                    )
                     subtitleCues = cueGroup.cues
                 }
             }
@@ -429,8 +429,12 @@ fun PlayerRoute(
             },
         )
 
-        // ── Gradient overlay (only when controls are visible; no fade — lighter GPU/compose work) ──
-        if (controlsVisible) {
+        // ── Gradient overlay — fades with controls for a polished transition ─────────────────────
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(tween(CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS)),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -454,10 +458,14 @@ fun PlayerRoute(
         }
 
         // ── Top metadata bar ─────────────────────────────────────────────────────
-        if (controlsVisible) {
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier.align(Alignment.TopStart),
+            enter = fadeIn(tween(CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS)),
+        ) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
                     .padding(horizontal = 40.dp, vertical = 28.dp)
                     .widthIn(max = 640.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -500,16 +508,18 @@ fun PlayerRoute(
         }
 
         // ── Local time (top right, with controls) ────────────────────────────────
-        if (controlsVisible) {
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier.align(Alignment.TopEnd),
+            enter = fadeIn(tween(CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS)),
+        ) {
             Text(
                 text = timeFormat.format(Date(wallClockMs)),
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.9f),
                 fontWeight = FontWeight.Medium,
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(horizontal = 40.dp, vertical = 28.dp),
+                modifier = Modifier.padding(horizontal = 40.dp, vertical = 28.dp),
             )
         }
 
@@ -1058,7 +1068,7 @@ private fun TrackPickerRow(
                     },
                 pressedContentColor = Color.White,
             ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (focused) 1.02f else 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
             ClickableSurfaceDefaults.border(
                 border =
@@ -1546,63 +1556,46 @@ private fun PlexSeekBar(
 ) {
     val accent = PlumTheme.palette.accent
     val f = fraction.coerceIn(0f, 1f)
-    val barHeight = if (focused) 6.dp else 4.dp
-    val thumbSize = if (focused) 16.dp else 12.dp
-    val thumbRadius = thumbSize / 2
-    BoxWithConstraints(
-        modifier =
-            modifier
-                .height(if (focused) 28.dp else 20.dp)
-                .then(
-                    if (focused) {
-                        Modifier
-                            .border(
-                                width = 1.5.dp,
-                                color = accent.copy(alpha = 0.55f),
-                                shape = RoundedCornerShape(10.dp),
-                            )
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    } else {
-                        Modifier
-                    },
-                ),
-        contentAlignment = Alignment.CenterStart,
+    Canvas(
+        modifier = modifier
+            .height(if (focused) 28.dp else 20.dp)
+            .then(
+                if (focused) {
+                    Modifier
+                        .border(1.5.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                } else {
+                    Modifier
+                },
+            ),
     ) {
+        val trackH = if (focused) 6.dp.toPx() else 4.dp.toPx()
+        val thumbR = if (focused) 8.dp.toPx() else 6.dp.toPx()
+        val cy = size.height / 2f
+
         // Track background
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(barHeight)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = 0.15f)),
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.15f),
+            topLeft = Offset(0f, cy - trackH / 2f),
+            size = Size(size.width, trackH),
+            cornerRadius = CornerRadius(trackH / 2f),
         )
-        // Filled portion
         if (f > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction = f)
-                    .height(barHeight)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(accent),
+            // Filled portion
+            drawRoundRect(
+                color = accent,
+                topLeft = Offset(0f, cy - trackH / 2f),
+                size = Size(size.width * f, trackH),
+                cornerRadius = CornerRadius(trackH / 2f),
             )
-        }
-        // Thumb dot — offset to sit centered at the playhead position
-        if (f > 0f) {
-            val thumbOffset = (maxWidth * f - thumbRadius).coerceAtLeast(0.dp)
-            Box(
-                modifier = Modifier
-                    .padding(start = thumbOffset)
-                    .size(thumbSize)
-                    .clip(CircleShape)
-                    .then(
-                        if (focused) {
-                            Modifier.border(2.dp, accent.copy(alpha = 0.7f), CircleShape)
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .background(Color.White),
-            )
+            // Thumb dot — centered at the playhead, clamped within bar bounds
+            val thumbCx = (size.width * f).coerceIn(thumbR, size.width - thumbR)
+            if (focused) {
+                drawCircle(color = accent.copy(alpha = 0.7f), radius = thumbR, center = Offset(thumbCx, cy))
+                drawCircle(color = Color.White, radius = thumbR - 2.dp.toPx(), center = Offset(thumbCx, cy))
+            } else {
+                drawCircle(color = Color.White, radius = thumbR, center = Offset(thumbCx, cy))
+            }
         }
     }
 }

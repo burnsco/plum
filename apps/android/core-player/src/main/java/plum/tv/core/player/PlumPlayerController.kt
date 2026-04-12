@@ -114,13 +114,6 @@ internal fun subtitleTrackSourceLabelForFormatId(formatId: String?): String? {
     }
 }
 
-internal fun isPreferredAndroidTvSubtitleLanguage(language: String?, title: String?): Boolean {
-    if (TrackLanguagePreference.matchesLanguage(language, "en")) return true
-    val normalizedTitle = title?.trim()?.lowercase(Locale.US).orEmpty()
-    if (normalizedTitle.isEmpty()) return false
-    return normalizedTitle.contains("english") || normalizedTitle.contains("british")
-}
-
 data class PlayerQueueItem(
     val mediaId: Int,
     val title: String,
@@ -929,29 +922,19 @@ class PlumPlayerController(
     private fun trackGroups(trackType: Int): List<Tracks.Group> =
         player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
 
-    private fun visibleExternalSubtitles(): List<SubtitleJson> =
-        externalSubtitles.filter { subtitle ->
-            isPreferredAndroidTvSubtitleLanguage(subtitle.language, subtitle.title)
-        }
-
-    private fun visibleEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> =
-        embeddedSubtitleTracks.filter { subtitle ->
-            isPreferredAndroidTvSubtitleLanguage(subtitle.language, subtitle.title)
-        }
-
     /**
      * Embedded subs that only work in HLS via server burn-in (no WebVTT / binary PGS sideload path).
      * When these exist without Exo [C.TRACK_TYPE_TEXT] groups, the subtitle button must still appear.
      */
     private fun serverBurnInEmbeddedSubtitleTracks(): List<EmbeddedSubtitleJson> {
         if (hlsSessionId == null) return emptyList()
-        return visibleEmbeddedSubtitleTracks().filter(subtitleCoordinator::isBurnInEmbeddedTrack)
+        return embeddedSubtitleTracks.filter(subtitleCoordinator::isBurnInEmbeddedTrack)
     }
 
     /** True when the playback session payload lists any subtitle the app could offer (even before Exo exposes text groups). */
     private fun sessionHasServerListedSubtitles(): Boolean {
-        if (visibleExternalSubtitles().isNotEmpty()) return true
-        for (sub in visibleEmbeddedSubtitleTracks()) {
+        if (externalSubtitles.isNotEmpty()) return true
+        for (sub in embeddedSubtitleTracks) {
             if (sub.supported == false) continue
             if (sub.supportsAndroidTextDelivery() ||
                 sub.supportsAndroidPgsBinaryDelivery() ||
@@ -1499,7 +1482,7 @@ class PlumPlayerController(
                 sel?.id?.trim() == cfg
 
         val out = mutableListOf<TrackPickerOption>()
-        for (sub in visibleExternalSubtitles()) {
+        for (sub in externalSubtitles) {
             val cfg = subtitleCoordinator.logicalIdForSidecar(sub)
             if (cfg in covered) continue
             covered += cfg
@@ -1511,7 +1494,7 @@ class PlumPlayerController(
                     detail = "Library",
                 )
         }
-        for (emb in visibleEmbeddedSubtitleTracks()) {
+        for (emb in embeddedSubtitleTracks) {
             if (emb.supported == false) continue
             if (subtitleCoordinator.isBurnInEmbeddedTrack(emb)) continue
             if (!emb.supportsAndroidTextDelivery() && !emb.supportsAndroidPgsBinaryDelivery()) continue
@@ -2590,7 +2573,7 @@ class PlumPlayerController(
         // Always sideload sidecar subtitles. Native HLS subtitle discovery can miss external tracks
         // on some Android/Media3 paths even though the same server endpoint works when attached
         // directly as a SubtitleConfiguration. Picker de-dupe keeps duplicate HLS rows hidden.
-        visibleExternalSubtitles().forEach { subtitle ->
+        externalSubtitles.forEach { subtitle ->
             val subtitleUrl = playbackRepository.absoluteStreamUrl("/api/subtitles/${subtitle.id}")
             val logicalId = subtitleCoordinator.logicalIdForSidecar(subtitle)
             val builder =
@@ -2618,7 +2601,7 @@ class PlumPlayerController(
         // Native HLS subtitle discovery is unreliable on Android/Media3 for Plum's embedded subtitle
         // renditions as well, so sideload WebVTT for every embedded text track regardless of delivery.
         // Picker de-dupe hides duplicate HLS/native rows when both paths appear.
-        visibleEmbeddedSubtitleTracks().forEach { subtitle ->
+        embeddedSubtitleTracks.forEach { subtitle ->
             // Session payload omits bitmap/unsupported streams server-side; keep client guard for older servers.
             if (subtitle.supported == false) {
                 android.util.Log.d(
@@ -2657,7 +2640,7 @@ class PlumPlayerController(
 
         // Blu-ray style: many language tracks are HDMV PGS (not WebVTT). HLS manifests only carry our
         // WebVTT renditions, so sideload raw PGS for every eligible stream (direct + transcode).
-        visibleEmbeddedSubtitleTracks().forEach { subtitle ->
+        embeddedSubtitleTracks.forEach { subtitle ->
             if (!subtitle.supportsAndroidPgsBinaryDelivery()) {
                 return@forEach
             }

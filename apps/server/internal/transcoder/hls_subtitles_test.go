@@ -18,6 +18,22 @@ func TestInjectHlsSubtitleRenditions_NoStreamInf(t *testing.T) {
 	}
 }
 
+func TestInjectHlsSubtitleRenditions_RemuxBootstrapMaster(t *testing.T) {
+	body := "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=12000000\nmain.m3u8\n"
+	got := InjectHlsSubtitleRenditions(body, []HlsWebSubtitle{
+		{LogicalID: "emb:2", PlaylistFile: "plum_subs_656d623a32.m3u8", VTTPath: "/api/media/1/subtitles/embedded/2", DisplayName: "English", Language: "en", Autoselect: true},
+	})
+	if !strings.Contains(got, `TYPE=SUBTITLES`) {
+		t.Fatalf("missing subtitle media: %q", got)
+	}
+	if !strings.Contains(got, `SUBTITLES="subs"`) {
+		t.Fatalf("missing SUBTITLES on stream inf: %q", got)
+	}
+	if !strings.Contains(got, "main.m3u8") {
+		t.Fatalf("expected variant reference preserved: %q", got)
+	}
+}
+
 func TestInjectHlsSubtitleRenditions_PrependsMediaAndAddsGroup(t *testing.T) {
 	body := `#EXTM3U
 #EXT-X-VERSION:3

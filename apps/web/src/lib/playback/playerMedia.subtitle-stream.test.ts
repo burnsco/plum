@@ -3,6 +3,7 @@ import type Hls from "hls.js";
 import {
   consumeSubtitleResponseWithPartialUpdates,
   findHlsSubtitleTrackIndexForLogicalId,
+  parseVttCueBlocks,
   plumHlsSubtitlePlaylistFileForTrackLogicalId,
   streamingVttPrefixForParse,
 } from "./playerMedia";
@@ -95,5 +96,33 @@ describe("consumeSubtitleResponseWithPartialUpdates", () => {
     expect(response.text).toHaveBeenCalledOnce();
     expect(out).toContain("00:00:01.000");
     expect(last).toContain("WEBVTT");
+  });
+});
+
+describe("parseVttCueBlocks", () => {
+  it("parses comma decimal timestamps (SRT-style)", () => {
+    const cues = parseVttCueBlocks("WEBVTT\n\n00:00:01,000 --> 00:00:02,500\nHi\n");
+    expect(cues).toHaveLength(1);
+    expect(cues[0]!.startTime).toBeCloseTo(1, 5);
+    expect(cues[0]!.endTime).toBeCloseTo(2.5, 5);
+    expect(cues[0]!.text).toBe("Hi");
+  });
+
+  it("accepts one- or two-digit fractional seconds", () => {
+    const cues = parseVttCueBlocks(
+      "WEBVTT\n\n00:00:00.5 --> 00:00:01.12\nA\n\n00:00:02.000 --> 00:00:03.9\nB\n",
+    );
+    expect(cues).toHaveLength(2);
+    expect(cues[0]!.startTime).toBeCloseTo(0.5, 5);
+    expect(cues[0]!.endTime).toBeCloseTo(1.12, 5);
+    expect(cues[1]!.startTime).toBeCloseTo(2, 5);
+    expect(cues[1]!.endTime).toBeCloseTo(3.9, 5);
+  });
+
+  it("parses timestamps without a fractional part", () => {
+    const cues = parseVttCueBlocks("WEBVTT\n\n00:00:01 --> 00:00:02\nX\n");
+    expect(cues).toHaveLength(1);
+    expect(cues[0]!.startTime).toBe(1);
+    expect(cues[0]!.endTime).toBe(2);
   });
 });

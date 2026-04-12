@@ -26,9 +26,15 @@ type transcodePlan struct {
 	Args         []string
 	Mode         string
 	EncodeFormat string
+	// Remux-only: when non-empty (e.g. "main"), ffmpeg writes <base>.m3u8 and a bootstrap index.m3u8
+	// master is written before ffmpeg so InjectHlsSubtitleRenditions can attach WebVTT renditions.
+	RemuxHlsMediaPlaylistBase      string
+	RemuxHlsVariantStreamBandwidth int64
 }
 
 const hlsSegmentDurationSeconds = 2
+const hlsRemuxMediaPlaylistBase = "main"
+const defaultHlsRemuxBandwidthBps int64 = 12_000_000
 
 func appendFFmpegInput(args []string, itemPath string) []string {
 	return append(args, append(ffopts.InputProbeBeforeI, "-i", itemPath)...)

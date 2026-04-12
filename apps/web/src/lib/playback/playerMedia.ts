@@ -297,17 +297,46 @@ export function bufferedRangeStartsNearZero(video: HTMLVideoElement | null): boo
   return video.buffered.start(0) <= 0.05;
 }
 
+/** Accepts HH:MM:SS or MM:SS, comma or dot decimal separator, and 0–9 fractional digits (ffmpeg / SRT-style). */
 function parseVttTimestamp(value: string): number | null {
-  const match = value.trim().match(/^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{3})$/);
-  if (!match) {
-    return null;
+  const token = value.trim();
+  if (!token) return null;
+  const normalized = token.replace(/,/g, ".");
+  const dotIdx = normalized.indexOf(".");
+  let mainPart: string;
+  let fracRaw: string;
+  if (dotIdx >= 0) {
+    mainPart = normalized.slice(0, dotIdx);
+    fracRaw = normalized.slice(dotIdx + 1).replace(/\D/g, "");
+  } else {
+    mainPart = normalized;
+    fracRaw = "";
+  }
+  const parts = mainPart.split(":");
+  if (parts.length < 2 || parts.length > 3) return null;
+
+  let hours = 0;
+  let minutes: number;
+  let seconds: number;
+  if (parts.length === 3) {
+    hours = Number(parts[0]);
+    minutes = Number(parts[1]);
+    seconds = Number(parts[2]);
+  } else {
+    minutes = Number(parts[0]);
+    seconds = Number(parts[1]);
+  }
+  if (![hours, minutes, seconds].every((n) => Number.isFinite(n))) return null;
+  if (hours < 0 || minutes < 0 || seconds < 0) return null;
+
+  let millis = 0;
+  if (fracRaw.length > 0) {
+    const pad = (fracRaw + "000").slice(0, 3);
+    millis = Number.parseInt(pad, 10);
+    if (!Number.isFinite(millis)) return null;
   }
 
-  const hours = Number(match[1] ?? 0);
-  const minutes = Number(match[2]);
-  const seconds = Number(match[3]);
-  const milliseconds = Number(match[4]);
-  return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
+  return hours * 3600 + minutes * 60 + seconds + millis / 1000;
 }
 
 /**

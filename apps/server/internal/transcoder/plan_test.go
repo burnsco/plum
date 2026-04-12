@@ -451,6 +451,7 @@ func TestBuildPlaybackHLSPlans_StartOffsetBeforeInput(t *testing.T) {
 		probe,
 		playbackDecision{Delivery: "transcode"},
 		123.456,
+		db.MediaItem{},
 	)
 	if len(withOffset) == 0 {
 		t.Fatal("expected HLS plans")
@@ -472,9 +473,75 @@ func TestBuildPlaybackHLSPlans_StartOffsetBeforeInput(t *testing.T) {
 		probe,
 		playbackDecision{Delivery: "transcode"},
 		0,
+		db.MediaItem{},
 	)
 	if containsArgs(withoutOffset[0].Args, "-ss") {
 		t.Fatalf("did not expect -ss without offset: %v", withoutOffset[0].Args)
+	}
+}
+
+func TestBuildPlaybackHLSPlans_RemuxUsesMainPlaylistWhenWebSubtitlesExist(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	probe := playbackSourceProbe{
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "h264", BitRate: 5_000_000},
+			{Index: 1, CodecType: "audio", CodecName: "aac", BitRate: 192_000},
+		},
+	}
+	media := db.MediaItem{
+		EmbeddedSubtitles: []db.EmbeddedSubtitle{
+			{StreamIndex: 3, Language: "en", Codec: "subrip"},
+		},
+	}
+	plans := buildPlaybackHLSPlans(
+		"/media/anime.mkv",
+		"/tmp/out",
+		settings,
+		probe,
+		playbackDecision{Delivery: "remux", BurnEmbeddedSubtitleStreamIdx: -1, AudioIndex: 1},
+		0,
+		media,
+	)
+	if len(plans) != 1 || plans[0].Mode != "remux" {
+		t.Fatalf("expected one remux plan, got %#v", plans)
+	}
+	if plans[0].RemuxHlsMediaPlaylistBase != "main" {
+		t.Fatalf("RemuxHlsMediaPlaylistBase = %q, want main", plans[0].RemuxHlsMediaPlaylistBase)
+	}
+	if plans[0].RemuxHlsVariantStreamBandwidth != 5_192_000 {
+		t.Fatalf("bandwidth = %d, want 5192000", plans[0].RemuxHlsVariantStreamBandwidth)
+	}
+	last := plans[0].Args[len(plans[0].Args)-1]
+	if !strings.HasSuffix(last, "main.m3u8") {
+		t.Fatalf("expected ffmpeg HLS output main.m3u8, last arg = %q", last)
+	}
+}
+
+func TestBuildPlaybackHLSPlans_RemuxSingleIndexWhenNoWebSubtitles(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	probe := playbackSourceProbe{
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "h264"},
+		},
+	}
+	plans := buildPlaybackHLSPlans(
+		"/media/video.mkv",
+		"/tmp/out",
+		settings,
+		probe,
+		playbackDecision{Delivery: "remux", BurnEmbeddedSubtitleStreamIdx: -1, AudioIndex: -1},
+		0,
+		db.MediaItem{},
+	)
+	if len(plans) != 1 {
+		t.Fatalf("plan count = %d", len(plans))
+	}
+	if plans[0].RemuxHlsMediaPlaylistBase != "" {
+		t.Fatalf("expected no split master, got %q", plans[0].RemuxHlsMediaPlaylistBase)
+	}
+	last := plans[0].Args[len(plans[0].Args)-1]
+	if !strings.HasSuffix(last, "index.m3u8") {
+		t.Fatalf("expected index.m3u8 output, last arg = %q", last)
 	}
 }
 
