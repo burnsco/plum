@@ -16,7 +16,7 @@
     "effect": "4.0.0-beta.43"
   },
   "devDependencies": {
-    "oxfmt": "^0.43.0",
+    "oxfmt": "^0.45.0",
     "oxlint": "^1.60.0",
     "typescript": "^6.0.3"
   }
