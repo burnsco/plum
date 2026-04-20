@@ -13,7 +13,7 @@
     "format": "bunx oxfmt"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.43"
+    "effect": "4.0.0-beta.52"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
