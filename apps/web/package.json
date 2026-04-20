@@ -12,10 +12,10 @@
     "format": "oxfmt",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:app": "vitest run src/App.test.tsx",
-    "test:stable": "vitest run --exclude '**/App.test.tsx'",
-    "test:watch": "vitest"
+    "test": "NODE_OPTIONS='--no-experimental-webstorage' vitest run",
+    "test:app": "NODE_OPTIONS='--no-experimental-webstorage' vitest run src/App.test.tsx",
+    "test:stable": "NODE_OPTIONS='--no-experimental-webstorage' vitest run --exclude '**/App.test.tsx'",
+    "test:watch": "NODE_OPTIONS='--no-experimental-webstorage' vitest"
   },
   "dependencies": {
     "@plum/contracts": "workspace:*",
