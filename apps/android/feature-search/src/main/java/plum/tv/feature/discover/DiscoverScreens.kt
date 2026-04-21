@@ -750,17 +750,25 @@ fun DiscoverDetailRoute(
                             } else {
                                 PlumActionButton(
                                     modifier = Modifier.focusRequester(primaryActionFocus),
-                                    label = addLabel,
+                                    label = if (s.addingTitle) "Adding\u2026" else addLabel,
                                     onClick = {
                                         when {
                                             !isConfigured -> onOpenSettings()
                                             canAdd -> viewModel.addTitle(mediaType, tmdbId)
                                         }
                                     },
+                                    enabled = !s.addingTitle,
                                     variant = PlumButtonVariant.Primary,
                                 )
                             }
                             PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
+                        }
+                        s.addError?.takeIf { it.isNotBlank() }?.let { message ->
+                            Text(
+                                text = message,
+                                style = PlumTheme.typography.bodySmall,
+                                color = PlumTheme.palette.error,
+                            )
                         }
                     }
                     if (d.libraryMatches.size > 1) {

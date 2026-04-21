@@ -199,7 +199,7 @@ private fun LoginRoute(
             variant = PlumButtonVariant.Secondary,
         )
         TvText(
-            text = "Use a 4-digit code from the web app: Settings → Quick connect.",
+            text = "Use a 6-character code from the web app: Settings → Quick connect.",
             style = PlumTheme.typography.bodySmall,
             color = PlumTheme.palette.muted,
         )

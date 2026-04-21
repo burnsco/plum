@@ -50,7 +50,11 @@ sealed interface DiscoverBrowseUiState {
 
 sealed interface DiscoverDetailUiState {
     data object Loading : DiscoverDetailUiState
-    data class Ready(val details: DiscoverTitleDetailsJson) : DiscoverDetailUiState
+    data class Ready(
+        val details: DiscoverTitleDetailsJson,
+        val addingTitle: Boolean = false,
+        val addError: String? = null,
+    ) : DiscoverDetailUiState
     data class Error(val message: String) : DiscoverDetailUiState
 }
 
@@ -269,7 +273,19 @@ class DiscoverDetailViewModel @Inject constructor(
 
     fun addTitle(mediaType: String, tmdbId: Int) {
         viewModelScope.launch {
-            repository.addDiscoverTitle(mediaType, tmdbId)
+            val current = _state.value as? DiscoverDetailUiState.Ready ?: return@launch
+            if (current.addingTitle) return@launch
+
+            _state.value = current.copy(addingTitle = true, addError = null)
+            repository.addDiscoverTitle(mediaType, tmdbId).onFailure { e ->
+                val latest = _state.value as? DiscoverDetailUiState.Ready ?: current
+                _state.value =
+                    latest.copy(
+                        addingTitle = false,
+                        addError = e.message ?: "Failed to add title",
+                    )
+                return@launch
+            }
             refresh(mediaType, tmdbId)
         }
     }
