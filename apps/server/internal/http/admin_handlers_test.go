@@ -2,6 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +128,81 @@ func TestRunMaintenanceTask_ScanAllMedia_EmptyLibraryTable(t *testing.T) {
 	detail, _ := payload["detail"].(string)
 	if detail != "Queued library scans for 0 libraries." {
 		t.Fatalf("detail = %q", detail)
+	}
+}
+
+func TestRunMaintenanceTask_CleanLogsWithOnlyLogFileSkipsDirectorySweep(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	dir := t.TempDir()
+	plumLog := filepath.Join(dir, "plum.log")
+	otherLog := filepath.Join(dir, "other.log")
+	old := time.Now().Add(-96 * time.Hour)
+	for _, path := range []string{plumLog, otherLog} {
+		if err := os.WriteFile(path, []byte("log\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatalf("chtimes %s: %v", path, err)
+		}
+	}
+
+	h := &AdminHandler{DB: dbConn, LogFile: plumLog}
+	accepted, status, payload := h.runMaintenanceTask(context.Background(), db.AdminTaskCleanLogs, true)
+	if !accepted || status != 200 {
+		t.Fatalf("accepted=%v status=%d payload=%#v", accepted, status, payload)
+	}
+	detail, _ := payload["detail"].(string)
+	if !strings.Contains(detail, "skipping recursive log cleanup") {
+		t.Fatalf("detail = %q", detail)
+	}
+	for _, path := range []string{plumLog, otherLog} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain: %v", path, err)
+		}
+	}
+}
+
+func TestRunMaintenanceTask_CleanLogsWithLogDirRemovesOldLogFiles(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	dir := t.TempDir()
+	oldLog := filepath.Join(dir, "old.log")
+	freshLog := filepath.Join(dir, "fresh.log")
+	oldText := filepath.Join(dir, "old.txt")
+	for _, path := range []string{oldLog, freshLog, oldText} {
+		if err := os.WriteFile(path, []byte("log\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	old := time.Now().Add(-96 * time.Hour)
+	if err := os.Chtimes(oldLog, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldText, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &AdminHandler{DB: dbConn, LogDir: dir}
+	accepted, status, payload := h.runMaintenanceTask(context.Background(), db.AdminTaskCleanLogs, true)
+	if !accepted || status != 200 {
+		t.Fatalf("accepted=%v status=%d payload=%#v", accepted, status, payload)
+	}
+	if _, err := os.Stat(oldLog); !os.IsNotExist(err) {
+		t.Fatalf("expected old log to be removed, stat err=%v", err)
+	}
+	for _, path := range []string{freshLog, oldText} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain: %v", path, err)
+		}
 	}
 }
 

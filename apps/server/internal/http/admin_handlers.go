@@ -183,9 +183,14 @@ func (h *AdminHandler) runMaintenanceTask(ctx context.Context, task db.AdminMain
 		return true, http.StatusOK, payload
 
 	case db.AdminTaskCleanLogs:
-		logDir := adminResolveLogDir(h.LogFile, h.LogDir)
+		logDir, recursive := adminResolveLogCleanupTarget(h.LogFile, h.LogDir)
 		if logDir == "" {
 			payload["detail"] = "No log directory configured (set PLUM_LOG_FILE or PLUM_LOG_DIR)."
+			_ = db.TouchAdminMaintenanceLastRun(ctx, h.DB, db.AdminTaskCleanLogs)
+			return true, http.StatusOK, payload
+		}
+		if !recursive {
+			payload["detail"] = "PLUM_LOG_FILE is configured without PLUM_LOG_DIR; skipping recursive log cleanup to avoid deleting unrelated logs."
 			_ = db.TouchAdminMaintenanceLastRun(ctx, h.DB, db.AdminTaskCleanLogs)
 			return true, http.StatusOK, payload
 		}
@@ -393,14 +398,14 @@ func adminBatchUserEmails(dbConn *sql.DB, userIDs []int) (map[int]string, error)
 	return out, nil
 }
 
-func adminResolveLogDir(logFile, logDir string) string {
+func adminResolveLogCleanupTarget(logFile, logDir string) (dir string, recursive bool) {
 	if strings.TrimSpace(logDir) != "" {
-		return filepath.Clean(logDir)
+		return filepath.Clean(logDir), true
 	}
 	if strings.TrimSpace(logFile) != "" {
-		return filepath.Clean(filepath.Dir(logFile))
+		return filepath.Clean(filepath.Dir(logFile)), false
 	}
-	return ""
+	return "", false
 }
 
 func (h *AdminHandler) GetActivePlayback(w http.ResponseWriter, r *http.Request) {

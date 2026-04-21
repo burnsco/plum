@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Image, ListChecks } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { BASE_URL, type MediaItem, type ShowSeasonEpisodes } from "../api";
+import { BASE_URL, type MediaItem } from "../api";
+import { useShowEpisodeState } from "@/hooks/useShowEpisodeState";
 import { CastGrid } from "@/components/CastGrid";
 import { LibraryMediaContextMenu } from "@/components/LibraryMediaContextMenu";
 import { DetailViewSkeleton } from "@/components/loading/PlumLoadingSkeletons";
@@ -49,62 +50,8 @@ export function ShowDetail() {
   const [posterPickerOpen, setPosterPickerOpen] = useState(false);
   const activeSeasonPillRef = useRef<HTMLButtonElement | null>(null);
 
-  const episodes = useMemo<MediaItem[]>(() => {
-    if (!episodesData?.seasons) return [];
-    const out: MediaItem[] = [];
-    for (const s of episodesData.seasons) {
-      for (const e of s.episodes) {
-        out.push(e as MediaItem);
-      }
-    }
-    return out;
-  }, [episodesData]);
-
-  /** Episodes sorted ascending by season then episode number. */
-  const sortedEpisodes = useMemo(
-    () =>
-      episodes.toSorted((a, b) => {
-        const s = (a.season ?? 0) - (b.season ?? 0);
-        return s !== 0 ? s : (a.episode ?? 0) - (b.episode ?? 0);
-      }),
-    [episodes],
-  );
-
-  /**
-   * The episode to resume:
-   * 1. In-progress episode (has progress, not completed) – most recently watched first.
-   * 2. The episode right after the most-recently-watched completed episode.
-   */
-  const resumeEpisode = useMemo<MediaItem | null>(() => {
-    if (sortedEpisodes.length === 0) return null;
-    const inProgress = sortedEpisodes
-      .filter((ep) => shouldShowProgress(ep))
-      .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
-    if (inProgress) return inProgress;
-    const lastWatched = sortedEpisodes
-      .filter((ep) => ep.last_watched_at)
-      .toSorted((a, b) => (b.last_watched_at ?? "").localeCompare(a.last_watched_at ?? ""))[0];
-    if (lastWatched) {
-      const idx = sortedEpisodes.findIndex((ep) => ep.id === lastWatched.id);
-      if (idx >= 0 && idx + 1 < sortedEpisodes.length) return sortedEpisodes[idx + 1];
-    }
-    return null;
-  }, [sortedEpisodes]);
-
-  /** Episodes grouped by season number, with seasons sorted ascending. */
-  const episodesBySeason = useMemo(() => {
-    if (!episodesData?.seasons) {
-      return { map: new Map<number, MediaItem[]>(), labels: new Map<number, string>(), seasons: [] as number[] };
-    }
-    const map = new Map<number, MediaItem[]>();
-    const labels = new Map<number, string>();
-    for (const s of episodesData.seasons) {
-      map.set(s.seasonNumber, s.episodes as MediaItem[]);
-      labels.set(s.seasonNumber, s.label);
-    }
-    const seasons = episodesData.seasons.map((s: ShowSeasonEpisodes) => s.seasonNumber).toSorted((a: number, b: number) => a - b);
-    return { map, labels, seasons };
-  }, [episodesData]);
+  const { episodes, sortedEpisodes, resumeEpisode, episodesBySeason } =
+    useShowEpisodeState(episodesData);
   const activeSeason = selectedSeason ?? episodesBySeason.seasons[0] ?? null;
   const activeSeasonEpisodes =
     activeSeason == null ? [] : (episodesBySeason.map.get(activeSeason) ?? []);
