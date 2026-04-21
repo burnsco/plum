@@ -8,9 +8,7 @@ type JassubInstance = InstanceType<typeof JASSUB>;
 // Errors are intentionally swallowed — the init() function will retry and handle them.
 void Promise.all([
   import("jassub"),
-  // @ts-ignore — ?url import resolved by Vite
   import("jassub/dist/wasm/jassub-worker.js?url"),
-  // @ts-ignore — ?url import resolved by Vite
   import("jassub/dist/wasm/jassub-worker.wasm?url"),
 ]).catch(() => {});
 
@@ -114,11 +112,7 @@ export function JassubRenderer({
           { default: wasmUrl },
         ] = await Promise.all([
           import("jassub"),
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore — ?url import resolved by Vite
           import("jassub/dist/wasm/jassub-worker.js?url"),
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore — ?url import resolved by Vite
           import("jassub/dist/wasm/jassub-worker.wasm?url"),
         ]);
         if (signal.aborted) {

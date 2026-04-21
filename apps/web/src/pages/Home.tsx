@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { Library, MediaItem } from "../api";
@@ -87,6 +87,7 @@ function resolveLibraryIdentifyPhase(
 export function Home() {
   const { libraryId: libraryIdParam } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamsString = searchParams.toString();
   const unidentifiedOnly = searchParams.get("unidentified") === "1";
   const navigate = useNavigate();
   const { playMovie, playMusicCollection, playShowGroup } = usePlayerQueue();
@@ -105,13 +106,16 @@ export function Home() {
     return libraries[0]?.id ?? null;
   }, [libraryIdParam, libraries]);
   const selectedLib = libraries.find((library) => library.id === selectedLibraryId);
+  const clearUnidentifiedFilter = useCallback(() => {
+    const next = new URLSearchParams(searchParamsString);
+    next.delete("unidentified");
+    setSearchParams(next, { replace: true });
+  }, [searchParamsString, setSearchParams]);
 
   useEffect(() => {
     if (selectedLib?.type !== "music" || !unidentifiedOnly) return;
-    const next = new URLSearchParams(searchParams);
-    next.delete("unidentified");
-    setSearchParams(next, { replace: true });
-  }, [selectedLib?.type, unidentifiedOnly, searchParams, setSearchParams]);
+    clearUnidentifiedFilter();
+  }, [selectedLib?.type, unidentifiedOnly, clearUnidentifiedFilter]);
   const selectedLibraryScanStatus = getLibraryScanStatus(selectedLibraryId);
   const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
     selectedLibraryScanStatus?.identifyPhase,
@@ -480,11 +484,7 @@ export function Home() {
                     <button
                       type="button"
                       className="text-sm font-medium text-(--plum-accent) hover:underline"
-                      onClick={() => {
-                        const next = new URLSearchParams(searchParams);
-                        next.delete("unidentified");
-                        setSearchParams(next, { replace: true });
-                      }}
+                      onClick={clearUnidentifiedFilter}
                     >
                       Show entire library
                     </button>
@@ -513,11 +513,7 @@ export function Home() {
                           <button
                             type="button"
                             className="ml-2 text-(--plum-accent) hover:underline"
-                            onClick={() => {
-                              const next = new URLSearchParams(searchParams);
-                              next.delete("unidentified");
-                              setSearchParams(next, { replace: true });
-                            }}
+                            onClick={clearUnidentifiedFilter}
                           >
                             Show all
                           </button>
