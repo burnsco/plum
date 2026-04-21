@@ -31,6 +31,10 @@ export function SearchPage() {
   const debouncedInput = useDebouncedValue(inputValue, SEARCH_DEBOUNCE_MS);
 
   useEffect(() => {
+    setInputValue((current) => (current.trim() === urlQuery ? current : urlQuery));
+  }, [urlQuery]);
+
+  useEffect(() => {
     const trimmed = debouncedInput.trim();
     if (trimmed === urlQuery) {
       return;
