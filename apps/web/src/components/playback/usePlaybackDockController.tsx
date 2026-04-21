@@ -8,7 +8,6 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
-import { Ratio, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type Hls from "hls.js";
 import { PLAYBACK_PROGRESS_HEARTBEAT_MS } from "@plum/contracts";
@@ -39,7 +38,6 @@ import {
   formatDetectedVideoAspectLabel,
   videoAspectModeOptions,
   writeStoredPlayerWebDefaults,
-  type VideoAspectMode,
 } from "../../lib/playbackPreferences";
 import {
   buildAssFontUrls,
@@ -53,7 +51,6 @@ import {
   bufferedRangeStartsNearZero,
   buildSubtitleCues,
   clearTextTrackCues,
-  formatClock,
   formatTrackLabel,
   getBrowserAudioTracks,
   getPreferredAudioKey,
@@ -83,14 +80,7 @@ import {
 } from "../../lib/playback/playbackDockQueuePlayback";
 import { queryKeys } from "../../queries";
 import { VIDEO_PREVIOUS_RESTART_THRESHOLD_SECONDS } from "./constants";
-import { PlaybackControls } from "./PlaybackControls";
-import { PlaybackDockShell } from "./PlaybackDockShell";
-import { PlaybackInfoPanel } from "./PlaybackInfoPanel";
-import { PlaybackTimeline } from "./PlaybackTimeline";
-import { PlaybackTrackMenus } from "./PlaybackTrackMenus";
-import { TrackMenu } from "./TrackMenu";
-import { PlaybackVideoStage } from "./PlaybackVideoStage";
-import { PlayerLoadingOverlay } from "./PlayerLoadingOverlay";
+import { PlaybackVideoWindow } from "./PlaybackVideoWindow";
 import { useHlsAttachment } from "./useHlsAttachment";
 import { usePlaybackDockPlayerLocalSettings } from "./usePlaybackDockPlayerLocalSettings";
 import { usePlaybackDockSeekControls } from "./usePlaybackDockSeekControls";
@@ -438,13 +428,9 @@ export function usePlaybackDockController(): ReactNode {
   useEffect(() => {
     setIsVideoLoading(isVideo && activeItemId != null);
   }, [activeItemId, isVideo]);
-  const libraryPlaybackPreferences = useMemo(
-    () =>
-      activeItem
-        ? playbackPreferences.libraryPrefsForItem(activeItem)
-        : resolveLibraryPlaybackPreferences(null),
-    [activeItem, playbackPreferences],
-  );
+  const libraryPlaybackPreferences = activeItem
+    ? playbackPreferences.libraryPrefsForItem(activeItem)
+    : resolveLibraryPlaybackPreferences(null);
 
   const effectiveWebTrackDefaults = useMemo(
     () =>
@@ -1689,6 +1675,7 @@ export function usePlaybackDockController(): ReactNode {
         current.filter((candidate) => candidate.key !== key),
       );
       setPendingSubtitleKey(key);
+      setSubtitleStatusMessage("Loading subtitles...");
       if (shouldRefreshBeforeRetry) {
         if (selectedSubtitleKey !== key) {
           setSelectedSubtitleKey(key);
@@ -1973,7 +1960,6 @@ export function usePlaybackDockController(): ReactNode {
     );
   }
 
-  const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
   const autoplayButtonLabel = videoAutoplayEnabled
     ? "Disable autoplay next"
     : "Enable autoplay next";
@@ -1983,94 +1969,6 @@ export function usePlaybackDockController(): ReactNode {
     dismissDock();
   };
 
-  const upNextSeasonLabel = upNextTarget
-    ? getSeasonEpisodeLabel(upNextTarget)
-    : "";
-  const upNextOverlay =
-    upNextTarget != null ? (
-      <div
-        className="playback-up-next"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Up next"
-      >
-        {upNextBackdropUrl ? (
-          <img
-            src={upNextBackdropUrl}
-            alt=""
-            className="playback-up-next__bg"
-          />
-        ) : (
-          <div
-            className="playback-up-next__bg playback-up-next__bg--empty"
-            aria-hidden
-          />
-        )}
-        <div className="playback-up-next__scrim" />
-        <div className="playback-up-next__content">
-          <p className="playback-up-next__eyebrow">Up next</p>
-          <h2 className="playback-up-next__title">{upNextTarget.title}</h2>
-          {upNextSeasonLabel ? (
-            <p className="playback-up-next__meta">{upNextSeasonLabel}</p>
-          ) : null}
-          <p className="playback-up-next__timer">
-            Starting in{" "}
-            <span className="playback-up-next__timer-value">
-              {upNextSecondsLeft}
-            </span>
-            s
-          </p>
-          <div className="playback-up-next__actions">
-            <button
-              type="button"
-              className="playback-up-next__play-now"
-              onClick={confirmUpNextNow}
-            >
-              Play now
-            </button>
-            <button
-              type="button"
-              className="playback-up-next__cancel"
-              onClick={dismissUpNext}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    ) : null;
-
-  const resumePromptOverlay =
-    resumePrompt != null ? (
-      <div
-        className="playback-resume-prompt"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Resume playback"
-      >
-        <div className="playback-resume-prompt__scrim" />
-        <div className="playback-resume-prompt__content">
-          <p className="playback-resume-prompt__eyebrow">Resume playback</p>
-          <div className="playback-resume-prompt__actions">
-            <button
-              type="button"
-              className="playback-resume-prompt__resume"
-              onClick={handleResumeFromProgress}
-            >
-              Resume from {formatClock(resumePrompt.seconds)}
-            </button>
-            <button
-              type="button"
-              className="playback-resume-prompt__restart"
-              onClick={handleStartFromBeginning}
-            >
-              Start from beginning
-            </button>
-          </div>
-        </div>
-      </div>
-    ) : null;
-
   /* ── Full-viewport in-app video (then use Fullscreen API for OS-level full screen) ── */
   if (isWindowPlayer) {
     const seasonEpisode = getSeasonEpisodeLabel(activeItem);
@@ -2079,253 +1977,170 @@ export function usePlaybackDockController(): ReactNode {
       : activeItem.title;
 
     return (
-      <PlaybackDockShell
+      <PlaybackVideoWindow
+        activeItem={activeItem}
         playerRootRef={setPlayerRootNode}
         controlsVisible={controlsVisible}
         videoAspectMode={videoAspectMode}
         showPlayerLoadingOverlay={showPlayerLoadingOverlay}
         onMouseMove={handleFullscreenMouseMove}
-        onClick={(event) => {
-          /* Toggle play/pause on click (but not on controls) */
-          if (
-            event.target === event.currentTarget ||
-            (event.target as HTMLElement).tagName === "VIDEO"
-          ) {
-            togglePlayPause();
-            resetHideTimer();
+        onTogglePlayPause={togglePlayPause}
+        onResetHideTimer={resetHideTimer}
+        setVideoRef={setVideoRef}
+        videoSubtitleStyle={videoSubtitleStyle}
+        jassubVideoElement={jassubVideoElement}
+        activeAssSource={activeAssSource}
+        activeAssFontUrls={activeAssFontUrls}
+        videoStreamOffsetSeconds={videoStreamOffsetSeconds}
+        onAssStatusChange={handleAssStatusChange}
+        onVideoDoubleClick={handleVideoDoubleClick}
+        onVideoLoadStart={() => {
+          if (!videoPlaybackStartedRef.current) {
+            setIsVideoLoading(true);
           }
         }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            togglePlayPause();
-            resetHideTimer();
+        onVideoLoadedMetadata={handleVideoLoadedMetadata}
+        onVideoCanPlay={handleVideoCanPlay}
+        onVideoTimeUpdate={(event) => {
+          if (event.currentTarget.currentTime > 1) {
+            initialBufferGapHandledRef.current = true;
+          }
+          syncPlaybackState(event.currentTarget);
+          syncVideoProgressSnapshot(event.currentTarget);
+          persistInitialPlaybackProgress(event.currentTarget);
+        }}
+        onVideoPlay={(event) => {
+          if (event.currentTarget.currentTime > 1) {
+            initialBufferGapHandledRef.current = true;
+          }
+          setIsVideoLoading(false);
+          setHlsStatusMessage("");
+          syncPlaybackState(event.currentTarget);
+          syncVideoProgressSnapshot(event.currentTarget);
+          persistInitialPlaybackProgress(event.currentTarget);
+        }}
+        onVideoPlaying={() => {
+          kickstartVideoPlaybackRef.current = false;
+          videoPlaybackStartedRef.current = true;
+          setIsVideoLoading(false);
+        }}
+        onVideoPause={(event) => {
+          syncPlaybackState(event.currentTarget);
+          const snapshot = captureVideoProgressSnapshot(event.currentTarget);
+          void persistPlaybackProgress({ force: true, snapshot });
+        }}
+        onVideoWaiting={(event) => {
+          if (!event.currentTarget.ended && !videoPlaybackStartedRef.current) {
+            setIsVideoLoading(true);
           }
         }}
-      >
-        <PlaybackVideoStage
-          mediaItemId={activeItem.id}
-          setVideoRef={setVideoRef}
-          videoSubtitleStyle={videoSubtitleStyle}
-          jassubVideoElement={jassubVideoElement}
-          activeAssSource={activeAssSource}
-          activeAssFontUrls={activeAssFontUrls}
-          videoStreamOffsetSeconds={videoStreamOffsetSeconds}
-          onAssStatusChange={handleAssStatusChange}
-          onVideoDoubleClick={handleVideoDoubleClick}
-          onLoadStart={() => {
-            if (!videoPlaybackStartedRef.current) {
-              setIsVideoLoading(true);
-            }
-          }}
-          onLoadedMetadata={handleVideoLoadedMetadata}
-          onCanPlay={handleVideoCanPlay}
-          onTimeUpdate={(event) => {
-            if (event.currentTarget.currentTime > 1) {
-              initialBufferGapHandledRef.current = true;
-            }
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-            persistInitialPlaybackProgress(event.currentTarget);
-          }}
-          onPlay={(event) => {
-            if (event.currentTarget.currentTime > 1) {
-              initialBufferGapHandledRef.current = true;
-            }
-            setIsVideoLoading(false);
-            setHlsStatusMessage("");
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-            persistInitialPlaybackProgress(event.currentTarget);
-          }}
-          onPlaying={() => {
-            kickstartVideoPlaybackRef.current = false;
-            videoPlaybackStartedRef.current = true;
-            setIsVideoLoading(false);
-          }}
-          onPause={(event) => {
-            syncPlaybackState(event.currentTarget);
-            const snapshot = captureVideoProgressSnapshot(event.currentTarget);
-            void persistPlaybackProgress({ force: true, snapshot });
-          }}
-          onWaiting={(event) => {
-            if (
-              !event.currentTarget.ended &&
-              !videoPlaybackStartedRef.current
-            ) {
-              setIsVideoLoading(true);
-            }
-          }}
-          onSeeked={(event) => {
-            syncPlaybackState(event.currentTarget);
-            syncVideoProgressSnapshot(event.currentTarget);
-          }}
-          onVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
-          onError={() => {
-            setIsVideoLoading(false);
-            setHlsStatusMessage(
-              "Stream error: browser media element failed to load playback",
-            );
-          }}
-          onEnded={(event) => {
-            setIsVideoLoading(false);
-            handleVideoEnded(event);
-          }}
-        />
-        {showPlayerLoadingOverlay && (
-          <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />
-        )}
-
-        <PlaybackInfoPanel
-          titleDisplay={titleDisplay}
-          videoStatusMessage={videoStatusMessage}
-          wsConnected={wsConnected}
-          browserFullscreenActive={browserFullscreenActive}
-          onToggleBrowserFullscreen={toggleBrowserFullscreen}
-          onClosePlayer={handleClosePlayer}
-        />
-
-        <div
-          ref={overlayRef}
-          className="fullscreen-player__controls"
-          onMouseEnter={handleOverlayMouseEnter}
-        >
-          <PlaybackTimeline
-            progressMax={progressMax}
-            seekTimeLabelSec={seekTimeLabelSec}
-            seekSliderRef={seekSliderRef}
-            seekSliderDisplayValue={seekSliderDisplayValue}
-            onSeekPointerDown={handleSeekSliderPointerDown}
-            onSeekChange={handleSeekSliderChange}
-          />
-          <div className="fullscreen-player__controls-row">
-            {/* LEFT: Aspect ratio + volume */}
-            <div className="fullscreen-player__controls-left">
-              {isVideo && (
-                <div className="fullscreen-player__aspect-wrap">
-                  <button
-                    ref={aspectBtnRef}
-                    type="button"
-                    className={`fullscreen-player__ctrl-btn${videoAspectMode !== "auto" ? " is-active" : ""}`}
-                    aria-label="Aspect ratio"
-                    title="Aspect ratio"
-                    onClick={() => {
-                      setAspectMenuOpen((value) => !value);
-                      setSubtitleMenuOpen(false);
-                      setAudioMenuOpen(false);
-                      setPlayerSettingsOpen(false);
-                      resetHideTimer();
-                    }}
-                  >
-                    <Ratio className="size-[1.125rem]" strokeWidth={2.25} />
-                  </button>
-                  {aspectMenuOpen && (
-                    <TrackMenu
-                      menuRef={aspectMenuRef}
-                      options={aspectTrackMenuOptions}
-                      selectedKey={videoAspectMode}
-                      ariaLabel="Select aspect ratio"
-                      onSelect={(key) => {
-                        setVideoAspectMode(key as VideoAspectMode);
-                        setAspectMenuOpen(false);
-                        resetHideTimer();
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-              <div className="fullscreen-player__volume-group">
-                <button
-                  type="button"
-                  className="fullscreen-player__ctrl-btn"
-                  onClick={() => setMuted(!muted)}
-                  aria-label={muteButtonLabel}
-                  title={muteButtonLabel}
-                >
-                  {muted || volume === 0 ? (
-                    <VolumeX className="size-[1.125rem]" strokeWidth={2.25} />
-                  ) : (
-                    <Volume2 className="size-[1.125rem]" strokeWidth={2.25} />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  className="fullscreen-player__volume-slider"
-                  aria-label="Set volume"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={muted ? 0 : volume}
-                  onChange={(event) => setVolume(Number(event.target.value))}
-                />
-              </div>
-            </div>
-
-            {/* CENTER: Transport controls */}
-            <PlaybackControls
-              isPlaying={playbackState.isPlaying}
-              onTogglePlayPause={togglePlayPause}
-              onSeekRelative={seekRelativeSeconds}
-              hasVideoQueueNavigation={hasVideoQueueNavigation}
-              onVideoPrevious={handleVideoPrevious}
-              onPlayNextInQueue={playNextInQueue}
-              hasNextQueueItem={hasNextQueueItem}
-              onToggleQueueAutoplay={() =>
-                setVideoAutoplayEnabled((value) => !value)
-              }
-              autoplayNextLabel={autoplayButtonLabel}
-              queueAutoplayActive={videoAutoplayEnabled}
-            />
-
-            {/* RIGHT: Audio, subtitles, settings */}
-            <PlaybackTrackMenus
-              showSubtitleControls={isVideo}
-              subtitleBtnRef={subtitleBtnRef}
-              subtitleMenuRef={subtitleMenuRef}
-              subtitleMenuOpen={subtitleMenuOpen}
-              onSubtitleButtonClick={toggleSubtitleMenu}
-              subtitleMenuTrackOptions={subtitleMenuTrackOptions}
-              selectedSubtitleKey={selectedSubtitleKey}
-              onSelectSubtitleTrack={(key) => {
-                void selectSubtitleTrack(key);
-                setSubtitleMenuOpen(false);
-              }}
-              audioBtnRef={audioBtnRef}
-              audioMenuRef={audioMenuRef}
-              audioMenuOpen={audioMenuOpen}
-              onAudioButtonClick={() => {
-                setAudioMenuOpen((value) => !value);
-                setSubtitleMenuOpen(false);
-                setAspectMenuOpen(false);
-                setPlayerSettingsOpen(false);
-              }}
-              audioTracks={audioTracks}
-              selectedAudioKey={selectedAudioKey}
-              selectedAudioLabel={selectedAudioLabel}
-              onSelectAudioTrack={(key) => {
-                selectAudioTrack(key);
-                setAudioMenuOpen(false);
-              }}
-              showSettingsControls={isVideo}
-              playerSettingsBtnRef={playerSettingsBtnRef}
-              playerSettingsMenuRef={playerSettingsMenuRef}
-              playerSettingsOpen={playerSettingsOpen}
-              onPlayerSettingsButtonClick={() => {
-                setPlayerSettingsOpen((value) => !value);
-                setSubtitleMenuOpen(false);
-                setAudioMenuOpen(false);
-                setAspectMenuOpen(false);
-              }}
-              subtitleAppearance={subtitleAppearance}
-              onSubtitleAppearanceChange={setSubtitleAppearance}
-              videoAutoplayEnabled={videoAutoplayEnabled}
-              onVideoAutoplayEnabledChange={setVideoAutoplayEnabled}
-            />
-          </div>
-        </div>
-        {resumePromptOverlay}
-        {upNextOverlay}
-      </PlaybackDockShell>
+        onVideoSeeked={(event) => {
+          syncPlaybackState(event.currentTarget);
+          syncVideoProgressSnapshot(event.currentTarget);
+        }}
+        onVideoVolumeChange={(event) => syncPlaybackState(event.currentTarget)}
+        onVideoError={() => {
+          setIsVideoLoading(false);
+          setHlsStatusMessage(
+            "Stream error: browser media element failed to load playback",
+          );
+        }}
+        onVideoEnded={(event) => {
+          setIsVideoLoading(false);
+          handleVideoEnded(event);
+        }}
+        playerLoadingLabel={playerLoadingLabel}
+        titleDisplay={titleDisplay}
+        videoStatusMessage={videoStatusMessage}
+        wsConnected={wsConnected}
+        browserFullscreenActive={browserFullscreenActive}
+        onToggleBrowserFullscreen={toggleBrowserFullscreen}
+        onClosePlayer={handleClosePlayer}
+        controlsRef={overlayRef}
+        onControlsMouseEnter={handleOverlayMouseEnter}
+        progressMax={progressMax}
+        seekTimeLabelSec={seekTimeLabelSec}
+        seekSliderRef={seekSliderRef}
+        seekSliderDisplayValue={seekSliderDisplayValue}
+        onSeekSliderPointerDown={handleSeekSliderPointerDown}
+        onSeekSliderChange={handleSeekSliderChange}
+        aspectBtnRef={aspectBtnRef}
+        aspectMenuRef={aspectMenuRef}
+        aspectMenuOpen={aspectMenuOpen}
+        aspectTrackMenuOptions={aspectTrackMenuOptions}
+        onToggleAspectMenu={() => {
+          setAspectMenuOpen((value) => !value);
+          setSubtitleMenuOpen(false);
+          setAudioMenuOpen(false);
+          setPlayerSettingsOpen(false);
+          resetHideTimer();
+        }}
+        onSelectAspectMode={(mode) => {
+          setVideoAspectMode(mode);
+          setAspectMenuOpen(false);
+          resetHideTimer();
+        }}
+        muted={muted}
+        volume={volume}
+        onToggleMuted={() => setMuted(!muted)}
+        onVolumeChange={setVolume}
+        isPlaying={playbackState.isPlaying}
+        onSeekRelative={seekRelativeSeconds}
+        hasVideoQueueNavigation={hasVideoQueueNavigation}
+        onVideoPrevious={handleVideoPrevious}
+        onPlayNextInQueue={playNextInQueue}
+        hasNextQueueItem={hasNextQueueItem}
+        onToggleQueueAutoplay={() => setVideoAutoplayEnabled((value) => !value)}
+        autoplayNextLabel={autoplayButtonLabel}
+        queueAutoplayActive={videoAutoplayEnabled}
+        subtitleBtnRef={subtitleBtnRef}
+        subtitleMenuRef={subtitleMenuRef}
+        subtitleMenuOpen={subtitleMenuOpen}
+        onSubtitleButtonClick={toggleSubtitleMenu}
+        subtitleMenuTrackOptions={subtitleMenuTrackOptions}
+        selectedSubtitleKey={selectedSubtitleKey}
+        onSelectSubtitleTrack={(key) => {
+          void selectSubtitleTrack(key);
+          setSubtitleMenuOpen(false);
+        }}
+        audioBtnRef={audioBtnRef}
+        audioMenuRef={audioMenuRef}
+        audioMenuOpen={audioMenuOpen}
+        onAudioButtonClick={() => {
+          setAudioMenuOpen((value) => !value);
+          setSubtitleMenuOpen(false);
+          setAspectMenuOpen(false);
+          setPlayerSettingsOpen(false);
+        }}
+        audioTracks={audioTracks}
+        selectedAudioKey={selectedAudioKey}
+        selectedAudioLabel={selectedAudioLabel}
+        onSelectAudioTrack={(key) => {
+          selectAudioTrack(key);
+          setAudioMenuOpen(false);
+        }}
+        playerSettingsBtnRef={playerSettingsBtnRef}
+        playerSettingsMenuRef={playerSettingsMenuRef}
+        playerSettingsOpen={playerSettingsOpen}
+        onPlayerSettingsButtonClick={() => {
+          setPlayerSettingsOpen((value) => !value);
+          setSubtitleMenuOpen(false);
+          setAudioMenuOpen(false);
+          setAspectMenuOpen(false);
+        }}
+        subtitleAppearance={subtitleAppearance}
+        onSubtitleAppearanceChange={setSubtitleAppearance}
+        videoAutoplayEnabled={videoAutoplayEnabled}
+        onVideoAutoplayEnabledChange={setVideoAutoplayEnabled}
+        resumePrompt={resumePrompt}
+        onResumeFromProgress={handleResumeFromProgress}
+        onStartFromBeginning={handleStartFromBeginning}
+        upNextTarget={upNextTarget}
+        upNextBackdropUrl={upNextBackdropUrl}
+        upNextSecondsLeft={upNextSecondsLeft}
+        onConfirmUpNextNow={confirmUpNextNow}
+        onDismissUpNext={dismissUpNext}
+      />
     );
   }
 
