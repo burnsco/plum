@@ -1,10 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search as SearchIcon, User } from "lucide-react";
 import { tmdbPosterUrl } from "@plum/shared";
 import { MediaGridSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { Input } from "@/components/ui/input";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useLibrarySearch } from "@/queries";
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 function resolveSearchPoster(posterUrl?: string, posterPath?: string): string {
   if (posterUrl) {
@@ -18,11 +21,35 @@ function resolveSearchPoster(posterUrl?: string, posterPath?: string): string {
 
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const query = searchParams.get("q")?.trim() ?? "";
+  const urlQuery = searchParams.get("q")?.trim() ?? "";
   const selectedType = (searchParams.get("type") as "movie" | "show" | null) ?? "";
   const selectedGenre = searchParams.get("genre") ?? "";
   const selectedLibraryId = searchParams.get("library_id");
   const libraryId = selectedLibraryId ? Number(selectedLibraryId) : null;
+
+  const [inputValue, setInputValue] = useState(urlQuery);
+  const debouncedInput = useDebouncedValue(inputValue, SEARCH_DEBOUNCE_MS);
+
+  useEffect(() => {
+    const trimmed = debouncedInput.trim();
+    if (trimmed === urlQuery) {
+      return;
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (trimmed) {
+          next.set("q", trimmed);
+        } else {
+          next.delete("q");
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  }, [debouncedInput, urlQuery, setSearchParams]);
+
+  const query = debouncedInput.trim();
   const { data, error, isLoading } = useLibrarySearch(query, {
     enabled: query.length >= 2,
     libraryId,
@@ -68,8 +95,8 @@ export function SearchPage() {
             <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-(--plum-muted)" />
             <Input
               type="search"
-              value={query}
-              onChange={(event) => updateParam("q", event.target.value)}
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
               placeholder="Search your library"
               className="h-11 pl-9"
             />

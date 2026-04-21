@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { embeddedSubtitleNeedsWebBurnIn } from "@plum/shared";
 import type { Library, MediaItem } from "../api";
 import {
@@ -94,12 +94,16 @@ export type PlaybackPreferencesApi = {
 };
 
 export function usePlaybackPreferences(libraries: Library[]): PlaybackPreferencesApi {
+  const librariesRef = useRef(libraries);
+  librariesRef.current = libraries;
+
   const libraryPrefsForItem = useCallback(
     (item: MediaItem): ResolvedLibraryPlaybackPreferences => {
-      const activeLibrary = libraries.find((library) => library.id === item.library_id) ?? null;
+      const activeLibrary =
+        librariesRef.current.find((library) => library.id === item.library_id) ?? null;
       return resolveLibraryPlaybackPreferences(activeLibrary ?? { type: item.type });
     },
-    [libraries],
+    [],
   );
 
   const effectivePreferredAudioLanguage = useCallback(

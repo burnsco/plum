@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { DownloadCompletionNotifier } from "@/components/DownloadCompletionNotifier";
 import { LibraryReadyNotifier } from "@/components/LibraryReadyNotifier";
 import {
@@ -14,6 +14,7 @@ import { Toaster } from "./ui/sonner";
 const PlaybackDock = lazy(() => import("./PlaybackDock").then(m => ({ default: m.PlaybackDock })));
 
 export function MainLayout() {
+  const location = useLocation();
   return (
     <div className="flex h-screen overflow-hidden flex-col">
       <DownloadCompletionNotifier />
@@ -24,7 +25,7 @@ export function MainLayout() {
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col bg-(--plum-main-bg)">
           <section className="main-content flex-1 overflow-auto bg-(--plum-main-bg) p-4 md:p-6">
-            <RouteErrorBoundary>
+            <RouteErrorBoundary key={location.pathname}>
               <Suspense fallback={<PageRouteSkeleton />}>
                 <Outlet />
               </Suspense>

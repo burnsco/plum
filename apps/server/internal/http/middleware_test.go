@@ -10,6 +10,7 @@ import (
 
 	"plum/internal/auth"
 	"plum/internal/db"
+	"plum/internal/httputil"
 )
 
 func TestSetSessionCookie_UsesSecureFlagFromEnv(t *testing.T) {
@@ -149,6 +150,32 @@ func TestRequestBodyLimitMiddleware_SkipsReadOnlyRequests(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected GET request to pass through, got %d", rec.Code)
+	}
+}
+
+type deadlineRecorderResponseWriter struct {
+	http.ResponseWriter
+	deadlineSet bool
+	deadline    time.Time
+}
+
+func (w *deadlineRecorderResponseWriter) SetWriteDeadline(deadline time.Time) error {
+	w.deadlineSet = true
+	w.deadline = deadline
+	return nil
+}
+
+func TestLoggingResponseWriterUnwrapsForResponseController(t *testing.T) {
+	inner := &deadlineRecorderResponseWriter{ResponseWriter: httptest.NewRecorder()}
+	wrapped := &loggingResponseWriter{ResponseWriter: inner}
+
+	httputil.ClearStreamWriteDeadline(wrapped)
+
+	if !inner.deadlineSet {
+		t.Fatal("expected ClearStreamWriteDeadline to reach wrapped writer")
+	}
+	if !inner.deadline.IsZero() {
+		t.Fatalf("deadline = %s, want zero time", inner.deadline)
 	}
 }
 

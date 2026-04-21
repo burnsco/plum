@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -19,6 +20,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+)
+
+const (
+	artworkHTTPTimeout          = 10 * time.Second
+	maxArtworkDownloadBytes     = 20 << 20
+	maxArtworkDownloadReadBytes = maxArtworkDownloadBytes + 1
+)
+
+var (
+	artworkHTTPClient   = &http.Client{Timeout: artworkHTTPTimeout}
+	errArtworkTooLarge  = errors.New("fetch artwork: response too large")
 )
 
 type artworkProfile struct {
@@ -298,13 +310,16 @@ func downloadArtworkSource(ctx context.Context, sourceURL string) (downloadedArt
 	if err != nil {
 		return downloadedArtwork{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := artworkHTTPClient.Do(req)
 	if err != nil {
 		return downloadedArtwork{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return downloadedArtwork{}, fmt.Errorf("fetch artwork: %s", resp.Status)
+	}
+	if resp.ContentLength > maxArtworkDownloadBytes {
+		return downloadedArtwork{}, errArtworkTooLarge
 	}
 
 	tmp, err := os.CreateTemp("", "plum-artwork-*")
@@ -317,9 +332,14 @@ func downloadArtworkSource(ctx context.Context, sourceURL string) (downloadedArt
 	}
 
 	h := sha256.New()
-	if _, err := io.Copy(tmp, io.TeeReader(resp.Body, h)); err != nil {
+	n, err := io.Copy(tmp, io.TeeReader(io.LimitReader(resp.Body, maxArtworkDownloadReadBytes), h))
+	if err != nil {
 		abort()
 		return downloadedArtwork{}, err
+	}
+	if n > maxArtworkDownloadBytes {
+		abort()
+		return downloadedArtwork{}, errArtworkTooLarge
 	}
 	contentHash := hex.EncodeToString(h.Sum(nil))
 
