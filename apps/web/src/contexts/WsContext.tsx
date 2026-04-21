@@ -39,9 +39,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
   const { refreshMe } = useAuthActions();
   const userId = user?.id ?? null;
   const [wsConnected, setWsConnected] = useState(false);
-  const [latestEvent, setLatestEvent] = useState<PlumWebSocketEvent | null>(
-    null,
-  );
+  const [latestEvent, setLatestEvent] = useState<PlumWebSocketEvent | null>(null);
   const [eventSequence, setEventSequence] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(0);
@@ -80,9 +78,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
     const connect = () => {
       if (!mountedRef.current || cancelled || wsRef.current != null) return;
       let opened = false;
-      const ws = new WebSocket(
-        buildPlumWebSocketUrl(BASE_URL, window.location.origin),
-      );
+      const ws = new WebSocket(buildPlumWebSocketUrl(BASE_URL, window.location.origin));
       wsRef.current = ws;
       ws.addEventListener("open", () => {
         opened = true;
@@ -116,8 +112,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
       });
       ws.addEventListener("message", (event) => {
         if (!mountedRef.current) return;
-        const rawData =
-          typeof event.data === "string" ? event.data : String(event.data);
+        const rawData = typeof event.data === "string" ? event.data : String(event.data);
         const data = parsePlumWebSocketEvent(rawData);
         if (!data) return;
         setLatestEvent(data);

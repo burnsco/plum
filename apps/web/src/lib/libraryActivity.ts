@@ -7,6 +7,22 @@ export type LibraryActivity =
   | "identify-queued"
   | "identifying";
 
+const libraryActivityLabels = {
+  importing: "Importing",
+  "analyze-queued": "Waiting for analyzer",
+  analyzing: "Analyzing media",
+  "identify-queued": "Queued for identify",
+  identifying: "Identifying",
+} satisfies Record<LibraryActivity, string>;
+
+const libraryActivityStatusMessages = {
+  importing: "Importing library…",
+  "analyze-queued": "Waiting for analyzer…",
+  analyzing: "Analyzing media…",
+  "identify-queued": "Queued for identify…",
+  identifying: "Identifying library…",
+} satisfies Record<LibraryActivity, string>;
+
 /** True while a library has work in flight (queued or running) for scan, analysis, or identify. */
 export function isLibraryScanProcessing(status: LibraryScanStatus): boolean {
   const enrichmentPhase = getEnrichmentPhase(status);
@@ -44,8 +60,7 @@ export function getLibraryActivity(options: {
   const backendIdentifying = options.identifyPhase === "identifying";
   const backendIdentifyQueued = options.identifyPhase === "queued";
   const localIdentifying =
-    options.localIdentifyPhase === "identifying" ||
-    options.localIdentifyPhase === "soft-reveal";
+    options.localIdentifyPhase === "identifying" || options.localIdentifyPhase === "soft-reveal";
   const localIdentifyQueued = options.localIdentifyPhase === "queued";
 
   if (backendIdentifying || localIdentifying) {
@@ -70,18 +85,9 @@ export function getLibraryActivity(options: {
 }
 
 export function getLibraryActivityLabel(activity: LibraryActivity | undefined): string | undefined {
-  switch (activity) {
-    case "importing":
-      return "Importing";
-    case "analyze-queued":
-      return "Waiting for analyzer";
-    case "analyzing":
-      return "Analyzing media";
-    case "identify-queued":
-      return "Queued for identify";
-    case "identifying":
-      return "Identifying";
-    default:
-      return undefined;
-  }
+  return activity == null ? undefined : libraryActivityLabels[activity];
+}
+
+export function getLibraryActivityStatusMessage(activity: LibraryActivity): string {
+  return libraryActivityStatusMessages[activity];
 }

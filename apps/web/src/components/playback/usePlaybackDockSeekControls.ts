@@ -104,11 +104,7 @@ export function usePlaybackDockSeekControls({
   );
 
   const handleSeekSliderChange = useCallback(
-    (
-      event:
-        | ChangeEvent<HTMLInputElement>
-        | { currentTarget: HTMLInputElement },
-    ) => {
+    (event: ChangeEvent<HTMLInputElement> | { currentTarget: HTMLInputElement }) => {
       const next = Number(event.currentTarget.value);
       if (!Number.isFinite(next)) return;
       seekPreviewValueRef.current = next;
@@ -127,14 +123,11 @@ export function usePlaybackDockSeekControls({
       seekPreviewValueRef.current = null;
       setSeekPreviewSec(null);
       const cap =
-        progressMax > 0 && Number.isFinite(progressMax)
-          ? progressMax
-          : Number.POSITIVE_INFINITY;
+        progressMax > 0 && Number.isFinite(progressMax) ? progressMax : Number.POSITIVE_INFINITY;
       const el = videoRef.current;
       const t =
         el != null && Number.isFinite(el.currentTime)
-          ? el.currentTime
-            + playbackStreamOffsetSeconds
+          ? el.currentTime + playbackStreamOffsetSeconds
           : playbackCurrentTime;
       seekTo(Math.max(0, Math.min(cap, t + delta)));
       resetHideTimer();
@@ -161,8 +154,7 @@ export function usePlaybackDockSeekControls({
     seekPreviewSec !== null ? seekPreviewSec : playbackCurrentTime,
     progressMax || 0,
   );
-  const seekTimeLabelSec =
-    seekPreviewSec !== null ? seekPreviewSec : playbackCurrentTime;
+  const seekTimeLabelSec = seekPreviewSec !== null ? seekPreviewSec : playbackCurrentTime;
 
   return {
     seekSliderRef,

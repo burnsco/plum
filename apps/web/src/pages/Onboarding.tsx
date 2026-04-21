@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
 import type { LibraryType } from "../api";
-import { createAdmin, createLibrary, getLibraryScanStatus, getSetupStatus, startLibraryScan } from "../api";
+import {
+  createAdmin,
+  createLibrary,
+  getLibraryScanStatus,
+  getSetupStatus,
+  startLibraryScan,
+} from "../api";
 import { useAuthActions } from "../contexts/AuthContext";
-import { getEnrichmentPhase, getLibraryActivity, getLibraryActivityLabel } from "../lib/libraryActivity";
+import {
+  getEnrichmentPhase,
+  getLibraryActivity,
+  getLibraryActivityLabel,
+} from "../lib/libraryActivity";
 
 type Step = "admin" | "library";
 
@@ -104,7 +114,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
     let cancelled = false;
     const refreshStatuses = async () => {
       const settled = await Promise.allSettled(
-        pendingLibraries.map(async (library) => [library.id, await getLibraryScanStatus(library.id)] as const),
+        pendingLibraries.map(
+          async (library) => [library.id, await getLibraryScanStatus(library.id)] as const,
+        ),
       );
       if (cancelled) return;
 
@@ -415,7 +427,11 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
                 </label>
                 {error && <p className="auth-error">{error}</p>}
                 <div className="onboarding-library-actions">
-                  <button type="submit" className="auth-submit" disabled={loading || addingDefaults}>
+                  <button
+                    type="submit"
+                    className="auth-submit"
+                    disabled={loading || addingDefaults}
+                  >
                     {loading ? "Adding…" : "Add library"}
                   </button>
                   <button

@@ -110,7 +110,10 @@ export function LibraryPosterGrid({
         } as CSSProperties
       }
     >
-      <div className="show-cards-grid__spacer" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+      <div
+        className="show-cards-grid__spacer"
+        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+      >
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const start = virtualRow.index * columns;
           const rowItems = items.slice(start, start + columns);
@@ -133,7 +136,11 @@ export function LibraryPosterGrid({
           <div
             ref={loadMoreRef}
             className="w-full"
-            style={{ position: "absolute", top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`, height: "1px" }}
+            style={{
+              position: "absolute",
+              top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`,
+              height: "1px",
+            }}
             aria-hidden="true"
           />
         ) : null}

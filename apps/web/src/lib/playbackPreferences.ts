@@ -48,7 +48,9 @@ export function formatDetectedVideoAspectLabel(width: number, height: number): s
   const dar = width / height;
   if (!Number.isFinite(dar) || dar <= 0) return null;
   const rounded = Math.round(dar * 100) / 100;
-  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+  const text = Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/\.?0+$/, "");
   return `${text}:1`;
 }
 
@@ -176,9 +178,13 @@ export function resolveEffectiveWebTrackDefaults(
     defaultAudioLanguage:
       rec.defaultAudioLanguage !== undefined ? rec.defaultAudioLanguage : base.defaultAudioLanguage,
     defaultSubtitleLanguage:
-      rec.defaultSubtitleLanguage !== undefined ? rec.defaultSubtitleLanguage : base.defaultSubtitleLanguage,
+      rec.defaultSubtitleLanguage !== undefined
+        ? rec.defaultSubtitleLanguage
+        : base.defaultSubtitleLanguage,
     defaultSubtitleLabelHint:
-      rec.defaultSubtitleLabelHint !== undefined ? rec.defaultSubtitleLabelHint : base.defaultSubtitleLabelHint,
+      rec.defaultSubtitleLabelHint !== undefined
+        ? rec.defaultSubtitleLabelHint
+        : base.defaultSubtitleLabelHint,
   };
 }
 
@@ -271,7 +277,8 @@ export function isEnglishSubtitleTrackForMenu(track: { srcLang: string; label: s
   const rawLang = track.srcLang.trim().toLowerCase();
   const blob = `${label} ${rawLang}`;
   if (/\b(en|eng|english)\b/i.test(blob)) return true;
-  if ((langNorm === "" || rawLang === "und") && /^\s*sdh\s*$/i.test(track.label.trim())) return true;
+  if ((langNorm === "" || rawLang === "und") && /^\s*sdh\s*$/i.test(track.label.trim()))
+    return true;
   return false;
 }
 
@@ -343,7 +350,9 @@ const languageAliases = new Map<string, string>([
   ["chinese", "zh"],
 ]);
 
-function defaultLibraryPreferencesForType(type: Library["type"] | undefined): ResolvedLibraryPlaybackPreferences {
+function defaultLibraryPreferencesForType(
+  type: Library["type"] | undefined,
+): ResolvedLibraryPlaybackPreferences {
   if (type === "anime") {
     return {
       preferredAudioLanguage: "ja",
@@ -382,13 +391,15 @@ export function languageMatchesPreference(
 }
 
 export function resolveLibraryPlaybackPreferences(
-  library: Pick<
-    Library,
-    | "type"
-    | "preferred_audio_language"
-    | "preferred_subtitle_language"
-    | "subtitles_enabled_by_default"
-  > | null
+  library:
+    | Pick<
+        Library,
+        | "type"
+        | "preferred_audio_language"
+        | "preferred_subtitle_language"
+        | "subtitles_enabled_by_default"
+      >
+    | null
     | undefined,
 ): ResolvedLibraryPlaybackPreferences {
   const defaults = defaultLibraryPreferencesForType(library?.type);
@@ -432,7 +443,8 @@ export function readStoredSubtitleAppearance(): SubtitleAppearance {
     const parsed = JSON.parse(raw) as Partial<SubtitleAppearance>;
     const size = parsed.size === "small" || parsed.size === "large" ? parsed.size : "medium";
     const position = parsed.position === "top" ? "top" : "bottom";
-    const color = typeof parsed.color === "string" && parsed.color.trim() ? parsed.color : "#ffffff";
+    const color =
+      typeof parsed.color === "string" && parsed.color.trim() ? parsed.color : "#ffffff";
     return { size, position, color };
   } catch {
     return defaultSubtitleAppearance;

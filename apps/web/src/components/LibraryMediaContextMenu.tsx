@@ -1,9 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 
 export function LibraryMediaContextMenu({
   children,

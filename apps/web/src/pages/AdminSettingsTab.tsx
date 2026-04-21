@@ -36,17 +36,20 @@ const TASKS: {
   {
     id: "clean_transcode",
     label: "Clean transcode directory",
-    description: "Deletes transcode session folders and legacy temp files older than one day (skips active sessions).",
+    description:
+      "Deletes transcode session folders and legacy temp files older than one day (skips active sessions).",
   },
   {
     id: "clean_logs",
     label: "Clean log directory",
-    description: "Removes .log files older than three days from the configured log directory (PLUM_LOG_FILE or PLUM_LOG_DIR).",
+    description:
+      "Removes .log files older than three days from the configured log directory (PLUM_LOG_FILE or PLUM_LOG_DIR).",
   },
   {
     id: "delete_cache",
     label: "Delete cache",
-    description: "Prunes expired metadata provider cache rows and applies optional row-cap trimming from server settings.",
+    description:
+      "Prunes expired metadata provider cache rows and applies optional row-cap trimming from server settings.",
   },
   {
     id: "scan_all_media",
@@ -62,7 +65,8 @@ const TASKS: {
   {
     id: "check_metadata_updates",
     label: "Check for metadata updates",
-    description: "Runs identify/refresh for every library in the background to pick up provider metadata changes.",
+    description:
+      "Runs identify/refresh for every library in the background to pick up provider metadata changes.",
   },
 ];
 
@@ -115,7 +119,9 @@ export function AdminSettingsTab() {
     },
     onSuccess: (res) => {
       const parts = [res.detail, res.error].filter(Boolean);
-      setTaskMessage(parts.join(" ") || (res.accepted ? "Task finished." : "Task was not accepted."));
+      setTaskMessage(
+        parts.join(" ") || (res.accepted ? "Task finished." : "Task was not accepted."),
+      );
       void queryClient.invalidateQueries({ queryKey: ["admin", "maintenance-schedule"] });
     },
     onError: (e: Error) => {
@@ -163,15 +169,27 @@ export function AdminSettingsTab() {
   const subTabNav = useMemo(
     () => (
       <div className="flex flex-wrap gap-2 border-b border-(--plum-border) pb-3">
-        <button type="button" className={subTabClass(subTab === "maintenance")} onClick={() => setSubTab("maintenance")}>
+        <button
+          type="button"
+          className={subTabClass(subTab === "maintenance")}
+          onClick={() => setSubTab("maintenance")}
+        >
           <Gauge className="size-4 shrink-0" aria-hidden />
           Maintenance
         </button>
-        <button type="button" className={subTabClass(subTab === "logs")} onClick={() => setSubTab("logs")}>
+        <button
+          type="button"
+          className={subTabClass(subTab === "logs")}
+          onClick={() => setSubTab("logs")}
+        >
           <FileText className="size-4 shrink-0" aria-hidden />
           Logs
         </button>
-        <button type="button" className={subTabClass(subTab === "activity")} onClick={() => setSubTab("activity")}>
+        <button
+          type="button"
+          className={subTabClass(subTab === "activity")}
+          onClick={() => setSubTab("activity")}
+        >
           <Activity className="size-4 shrink-0" aria-hidden />
           Activity
         </button>
@@ -190,8 +208,8 @@ export function AdminSettingsTab() {
           <div>
             <h2 className="text-lg font-semibold text-(--plum-text)">Administration</h2>
             <p className="mt-1 text-sm text-(--plum-muted)">
-              Server maintenance, log tail, and live playback activity. Scheduled tasks run automatically when interval
-              hours are set (0 disables).
+              Server maintenance, log tail, and live playback activity. Scheduled tasks run
+              automatically when interval hours are set (0 disables).
             </p>
           </div>
         </div>
@@ -214,7 +232,9 @@ export function AdminSettingsTab() {
           ) : (
             <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">Schedule</h3>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+                  Schedule
+                </h3>
                 <Button
                   type="button"
                   size="sm"
@@ -239,7 +259,9 @@ export function AdminSettingsTab() {
           )}
 
           <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-5">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">Tasks</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+              Tasks
+            </h3>
             <ul className="mt-4 flex flex-col gap-4">
               {TASKS.map((task) => (
                 <li
@@ -250,7 +272,9 @@ export function AdminSettingsTab() {
                     <p className="font-medium text-(--plum-text)">{task.label}</p>
                     <p className="mt-1 text-sm text-(--plum-muted)">{task.description}</p>
                     {lastRun[task.id] ? (
-                      <p className="mt-2 text-xs text-(--plum-muted)">Last run: {lastRun[task.id]}</p>
+                      <p className="mt-2 text-xs text-(--plum-muted)">
+                        Last run: {lastRun[task.id]}
+                      </p>
                     ) : null}
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -295,7 +319,9 @@ export function AdminSettingsTab() {
 
       {subTab === "logs" ? (
         <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-5">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">Server log tail</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+            Server log tail
+          </h3>
           {logsQuery.isLoading ? (
             <p className="mt-4 text-sm text-(--plum-muted)">Loading…</p>
           ) : logsQuery.isError ? (
@@ -320,22 +346,32 @@ export function AdminSettingsTab() {
 
       {subTab === "activity" ? (
         <section className="rounded-lg border border-(--plum-border) bg-(--plum-panel)/80 p-5">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">Now playing</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-(--plum-muted)">
+            Now playing
+          </h3>
           <p className="mt-2 text-sm text-(--plum-muted)">
-            Active transcoding and direct playback sessions on this server (refreshes every few seconds).
+            Active transcoding and direct playback sessions on this server (refreshes every few
+            seconds).
           </p>
           {activityQuery.isLoading ? (
             <p className="mt-4 text-sm text-(--plum-muted)">Loading…</p>
           ) : activityQuery.isError ? (
             <p className="mt-4 text-sm text-red-300">{(activityQuery.error as Error).message}</p>
           ) : (activityQuery.data?.sessions ?? []).length === 0 ? (
-            <p className="mt-6 text-sm text-(--plum-muted)">Nobody is playing anything right now.</p>
+            <p className="mt-6 text-sm text-(--plum-muted)">
+              Nobody is playing anything right now.
+            </p>
           ) : (
             <ul className="mt-4 divide-y divide-(--plum-border)/50 rounded-md border border-(--plum-border)/50">
               {(activityQuery.data?.sessions ?? []).map((s) => (
-                <li key={s.sessionId} className="flex flex-col gap-1 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <li
+                  key={s.sessionId}
+                  className="flex flex-col gap-1 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-(--plum-text)">{s.title || `Media ${s.mediaId}`}</p>
+                    <p className="truncate font-medium text-(--plum-text)">
+                      {s.title || `Media ${s.mediaId}`}
+                    </p>
                     <p className="text-xs text-(--plum-muted)">
                       {s.userEmail || `User ${s.userId}`} · {s.delivery || "—"} · {s.status || "—"}
                     </p>

@@ -88,10 +88,7 @@ export function JassubRenderer({
           signal,
         });
         if (!response.ok) {
-          console.error(
-            "[JassubRenderer] Failed to fetch ASS:",
-            response.status,
-          );
+          console.error("[JassubRenderer] Failed to fetch ASS:", response.status);
           onStatusChangeRef.current?.("error");
           return;
         }
@@ -99,22 +96,19 @@ export function JassubRenderer({
         if (signal.aborted) {
           return;
         }
-        const fonts = (
-          await Promise.all(resolvedFontUrls.map((url) => fetchFont(url)))
-        ).filter((font): font is Uint8Array => font != null);
+        const fonts = (await Promise.all(resolvedFontUrls.map((url) => fetchFont(url)))).filter(
+          (font): font is Uint8Array => font != null,
+        );
         if (signal.aborted) {
           return;
         }
 
-        const [
-          { default: JASSUB },
-          { default: workerUrl },
-          { default: wasmUrl },
-        ] = await Promise.all([
-          import("jassub"),
-          import("jassub/dist/wasm/jassub-worker.js?url"),
-          import("jassub/dist/wasm/jassub-worker.wasm?url"),
-        ]);
+        const [{ default: JASSUB }, { default: workerUrl }, { default: wasmUrl }] =
+          await Promise.all([
+            import("jassub"),
+            import("jassub/dist/wasm/jassub-worker.js?url"),
+            import("jassub/dist/wasm/jassub-worker.wasm?url"),
+          ]);
         if (signal.aborted) {
           return;
         }

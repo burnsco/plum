@@ -17,8 +17,7 @@ const buttonVariants = cva(
         ghost:
           "text-[var(--plum-muted)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--plum-text)]",
         link: "text-[var(--plum-accent)] underline-offset-4 hover:underline",
-        icon:
-          "border border-transparent bg-transparent text-[var(--plum-muted)] hover:border-[var(--plum-border)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--plum-text)]",
+        icon: "border border-transparent bg-transparent text-[var(--plum-muted)] hover:border-[var(--plum-border)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--plum-text)]",
       },
       size: {
         default: "h-10 px-4 py-2",

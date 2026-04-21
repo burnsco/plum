@@ -17,18 +17,16 @@ vi.mock("jassub/dist/wasm/jassub-worker.wasm?url", () => ({
 }));
 
 function pendingFetchMock() {
-  return vi.fn<
-    (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-  >((_input, init) => {
-    const signal = init?.signal;
-    return new Promise<Response>((_resolve, reject) => {
-      signal?.addEventListener(
-        "abort",
-        () => reject(new DOMException("Aborted", "AbortError")),
-        { once: true },
-      );
-    });
-  });
+  return vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+    (_input, init) => {
+      const signal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {
+          once: true,
+        });
+      });
+    },
+  );
 }
 
 describe("JassubRenderer", () => {
@@ -41,8 +39,7 @@ describe("JassubRenderer", () => {
     vi.stubGlobal("fetch", fetchMock);
     const video = document.createElement("video");
 
-    const firstStatusChange =
-      vi.fn<(status: "loading" | "ready" | "error" | "timeout") => void>();
+    const firstStatusChange = vi.fn<(status: "loading" | "ready" | "error" | "timeout") => void>();
     const { rerender, unmount } = render(
       <JassubRenderer
         videoElement={video}
@@ -62,9 +59,7 @@ describe("JassubRenderer", () => {
         videoElement={video}
         assSrc="/api/media/1/subtitles/embedded/2/ass"
         fontUrls={["/api/media/1/attachments/font.ttf"]}
-        onStatusChange={vi.fn<
-          (status: "loading" | "ready" | "error" | "timeout") => void
-        >()}
+        onStatusChange={vi.fn<(status: "loading" | "ready" | "error" | "timeout") => void>()}
       />,
     );
 

@@ -76,10 +76,7 @@ export type PlayerQueueContextValue = {
   toggleShuffle: () => void;
   cycleRepeatMode: () => void;
   /** Clears [PlaybackSession.resumeIntent] after the dock handles the first open. */
-  clearVideoResumeIntent: (expected: {
-    mediaId: number;
-    sessionId: string | null;
-  }) => void;
+  clearVideoResumeIntent: (expected: { mediaId: number; sessionId: string | null }) => void;
 };
 
 /** High-frequency controls — volume, seek, play/pause; avoids queue/session churn. */
@@ -92,10 +89,7 @@ export type PlayerTransportContextValue = {
   setVolume: (volume: number) => void;
   enterFullscreen: () => void;
   exitFullscreen: () => void;
-  registerMediaElement: (
-    slot: MediaElementSlot,
-    element: HTMLMediaElement | null,
-  ) => void;
+  registerMediaElement: (slot: MediaElementSlot, element: HTMLMediaElement | null) => void;
   changeAudioTrack: (audioIndex: number) => Promise<void>;
   changeEmbeddedSubtitleBurn: (streamIndex: number | null) => Promise<void>;
 };
@@ -104,20 +98,15 @@ export type PlayerContextValue = PlayerSessionContextValue &
   PlayerQueueContextValue &
   PlayerTransportContextValue;
 
-const PlayerSessionContext = createContext<PlayerSessionContextValue | null>(
-  null,
-);
+const PlayerSessionContext = createContext<PlayerSessionContextValue | null>(null);
 const PlayerQueueContext = createContext<PlayerQueueContextValue | null>(null);
-const PlayerTransportContext = createContext<PlayerTransportContextValue | null>(
-  null,
-);
+const PlayerTransportContext = createContext<PlayerTransportContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const librariesQuery = useLibraries();
   const libraries = librariesQuery.data ?? [];
   const playbackPreferences = usePlaybackPreferences(libraries);
-  const [playbackSession, setPlaybackSession] =
-    useState<PlaybackSession | null>(null);
+  const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null);
   const [volume, setVolumeState] = useState(1);
   const [muted, setMutedState] = useState(false);
   const [lastEvent, setLastEvent] = useState("");
@@ -126,9 +115,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const mutedRef = useRef(false);
   const playbackSessionRef = useRef<PlaybackSession | null>(null);
   const videoSessionIdRef = useRef<string | null>(null);
-  const mediaElementsRef = useRef<
-    Record<MediaElementSlot, HTMLMediaElement | null>
-  >({
+  const mediaElementsRef = useRef<Record<MediaElementSlot, HTMLMediaElement | null>>({
     audio: null,
     video: null,
   });
@@ -365,8 +352,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     exitBrowserFullscreen();
   }, [exitBrowserFullscreen]);
 
-  const videoResumeIntent =
-    activeMode === "video" ? playbackSession?.resumeIntent : undefined;
+  const videoResumeIntent = activeMode === "video" ? playbackSession?.resumeIntent : undefined;
 
   const sessionValue = useMemo<PlayerSessionContextValue>(
     () => ({

@@ -78,7 +78,9 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
   for (const [showKey, episodes] of map.entries()) {
     sortEpisodes(episodes);
     const first = episodes[0];
-    const posterEpisode = episodes.find((episode) => episode.show_poster_path || episode.poster_path);
+    const posterEpisode = episodes.find(
+      (episode) => episode.show_poster_path || episode.poster_path,
+    );
     const backdropEpisode = episodes.find((episode) => episode.backdrop_path);
     groups.push({
       showKey,
@@ -87,15 +89,16 @@ export function groupMediaByShow(items: MediaItem[]): ShowGroup[] {
       posterUrl: posterEpisode?.show_poster_url ?? posterEpisode?.poster_url,
       backdropPath: backdropEpisode?.backdrop_path,
       backdropUrl: backdropEpisode?.backdrop_url,
-      showVoteAverage: episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)?.show_vote_average,
-      showImdbRating: episodes.find((episode) => (episode.show_imdb_rating ?? 0) > 0)?.show_imdb_rating,
+      showVoteAverage: episodes.find((episode) => (episode.show_vote_average ?? 0) > 0)
+        ?.show_vote_average,
+      showImdbRating: episodes.find((episode) => (episode.show_imdb_rating ?? 0) > 0)
+        ?.show_imdb_rating,
       unmatchedCount: episodes.filter((episode) => episode.match_status === "unmatched").length,
       localCount: episodes.filter(
         (episode) => episode.match_status === "local" && !episodeHasProviderIdentity(episode),
       ).length,
       identifiedCount: episodes.filter(
-        (episode) =>
-          episode.match_status === "identified" || episodeHasProviderIdentity(episode),
+        (episode) => episode.match_status === "identified" || episodeHasProviderIdentity(episode),
       ).length,
       totalCount: episodes.length,
       episodes,

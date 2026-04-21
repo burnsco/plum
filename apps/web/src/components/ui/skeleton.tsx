@@ -3,9 +3,6 @@ import { cn } from "@/lib/utils";
 
 export function Skeleton({ className, ...props }: ComponentProps<"div">) {
   return (
-    <div
-      className={cn("animate-pulse rounded-md bg-(--plum-field-fill)", className)}
-      {...props}
-    />
+    <div className={cn("animate-pulse rounded-md bg-(--plum-field-fill)", className)} {...props} />
   );
 }

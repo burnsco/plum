@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SubtitleTrackOption } from "./playerMedia";
-import {
-  getPreferredSubtitleKey,
-  sortSubtitleTrackOptions,
-} from "./playerMedia";
+import { getPreferredSubtitleKey, sortSubtitleTrackOptions } from "./playerMedia";
 
 function track(
   overrides: Partial<SubtitleTrackOption> & { key: string; srcLang: string },
@@ -117,9 +114,7 @@ describe("getPreferredSubtitleKey", () => {
         }),
         track({ key: "emb-1", srcLang: "eng", label: "English SRT" }),
       ];
-      expect(getPreferredSubtitleKey(tracks, "en", true, "Commentary")).toBe(
-        "emb-1",
-      );
+      expect(getPreferredSubtitleKey(tracks, "en", true, "Commentary")).toBe("emb-1");
     });
   });
 
@@ -241,12 +236,7 @@ describe("sortSubtitleTrackOptions", () => {
       }),
       track({ key: "emb-0", srcLang: "eng", label: "English" }),
     ]);
-    expect(tracks.map((entry) => entry.key)).toEqual([
-      "emb-0",
-      "emb-1",
-      "emb-2",
-      "emb-3",
-    ]);
+    expect(tracks.map((entry) => entry.key)).toEqual(["emb-0", "emb-1", "emb-2", "emb-3"]);
   });
 
   it("orders server-default tracks before non-default ASS-capable tracks", () => {

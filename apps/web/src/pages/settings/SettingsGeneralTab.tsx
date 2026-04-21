@@ -23,11 +23,13 @@ export function SettingsGeneralTab({
       </div>
 
       <div className="mt-6 rounded-md border border-(--plum-border) bg-(--plum-panel-alt)/60 p-4">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-(--plum-text)">Quick connect</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-(--plum-text)">
+          Quick connect
+        </h3>
         <p className="mt-1.5 text-xs leading-snug text-(--plum-muted)">
-          TV sign-in for <span className="text-(--plum-text-secondary)">{userEmail}</span>. On the TV,
-          use this server&apos;s URL and &quot;Sign in with TV code&quot;. Code expires in 15 minutes,
-          one use.
+          TV sign-in for <span className="text-(--plum-text-secondary)">{userEmail}</span>. On the
+          TV, use this server&apos;s URL and &quot;Sign in with TV code&quot;. Code expires in 15
+          minutes, one use.
         </p>
         <Button
           type="button"
@@ -42,7 +44,9 @@ export function SettingsGeneralTab({
         {quickConnectErr ? <p className="mt-2 text-xs text-red-400">{quickConnectErr}</p> : null}
         {quickConnect ? (
           <div className="mt-3 rounded-md border border-(--plum-border) bg-(--plum-panel) p-2">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-(--plum-muted)">Code</p>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-(--plum-muted)">
+              Code
+            </p>
             <p className="mt-0.5 font-mono text-xl font-semibold tracking-[0.25em] text-(--plum-text)">
               {quickConnect.code}
             </p>

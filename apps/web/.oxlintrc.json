@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["eslint", "oxc", "react", "unicorn", "typescript", "vitest", "jsx-a11y"],
+  "extends": ["../../.oxlintrc.json"],
+  "plugins": ["eslint", "oxc", "react", "unicorn", "typescript", "vitest", "jsx-a11y", "import"],
   "categories": {
     "correctness": "warn",
     "suspicious": "warn",
@@ -8,29 +9,33 @@
   },
   "rules": {
     "react/react-in-jsx-scope": "off",
-    "eslint/no-shadow": "off",
-    "eslint/no-extend-native": "off",
-    "eslint/no-await-in-loop": "off",
-    "oxc/no-map-spread": "off",
-    "unicorn/consistent-function-scoping": "off",
-    "unicorn/require-module-specifiers": "off",
-    "unicorn/no-useless-spread": "off",
     "react/jsx-no-target-blank": "off",
     "jsx-a11y/media-has-caption": "off",
-    "jsx-a11y/prefer-tag-over-role": "off",
-    "typescript/no-explicit-any": "off"
+    "jsx-a11y/prefer-tag-over-role": "off"
   },
   "env": {
     "browser": true,
     "node": true,
     "builtin": true
   },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "env": {
+        "browser": true,
+        "builtin": true,
+        "node": true,
+        "vitest": true
+      }
+    }
+  ],
   "ignorePatterns": [
     "**/dist",
     "**/node_modules",
     "**/target",
     "**/build",
     "**/coverage",
+    "**/generated",
     "bun.lock"
   ]
 }

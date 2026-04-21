@@ -31,4 +31,3 @@ export function useScanQueue() {
   if (!ctx) throw new Error("useScanQueue must be used within ScanQueueProvider");
   return ctx;
 }
-

@@ -9,8 +9,10 @@
   "scripts": {
     "generate:json-schema": "bun run scripts/generate-cross-platform-json-schema.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "bunx oxlint",
-    "format": "bunx oxfmt"
+    "lint": "bunx oxlint --config ../../.oxlintrc.json --deny-warnings --report-unused-disable-directives src scripts",
+    "lint:fix": "bunx oxlint --config ../../.oxlintrc.json --fix src scripts",
+    "format": "bunx oxfmt --config ../../.oxfmtrc.json --write package.json src scripts",
+    "format:check": "bunx oxfmt --config ../../.oxfmtrc.json --check package.json src scripts"
   },
   "dependencies": {
     "effect": "4.0.0-beta.52"

@@ -168,7 +168,8 @@ export function buildHomeDashboard(dashboard: HomeDashboard): HomeDashboard {
   const recentlyAddedTvEpisodes = (dashboard.recentlyAddedTvEpisodes ?? []) as RecentlyAddedEntry[];
   const recentlyAddedTvShows = (dashboard.recentlyAddedTvShows ?? []) as RecentlyAddedEntry[];
   const recentlyAddedMovies = (dashboard.recentlyAddedMovies ?? []) as RecentlyAddedEntry[];
-  const recentlyAddedAnimeEpisodes = (dashboard.recentlyAddedAnimeEpisodes ?? []) as RecentlyAddedEntry[];
+  const recentlyAddedAnimeEpisodes = (dashboard.recentlyAddedAnimeEpisodes ??
+    []) as RecentlyAddedEntry[];
   const recentlyAddedAnimeShows = (dashboard.recentlyAddedAnimeShows ?? []) as RecentlyAddedEntry[];
   return {
     ...dashboard,
@@ -208,7 +209,8 @@ export const queryKeys = {
   introRefreshStatus: ["intro-refresh-status"] as const,
   library: (id: number, pageSize?: number) =>
     pageSize == null ? (["library", id] as const) : (["library", id, pageSize] as const),
-  movieDetails: (libraryId: number, mediaId: number) => ["movie-details", libraryId, mediaId] as const,
+  movieDetails: (libraryId: number, mediaId: number) =>
+    ["movie-details", libraryId, mediaId] as const,
   movieDetailsByLibrary: (libraryId: number) => ["movie-details", libraryId] as const,
   moviePosterCandidates: (libraryId: number, mediaId: number) =>
     ["movie-poster-candidates", libraryId, mediaId] as const,
@@ -225,7 +227,8 @@ export const queryKeys = {
   series: (tmdbId: number) => ["series", tmdbId] as const,
   showPosterCandidates: (libraryId: number, showKey: string) =>
     ["show-poster-candidates", libraryId, showKey] as const,
-  showDetails: (libraryId: number, showKey: string) => ["show-details", libraryId, showKey] as const,
+  showDetails: (libraryId: number, showKey: string) =>
+    ["show-details", libraryId, showKey] as const,
   showDetailsByLibrary: (libraryId: number) => ["show-details", libraryId] as const,
   showEpisodes: (libraryId: number, showKey: string) =>
     ["library", libraryId, "show-episodes", showKey] as const,
@@ -270,3 +273,39 @@ export const METADATA_DETAIL_STALE_MS = 5 * 60 * 1000;
 /** Settings/admin JSON from the server; changes only via Settings or rare env updates. */
 export const SERVER_SETTINGS_STALE_MS = 60 * 1000;
 export const DISCOVER_STALE_MS = 5 * 60 * 1000;
+
+export const QUERY_CACHE_RETENTION_MS = {
+  ephemeralSearch: 2 * 60 * 1000,
+  activeBrowse: 3 * 60 * 1000,
+  dashboard: 5 * 60 * 1000,
+  standardBrowse: 10 * 60 * 1000,
+  libraryCatalog: 15 * 60 * 1000,
+  titleDetails: 20 * 60 * 1000,
+  extendedMetadata: 30 * 60 * 1000,
+} as const;
+
+const DEFAULT_QUERY_RETRY_LIMIT = 3;
+
+function getApiErrorTag(error: unknown): string | undefined {
+  return typeof error === "object" && error != null && "_tag" in error
+    ? String((error as { _tag?: unknown })._tag)
+    : undefined;
+}
+
+function getApiErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error == null || !("status" in error)) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : undefined;
+}
+
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (failureCount >= DEFAULT_QUERY_RETRY_LIMIT) return false;
+
+  const tag = getApiErrorTag(error);
+  if (tag === "ApiAbortedError") return false;
+
+  const status = getApiErrorStatus(error);
+  if (status != null && status < 500) return false;
+
+  return true;
+}

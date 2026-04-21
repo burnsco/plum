@@ -51,7 +51,10 @@ export type FullscreenPlaybackKeyboardDeps = {
 };
 
 /** Space, arrows, F, M, Escape in fullscreen / window player (ignores focused inputs). */
-export function useFullscreenPlaybackKeyboard(enabled: boolean, deps: FullscreenPlaybackKeyboardDeps): void {
+export function useFullscreenPlaybackKeyboard(
+  enabled: boolean,
+  deps: FullscreenPlaybackKeyboardDeps,
+): void {
   const ref = useRef(deps);
   ref.current = deps;
   useEffect(() => {

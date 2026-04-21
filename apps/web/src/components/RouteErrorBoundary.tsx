@@ -23,7 +23,10 @@ export class RouteErrorBoundary extends Component<Props, State> {
       return (
         <div className="rounded-lg border border-(--plum-border) bg-(--plum-card-bg) p-6">
           <p style={{ fontWeight: 600, marginBottom: 8 }}>This page could not be displayed</p>
-          <p className="auth-muted" style={{ marginBottom: 16, fontFamily: "monospace", fontSize: 12 }}>
+          <p
+            className="auth-muted"
+            style={{ marginBottom: 16, fontFamily: "monospace", fontSize: 12 }}
+          >
             {(this.state.error as Error).message}
           </p>
           <Link to="/" className="link-button">

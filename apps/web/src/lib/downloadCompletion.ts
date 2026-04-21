@@ -4,10 +4,7 @@ export type DownloadSnapshotEntry = Pick<DownloadItem, "title" | "error_message"
 
 export function downloadsToSnapshotMap(items: DownloadItem[]): Map<string, DownloadSnapshotEntry> {
   return new Map(
-    items.map((item) => [
-      item.id,
-      { title: item.title, error_message: item.error_message },
-    ]),
+    items.map((item) => [item.id, { title: item.title, error_message: item.error_message }]),
   );
 }
 

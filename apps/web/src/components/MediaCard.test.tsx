@@ -24,7 +24,10 @@ describe("MediaCard artwork URLs", () => {
     );
 
     const poster = container.querySelector("img");
-    expect(poster).toHaveAttribute("src", "http://backend.test/api/media/99/artwork/poster?v=0123456789abcdef");
+    expect(poster).toHaveAttribute(
+      "src",
+      "http://backend.test/api/media/99/artwork/poster?v=0123456789abcdef",
+    );
   });
 
   it("resolves backend-relative grouped show poster URLs against the backend base", () => {

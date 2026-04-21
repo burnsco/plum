@@ -24,7 +24,9 @@ function parseCategory(value: string | null): DiscoverBrowseCategory | "" {
   if (value == null || value === "") {
     return "";
   }
-  return VALID_CATEGORIES.has(value as DiscoverBrowseCategory) ? (value as DiscoverBrowseCategory) : "";
+  return VALID_CATEGORIES.has(value as DiscoverBrowseCategory)
+    ? (value as DiscoverBrowseCategory)
+    : "";
 }
 
 function parseMediaType(value: string | null): DiscoverMediaType | "" {

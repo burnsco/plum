@@ -1,11 +1,5 @@
 /* oxlint-disable vitest/require-mock-type-parameters */
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Effect } from "effect";
 import { useEffect, useRef, type ReactElement } from "react";
@@ -197,8 +191,7 @@ async function flushMicrotasks() {
 }
 
 function PlayerHarness() {
-  const { activeItem, dismissDock, lastEvent, playMovie, videoSourceUrl } =
-    usePlayer();
+  const { activeItem, dismissDock, lastEvent, playMovie, videoSourceUrl } = usePlayer();
 
   return (
     <div>
@@ -216,12 +209,7 @@ function PlayerHarness() {
 }
 
 function VideoQueueHarness() {
-  const {
-    activeItem,
-    playShowGroup,
-    playNextInQueue,
-    playPreviousInQueue,
-  } = usePlayer();
+  const { activeItem, playShowGroup, playNextInQueue, playPreviousInQueue } = usePlayer();
 
   return (
     <div>
@@ -270,9 +258,7 @@ function PlaybackTrackHydrationHarness() {
       >
         Play Bare Show
       </button>
-      <div data-testid="hydrated-audio-count">
-        {activeItem?.embeddedAudioTracks?.length ?? 0}
-      </div>
+      <div data-testid="hydrated-audio-count">{activeItem?.embeddedAudioTracks?.length ?? 0}</div>
       <div data-testid="hydrated-subtitle-count">
         {(activeItem?.embeddedSubtitles?.length ?? 0) + (activeItem?.subtitles?.length ?? 0)}
       </div>
@@ -495,9 +481,7 @@ describe("PlayerContext playback session updates", () => {
         }),
       );
       expect(screen.getByTestId("active-media-id")).toHaveTextContent("99");
-      expect(screen.getByTestId("last-event")).toHaveTextContent(
-        "Preparing stream...",
-      );
+      expect(screen.getByTestId("last-event")).toHaveTextContent("Preparing stream...");
       expect(socket.sentMessages).toContain(
         JSON.stringify({
           action: "attach_playback_session",
@@ -516,8 +500,7 @@ describe("PlayerContext playback session updates", () => {
           revision: 1,
           audioIndex: -1,
           status: "ready",
-          streamUrl:
-            "/api/playback/sessions/session-22/revisions/1/index.m3u8",
+          streamUrl: "/api/playback/sessions/session-22/revisions/1/index.m3u8",
           durationSeconds: 1800,
         }),
       );
@@ -535,17 +518,14 @@ describe("PlayerContext playback session updates", () => {
           revision: 1,
           audioIndex: -1,
           status: "ready",
-          streamUrl:
-            "/api/playback/sessions/session-99/revisions/1/index.m3u8",
+          streamUrl: "/api/playback/sessions/session-99/revisions/1/index.m3u8",
           durationSeconds: 7200,
         }),
       );
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("last-event")).toHaveTextContent(
-        "Stream ready",
-      );
+      expect(screen.getByTestId("last-event")).toHaveTextContent("Stream ready");
       expect(screen.getByTestId("video-source-url")).toHaveTextContent(
         "/api/playback/sessions/session-99/revisions/1/index.m3u8",
       );

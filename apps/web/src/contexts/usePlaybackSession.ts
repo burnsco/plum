@@ -190,7 +190,7 @@ export function usePlaybackSession({
   const videoAudioIndex = activeMode === "video" ? (videoSession?.audioIndex ?? -1) : -1;
   const burnEmbeddedSubtitleStreamIndex =
     activeMode === "video" ? (videoSession?.burnEmbeddedSubtitleStreamIndex ?? null) : null;
-  const videoSessionId = activeMode === "video" ? videoSession?.sessionId ?? null : null;
+  const videoSessionId = activeMode === "video" ? (videoSession?.sessionId ?? null) : null;
 
   // Sync during render so imperative callbacks and WS handling see the current video session
   // and active item id in the same commit as state (layout-effect updates are one commit late).
@@ -396,9 +396,7 @@ export function usePlaybackSession({
         );
       } catch (err) {
         console.error("[Player] seekVideoSession failed", err);
-        setLastEvent(
-          `Error: ${err instanceof Error ? err.message : "Failed to seek playback"}`,
-        );
+        setLastEvent(`Error: ${err instanceof Error ? err.message : "Failed to seek playback"}`);
       }
     },
     [activeItem, activeMode, applyPlaybackSession, mountedRef, setLastEvent],
@@ -423,9 +421,7 @@ export function usePlaybackSession({
         closeVideoSession(oldSessionId);
       } catch (err) {
         console.error("[Player] changeEmbeddedSubtitleBurn failed", err);
-        setLastEvent(
-          `Error: ${err instanceof Error ? err.message : "Failed to switch subtitles"}`,
-        );
+        setLastEvent(`Error: ${err instanceof Error ? err.message : "Failed to switch subtitles"}`);
       }
     },
     [
@@ -502,9 +498,7 @@ export function usePlaybackSession({
     }
 
     if (latestEvent.status === "closed") {
-      setVideoSession((current) =>
-        current?.sessionId === latestEvent.sessionId ? null : current,
-      );
+      setVideoSession((current) => (current?.sessionId === latestEvent.sessionId ? null : current));
       setLastEvent("");
       return;
     }

@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Volume2, VolumeX, X } from "lucide-react";
+import {
+  Pause,
+  Play,
+  Repeat,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 import { resolvePosterUrl } from "@plum/shared";
 import { BASE_URL } from "../api";
-import {
-  usePlayerQueue,
-  usePlayerSession,
-  usePlayerTransport,
-} from "../contexts/PlayerContext";
+import { usePlayerQueue, usePlayerSession, usePlayerTransport } from "../contexts/PlayerContext";
 import { formatClock, getMusicMetadata } from "../lib/playback/playerMedia";
 
 type Props = {
@@ -25,8 +31,7 @@ export function MusicNowPlayingBar({ visible }: Props) {
     toggleShuffle,
     cycleRepeatMode,
   } = usePlayerQueue();
-  const { volume, muted, togglePlayPause, seekTo, setMuted, setVolume } =
-    usePlayerTransport();
+  const { volume, muted, togglePlayPause, seekTo, setMuted, setVolume } = usePlayerTransport();
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -64,19 +69,20 @@ export function MusicNowPlayingBar({ visible }: Props) {
     return null;
   }
 
-  const posterUrl = resolvePosterUrl(activeItem.poster_url, activeItem.poster_path, "w200", BASE_URL);
+  const posterUrl = resolvePosterUrl(
+    activeItem.poster_url,
+    activeItem.poster_path,
+    "w200",
+    BASE_URL,
+  );
   const repeatLabel =
     repeatMode === "one" ? "Repeat track" : repeatMode === "all" ? "Repeat queue" : "Repeat off";
   const muteButtonLabel = muted || volume === 0 ? "Unmute" : "Mute";
-  const progressMax = duration > 0 ? duration : activeItem.duration ?? 0;
+  const progressMax = duration > 0 ? duration : (activeItem.duration ?? 0);
   const seekSliderValue = progressMax > 0 ? Math.min(currentTime, progressMax) : 0;
 
   return (
-    <footer
-      className="music-now-playing-bar"
-      role="region"
-      aria-label="Music player"
-    >
+    <footer className="music-now-playing-bar" role="region" aria-label="Music player">
       <div className="music-now-playing-bar__inner">
         <div className="music-now-playing-bar__track">
           <div className="music-now-playing-bar__artwork">

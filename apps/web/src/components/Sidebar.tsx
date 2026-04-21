@@ -41,7 +41,8 @@ export function Sidebar() {
   const location = useLocation();
   const activeId = libraryId ? parseInt(libraryId, 10) : null;
   const isHomeRoute = location.pathname === "/";
-  const isDiscoverRoute = location.pathname === "/discover" || location.pathname.startsWith("/discover/");
+  const isDiscoverRoute =
+    location.pathname === "/discover" || location.pathname.startsWith("/discover/");
   const isDownloadsRoute =
     location.pathname === "/downloads" || location.pathname.startsWith("/downloads/");
   const navItemBase =
@@ -60,15 +61,15 @@ export function Sidebar() {
       }
       style={{ boxShadow: "inset -1px 0 0 var(--plum-chrome-border)" }}
     >
-      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-4" aria-label="Libraries">
+      <nav
+        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-4"
+        aria-label="Libraries"
+      >
         {/* Section: Browse */}
         <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-(--plum-text-2)">
           Browse
         </div>
-        <Link
-          to="/"
-          className={cn(navItemBase, isHomeRoute ? navItemActive : navItemInactive)}
-        >
+        <Link to="/" className={cn(navItemBase, isHomeRoute ? navItemActive : navItemInactive)}>
           <Home className="size-4 shrink-0" />
           <span className="truncate">Home</span>
         </Link>

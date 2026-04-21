@@ -37,8 +37,7 @@ export function useTranscodingSettings(options?: {
 }): UseQueryResult<TranscodingSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.transcodingSettings,
-    queryFn: async () =>
-      contractsView<TranscodingSettingsResponse>(await getTranscodingSettings()),
+    queryFn: async () => contractsView<TranscodingSettingsResponse>(await getTranscodingSettings()),
     enabled: options?.enabled ?? true,
     staleTime: SERVER_SETTINGS_STALE_MS,
   });
@@ -72,8 +71,7 @@ export function useServerEnvSettings(options?: {
 }): UseQueryResult<ServerEnvSettingsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.serverEnvSettings,
-    queryFn: async () =>
-      contractsView<ServerEnvSettingsResponse>(await getServerEnvSettings()),
+    queryFn: async () => contractsView<ServerEnvSettingsResponse>(await getServerEnvSettings()),
     enabled: options?.enabled ?? true,
     staleTime: SERVER_SETTINGS_STALE_MS,
   });
@@ -90,7 +88,9 @@ export function useUpdateTranscodingSettings(): UseMutationResult<
       contractsView<TranscodingSettingsResponse>(await updateTranscodingSettings(settings)),
     onMutate: async (next) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.transcodingSettings });
-      const previous = queryClient.getQueryData<TranscodingSettingsResponse>(queryKeys.transcodingSettings);
+      const previous = queryClient.getQueryData<TranscodingSettingsResponse>(
+        queryKeys.transcodingSettings,
+      );
       if (previous != null) {
         queryClient.setQueryData<TranscodingSettingsResponse>(queryKeys.transcodingSettings, {
           ...previous,
@@ -119,19 +119,20 @@ export function useUpdateMetadataArtworkSettings(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (settings) =>
-      contractsView<MetadataArtworkSettingsResponse>(
-        await updateMetadataArtworkSettings(settings),
-      ),
+      contractsView<MetadataArtworkSettingsResponse>(await updateMetadataArtworkSettings(settings)),
     onMutate: async (next) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.metadataArtworkSettings });
       const previous = queryClient.getQueryData<MetadataArtworkSettingsResponse>(
         queryKeys.metadataArtworkSettings,
       );
       if (previous != null) {
-        queryClient.setQueryData<MetadataArtworkSettingsResponse>(queryKeys.metadataArtworkSettings, {
-          ...previous,
-          settings: next,
-        });
+        queryClient.setQueryData<MetadataArtworkSettingsResponse>(
+          queryKeys.metadataArtworkSettings,
+          {
+            ...previous,
+            settings: next,
+          },
+        );
       }
       return { previous };
     },

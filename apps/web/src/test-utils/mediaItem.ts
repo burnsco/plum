@@ -2,7 +2,13 @@ import type { MediaItem } from "@/api";
 
 const mediaItemScalarDefaults: Pick<
   MediaItem,
-  "library_id" | "tmdb_id" | "overview" | "poster_path" | "backdrop_path" | "release_date" | "vote_average"
+  | "library_id"
+  | "tmdb_id"
+  | "overview"
+  | "poster_path"
+  | "backdrop_path"
+  | "release_date"
+  | "vote_average"
 > = {
   library_id: 0,
   tmdb_id: 0,

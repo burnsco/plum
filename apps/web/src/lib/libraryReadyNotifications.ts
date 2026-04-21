@@ -27,7 +27,9 @@ export function buildRecentlyAddedToastMessage(
   libraries: Library[],
 ): string {
   const label = buildRecentlyAddedToastLabel(entry);
-  const libraryName = libraries.find((library) => library.id === entry.media.library_id)?.name.trim();
+  const libraryName = libraries
+    .find((library) => library.id === entry.media.library_id)
+    ?.name.trim();
   if (libraryName && libraryName.length > 0) {
     return `Ready to play in ${libraryName}: ${label}`;
   }

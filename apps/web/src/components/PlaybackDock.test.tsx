@@ -98,9 +98,7 @@ function PlaybackDockTestHarness() {
   const { data: libraries = [], isFetched } = useLibraries();
   const prefsApi = usePlaybackPreferences(libraries);
   return (
-    <PlaybackPreferencesProvider
-      value={{ api: prefsApi, librariesFetched: isFetched }}
-    >
+    <PlaybackPreferencesProvider value={{ api: prefsApi, librariesFetched: isFetched }}>
       <PlaybackDock />
     </PlaybackPreferencesProvider>
   );
@@ -173,8 +171,7 @@ function defaultPlaybackDockUsePlayer() {
     repeatMode: "off" as const,
     volume: 1,
     muted: false,
-    videoSourceUrl:
-      "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
+    videoSourceUrl: "http://localhost:3000/api/playback/sessions/session-1/revisions/1/index.m3u8",
     playbackDurationSeconds: 120,
     videoDelivery: "transcode" as const,
     videoStreamOffsetSeconds: 0,
@@ -288,16 +285,12 @@ describe("PlaybackDock audio track selection", () => {
       throw new Error("Expected a video element");
     }
 
-    expect(
-      screen.getByRole("status", { name: "Preparing playback..." }),
-    ).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Preparing playback..." })).toBeTruthy();
 
     fireEvent.canPlay(video);
 
     await waitFor(() => {
-      expect(
-        screen.queryByRole("status", { name: "Preparing playback..." }),
-      ).toBeNull();
+      expect(screen.queryByRole("status", { name: "Preparing playback..." })).toBeNull();
     });
   });
 
@@ -955,9 +948,10 @@ describe("PlaybackDock audio track selection", () => {
       });
 
       fireEvent.click(screen.getByRole("button", { name: "Subtitles" }));
-      expect(
-        screen.getByRole("option", { name: /English Signs/i }),
-      ).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("option", { name: /English Signs/i })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
       fireEvent.click(screen.getByRole("option", { name: /English Signs/i }));
 
       await waitFor(() => {

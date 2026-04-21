@@ -86,8 +86,7 @@ export function usePlaybackDockUpNext(options: {
         upNextTarget.show_poster_path,
         "original",
         BASE_URL,
-      ) ||
-      resolvePosterUrl(upNextTarget.poster_url, upNextTarget.poster_path, "original", BASE_URL)
+      ) || resolvePosterUrl(upNextTarget.poster_url, upNextTarget.poster_path, "original", BASE_URL)
     );
   }, [upNextTarget]);
 

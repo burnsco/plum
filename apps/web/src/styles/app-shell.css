@@ -388,7 +388,9 @@
   color: rgba(255, 255, 255, 0.55);
   font-size: 0.8rem;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .detail-hero-ghost-button:hover {
@@ -631,4 +633,3 @@
 .debug-empty {
   color: var(--plum-muted);
 }
-

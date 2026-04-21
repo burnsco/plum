@@ -168,7 +168,10 @@ export function SearchPage() {
             >
               <div className="w-24 shrink-0 bg-(--plum-panel-alt)">
                 <img
-                  src={resolveSearchPoster(result.poster_url, result.poster_path) || "/placeholder-poster.svg"}
+                  src={
+                    resolveSearchPoster(result.poster_url, result.poster_path) ||
+                    "/placeholder-poster.svg"
+                  }
                   alt=""
                   className="h-full w-full object-contain"
                 />

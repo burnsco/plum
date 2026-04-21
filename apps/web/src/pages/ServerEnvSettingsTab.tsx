@@ -18,15 +18,7 @@ function FieldHint({ text }: { text: string }) {
   );
 }
 
-function LabelWithHint({
-  htmlFor,
-  label,
-  hint,
-}: {
-  htmlFor: string;
-  label: string;
-  hint: string;
-}) {
+function LabelWithHint({ htmlFor, label, hint }: { htmlFor: string; label: string; hint: string }) {
   return (
     <label
       htmlFor={htmlFor}
@@ -125,7 +117,11 @@ export function ServerEnvSettingsTab() {
   const dirty = useMemo(() => {
     const d = query.data;
     if (!d) return false;
-    if (plumAddr !== d.plum_addr || dbURL !== d.plum_database_url || musicBrainz !== d.musicbrainz_contact_url) {
+    if (
+      plumAddr !== d.plum_addr ||
+      dbURL !== d.plum_database_url ||
+      musicBrainz !== d.musicbrainz_contact_url
+    ) {
       return true;
     }
     if (tmdb.trim() || tvdb.trim() || omdb.trim() || fanart.trim()) return true;
@@ -203,11 +199,14 @@ export function ServerEnvSettingsTab() {
       <section className="rounded-xl border border-(--plum-border) bg-gradient-to-br from-(--plum-panel)/95 to-(--plum-panel-alt)/40 p-6 shadow-[0_24px_50px_rgba(0,0,0,0.35)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold tracking-tight text-(--plum-text)">Server &amp; environment</h2>
+            <h2 className="text-xl font-semibold tracking-tight text-(--plum-text)">
+              Server &amp; environment
+            </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-(--plum-muted)">
-              Edit the same variables you would set in your <code className="text-(--plum-text-secondary)">.env</code>{" "}
-              file. Saving writes the file on the server host and updates metadata keys for the running process.
-              Radarr and Sonarr fields stay on the Media stack tab; saving there also syncs{" "}
+              Edit the same variables you would set in your{" "}
+              <code className="text-(--plum-text-secondary)">.env</code> file. Saving writes the
+              file on the server host and updates metadata keys for the running process. Radarr and
+              Sonarr fields stay on the Media stack tab; saving there also syncs{" "}
               <code className="text-(--plum-text-secondary)">PLUM_RADARR_*</code> and{" "}
               <code className="text-(--plum-text-secondary)">PLUM_SONARR_TV_*</code>.
             </p>
@@ -225,10 +224,14 @@ export function ServerEnvSettingsTab() {
               : "border-amber-500/30 bg-amber-500/10 text-amber-100",
           )}
         >
-          {d.env_file_writable ? null : <AlertCircle className="size-5 shrink-0 text-amber-200" aria-hidden />}
+          {d.env_file_writable ? null : (
+            <AlertCircle className="size-5 shrink-0 text-amber-200" aria-hidden />
+          )}
           <div className="min-w-0 flex-1">
             <p className="font-medium text-(--plum-text)">Target file</p>
-            <p className="mt-1 break-all font-mono text-xs text-(--plum-muted)">{d.env_file_path}</p>
+            <p className="mt-1 break-all font-mono text-xs text-(--plum-muted)">
+              {d.env_file_path}
+            </p>
             <p className="mt-2 text-xs leading-snug text-(--plum-muted)">{d.help}</p>
           </div>
         </div>
@@ -244,10 +247,12 @@ export function ServerEnvSettingsTab() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-(--plum-border) bg-(--plum-panel)/80 p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-(--plum-muted)">Process &amp; database</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-(--plum-muted)">
+            Process &amp; database
+          </h3>
           <p className="mt-2 text-xs text-(--plum-muted)">
-            Changing these updates the file only. Restart the Plum server so the new listen address or SQLite path take
-            effect.
+            Changing these updates the file only. Restart the Plum server so the new listen address
+            or SQLite path take effect.
           </p>
           <div className="mt-5 space-y-4">
             <div>
@@ -256,7 +261,12 @@ export function ServerEnvSettingsTab() {
                 label="PLUM_ADDR"
                 hint="Host and port the Go server binds to, e.g. :8080 or 127.0.0.1:8080."
               />
-              <Input id="env-plum-addr" value={plumAddr} onChange={(e) => setPlumAddr(e.target.value)} placeholder=":8080" />
+              <Input
+                id="env-plum-addr"
+                value={plumAddr}
+                onChange={(e) => setPlumAddr(e.target.value)}
+                placeholder=":8080"
+              />
             </div>
             <div>
               <LabelWithHint
@@ -288,9 +298,12 @@ export function ServerEnvSettingsTab() {
         </section>
 
         <section className="rounded-xl border border-(--plum-border) bg-(--plum-panel)/80 p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-(--plum-muted)">Metadata API keys</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-(--plum-muted)">
+            Metadata API keys
+          </h3>
           <p className="mt-2 text-xs text-(--plum-muted)">
-            Keys are stored in plaintext in .env like other self-hosted apps. They are not shown back after save.
+            Keys are stored in plaintext in .env like other self-hosted apps. They are not shown
+            back after save.
           </p>
           <div className="mt-5 grid gap-4">
             <SecretFieldRow
@@ -348,7 +361,6 @@ export function ServerEnvSettingsTab() {
           </div>
         </section>
       </div>
-
     </div>
   );
 }

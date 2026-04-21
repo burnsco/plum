@@ -5,7 +5,9 @@ export function clampProgressPercent(value?: number): number {
   return Math.max(0, Math.min(100, value ?? 0));
 }
 
-export function shouldShowProgress(item: Pick<MediaItem, "progress_percent" | "completed">): boolean {
+export function shouldShowProgress(
+  item: Pick<MediaItem, "progress_percent" | "completed">,
+): boolean {
   const percent = clampProgressPercent(item.progress_percent);
   return !item.completed && percent > 0 && percent < 90;
 }

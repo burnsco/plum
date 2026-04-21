@@ -19,25 +19,19 @@ export function usePlaybackDockWindowChrome(isWindowPlayer: boolean) {
   const [browserFullscreenActive, setBrowserFullscreenActive] = useState(false);
 
   const syncBrowserFullscreenState = useCallback(() => {
-    setBrowserFullscreenActive(
-      document.fullscreenElement === playerRootRef.current,
-    );
+    setBrowserFullscreenActive(document.fullscreenElement === playerRootRef.current);
   }, []);
 
   useEffect(() => {
     syncBrowserFullscreenState();
     const handleFullscreenChange = () => syncBrowserFullscreenState();
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () =>
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [syncBrowserFullscreenState]);
 
   const toggleBrowserFullscreen = useCallback(() => {
     if (document.fullscreenElement === playerRootRef.current) {
-      ignorePromise(
-        document.exitFullscreen(),
-        "PlaybackDock:exitFullscreenToggle",
-      );
+      ignorePromise(document.exitFullscreen(), "PlaybackDock:exitFullscreenToggle");
       return;
     }
     if (!playerRootRef.current) return;

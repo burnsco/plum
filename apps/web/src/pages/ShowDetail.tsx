@@ -19,7 +19,12 @@ import { usePlayerQueue } from "../contexts/PlayerContext";
 import { formatEpisodeLabel, formatRemainingTime, shouldShowProgress } from "../lib/progress";
 import { resolveBackdropUrl, resolvePosterUrl } from "@plum/shared";
 import { fileNameFromPath } from "@/utils/fileNameFromPath";
-import { useMarkShowWatched, useShowDetails, useShowEpisodes, useUpdateMediaProgress } from "../queries";
+import {
+  useMarkShowWatched,
+  useShowDetails,
+  useShowEpisodes,
+  useUpdateMediaProgress,
+} from "../queries";
 
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "";
@@ -55,7 +60,8 @@ export function ShowDetail() {
   const activeSeason = selectedSeason ?? episodesBySeason.seasons[0] ?? null;
   const activeSeasonEpisodes =
     activeSeason == null ? [] : (episodesBySeason.map.get(activeSeason) ?? []);
-  const activeSeasonLabel = activeSeason == null ? "" : (episodesBySeason.labels.get(activeSeason) ?? "");
+  const activeSeasonLabel =
+    activeSeason == null ? "" : (episodesBySeason.labels.get(activeSeason) ?? "");
 
   const markActionsDisabled =
     libraryId == null ||

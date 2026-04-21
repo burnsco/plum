@@ -74,11 +74,7 @@ export function usePlaybackQueue({
   }, []);
 
   const playVideoQueue = useCallback(
-    (
-      items: MediaItem[],
-      startIndex = 0,
-      options?: { resumeIntent?: "continue_watching" },
-    ) => {
+    (items: MediaItem[], startIndex = 0, options?: { resumeIntent?: "continue_watching" }) => {
       if (items.length === 0) return;
       pauseAllMediaElements();
       const clampedIndex = Math.max(0, Math.min(startIndex, items.length - 1));
@@ -98,7 +94,10 @@ export function usePlaybackQueue({
       setMusicBaseQueue([]);
       setLastEvent("");
       if (!nextItem) return;
-      ignorePromiseAlwaysLogUnexpected(warmEmbeddedSubtitleCaches(nextItem.id), "Player:warmEmbeddedSubtitles");
+      ignorePromiseAlwaysLogUnexpected(
+        warmEmbeddedSubtitleCaches(nextItem.id),
+        "Player:warmEmbeddedSubtitles",
+      );
       const burnEmbeddedSubtitleStreamIndex =
         playbackPreferences.initialBurnEmbeddedSubtitleStreamIndex(nextItem);
       createClientPlaybackSession(nextItem, playbackPreferences.initialAudioStreamIndex(nextItem), {
@@ -110,9 +109,7 @@ export function usePlaybackQueue({
         })
         .catch((err) => {
           console.error("[Player] createPlaybackSession failed", err);
-          setLastEvent(
-            `Error: ${err instanceof Error ? err.message : "Failed to start playback"}`,
-          );
+          setLastEvent(`Error: ${err instanceof Error ? err.message : "Failed to start playback"}`);
         });
     },
     [
@@ -164,19 +161,24 @@ export function usePlaybackQueue({
       const burnEmbeddedSubtitleStreamIndex =
         videoSessionRef.current?.burnEmbeddedSubtitleStreamIndex ??
         playbackPreferences.initialBurnEmbeddedSubtitleStreamIndex(nextItem);
-      ignorePromiseAlwaysLogUnexpected(warmEmbeddedSubtitleCaches(nextItem.id), "Player:warmEmbeddedSubtitles");
-      createClientPlaybackSession(nextItem, preferredInitialAudioIndex(nextItem, preferredAudioLanguage), {
-        burnEmbeddedSubtitleStreamIndex: burnEmbeddedSubtitleStreamIndex ?? undefined,
-      })
+      ignorePromiseAlwaysLogUnexpected(
+        warmEmbeddedSubtitleCaches(nextItem.id),
+        "Player:warmEmbeddedSubtitles",
+      );
+      createClientPlaybackSession(
+        nextItem,
+        preferredInitialAudioIndex(nextItem, preferredAudioLanguage),
+        {
+          burnEmbeddedSubtitleStreamIndex: burnEmbeddedSubtitleStreamIndex ?? undefined,
+        },
+      )
         .then((session) => {
           if (!mountedRef.current) return;
           applyPlaybackSession(session);
         })
         .catch((err) => {
           console.error("[Player] createPlaybackSession failed", err);
-          setLastEvent(
-            `Error: ${err instanceof Error ? err.message : "Failed to start playback"}`,
-          );
+          setLastEvent(`Error: ${err instanceof Error ? err.message : "Failed to start playback"}`);
         });
     },
     [
@@ -212,12 +214,7 @@ export function usePlaybackQueue({
           : undefined;
       const showKey = explicitKey || derivedKey;
 
-      if (
-        (item.type === "tv" || item.type === "anime") &&
-        libId != null &&
-        libId > 0 &&
-        showKey
-      ) {
+      if ((item.type === "tv" || item.type === "anime") && libId != null && libId > 0 && showKey) {
         getShowEpisodes(libId, showKey)
           .then((res) => {
             if (!mountedRef.current) return;
@@ -262,9 +259,7 @@ export function usePlaybackQueue({
 
   const playMusicCollection = useCallback(
     (items: MediaItem[], startItem?: MediaItem) => {
-      const baseQueue = sortMusicTracks(
-        items.filter((item) => item.type === "music"),
-      );
+      const baseQueue = sortMusicTracks(items.filter((item) => item.type === "music"));
       if (baseQueue.length === 0) return;
 
       pauseAllMediaElements();
@@ -272,9 +267,7 @@ export function usePlaybackQueue({
       const target = startItem ?? baseQueue[0];
       const nextShuffle = activeMode === "music" ? shuffle : false;
       const nextRepeatMode = activeMode === "music" ? repeatMode : "off";
-      const orderedQueue = nextShuffle
-        ? shuffleQueue(baseQueue, target.id)
-        : baseQueue;
+      const orderedQueue = nextShuffle ? shuffleQueue(baseQueue, target.id) : baseQueue;
       const nextIndex = Math.max(0, indexOfQueueItem(orderedQueue, target.id));
 
       setMusicBaseQueue(baseQueue);
@@ -326,12 +319,7 @@ export function usePlaybackQueue({
       return;
     }
     setPlaybackSession((current) => {
-      if (
-        !current ||
-        current.activeMode !== "music" ||
-        current.queue.length === 0
-      )
-        return current;
+      if (!current || current.activeMode !== "music" || current.queue.length === 0) return current;
       const atLastItem = current.queueIndex >= current.queue.length - 1;
       if (!atLastItem) {
         return {
@@ -360,12 +348,7 @@ export function usePlaybackQueue({
       return;
     }
     setPlaybackSession((current) => {
-      if (
-        !current ||
-        current.activeMode !== "music" ||
-        current.queue.length === 0
-      )
-        return current;
+      if (!current || current.activeMode !== "music" || current.queue.length === 0) return current;
       if (current.queueIndex > 0) {
         return {
           ...current,
@@ -409,10 +392,8 @@ export function usePlaybackQueue({
   const cycleRepeatMode = useCallback(() => {
     setPlaybackSession((current) => {
       if (!current || current.activeMode !== "music") return current;
-      if (current.repeatMode === "off")
-        return { ...current, repeatMode: "all" };
-      if (current.repeatMode === "all")
-        return { ...current, repeatMode: "one" };
+      if (current.repeatMode === "off") return { ...current, repeatMode: "all" };
+      if (current.repeatMode === "all") return { ...current, repeatMode: "one" };
       return { ...current, repeatMode: "off" };
     });
   }, [setPlaybackSession]);

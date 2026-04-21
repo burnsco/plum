@@ -47,16 +47,18 @@ const DISCOVER_CATEGORY_DEFAULT_MEDIA: Record<DiscoverBrowseCategory, DiscoverMe
   "top-rated": "movie",
 };
 
-export const DISCOVER_CATEGORY_OPTIONS: DiscoverCategoryOption[] = DISCOVER_BROWSE_CATEGORY_ORDER.map(
-  (id) => ({
+export const DISCOVER_CATEGORY_OPTIONS: DiscoverCategoryOption[] =
+  DISCOVER_BROWSE_CATEGORY_ORDER.map((id) => ({
     id,
     label: DISCOVER_CATEGORY_LABELS[id],
     defaultMediaType: DISCOVER_CATEGORY_DEFAULT_MEDIA[id],
-  }),
-);
+  }));
 
 /** ISO 3166-1 alpha-2 codes (TMDB `with_origin_country`). UK is `GB`. */
-export const DISCOVER_ORIGIN_PRESETS: ReadonlyArray<{ readonly code: string; readonly label: string }> = [
+export const DISCOVER_ORIGIN_PRESETS: ReadonlyArray<{
+  readonly code: string;
+  readonly label: string;
+}> = [
   { code: "GB", label: "UK" },
   { code: "FR", label: "France" },
   { code: "DE", label: "Germany" },
@@ -184,9 +186,7 @@ export function discoverDetailMeta(details: DiscoverTitleDetails): string[] {
   }
   if (details.media_type === "tv") {
     if (details.number_of_seasons) {
-      meta.push(
-        `${details.number_of_seasons} season${details.number_of_seasons === 1 ? "" : "s"}`,
-      );
+      meta.push(`${details.number_of_seasons} season${details.number_of_seasons === 1 ? "" : "s"}`);
     }
     if (details.runtime) {
       meta.push(`${details.runtime} min episodes`);

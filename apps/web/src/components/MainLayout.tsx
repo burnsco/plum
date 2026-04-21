@@ -2,16 +2,15 @@ import { Suspense, lazy } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { DownloadCompletionNotifier } from "@/components/DownloadCompletionNotifier";
 import { LibraryReadyNotifier } from "@/components/LibraryReadyNotifier";
-import {
-  PageRouteSkeleton,
-  PlaybackDockSkeleton,
-} from "@/components/loading/PlumLoadingSkeletons";
+import { PageRouteSkeleton, PlaybackDockSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
 import { Toaster } from "./ui/sonner";
 
-const PlaybackDock = lazy(() => import("./PlaybackDock").then(m => ({ default: m.PlaybackDock })));
+const PlaybackDock = lazy(() =>
+  import("./PlaybackDock").then((m) => ({ default: m.PlaybackDock })),
+);
 
 export function MainLayout() {
   const location = useLocation();

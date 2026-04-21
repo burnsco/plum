@@ -11,10 +11,7 @@ const Slider = forwardRef<
   return (
     <SliderPrimitive.Root
       ref={ref}
-      className={cn(
-        "relative flex w-full touch-none select-none items-center",
-        className,
-      )}
+      className={cn("relative flex w-full touch-none select-none items-center", className)}
       aria-label={ariaLabel}
       aria-labelledby={ariaLabelledBy}
       title={title}

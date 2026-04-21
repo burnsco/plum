@@ -66,7 +66,10 @@ function DownloadRow({
       <tr className="group border-b border-(--plum-border) transition-colors hover:bg-[rgba(181,123,255,0.04)]">
         {/* Title */}
         <td className="py-3 pl-4 pr-3">
-          <span className="block max-w-xs truncate text-sm font-medium text-(--plum-text) lg:max-w-sm xl:max-w-md" title={item.title}>
+          <span
+            className="block max-w-xs truncate text-sm font-medium text-(--plum-text) lg:max-w-sm xl:max-w-md"
+            title={item.title}
+          >
             {item.title}
           </span>
           <span className="mt-0.5 block text-xs text-(--plum-muted)">{item.status_text}</span>
@@ -148,9 +151,7 @@ export function Downloads() {
           <ArrowDownCircle className="size-5 text-(--plum-accent)" />
           <div>
             <h1 className="text-xl font-semibold text-(--plum-text)">Downloads</h1>
-            <p className="text-xs text-(--plum-muted)">
-              Live queue from Radarr and Sonarr TV
-            </p>
+            <p className="text-xs text-(--plum-muted)">Live queue from Radarr and Sonarr TV</p>
           </div>
         </div>
         <Button
@@ -199,9 +200,7 @@ export function Downloads() {
           <div className="flex items-start gap-3">
             <Download className="mt-0.5 size-5 text-(--plum-accent)" />
             <div>
-              <h2 className="text-base font-semibold text-(--plum-text)">
-                No active downloads
-              </h2>
+              <h2 className="text-base font-semibold text-(--plum-text)">No active downloads</h2>
               <p className="mt-2 text-sm leading-6 text-(--plum-muted)">
                 New items you add from Discover will show up here while Radarr or Sonarr TV is
                 working on them.
@@ -243,7 +242,10 @@ export function Downloads() {
                 <DownloadRow
                   key={item.id}
                   item={item}
-                  clearing={removeDownloadMutation.isPending && removeDownloadMutation.variables?.id === item.id}
+                  clearing={
+                    removeDownloadMutation.isPending &&
+                    removeDownloadMutation.variables?.id === item.id
+                  }
                   onClear={() => {
                     removeDownloadMutation.mutate(
                       { id: item.id },

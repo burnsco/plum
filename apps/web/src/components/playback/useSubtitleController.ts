@@ -68,9 +68,7 @@ export function resolveWebSubtitleSelection({
   }
 
   const burnKey =
-    burnEmbeddedSubtitleStreamIndex != null
-      ? `emb:${burnEmbeddedSubtitleStreamIndex}`
-      : null;
+    burnEmbeddedSubtitleStreamIndex != null ? `emb:${burnEmbeddedSubtitleStreamIndex}` : null;
   const loadState = subtitleLoadStateByKey[selectedTrack.key] ?? "idle";
 
   if (selectedTrack.requiresBurn === true || (burnKey != null && selectedTrack.key === burnKey)) {

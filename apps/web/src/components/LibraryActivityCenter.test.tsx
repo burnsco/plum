@@ -133,12 +133,12 @@ describe("LibraryActivityCenter", () => {
 
     expect(screen.getByTestId("library-activity-badge")).toHaveTextContent("1");
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Server activity/i }),
-    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
 
     expect(await screen.findByText("Server activity")).toBeVisible();
-    expect(screen.queryByText("What Plum is doing now, and what just finished.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("What Plum is doing now, and what just finished."),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Now")).not.toBeInTheDocument();
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("TV");
     expect(screen.getByTestId("library-activity-status-1")).toHaveTextContent("Importing");
@@ -161,20 +161,14 @@ describe("LibraryActivityCenter", () => {
 
     render(<LibraryActivityCenter />);
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Server activity/i }),
-    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
 
-    expect(
-      await screen.findByText("Nothing is happening right now."),
-    ).toBeVisible();
+    expect(await screen.findByText("Nothing is happening right now.")).toBeVisible();
   });
 
   it("shows queued identify in the activity list", async () => {
     mockUseLibraries.mockReturnValue({
-      data: [
-        { id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
-      ],
+      data: [{ id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 }],
     } as unknown as ReturnType<typeof useLibraries>);
     mockUseScanQueue.mockReturnValue({
       activeLibraryIds: [2],
@@ -207,9 +201,7 @@ describe("LibraryActivityCenter", () => {
 
     render(<LibraryActivityCenter />);
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Server activity/i }),
-    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
 
     const statusCard = await screen.findByTestId("library-activity-status-2");
     expect(within(statusCard).getByText("Identify queued")).toBeVisible();
@@ -218,9 +210,7 @@ describe("LibraryActivityCenter", () => {
 
   it("updates from identifying to failed without stale activity labels", async () => {
     mockUseLibraries.mockReturnValue({
-      data: [
-        { id: 4, name: "Movies", type: "movie", path: "/movies", user_id: 1 },
-      ],
+      data: [{ id: 4, name: "Movies", type: "movie", path: "/movies", user_id: 1 }],
     } as unknown as ReturnType<typeof useLibraries>);
 
     mockUseScanQueue.mockReturnValue({
@@ -254,9 +244,7 @@ describe("LibraryActivityCenter", () => {
 
     const view = render(<LibraryActivityCenter />);
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: /Server activity/i }),
-    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Server activity/i }));
 
     let statusCard = await screen.findByTestId("library-activity-status-4");
     expect(within(statusCard).getByText("Identifying")).toBeVisible();

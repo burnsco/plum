@@ -6,9 +6,7 @@ export type PlaybackPreferencesContextValue = {
   librariesFetched: boolean;
 };
 
-const PlaybackPreferencesContext = createContext<PlaybackPreferencesContextValue | null>(
-  null,
-);
+const PlaybackPreferencesContext = createContext<PlaybackPreferencesContextValue | null>(null);
 
 export function PlaybackPreferencesProvider({
   children,
@@ -27,9 +25,7 @@ export function PlaybackPreferencesProvider({
 export function usePlayerPlaybackPreferences(): PlaybackPreferencesContextValue {
   const ctx = useContext(PlaybackPreferencesContext);
   if (!ctx) {
-    throw new Error(
-      "usePlayerPlaybackPreferences must be used within PlaybackPreferencesProvider",
-    );
+    throw new Error("usePlayerPlaybackPreferences must be used within PlaybackPreferencesProvider");
   }
   return ctx;
 }

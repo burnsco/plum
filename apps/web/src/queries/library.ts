@@ -60,6 +60,7 @@ import {
   libraryBrowseItemToMediaItem,
   normalizeLibraryMediaPage,
   notifyMutationError,
+  QUERY_CACHE_RETENTION_MS,
   queryKeys,
   SCAN_SENSITIVE_STALE_MS,
   selectMovieDetailsForPage,
@@ -74,7 +75,7 @@ export function useLibraries(): UseQueryResult<Library[], Error> {
     queryKey: queryKeys.libraries,
     queryFn: async () => contractsView<Library[]>(await listLibraries()),
     staleTime: SCAN_SENSITIVE_STALE_MS,
-    gcTime: 15 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.libraryCatalog,
   });
 }
 
@@ -87,7 +88,7 @@ export function useUnidentifiedLibrarySummaries(): UseQueryResult<
     queryFn: async () =>
       contractsView<UnidentifiedLibrariesResponse>(await getUnidentifiedLibrarySummaries()),
     staleTime: SCAN_SENSITIVE_STALE_MS,
-    gcTime: 10 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.standardBrowse,
   });
 }
 
@@ -99,7 +100,7 @@ export function useHomeDashboard(options?: {
     queryFn: async () => buildHomeDashboard(contractsView<HomeDashboard>(await getHomeDashboard())),
     enabled: options?.enabled ?? true,
     staleTime: SCAN_SENSITIVE_STALE_MS,
-    gcTime: 5 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.dashboard,
   });
 }
 
@@ -128,7 +129,7 @@ export function useLibraryMedia(
     getNextPageParam: (lastPage) => lastPage.next_offset,
     refetchInterval: options?.refetchInterval,
     staleTime: SCAN_SENSITIVE_STALE_MS,
-    gcTime: 3 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.activeBrowse,
   });
 }
 
@@ -210,13 +211,16 @@ export function useUpdateMediaProgress(): UseMutationResult<
   return useMutation({
     mutationFn: ({ mediaId, payload }) => updateMediaProgress(mediaId, payload),
     onMutate: async ({ mediaId, payload }) => {
-      if (payload.completed !== true) return { previousHome: undefined as HomeDashboard | undefined };
+      if (payload.completed !== true)
+        return { previousHome: undefined as HomeDashboard | undefined };
       await queryClient.cancelQueries({ queryKey: queryKeys.home });
       const previousHome = queryClient.getQueryData<HomeDashboard>(queryKeys.home);
       if (previousHome != null) {
         queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
           ...previousHome,
-          continueWatching: previousHome.continueWatching.filter((entry) => entry.media.id !== mediaId),
+          continueWatching: previousHome.continueWatching.filter(
+            (entry) => entry.media.id !== mediaId,
+          ),
         });
       }
       return { previousHome };
@@ -252,7 +256,9 @@ export function useSetContinueWatchingVisibility(): UseMutationResult<
       if (previousHome != null) {
         queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
           ...previousHome,
-          continueWatching: previousHome.continueWatching.filter((entry) => entry.media.id !== mediaId),
+          continueWatching: previousHome.continueWatching.filter(
+            (entry) => entry.media.id !== mediaId,
+          ),
         });
       }
       return { previousHome };
@@ -287,7 +293,9 @@ export function useClearMediaProgress(): UseMutationResult<
       if (previousHome != null) {
         queryClient.setQueryData<HomeDashboard>(queryKeys.home, {
           ...previousHome,
-          continueWatching: previousHome.continueWatching.filter((entry) => entry.media.id !== mediaId),
+          continueWatching: previousHome.continueWatching.filter(
+            (entry) => entry.media.id !== mediaId,
+          ),
         });
       }
       return { previousHome };
@@ -376,7 +384,7 @@ export function useSeries(
     queryFn: async () => contractsView<SeriesDetails | null>(await fetchSeriesByTmdbId(tmdbId!)),
     enabled: (options?.enabled ?? true) && tmdbId != null && tmdbId > 0,
     staleTime: METADATA_DETAIL_STALE_MS,
-    gcTime: 30 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.extendedMetadata,
   });
 }
 
@@ -392,7 +400,7 @@ export function useMovieDetails(
     select: selectMovieDetailsForPage,
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
     staleTime: METADATA_DETAIL_STALE_MS,
-    gcTime: 20 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.titleDetails,
   });
 }
 
@@ -408,7 +416,7 @@ export function useShowDetails(
     select: selectShowDetailsForPage,
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: METADATA_DETAIL_STALE_MS,
-    gcTime: 20 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.titleDetails,
   });
 }
 
@@ -423,7 +431,7 @@ export function useShowEpisodes(
       contractsView<ShowEpisodesResponse>(await getShowEpisodes(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: SCAN_SENSITIVE_STALE_MS,
-    gcTime: 15 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.libraryCatalog,
   });
 }
 
@@ -435,9 +443,7 @@ export function useMoviePosterCandidates(
   return useQuery({
     queryKey: queryKeys.moviePosterCandidates(libraryId ?? 0, mediaId ?? 0),
     queryFn: async () =>
-      contractsView<PosterCandidatesResponse>(
-        await getMoviePosterCandidates(libraryId!, mediaId!),
-      ),
+      contractsView<PosterCandidatesResponse>(await getMoviePosterCandidates(libraryId!, mediaId!)),
     enabled: (options?.enabled ?? true) && libraryId != null && mediaId != null && mediaId > 0,
     staleTime: METADATA_DETAIL_STALE_MS,
   });
@@ -451,9 +457,7 @@ export function useShowPosterCandidates(
   return useQuery({
     queryKey: queryKeys.showPosterCandidates(libraryId ?? 0, showKey ?? ""),
     queryFn: async () =>
-      contractsView<PosterCandidatesResponse>(
-        await getShowPosterCandidates(libraryId!, showKey!),
-      ),
+      contractsView<PosterCandidatesResponse>(await getShowPosterCandidates(libraryId!, showKey!)),
     enabled: (options?.enabled ?? true) && libraryId != null && Boolean(showKey),
     staleTime: METADATA_DETAIL_STALE_MS,
   });
@@ -491,7 +495,7 @@ export function useLibrarySearch(
       ),
     enabled: (options?.enabled ?? true) && normalizedQuery.length >= 2,
     staleTime: SCAN_SENSITIVE_STALE_MS,
-    gcTime: 2 * 60 * 1000,
+    gcTime: QUERY_CACHE_RETENTION_MS.ephemeralSearch,
   });
 }
 
@@ -569,7 +573,10 @@ export function useConfirmShow(): UseMutationResult<
   });
 }
 
-type PosterMutationCtx = { previous: MovieDetails | null | undefined; detailKey: readonly unknown[] };
+type PosterMutationCtx = {
+  previous: MovieDetails | null | undefined;
+  detailKey: readonly unknown[];
+};
 
 export function useSetMoviePosterSelection(): UseMutationResult<
   void,
@@ -603,7 +610,9 @@ export function useSetMoviePosterSelection(): UseMutationResult<
     onSuccess: (_, { libraryId, mediaId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId),
+      });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
@@ -621,7 +630,9 @@ export function useResetMoviePosterSelection(): UseMutationResult<
     onSuccess: (_, { libraryId, mediaId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.movieDetails(libraryId, mediaId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.moviePosterCandidates(libraryId, mediaId),
+      });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
@@ -629,7 +640,10 @@ export function useResetMoviePosterSelection(): UseMutationResult<
   });
 }
 
-type ShowPosterMutationCtx = { previous: ShowDetails | null | undefined; detailKey: readonly unknown[] };
+type ShowPosterMutationCtx = {
+  previous: ShowDetails | null | undefined;
+  detailKey: readonly unknown[];
+};
 
 export function useSetShowPosterSelection(): UseMutationResult<
   void,
@@ -664,7 +678,9 @@ export function useSetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.showPosterCandidates(libraryId, showKey),
+      });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },
@@ -683,7 +699,9 @@ export function useResetShowPosterSelection(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.library(libraryId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showDetails(libraryId, showKey) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.showEpisodes(libraryId, showKey) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.showPosterCandidates(libraryId, showKey) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.showPosterCandidates(libraryId, showKey),
+      });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       invalidateSearchAfterLibraryDataChange(queryClient, libraryId);
     },

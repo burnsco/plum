@@ -1,9 +1,6 @@
 import type { Library } from "@plum/contracts";
 import { Button } from "@/components/ui/button";
-import {
-  languagePreferenceOptions,
-  normalizeLanguagePreference,
-} from "@/lib/playbackPreferences";
+import { languagePreferenceOptions, normalizeLanguagePreference } from "@/lib/playbackPreferences";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { SettingsInputRow, SettingsSelectRow, SettingsToggleRow } from "./SettingsRows";
 import {
@@ -42,8 +39,8 @@ export function SettingsPlaybackTab({
         <h2 className="text-xl font-semibold text-(--plum-text)">Playback defaults</h2>
         <p className="max-w-2xl text-sm text-(--plum-muted)">
           Choose the default playback behavior and scan automation for each library. Anime libraries
-          default to Japanese audio with English subtitles; TV and movie libraries default to English
-          for both when available.
+          default to Japanese audio with English subtitles; TV and movie libraries default to
+          English for both when available.
         </p>
       </div>
 
@@ -149,12 +146,11 @@ export function SettingsPlaybackTab({
                       }
                       description="If the preferred subtitle language exists, Plum will enable it automatically."
                     />
-
                   </div>
                 ) : (
                   <p className="mt-5 text-sm text-(--plum-muted)">
-                    Music libraries skip playback language defaults, but still support automated scan
-                    behavior below.
+                    Music libraries skip playback language defaults, but still support automated
+                    scan behavior below.
                   </p>
                 )}
 
@@ -194,8 +190,8 @@ export function SettingsPlaybackTab({
                     label="Scheduled scan interval"
                     description={
                       <>
-                        Enter minutes between automatic scans. Use <code>0</code> to disable scheduled
-                        scans.
+                        Enter minutes between automatic scans. Use <code>0</code> to disable
+                        scheduled scans.
                       </>
                     }
                     inputProps={{

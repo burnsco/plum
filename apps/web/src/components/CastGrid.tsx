@@ -32,7 +32,12 @@ export function CastGrid({
       ) : (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {members.map((member) => {
-            const headshot = resolveCastProfileUrl(undefined, member.profile_path ?? undefined, "w185", BASE_URL);
+            const headshot = resolveCastProfileUrl(
+              undefined,
+              member.profile_path ?? undefined,
+              "w185",
+              BASE_URL,
+            );
             const initial = member.name.trim().charAt(0).toUpperCase() || "?";
             return (
               <Link

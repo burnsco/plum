@@ -1,0 +1,35 @@
+{
+  "$schema": "./apps/web/node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "oxc", "typescript", "unicorn", "import"],
+  "categories": {
+    "correctness": "warn",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "eslint/no-shadow": "off",
+    "eslint/no-extend-native": "off",
+    "eslint/no-await-in-loop": "off",
+    "import/no-named-as-default": "off",
+    "import/no-named-as-default-member": "off",
+    "import/no-unassigned-import": "off",
+    "oxc/no-map-spread": "off",
+    "typescript/no-explicit-any": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/require-module-specifiers": "off",
+    "unicorn/no-useless-spread": "off"
+  },
+  "env": {
+    "builtin": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    "**/dist",
+    "**/node_modules",
+    "**/target",
+    "**/build",
+    "**/coverage",
+    "**/generated",
+    "bun.lock"
+  ]
+}

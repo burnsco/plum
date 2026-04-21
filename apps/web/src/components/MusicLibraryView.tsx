@@ -1,10 +1,7 @@
 import { useRef, useMemo, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MediaItem } from "../api";
-import {
-  buildMusicLibraryGroups,
-  formatRuntime,
-} from "../lib/musicGrouping";
+import { buildMusicLibraryGroups, formatRuntime } from "../lib/musicGrouping";
 import { useLoadMoreTrigger, useVirtualContainerMetrics } from "../lib/virtualization";
 import { LibraryPosterGrid } from "./LibraryPosterGrid";
 
@@ -18,12 +15,7 @@ interface Props {
 const TRACK_ROW_ESTIMATE = 74;
 const TRACK_VIRTUALIZATION_THRESHOLD = 150;
 
-export function MusicLibraryView({
-  items,
-  onPlayCollection,
-  hasMore = false,
-  onLoadMore,
-}: Props) {
+export function MusicLibraryView({ items, onPlayCollection, hasMore = false, onLoadMore }: Props) {
   const { tracks, albums, artists } = useMemo(() => buildMusicLibraryGroups(items), [items]);
 
   return (
@@ -161,7 +153,11 @@ function VirtualTrackList({
           <div
             ref={loadMoreRef}
             className="w-full"
-            style={{ position: "absolute", top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`, height: "1px" }}
+            style={{
+              position: "absolute",
+              top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`,
+              height: "1px",
+            }}
             aria-hidden="true"
           />
         ) : null}

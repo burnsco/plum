@@ -39,181 +39,163 @@ function DetailCard({ item }: { item: PosterGridItem }) {
 
   return (
     <LibraryMediaContextMenu menu={item.contextMenuContent}>
-    <div
-      className={cn(
-        "group relative flex gap-4 rounded-lg border border-(--plum-border) bg-[rgba(18,18,18,0.96)] p-3 transition-all hover:border-[rgba(255,255,255,0.12)] hover:bg-[rgba(24,24,24,0.98)]",
-        item.href || item.onClick ? "cursor-pointer" : "",
-      )}
-    >
-      <RowHitArea item={item} />
+      <div
+        className={cn(
+          "group relative flex gap-4 rounded-lg border border-(--plum-border) bg-[rgba(18,18,18,0.96)] p-3 transition-all hover:border-[rgba(255,255,255,0.12)] hover:bg-[rgba(24,24,24,0.98)]",
+          item.href || item.onClick ? "cursor-pointer" : "",
+        )}
+      >
+        <RowHitArea item={item} />
 
-      {/* Poster thumbnail */}
-      <div className="relative aspect-2/3 w-16 shrink-0 overflow-hidden rounded-md bg-[rgba(255,255,255,0.05)]">
-        {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="h-full w-full bg-[rgba(255,255,255,0.04)]" />
-        )}
+        {/* Poster thumbnail */}
+        <div className="relative aspect-2/3 w-16 shrink-0 overflow-hidden rounded-md bg-[rgba(255,255,255,0.05)]">
+          {posterUrl ? (
+            <img src={posterUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="h-full w-full bg-[rgba(255,255,255,0.04)]" />
+          )}
 
-        {/* Play overlay */}
-        {item.onPlay && (
-          <button
-            type="button"
-            aria-label={`Play ${item.title}`}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              item.onPlay?.();
-            }}
-            className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100"
-          >
-            <Play className="size-5 fill-white text-white" />
-          </button>
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="flex min-w-0 flex-1 flex-col gap-1 py-0.5">
-        <div className="text-sm font-semibold text-(--plum-text) truncate">{item.title}</div>
-        <div className="text-xs text-(--plum-muted)">{item.subtitle}</div>
-        {item.metaLine && (
-          <div className="text-xs text-(--plum-muted) truncate">{item.metaLine}</div>
-        )}
-        {item.ratingValue && (
-          <RatingBadge
-            label={item.ratingLabel}
-            value={item.ratingValue}
-            className="mt-auto"
-          />
-        )}
-        {item.progressPercent != null && item.progressPercent > 0 && item.progressPercent < 95 && (
-          <div className="h-0.5 w-full rounded-full bg-[rgba(255,255,255,0.1)]">
-            <div
-              className="h-full rounded-full bg-[#f7c44f]"
-              style={{ width: `${item.progressPercent}%` }}
-            />
-          </div>
-        )}
-        {item.statusLabel && (
-          <div className="text-xs text-(--plum-muted) italic">{item.statusLabel}</div>
-        )}
-        {item.statusActionLabel && item.onStatusAction && (
-          <div className="pt-1">
+          {/* Play overlay */}
+          {item.onPlay && (
             <button
               type="button"
-              disabled={item.statusActionDisabled}
+              aria-label={`Play ${item.title}`}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                item.onStatusAction?.();
+                item.onPlay?.();
               }}
-              className="relative z-20 inline-flex items-center rounded-full border border-(--plum-border) px-3 py-1 text-[11px] font-medium text-(--plum-text) transition-colors hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100"
             >
-              {item.statusActionLabel}
+              <Play className="size-5 fill-white text-white" />
             </button>
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1 py-0.5">
+          <div className="text-sm font-semibold text-(--plum-text) truncate">{item.title}</div>
+          <div className="text-xs text-(--plum-muted)">{item.subtitle}</div>
+          {item.metaLine && (
+            <div className="text-xs text-(--plum-muted) truncate">{item.metaLine}</div>
+          )}
+          {item.ratingValue && (
+            <RatingBadge label={item.ratingLabel} value={item.ratingValue} className="mt-auto" />
+          )}
+          {item.progressPercent != null &&
+            item.progressPercent > 0 &&
+            item.progressPercent < 95 && (
+              <div className="h-0.5 w-full rounded-full bg-[rgba(255,255,255,0.1)]">
+                <div
+                  className="h-full rounded-full bg-[#f7c44f]"
+                  style={{ width: `${item.progressPercent}%` }}
+                />
+              </div>
+            )}
+          {item.statusLabel && (
+            <div className="text-xs text-(--plum-muted) italic">{item.statusLabel}</div>
+          )}
+          {item.statusActionLabel && item.onStatusAction && (
+            <div className="pt-1">
+              <button
+                type="button"
+                disabled={item.statusActionDisabled}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  item.onStatusAction?.();
+                }}
+                className="relative z-20 inline-flex items-center rounded-full border border-(--plum-border) px-3 py-1 text-[11px] font-medium text-(--plum-text) transition-colors hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {item.statusActionLabel}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
     </LibraryMediaContextMenu>
   );
 }
 
 /** Table row — compact single-line row, poster as small thumbnail */
-function TableRow({
-  item,
-  index,
-}: {
-  item: PosterGridItem;
-  index: number;
-}) {
+function TableRow({ item, index }: { item: PosterGridItem; index: number }) {
   const posterUrl = resolvePosterUrl(item.posterUrl, item.posterPath, "w200", BASE_URL);
 
   return (
     <LibraryMediaContextMenu menu={item.contextMenuContent}>
-    <div
-      className={cn(
-        "group relative grid items-center gap-3 border-b border-(--plum-border) px-1 py-2.5 transition-colors hover:bg-[rgba(255,255,255,0.03)]",
-        "grid-cols-[auto_2rem_minmax(0,1fr)_auto_auto]",
-      )}
-    >
-      <RowHitArea item={item} />
-
-      {/* Index */}
-      <div className="w-6 text-right text-xs text-(--plum-muted) tabular-nums">
-        {index + 1}
-      </div>
-
-      {/* Poster thumbnail */}
-      <div className="aspect-2/3 w-8 shrink-0 overflow-hidden rounded bg-[rgba(255,255,255,0.05)]">
-        {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="h-full w-full bg-[rgba(255,255,255,0.04)]" />
+      <div
+        className={cn(
+          "group relative grid items-center gap-3 border-b border-(--plum-border) px-1 py-2.5 transition-colors hover:bg-[rgba(255,255,255,0.03)]",
+          "grid-cols-[auto_2rem_minmax(0,1fr)_auto_auto]",
         )}
-      </div>
+      >
+        <RowHitArea item={item} />
 
-      {/* Title + subtitle */}
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-(--plum-text)">{item.title}</div>
-        <div className="truncate text-xs text-(--plum-muted)">{item.subtitle}</div>
-        {item.statusLabel ? (
-          <div className="truncate text-[11px] italic text-(--plum-muted)">
-            {item.statusLabel}
-          </div>
-        ) : null}
-      </div>
+        {/* Index */}
+        <div className="w-6 text-right text-xs text-(--plum-muted) tabular-nums">{index + 1}</div>
 
-      {/* Rating */}
-      {item.ratingValue ? (
-        <RatingBadge label={item.ratingLabel} value={item.ratingValue} />
-      ) : (
-        <div />
-      )}
+        {/* Poster thumbnail */}
+        <div className="aspect-2/3 w-8 shrink-0 overflow-hidden rounded bg-[rgba(255,255,255,0.05)]">
+          {posterUrl ? (
+            <img src={posterUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="h-full w-full bg-[rgba(255,255,255,0.04)]" />
+          )}
+        </div>
 
-      {/* Play button */}
-      <div className="relative z-20 flex items-center justify-end gap-1">
-        {item.statusActionLabel && item.onStatusAction ? (
-          <button
-            type="button"
-            disabled={item.statusActionDisabled}
-            aria-label={item.statusActionLabel}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              item.onStatusAction?.();
-            }}
-            className="inline-flex h-7 items-center rounded-full border border-(--plum-border) px-2.5 text-[11px] font-medium text-(--plum-text) transition-colors hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {item.statusActionLabel}
-          </button>
-        ) : null}
-        {item.onPlay ? (
-          <button
-            type="button"
-            aria-label={`Play ${item.title}`}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              item.onPlay?.();
-            }}
-            className="flex size-7 items-center justify-center rounded-full border border-transparent text-(--plum-muted) opacity-0 transition-all hover:border-(--plum-border) hover:text-(--plum-text) group-hover:opacity-100"
-          >
-            <Play className="size-3.5 fill-current" />
-          </button>
+        {/* Title + subtitle */}
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-(--plum-text)">{item.title}</div>
+          <div className="truncate text-xs text-(--plum-muted)">{item.subtitle}</div>
+          {item.statusLabel ? (
+            <div className="truncate text-[11px] italic text-(--plum-muted)">
+              {item.statusLabel}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Rating */}
+        {item.ratingValue ? (
+          <RatingBadge label={item.ratingLabel} value={item.ratingValue} />
         ) : (
           <div />
         )}
+
+        {/* Play button */}
+        <div className="relative z-20 flex items-center justify-end gap-1">
+          {item.statusActionLabel && item.onStatusAction ? (
+            <button
+              type="button"
+              disabled={item.statusActionDisabled}
+              aria-label={item.statusActionLabel}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.onStatusAction?.();
+              }}
+              className="inline-flex h-7 items-center rounded-full border border-(--plum-border) px-2.5 text-[11px] font-medium text-(--plum-text) transition-colors hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {item.statusActionLabel}
+            </button>
+          ) : null}
+          {item.onPlay ? (
+            <button
+              type="button"
+              aria-label={`Play ${item.title}`}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.onPlay?.();
+              }}
+              className="flex size-7 items-center justify-center rounded-full border border-transparent text-(--plum-muted) opacity-0 transition-all hover:border-(--plum-border) hover:text-(--plum-text) group-hover:opacity-100"
+            >
+              <Play className="size-3.5 fill-current" />
+            </button>
+          ) : (
+            <div />
+          )}
+        </div>
       </div>
-    </div>
     </LibraryMediaContextMenu>
   );
 }
@@ -253,10 +235,16 @@ export function MediaTableView({
   return (
     <div className="mt-3 rounded-lg border border-(--plum-border) bg-[rgba(14,14,14,0.98)]">
       <div className="grid grid-cols-[auto_2rem_minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-(--plum-border) px-1 py-2">
-        <div className="w-6 text-right text-[10px] font-semibold uppercase tracking-wider text-(--plum-muted)">#</div>
+        <div className="w-6 text-right text-[10px] font-semibold uppercase tracking-wider text-(--plum-muted)">
+          #
+        </div>
         <div />
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-(--plum-muted)">Title</div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-(--plum-muted)">Rating</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-(--plum-muted)">
+          Title
+        </div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-(--plum-muted)">
+          Rating
+        </div>
         <div />
       </div>
       <VirtualRows
@@ -339,7 +327,11 @@ function VirtualRows({
           <div
             ref={loadMoreRef}
             className="w-full"
-            style={{ position: "absolute", top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`, height: "1px" }}
+            style={{
+              position: "absolute",
+              top: `${Math.max(rowVirtualizer.getTotalSize() - 1, 0)}px`,
+              height: "1px",
+            }}
             aria-hidden="true"
           />
         ) : null}
