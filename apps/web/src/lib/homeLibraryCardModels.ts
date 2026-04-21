@@ -66,7 +66,10 @@ function isMovieTerminalFailure(
   );
 }
 
-export type ShowGroupCardBase = Omit<PosterGridItem, "contextMenuContent" | "onPlay" | "onStatusAction">;
+export type ShowGroupCardBase = Omit<
+  PosterGridItem,
+  "contextMenuContent" | "onPlay" | "onStatusAction"
+>;
 
 export type ShowGroupCardModel = {
   base: ShowGroupCardBase;
@@ -75,7 +78,10 @@ export type ShowGroupCardModel = {
   statusAction: "confirm-show" | "identify-show" | null;
 };
 
-export type MovieCardBase = Omit<PosterGridItem, "contextMenuContent" | "onPlay" | "onStatusAction">;
+export type MovieCardBase = Omit<
+  PosterGridItem,
+  "contextMenuContent" | "onPlay" | "onStatusAction"
+>;
 
 export type MovieCardModel = {
   base: MovieCardBase;
@@ -141,7 +147,10 @@ export function buildShowGroupCardModels(input: {
       title: group.showTitle,
       subtitle: `${group.episodes.length} episode${group.episodes.length === 1 ? "" : "s"}${group.unmatchedCount > 0 ? ` • ${group.unmatchedCount} unmatched` : group.localCount > 0 ? ` • ${group.localCount} local` : ""}`,
       metaLine: progressEpisode
-        ? [formatEpisodeLabel(progressEpisode), formatRemainingTime(progressEpisode.remaining_seconds)]
+        ? [
+            formatEpisodeLabel(progressEpisode),
+            formatRemainingTime(progressEpisode.remaining_seconds),
+          ]
             .filter(Boolean)
             .join(" • ")
         : undefined,
@@ -184,7 +193,8 @@ export function buildMovieCardModels(input: {
   shouldRevealSearchingCards: boolean;
   selectedLibraryCanShowFailure: boolean;
 }): MovieCardModel[] {
-  const { items, selectedLibraryId, shouldRevealSearchingCards, selectedLibraryCanShowFailure } = input;
+  const { items, selectedLibraryId, shouldRevealSearchingCards, selectedLibraryCanShowFailure } =
+    input;
 
   return items.flatMap((item) => {
     const year =
@@ -202,7 +212,9 @@ export function buildMovieCardModels(input: {
       isIncomplete &&
       !movieHasPoster &&
       (isActiveIdentifyState(item.identify_state) ||
-        (item.identify_state == null && shouldRevealSearchingCards && !selectedLibraryCanShowFailure));
+        (item.identify_state == null &&
+          shouldRevealSearchingCards &&
+          !selectedLibraryCanShowFailure));
     const showFailure = isMovieTerminalFailure(item, selectedLibraryCanShowFailure);
 
     const statusAction: MovieCardModel["statusAction"] =
@@ -225,7 +237,8 @@ export function buildMovieCardModels(input: {
           ? "Couldn't match automatically"
           : undefined,
       statusActionLabel: showFailure && selectedLibraryId != null ? "Identify manually" : undefined,
-      href: selectedLibraryId != null ? `/library/${selectedLibraryId}/movie/${item.id}` : undefined,
+      href:
+        selectedLibraryId != null ? `/library/${selectedLibraryId}/movie/${item.id}` : undefined,
     };
 
     return [{ base, item, statusAction }];

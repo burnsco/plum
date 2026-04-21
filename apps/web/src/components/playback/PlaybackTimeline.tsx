@@ -7,7 +7,9 @@ export type PlaybackTimelineProps = {
   seekSliderRef: RefObject<HTMLInputElement | null>;
   seekSliderDisplayValue: number;
   onSeekPointerDown: (event: PointerEvent<HTMLInputElement>) => void;
-  onSeekChange: (event: ChangeEvent<HTMLInputElement> | { currentTarget: HTMLInputElement }) => void;
+  onSeekChange: (
+    event: ChangeEvent<HTMLInputElement> | { currentTarget: HTMLInputElement },
+  ) => void;
 };
 
 /** Seek range with flanking time labels for fullscreen video (scrub commits on pointer release). */

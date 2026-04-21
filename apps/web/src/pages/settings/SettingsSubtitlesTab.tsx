@@ -39,8 +39,8 @@ export function SettingsSubtitlesTab() {
         <h2 className="text-xl font-semibold text-(--plum-text)">Subtitles &amp; web player</h2>
         <p className="max-w-2xl text-sm text-(--plum-muted)">
           Subtitle appearance, automatic track picks, and the subtitle track list apply only in this
-          browser. Per-library defaults on the Playback tab still control server-side behavior unless
-          you override them here.
+          browser. Per-library defaults on the Playback tab still control server-side behavior
+          unless you override them here.
         </p>
       </div>
 
@@ -76,7 +76,9 @@ export function SettingsSubtitlesTab() {
           </div>
 
           <div>
-            <span className="mb-2 block text-sm font-medium text-(--plum-text)">Subtitle position</span>
+            <span className="mb-2 block text-sm font-medium text-(--plum-text)">
+              Subtitle position
+            </span>
             <div className="flex flex-wrap gap-2">
               {subtitlePositionOptions.map((option) => (
                 <button
@@ -187,8 +189,8 @@ export function SettingsSubtitlesTab() {
               ))}
             </select>
             <p className="mt-1.5 text-xs text-(--plum-muted)">
-              Used when multiple audio tracks exist. Library default follows server settings. Don&apos;t
-              auto-pick leaves the stream&apos;s default track until you switch manually.
+              Used when multiple audio tracks exist. Library default follows server settings.
+              Don&apos;t auto-pick leaves the stream&apos;s default track until you switch manually.
             </p>
           </div>
 

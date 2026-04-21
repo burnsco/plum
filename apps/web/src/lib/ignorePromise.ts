@@ -3,7 +3,11 @@
  * In development, logs other rejections so unexpected failures are visible.
  */
 
-const DEFAULT_QUIET_ERROR_NAMES = new Set<string>(["AbortError", "NotAllowedError", "InvalidStateError"]);
+const DEFAULT_QUIET_ERROR_NAMES = new Set<string>([
+  "AbortError",
+  "NotAllowedError",
+  "InvalidStateError",
+]);
 
 export type IgnorePromiseOptions = {
   /** If the rejection is an `Error`/`DOMException` with this `name`, do not log in dev. */
@@ -28,7 +32,10 @@ export function ignorePromise(
 }
 
 /** Progress/network failures: log any rejection in dev (nothing filtered). */
-export function ignorePromiseAlwaysLogUnexpected(promise: PromiseLike<unknown>, label: string): void {
+export function ignorePromiseAlwaysLogUnexpected(
+  promise: PromiseLike<unknown>,
+  label: string,
+): void {
   void Promise.resolve(promise).catch((err: unknown) => {
     if (import.meta.env.DEV) {
       console.warn(`[${label}]`, err);

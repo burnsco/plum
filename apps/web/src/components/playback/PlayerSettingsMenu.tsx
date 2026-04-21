@@ -19,12 +19,7 @@ export function PlayerSettingsMenu({
   onVideoAutoplayChange: (enabled: boolean) => void;
 }) {
   return (
-    <div
-      ref={menuRef}
-      className="player-settings-menu"
-      role="dialog"
-      aria-label="Player settings"
-    >
+    <div ref={menuRef} className="player-settings-menu" role="dialog" aria-label="Player settings">
       <div className="player-settings-menu__field">
         <span id="player-settings-subtitle-size">Subtitle size</span>
         <div

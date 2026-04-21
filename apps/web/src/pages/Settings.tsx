@@ -11,7 +11,10 @@ import type {
   VaapiDecodeCodec,
 } from "@plum/contracts";
 import { useAuthState } from "@/contexts/AuthContext";
-import { normalizeLanguagePreference, resolveLibraryPlaybackPreferences } from "@/lib/playbackPreferences";
+import {
+  normalizeLanguagePreference,
+  resolveLibraryPlaybackPreferences,
+} from "@/lib/playbackPreferences";
 import {
   useMetadataArtworkSettings,
   useMediaStackSettings,
@@ -39,7 +42,10 @@ import {
 import { AdminSettingsTab } from "@/pages/AdminSettingsTab";
 import { ServerEnvSettingsTab } from "@/pages/ServerEnvSettingsTab";
 import { SettingsGeneralTab } from "@/pages/settings/SettingsGeneralTab";
-import { SettingsArrProfilesTab, SettingsMediaStackTab } from "@/pages/settings/SettingsMediaStackTab";
+import {
+  SettingsArrProfilesTab,
+  SettingsMediaStackTab,
+} from "@/pages/settings/SettingsMediaStackTab";
 import { SettingsMetadataTab } from "@/pages/settings/SettingsMetadataTab";
 import { SettingsPlaybackTab } from "@/pages/settings/SettingsPlaybackTab";
 import { SettingsSubtitlesTab } from "@/pages/settings/SettingsSubtitlesTab";
@@ -255,7 +261,9 @@ export function Settings() {
   const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
   const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("playback");
-  const [quickConnect, setQuickConnect] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [quickConnect, setQuickConnect] = useState<{ code: string; expiresAt: string } | null>(
+    null,
+  );
   const [quickConnectBusy, setQuickConnectBusy] = useState(false);
   const [quickConnectErr, setQuickConnectErr] = useState<string | null>(null);
   const arrProfilesAutoRefreshPendingRef = useRef(false);
@@ -689,7 +697,11 @@ export function Settings() {
       heading: "Integrations",
       tabs: [
         { id: "media-stack", label: "Media stack", icon: <Link2 className="size-4 shrink-0" /> },
-        { id: "arr-profiles", label: "Arr profiles", icon: <ListTree className="size-4 shrink-0" /> },
+        {
+          id: "arr-profiles",
+          label: "Arr profiles",
+          icon: <ListTree className="size-4 shrink-0" />,
+        },
       ],
     },
     {
@@ -729,10 +741,7 @@ export function Settings() {
             <button
               type="button"
               onClick={() => setActiveTab("general")}
-              className={cn(
-                navItemBase,
-                activeTab === "general" ? navItemActive : navItemInactive,
-              )}
+              className={cn(navItemBase, activeTab === "general" ? navItemActive : navItemInactive)}
               aria-current={activeTab === "general" ? "page" : undefined}
             >
               <CircleUser className="size-4 shrink-0" />

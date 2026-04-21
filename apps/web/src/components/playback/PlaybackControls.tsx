@@ -1,12 +1,4 @@
-import {
-  FastForward,
-  Pause,
-  Play,
-  Repeat,
-  Rewind,
-  SkipBack,
-  SkipForward,
-} from "lucide-react";
+import { FastForward, Pause, Play, Repeat, Rewind, SkipBack, SkipForward } from "lucide-react";
 import { VIDEO_SKIP_BUTTON_SECONDS } from "./constants";
 
 export type PlaybackControlsProps = {

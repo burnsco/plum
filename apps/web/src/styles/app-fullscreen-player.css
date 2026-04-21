@@ -165,11 +165,7 @@
 .playback-resume-prompt__scrim {
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    ellipse at 50% 45%,
-    rgba(0, 0, 0, 0.65) 0%,
-    rgba(0, 0, 0, 0.88) 100%
-  );
+  background: radial-gradient(ellipse at 50% 45%, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.88) 100%);
 }
 
 .playback-resume-prompt__content {
@@ -628,7 +624,6 @@
   color: var(--plum-accent);
   box-shadow: 0 0 14px var(--plum-accent-glow);
 }
-
 
 /* Subtitle wrap */
 .fullscreen-player__aspect-wrap,

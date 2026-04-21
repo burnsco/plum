@@ -157,7 +157,10 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
         void identifyLibraryWithTimers(nextLibraryId)
           .then((result) => {
             identifyRetryCountsRef.current.delete(nextLibraryId);
-            setLibraryIdentifyPhase(nextLibraryId, result.failed > 0 ? "identify-failed" : "complete");
+            setLibraryIdentifyPhase(
+              nextLibraryId,
+              result.failed > 0 ? "identify-failed" : "complete",
+            );
           })
           .catch((error) => {
             if (error instanceof Error && error.message === "identify-aborted") {
@@ -262,7 +265,11 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
       if (!hasLibraryScanStatus(libraryId)) {
         if (!queuedLibsRef.current.has(libraryId) && !activeLibsRef.current.has(libraryId)) {
           const identifyPhase = identifyPhasesRef.current.get(libraryId);
-          if (identifyPhase === "complete" || identifyPhase === "identify-failed" || identifyPhase === "soft-reveal") {
+          if (
+            identifyPhase === "complete" ||
+            identifyPhase === "identify-failed" ||
+            identifyPhase === "soft-reveal"
+          ) {
             setLibraryIdentifyPhase(libraryId, null);
           }
         }
@@ -276,7 +283,11 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
         !isBackendIdentifyActive(scanStatus?.identifyPhase) &&
         !isLocalIdentifyActive(identifyPhase)
       ) {
-        if (identifyPhase === "complete" || identifyPhase === "identify-failed" || identifyPhase === "soft-reveal") {
+        if (
+          identifyPhase === "complete" ||
+          identifyPhase === "identify-failed" ||
+          identifyPhase === "soft-reveal"
+        ) {
           setLibraryIdentifyPhase(libraryId, null);
         }
       }

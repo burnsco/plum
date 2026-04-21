@@ -1,4 +1,7 @@
-import type { MetadataArtworkProviderStatus, MetadataArtworkSettings as MetadataArtworkSettingsShape } from "@plum/contracts";
+import type {
+  MetadataArtworkProviderStatus,
+  MetadataArtworkSettings as MetadataArtworkSettingsShape,
+} from "@plum/contracts";
 import { Button } from "@/components/ui/button";
 import { CheckboxCard } from "./settingsControls";
 import {

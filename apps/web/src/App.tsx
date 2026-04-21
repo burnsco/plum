@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SCAN_SENSITIVE_STALE_MS } from "./queries";
+import { QUERY_CACHE_RETENTION_MS, SCAN_SENSITIVE_STALE_MS, shouldRetryQuery } from "./queries";
 import { Component, type ErrorInfo, type ReactNode, Suspense, lazy, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
@@ -13,23 +13,30 @@ import { PlayerProvider } from "./contexts/PlayerContext";
 import { ScanQueueProvider } from "./contexts/ScanQueueProvider";
 import { WsProvider } from "./contexts/WsContext";
 
-const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
-const Discover = lazy(() => import("./pages/Discover").then(m => ({ default: m.Discover })));
-const DiscoverBrowse = lazy(() => import("./pages/DiscoverBrowse").then(m => ({ default: m.DiscoverBrowse })));
-const DiscoverDetail = lazy(() => import("./pages/DiscoverDetail").then(m => ({ default: m.DiscoverDetail })));
-const Downloads = lazy(() => import("./pages/Downloads").then(m => ({ default: m.Downloads })));
-const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
-const Login = lazy(() => import("./pages/Login").then(m => ({ default: m.Login })));
-const MovieDetail = lazy(() => import("./pages/MovieDetail").then(m => ({ default: m.MovieDetail })));
-const Onboarding = lazy(() => import("./pages/Onboarding").then(m => ({ default: m.Onboarding })));
-const SearchPage = lazy(() => import("./pages/Search").then(m => ({ default: m.SearchPage })));
-const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
-const ShowDetail = lazy(() => import("./pages/ShowDetail").then(m => ({ default: m.ShowDetail })));
+const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const Discover = lazy(() => import("./pages/Discover").then((m) => ({ default: m.Discover })));
+const DiscoverBrowse = lazy(() =>
+  import("./pages/DiscoverBrowse").then((m) => ({ default: m.DiscoverBrowse })),
+);
+const DiscoverDetail = lazy(() =>
+  import("./pages/DiscoverDetail").then((m) => ({ default: m.DiscoverDetail })),
+);
+const Downloads = lazy(() => import("./pages/Downloads").then((m) => ({ default: m.Downloads })));
+const Home = lazy(() => import("./pages/Home").then((m) => ({ default: m.Home })));
+const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
+const MovieDetail = lazy(() =>
+  import("./pages/MovieDetail").then((m) => ({ default: m.MovieDetail })),
+);
+const Onboarding = lazy(() =>
+  import("./pages/Onboarding").then((m) => ({ default: m.Onboarding })),
+);
+const SearchPage = lazy(() => import("./pages/Search").then((m) => ({ default: m.SearchPage })));
+const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
+const ShowDetail = lazy(() =>
+  import("./pages/ShowDetail").then((m) => ({ default: m.ShowDetail })),
+);
 
-class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { error: Error | null }
-> {
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -43,13 +50,13 @@ class ErrorBoundary extends Component<
         <main className="auth-screen">
           <div className="auth-card">
             <p style={{ fontWeight: 600, marginBottom: 8 }}>Something went wrong</p>
-            <p className="auth-muted" style={{ marginBottom: 16, fontFamily: "monospace", fontSize: 12 }}>
+            <p
+              className="auth-muted"
+              style={{ marginBottom: 16, fontFamily: "monospace", fontSize: 12 }}
+            >
               {(this.state.error as Error).message}
             </p>
-            <button
-              className="auth-button"
-              onClick={() => window.location.reload()}
-            >
+            <button className="auth-button" onClick={() => window.location.reload()}>
               Reload
             </button>
           </div>
@@ -132,8 +139,8 @@ function App() {
           queries: {
             staleTime: SCAN_SENSITIVE_STALE_MS,
             /** Keep inactive browse data a bit longer than RQ default (5m); detail hooks set their own. */
-            gcTime: 10 * 60 * 1000,
-            retry: import.meta.env.MODE === "test" ? false : 3,
+            gcTime: QUERY_CACHE_RETENTION_MS.standardBrowse,
+            retry: import.meta.env.MODE === "test" ? false : shouldRetryQuery,
           },
         },
       }),

@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getLibraryScanStatus as fetchLibraryScanStatus,
@@ -20,7 +13,11 @@ import {
   invalidateSearchAfterLibraryDataChange,
   useLibraries,
 } from "../queries";
-import { ScanQueueContext, type QueueScanOptions, type RecentLibraryActivity } from "./ScanQueueContext";
+import {
+  ScanQueueContext,
+  type QueueScanOptions,
+  type RecentLibraryActivity,
+} from "./ScanQueueContext";
 import { useWsEvent } from "./WsContext";
 
 const SCAN_POLL_INTERVAL_MS = 2_000;
@@ -52,7 +49,10 @@ function sameActivityEntry(
   );
 }
 
-function sameActivity(statusA?: LibraryScanStatus["activity"], statusB?: LibraryScanStatus["activity"]) {
+function sameActivity(
+  statusA?: LibraryScanStatus["activity"],
+  statusB?: LibraryScanStatus["activity"],
+) {
   if (statusA == null && statusB == null) return true;
   if (statusA == null || statusB == null) return false;
   if (statusA.stage !== statusB.stage || !sameActivityEntry(statusA.current, statusB.current)) {
@@ -155,7 +155,10 @@ function pruneRecentLibraryActivities(
     .slice(0, JUST_FINISHED_MAX_ITEMS);
 }
 
-function hasMeaningfulStatusChange(previous: LibraryScanStatus | undefined, next: LibraryScanStatus) {
+function hasMeaningfulStatusChange(
+  previous: LibraryScanStatus | undefined,
+  next: LibraryScanStatus,
+) {
   if (previous == null) return true;
   return (
     previous.phase !== next.phase ||
@@ -183,7 +186,9 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
   const libraries = librariesData ?? EMPTY_LIBRARIES;
   const { latestEvent, eventSequence } = useWsEvent();
   const [scanStatuses, setScanStatuses] = useState<Record<number, LibraryScanStatus>>({});
-  const [recentLibraryActivities, setRecentLibraryActivities] = useState<RecentLibraryActivity[]>([]);
+  const [recentLibraryActivities, setRecentLibraryActivities] = useState<RecentLibraryActivity[]>(
+    [],
+  );
   const scanStatusesRef = useRef<Record<number, LibraryScanStatus>>({});
 
   const setScanStatus = useCallback((status: LibraryScanStatus) => {
@@ -218,7 +223,11 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       const previous = scanStatusesRef.current[libraryId];
       const status = await fetchLibraryScanStatus(libraryId);
       setScanStatus(status);
-      if (isLibraryProcessing(status) || status.phase === "completed" || status.phase === "failed") {
+      if (
+        isLibraryProcessing(status) ||
+        status.phase === "completed" ||
+        status.phase === "failed"
+      ) {
         invalidateLibraryCatalogQueries(queryClient, libraryId);
       }
       const wasTerminal = previous?.phase === "completed" || previous?.phase === "failed";
@@ -269,7 +278,9 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
       scanStatusesRef.current = next;
       return next;
     });
-    setRecentLibraryActivities((current) => pruneRecentLibraryActivities(current, activeLibraryIds));
+    setRecentLibraryActivities((current) =>
+      pruneRecentLibraryActivities(current, activeLibraryIds),
+    );
 
     if (libraries.length === 0) return;
     void Promise.allSettled(libraries.map((library) => refreshLibraryScanStatus(library.id)));
@@ -289,7 +300,9 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
     if (activeScanIds.length === 0) return;
 
     const intervalId = window.setInterval(() => {
-      void Promise.allSettled(activeScanIds.map((libraryId) => refreshLibraryScanStatus(libraryId)));
+      void Promise.allSettled(
+        activeScanIds.map((libraryId) => refreshLibraryScanStatus(libraryId)),
+      );
     }, SCAN_POLL_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, [refreshLibraryScanStatus, scanStatuses]);
@@ -334,7 +347,9 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
 
   const activityScanStatuses = useMemo(
     () =>
-      Object.values(scanStatuses).filter((status) => isLibraryProcessing(status) || hasActivityDetails(status)),
+      Object.values(scanStatuses).filter(
+        (status) => isLibraryProcessing(status) || hasActivityDetails(status),
+      ),
     [scanStatuses],
   );
 
@@ -366,4 +381,3 @@ export function ScanQueueProvider({ children }: { children: ReactNode }) {
 
   return <ScanQueueContext.Provider value={value}>{children}</ScanQueueContext.Provider>;
 }
-

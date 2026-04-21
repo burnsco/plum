@@ -15,13 +15,7 @@ export type LoadedSubtitleTrack = SubtitleTrackOption & {
   body: string;
 };
 
-export type SubtitleLoadState =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "blocked"
-  | "timeout"
-  | "error";
+export type SubtitleLoadState = "idle" | "loading" | "ready" | "blocked" | "timeout" | "error";
 
 type UseSubtitleTransportParams = {
   activeMediaId: number | null;
@@ -48,15 +42,12 @@ export function useSubtitleTransport({
     Record<string, SubtitleLoadState>
   >({});
 
-  const setTrackLoadState = useCallback(
-    (key: string, state: SubtitleLoadState) => {
-      setSubtitleLoadStateByKey((current) => {
-        if (current[key] === state) return current;
-        return { ...current, [key]: state };
-      });
-    },
-    [],
-  );
+  const setTrackLoadState = useCallback((key: string, state: SubtitleLoadState) => {
+    setSubtitleLoadStateByKey((current) => {
+      if (current[key] === state) return current;
+      return { ...current, [key]: state };
+    });
+  }, []);
 
   const ensureSubtitleTrackLoaded = useCallback(
     async (trackKey: string) => {
@@ -70,15 +61,11 @@ export function useSubtitleTransport({
         setTrackLoadState(trackKey, "blocked");
         return;
       }
-      const track = subtitleTrackRequests.find(
-        (candidate) => candidate.key === trackKey,
-      );
+      const track = subtitleTrackRequests.find((candidate) => candidate.key === trackKey);
       if (!track) return;
       if (
         track.requiresBurn ||
-        (track.assEligible &&
-          track.assSrc &&
-          track.preferredWebDeliveryMode === "ass")
+        (track.assEligible && track.assSrc && track.preferredWebDeliveryMode === "ass")
       ) {
         setPendingSubtitleKey(null);
         setTrackLoadState(trackKey, "idle");
@@ -137,9 +124,7 @@ export function useSubtitleTransport({
               lastFlushedBodyLen = bodyForState.length;
             }
             setLoadedSubtitleTracks((current) => {
-              const rest = current.filter(
-                (candidate) => candidate.key !== track.key,
-              );
+              const rest = current.filter((candidate) => candidate.key !== track.key);
               return [...rest, { ...track, body: bodyForState }];
             });
             if (cues.length > 0) {
@@ -148,9 +133,7 @@ export function useSubtitleTransport({
           },
         );
         blockedSubtitleRetryKeysRef.current.delete(track.key);
-        setPendingSubtitleKey((current) =>
-          current === track.key ? null : current,
-        );
+        setPendingSubtitleKey((current) => (current === track.key ? null : current));
         setSubtitleStatusMessage("");
         setTrackLoadState(trackKey, "ready");
       } catch (error) {
@@ -172,16 +155,10 @@ export function useSubtitleTransport({
         setLoadedSubtitleTracks((current) =>
           current.filter((candidate) => candidate.key !== track.key),
         );
-        rememberBlockedSubtitleKey(
-          blockedSubtitleRetryKeysRef.current,
-          track.key,
-        );
-        setPendingSubtitleKey((current) =>
-          current === track.key ? null : current,
-        );
+        rememberBlockedSubtitleKey(blockedSubtitleRetryKeysRef.current, track.key);
+        setPendingSubtitleKey((current) => (current === track.key ? null : current));
         const timedOutError =
-          loadError instanceof Error &&
-          loadError.message === "Subtitle request timed out";
+          loadError instanceof Error && loadError.message === "Subtitle request timed out";
         setTrackLoadState(trackKey, timedOutError ? "timeout" : "error");
         setSubtitleStatusMessage(
           timedOutError

@@ -22,8 +22,7 @@ export function TrackMenu({
   ariaLabel: string;
   offLabel?: string;
 }) {
-  const alignClass =
-    menuAlign === "end" ? " subtitle-menu--align-end" : "";
+  const alignClass = menuAlign === "end" ? " subtitle-menu--align-end" : "";
   return (
     <div
       ref={menuRef}

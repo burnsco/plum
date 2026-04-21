@@ -32,7 +32,10 @@ const MediaListCard = memo(function MediaListCard({
     >
       <div className="media-poster">
         <img
-          src={resolvePosterUrl(m.poster_url, m.poster_path, "w200", BASE_URL) || "/placeholder-poster.svg"}
+          src={
+            resolvePosterUrl(m.poster_url, m.poster_path, "w200", BASE_URL) ||
+            "/placeholder-poster.svg"
+          }
           alt={m.title}
         />
         <div className="media-type-overlay">{m.type}</div>

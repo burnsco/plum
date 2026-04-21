@@ -40,6 +40,6 @@ export default function throughput(seconds?: number): (delta?: number) => number
     const top = buffer[pointer - 1]!;
     const btm = buffer.length < size ? 0 : buffer[pointer === size ? 0 : pointer]!;
 
-    return buffer.length < resolution ? top : (top - btm) * resolution / buffer.length;
+    return buffer.length < resolution ? top : ((top - btm) * resolution) / buffer.length;
   };
 }

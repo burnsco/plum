@@ -1,9 +1,4 @@
-import {
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-  type RefCallback,
-} from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, type RefCallback } from "react";
 
 export type PlaybackDockShellProps = {
   playerRootRef: RefCallback<HTMLElement | null>;

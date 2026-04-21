@@ -1,5 +1,8 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import type { MediaStackServiceValidationResult, MediaStackSettings as MediaStackSettingsShape } from "@plum/contracts";
+import type {
+  MediaStackServiceValidationResult,
+  MediaStackSettings as MediaStackSettingsShape,
+} from "@plum/contracts";
 import { Button } from "@/components/ui/button";
 import { MediaStackArrQualityProfileCard, MediaStackServiceCard } from "./settingsControls";
 
@@ -50,7 +53,9 @@ export function SettingsMediaStackTab(props: MediaStackTabBaseProps) {
           </Button>
           <Button
             onClick={props.handleSaveMediaStack}
-            disabled={props.mediaStackForm == null || !props.mediaStackDirty || props.mediaStackSaving}
+            disabled={
+              props.mediaStackForm == null || !props.mediaStackDirty || props.mediaStackSaving
+            }
           >
             {props.mediaStackSaving ? "Saving..." : "Save settings"}
           </Button>
@@ -60,7 +65,9 @@ export function SettingsMediaStackTab(props: MediaStackTabBaseProps) {
       {props.mediaStackQuery.isLoading || props.mediaStackForm == null ? (
         <p className="mt-5 text-sm text-(--plum-muted)">Loading media stack settings...</p>
       ) : props.mediaStackQuery.isError ? (
-        <p className="mt-5 text-sm text-red-300">{error?.message || "Failed to load media stack settings."}</p>
+        <p className="mt-5 text-sm text-red-300">
+          {error?.message || "Failed to load media stack settings."}
+        </p>
       ) : (
         <div className="mt-6 grid gap-4 xl:grid-cols-2">
           <MediaStackServiceCard
@@ -110,8 +117,8 @@ export function SettingsArrProfilesTab(props: MediaStackTabBaseProps) {
         <div>
           <h2 className="text-xl font-semibold text-(--plum-text)">Sonarr / Radarr profiles</h2>
           <p className="mt-1 max-w-2xl text-sm text-(--plum-muted)">
-            Pick the default quality profiles used when Discover adds a movie to Radarr or a series to
-            Sonarr TV. Set the base URL and API key on the Media stack tab first. Lists load
+            Pick the default quality profiles used when Discover adds a movie to Radarr or a series
+            to Sonarr TV. Set the base URL and API key on the Media stack tab first. Lists load
             automatically when you open this tab; use Refresh if you changed Arr outside Plum.{" "}
             <span className="text-(--plum-muted)">
               Refreshing only updates the dropdowns and does not replace your saved choices.
@@ -128,7 +135,9 @@ export function SettingsArrProfilesTab(props: MediaStackTabBaseProps) {
           </Button>
           <Button
             onClick={props.handleSaveMediaStack}
-            disabled={props.mediaStackForm == null || !props.mediaStackDirty || props.mediaStackSaving}
+            disabled={
+              props.mediaStackForm == null || !props.mediaStackDirty || props.mediaStackSaving
+            }
           >
             {props.mediaStackSaving ? "Saving..." : "Save profile defaults"}
           </Button>
@@ -138,7 +147,9 @@ export function SettingsArrProfilesTab(props: MediaStackTabBaseProps) {
       {props.mediaStackQuery.isLoading || props.mediaStackForm == null ? (
         <p className="mt-5 text-sm text-(--plum-muted)">Loading media stack settings...</p>
       ) : props.mediaStackQuery.isError ? (
-        <p className="mt-5 text-sm text-red-300">{error?.message || "Failed to load media stack settings."}</p>
+        <p className="mt-5 text-sm text-red-300">
+          {error?.message || "Failed to load media stack settings."}
+        </p>
       ) : (
         <div className="mt-6 grid gap-4 xl:grid-cols-2">
           <MediaStackArrQualityProfileCard
@@ -148,7 +159,9 @@ export function SettingsArrProfilesTab(props: MediaStackTabBaseProps) {
             validation={props.mediaStackValidation?.radarr ?? null}
             idPrefix="arr-profiles-radarr"
             qualityLabel="Default movie quality profile (Radarr)"
-            onChange={(profileId) => props.setMediaStackServiceField("radarr", "qualityProfileId", profileId)}
+            onChange={(profileId) =>
+              props.setMediaStackServiceField("radarr", "qualityProfileId", profileId)
+            }
           />
           <MediaStackArrQualityProfileCard
             title="Sonarr TV (shows)"

@@ -109,8 +109,16 @@ describe("useClearShowProgress", () => {
     await waitFor(() => {
       const home = queryClient.getQueryData<HomeDashboard>(queryKeys.home);
       expect(home?.continueWatching).toHaveLength(2);
-      expect(home?.continueWatching.some((entry) => entry.media.library_id === 1 && entry.show_key === "tmdb-42")).toBe(false);
-      expect(home?.continueWatching.some((entry) => entry.media.library_id === 2 && entry.show_key === "tmdb-42")).toBe(true);
+      expect(
+        home?.continueWatching.some(
+          (entry) => entry.media.library_id === 1 && entry.show_key === "tmdb-42",
+        ),
+      ).toBe(false);
+      expect(
+        home?.continueWatching.some(
+          (entry) => entry.media.library_id === 2 && entry.show_key === "tmdb-42",
+        ),
+      ).toBe(true);
       expect(home?.continueWatching.some((entry) => entry.show_key === "tmdb-99")).toBe(true);
     });
 

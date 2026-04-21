@@ -276,7 +276,9 @@ export function DiscoverDetail() {
             ))}
           </div>
           <dl className="mt-6 space-y-4 text-sm">
-            {details.release_date ? <DetailRow label="Release date" value={details.release_date} /> : null}
+            {details.release_date ? (
+              <DetailRow label="Release date" value={details.release_date} />
+            ) : null}
             {details.first_air_date ? (
               <DetailRow label="First air date" value={details.first_air_date} />
             ) : null}

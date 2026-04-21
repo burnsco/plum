@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AudioTrackOption } from "./playerMedia";
 import { getPreferredAudioKey } from "./playerMedia";
 
-function aud(
-  overrides: Partial<AudioTrackOption> & { key: string },
-): AudioTrackOption {
+function aud(overrides: Partial<AudioTrackOption> & { key: string }): AudioTrackOption {
   const { key, label = "Audio", streamIndex = 0, language = "", ...rest } = overrides;
   return { ...rest, key, label, streamIndex, language };
 }

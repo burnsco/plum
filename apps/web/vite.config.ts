@@ -14,9 +14,7 @@ import tailwindcss from "@tailwindcss/vite";
 // `/ws` to the internal backend target instead.
 const browserBackendUrl = process.env.VITE_BACKEND_URL?.trim() || undefined;
 const proxyTarget =
-  process.env.BACKEND_INTERNAL_URL ||
-  browserBackendUrl ||
-  "http://localhost:8080";
+  process.env.BACKEND_INTERNAL_URL || browserBackendUrl || "http://localhost:8080";
 const useDirectBackendUrl = browserBackendUrl != null;
 
 /** True while Vitest is driving Vite; used for layout tweaks under jsdom (no responsive CSS). */

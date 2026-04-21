@@ -2,7 +2,11 @@ import { useMemo } from "react";
 import { Activity } from "lucide-react";
 import { type Library, type LibraryScanActivityEntry, type LibraryScanStatus } from "@/api";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useScanQueue } from "@/contexts/ScanQueueContext";
 import { getEnrichmentPhase, isLibraryScanProcessing } from "@/lib/libraryActivity";
 import { getLibraryTabLabel } from "@/lib/showGrouping";
@@ -198,7 +202,9 @@ export function LibraryActivityCenter() {
           return library ? { activity, library } : null;
         })
         .filter(
-          (value): value is { activity: (typeof recentLibraryActivities)[number]; library: Library } =>
+          (
+            value,
+          ): value is { activity: (typeof recentLibraryActivities)[number]; library: Library } =>
             value != null,
         ),
     [libraryById, recentLibraryActivities],
@@ -213,9 +219,7 @@ export function LibraryActivityCenter() {
         <Button
           variant="icon"
           size="icon"
-          aria-label={
-            activeCount > 0 ? `Server activity ${activeCount} active` : "Server activity"
-          }
+          aria-label={activeCount > 0 ? `Server activity ${activeCount} active` : "Server activity"}
           className={cn(
             "relative transition-all duration-500",
             activeCount > 0 &&

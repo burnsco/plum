@@ -9,9 +9,7 @@ type PlaybackVideoStageProps = {
   activeAssSource: string | null;
   activeAssFontUrls: readonly string[];
   videoStreamOffsetSeconds: number;
-  onAssStatusChange: (
-    status: "loading" | "ready" | "error" | "timeout",
-  ) => void;
+  onAssStatusChange: (status: "loading" | "ready" | "error" | "timeout") => void;
   onVideoDoubleClick: () => void;
   onLoadStart: () => void;
   onLoadedMetadata: (element: HTMLVideoElement) => void;

@@ -77,7 +77,12 @@ export function MovieDetail() {
     completed: details.completed,
   };
   const posterUrl = resolvePosterUrl(details.poster_url, details.poster_path, "w342", BASE_URL);
-  const backdropUrl = resolveBackdropUrl(details.backdrop_url, details.backdrop_path, "w1280", BASE_URL);
+  const backdropUrl = resolveBackdropUrl(
+    details.backdrop_url,
+    details.backdrop_path,
+    "w1280",
+    BASE_URL,
+  );
   const runtime = formatRuntime(details.runtime);
   const year = details.release_date?.split("-")[0] ?? "";
 
@@ -109,10 +114,8 @@ export function MovieDetail() {
             <div className="detail-hero-meta">
               <h1 className="detail-hero-title">{details.title}</h1>
 
-              {(year || runtime) ? (
-                <p className="detail-hero-chips">
-                  {[year, runtime].filter(Boolean).join(" · ")}
-                </p>
+              {year || runtime ? (
+                <p className="detail-hero-chips">{[year, runtime].filter(Boolean).join(" · ")}</p>
               ) : null}
 
               {(details.imdb_rating ?? 0) > 0 || (details.vote_average ?? 0) > 0 ? (
@@ -122,9 +125,7 @@ export function MovieDetail() {
                 </div>
               ) : null}
 
-              {details.overview ? (
-                <p className="detail-hero-overview">{details.overview}</p>
-              ) : null}
+              {details.overview ? <p className="detail-hero-overview">{details.overview}</p> : null}
 
               {details.genres.length ? (
                 <div className="flex flex-wrap gap-2">

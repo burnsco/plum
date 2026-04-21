@@ -97,14 +97,11 @@ export function usePlaybackPreferences(libraries: Library[]): PlaybackPreference
   const librariesRef = useRef(libraries);
   librariesRef.current = libraries;
 
-  const libraryPrefsForItem = useCallback(
-    (item: MediaItem): ResolvedLibraryPlaybackPreferences => {
-      const activeLibrary =
-        librariesRef.current.find((library) => library.id === item.library_id) ?? null;
-      return resolveLibraryPlaybackPreferences(activeLibrary ?? { type: item.type });
-    },
-    [],
-  );
+  const libraryPrefsForItem = useCallback((item: MediaItem): ResolvedLibraryPlaybackPreferences => {
+    const activeLibrary =
+      librariesRef.current.find((library) => library.id === item.library_id) ?? null;
+    return resolveLibraryPlaybackPreferences(activeLibrary ?? { type: item.type });
+  }, []);
 
   const effectivePreferredAudioLanguage = useCallback(
     (item: MediaItem): string =>

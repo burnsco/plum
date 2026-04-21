@@ -244,16 +244,18 @@ function mockDefaultAppApis() {
     libraryId: 1,
   });
   vi.spyOn(api, "getUnidentifiedLibrarySummaries").mockResolvedValue({ libraries: [] });
-  vi.spyOn(api, "getShowDetails").mockImplementation(async (libraryId: number, showKey: string) => ({
-    library_id: libraryId,
-    show_key: showKey,
-    name: "Test Show",
-    overview: "",
-    number_of_seasons: 1,
-    number_of_episodes: 1,
-    genres: [],
-    cast: [],
-  }));
+  vi.spyOn(api, "getShowDetails").mockImplementation(
+    async (libraryId: number, showKey: string) => ({
+      library_id: libraryId,
+      show_key: showKey,
+      name: "Test Show",
+      overview: "",
+      number_of_seasons: 1,
+      number_of_episodes: 1,
+      genres: [],
+      cast: [],
+    }),
+  );
   vi.spyOn(api, "getShowEpisodes").mockResolvedValue({ seasons: [] });
 }
 
@@ -1112,19 +1114,18 @@ describe("App library and player wiring", () => {
     vi.spyOn(api, "listLibraries").mockResolvedValue([
       { id: 1, name: "TV", type: "tv", path: "/tv", user_id: 1 },
     ]);
-    vi.spyOn(api, "fetchLibraryMedia")
-      .mockResolvedValueOnce([
-        {
-          id: 42,
-          title: "Retry Show - S01E01 - Pilot",
-          path: "/tv/Retry Show/S01E01.mkv",
-          duration: 1800,
-          type: "tv",
-          match_status: "local",
-          season: 1,
-          episode: 1,
-        },
-      ]);
+    vi.spyOn(api, "fetchLibraryMedia").mockResolvedValueOnce([
+      {
+        id: 42,
+        title: "Retry Show - S01E01 - Pilot",
+        path: "/tv/Retry Show/S01E01.mkv",
+        duration: 1800,
+        type: "tv",
+        match_status: "local",
+        season: 1,
+        episode: 1,
+      },
+    ]);
 
     await renderApp();
 
@@ -1299,7 +1300,9 @@ describe("App library and player wiring", () => {
 
     await renderApp();
 
-    const movieCard = (await screen.findByRole("link", { name: /Missing Movie/i })).closest(".show-card");
+    const movieCard = (await screen.findByRole("link", { name: /Missing Movie/i })).closest(
+      ".show-card",
+    );
     expect(movieCard).toBeTruthy();
 
     fireEvent.contextMenu(movieCard!);
@@ -1793,7 +1796,9 @@ describe("App library and player wiring", () => {
 
     await renderApp("/library/2");
 
-    const movieCard = (await screen.findByRole("link", { name: /^Die My Love/i })).closest(".show-card");
+    const movieCard = (await screen.findByRole("link", { name: /^Die My Love/i })).closest(
+      ".show-card",
+    );
     expect(movieCard).toBeTruthy();
 
     fireEvent.contextMenu(movieCard!);
@@ -1841,14 +1846,18 @@ describe("App library and player wiring", () => {
 
     await renderApp("/library/2");
 
-    const movieCard = (await screen.findByRole("link", { name: /^Die My Love/i })).closest(".show-card");
+    const movieCard = (await screen.findByRole("link", { name: /^Die My Love/i })).closest(
+      ".show-card",
+    );
     expect(movieCard).toBeTruthy();
 
     fireEvent.contextMenu(movieCard!);
 
     const movieMenu = await screen.findByRole("menu");
     expect(within(movieMenu).getByRole("menuitem", { name: /Open details/i })).toBeTruthy();
-    expect(within(movieMenu).queryByRole("menuitem", { name: /Retry identify/i })).not.toBeInTheDocument();
+    expect(
+      within(movieMenu).queryByRole("menuitem", { name: /Retry identify/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("prefers the local identify phase over persisted failed scan status", async () => {
@@ -2754,7 +2763,9 @@ describe("App library and player wiring", () => {
     const libraryMovie = screen.getByRole("link", { name: /Library Movie/i });
     const libraryCard = libraryMovie.closest(".show-card");
     expect(libraryCard).toBeTruthy();
-    expect(within(libraryCard as HTMLElement).getByRole("button", { name: /^In Library$/i })).toBeTruthy();
+    expect(
+      within(libraryCard as HTMLElement).getByRole("button", { name: /^In Library$/i }),
+    ).toBeTruthy();
     expect(libraryMovie).toHaveAttribute("href", "/discover/movie/202");
     expect(libraryMovie.closest(".show-card")).toBeTruthy();
   });

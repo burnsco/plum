@@ -27,7 +27,7 @@ import {
 import { useAddDiscoverTitle, useDiscover, useDiscoverGenres, useDiscoverSearch } from "@/queries";
 
 function isDiscoverConfigError(error: Error | null): boolean {
-  return error?.message.includes("TMDB_API_KEY") ?? false
+  return error?.message.includes("TMDB_API_KEY") ?? false;
 }
 
 export function Discover() {
@@ -91,7 +91,9 @@ function DiscoverContent() {
               Discover
             </div>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight">Find something worth adding.</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">
+                Find something worth adding.
+              </h1>
               <p className="max-w-xl text-sm leading-6 text-white/75">
                 {originCountry ? (
                   <>
@@ -105,8 +107,8 @@ function DiscoverContent() {
                   </>
                 ) : (
                   <>
-                    Browse wide TMDB-powered shelves, open full category pages, and filter by movies,
-                    TV, genres, and production country without leaving Plum.
+                    Browse wide TMDB-powered shelves, open full category pages, and filter by
+                    movies, TV, genres, and production country without leaving Plum.
                   </>
                 )}
               </p>
@@ -461,8 +463,8 @@ function DiscoverSearchResults({
     return <p className="text-sm text-(--plum-muted)">Searching TMDB...</p>;
   }
 
-  const movies = mediaFilter === "tv" ? [] : results?.movies ?? [];
-  const tv = mediaFilter === "movie" ? [] : results?.tv ?? [];
+  const movies = mediaFilter === "tv" ? [] : (results?.movies ?? []);
+  const tv = mediaFilter === "movie" ? [] : (results?.tv ?? []);
 
   if (movies.length === 0 && tv.length === 0) {
     return (
@@ -557,9 +559,7 @@ function DiscoverCardRail({
 }) {
   const posterItems = useMemo(
     () =>
-      items.map((item) =>
-        mapDiscoverItemToPosterGridItem(item, isAdmin, addTitle, onOpenSettings),
-      ),
+      items.map((item) => mapDiscoverItemToPosterGridItem(item, isAdmin, addTitle, onOpenSettings)),
     [addTitle, isAdmin, items, onOpenSettings],
   );
 

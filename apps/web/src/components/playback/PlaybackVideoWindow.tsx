@@ -10,18 +10,9 @@ import {
 } from "react";
 import { Ratio, Volume2, VolumeX } from "lucide-react";
 import type { MediaItem } from "../../api";
-import type {
-  AudioTrackOption,
-  TrackMenuOption,
-} from "../../lib/playback/playerMedia";
-import {
-  formatClock,
-  getSeasonEpisodeLabel,
-} from "../../lib/playback/playerMedia";
-import type {
-  SubtitleAppearance,
-  VideoAspectMode,
-} from "../../lib/playbackPreferences";
+import type { AudioTrackOption, TrackMenuOption } from "../../lib/playback/playerMedia";
+import { formatClock, getSeasonEpisodeLabel } from "../../lib/playback/playerMedia";
+import type { SubtitleAppearance, VideoAspectMode } from "../../lib/playbackPreferences";
 import { PlaybackControls } from "./PlaybackControls";
 import { PlaybackDockShell } from "./PlaybackDockShell";
 import { PlaybackInfoPanel } from "./PlaybackInfoPanel";
@@ -51,9 +42,7 @@ type PlaybackVideoWindowProps = {
   activeAssSource: string | null;
   activeAssFontUrls: readonly string[];
   videoStreamOffsetSeconds: number;
-  onAssStatusChange: (
-    status: "loading" | "ready" | "error" | "timeout",
-  ) => void;
+  onAssStatusChange: (status: "loading" | "ready" | "error" | "timeout") => void;
   onVideoDoubleClick: () => void;
   onVideoLoadStart: () => void;
   onVideoLoadedMetadata: (element: HTMLVideoElement) => void;
@@ -281,9 +270,7 @@ export function PlaybackVideoWindow({
         onError={onVideoError}
         onEnded={onVideoEnded}
       />
-      {showPlayerLoadingOverlay && (
-        <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />
-      )}
+      {showPlayerLoadingOverlay && <PlayerLoadingOverlay label={playerLoadingLabel} fullscreen />}
 
       <PlaybackInfoPanel
         titleDisplay={titleDisplay}
@@ -523,47 +510,25 @@ function PlaybackUpNextOverlay({
   const upNextSeasonLabel = getSeasonEpisodeLabel(upNextTarget);
 
   return (
-    <div
-      className="playback-up-next"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Up next"
-    >
+    <div className="playback-up-next" role="dialog" aria-modal="true" aria-label="Up next">
       {upNextBackdropUrl ? (
         <img src={upNextBackdropUrl} alt="" className="playback-up-next__bg" />
       ) : (
-        <div
-          className="playback-up-next__bg playback-up-next__bg--empty"
-          aria-hidden
-        />
+        <div className="playback-up-next__bg playback-up-next__bg--empty" aria-hidden />
       )}
       <div className="playback-up-next__scrim" />
       <div className="playback-up-next__content">
         <p className="playback-up-next__eyebrow">Up next</p>
         <h2 className="playback-up-next__title">{upNextTarget.title}</h2>
-        {upNextSeasonLabel ? (
-          <p className="playback-up-next__meta">{upNextSeasonLabel}</p>
-        ) : null}
+        {upNextSeasonLabel ? <p className="playback-up-next__meta">{upNextSeasonLabel}</p> : null}
         <p className="playback-up-next__timer">
-          Starting in{" "}
-          <span className="playback-up-next__timer-value">
-            {upNextSecondsLeft}
-          </span>
-          s
+          Starting in <span className="playback-up-next__timer-value">{upNextSecondsLeft}</span>s
         </p>
         <div className="playback-up-next__actions">
-          <button
-            type="button"
-            className="playback-up-next__play-now"
-            onClick={onConfirmUpNextNow}
-          >
+          <button type="button" className="playback-up-next__play-now" onClick={onConfirmUpNextNow}>
             Play now
           </button>
-          <button
-            type="button"
-            className="playback-up-next__cancel"
-            onClick={onDismissUpNext}
-          >
+          <button type="button" className="playback-up-next__cancel" onClick={onDismissUpNext}>
             Cancel
           </button>
         </div>

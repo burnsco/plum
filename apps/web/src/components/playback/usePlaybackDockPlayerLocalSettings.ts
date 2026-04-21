@@ -20,16 +20,13 @@ export function usePlaybackDockPlayerLocalSettings() {
     writeStoredSubtitleAppearance(value);
   }, []);
   const videoAutoplayEnabled = playerLocalSettings.videoAutoplayEnabled;
-  const setVideoAutoplayEnabled = useCallback(
-    (value: boolean | ((prev: boolean) => boolean)) => {
-      const next =
-        typeof value === "function"
-          ? value(getPlayerLocalSettingsSnapshot().videoAutoplayEnabled)
-          : value;
-      writeStoredVideoAutoplayEnabled(next);
-    },
-    [],
-  );
+  const setVideoAutoplayEnabled = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    const next =
+      typeof value === "function"
+        ? value(getPlayerLocalSettingsSnapshot().videoAutoplayEnabled)
+        : value;
+    writeStoredVideoAutoplayEnabled(next);
+  }, []);
   const videoAspectMode = playerLocalSettings.videoAspectMode;
   const setVideoAspectMode = useCallback((value: VideoAspectMode) => {
     writeStoredVideoAspectMode(value);

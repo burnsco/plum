@@ -121,7 +121,9 @@ export function useDiscoverTitleDetails(
   return useQuery({
     queryKey: queryKeys.discoverTitle(mediaType ?? "movie", tmdbId ?? 0),
     queryFn: async () =>
-      contractsView<DiscoverTitleDetails | null>(await getDiscoverTitleDetails(mediaType!, tmdbId!)),
+      contractsView<DiscoverTitleDetails | null>(
+        await getDiscoverTitleDetails(mediaType!, tmdbId!),
+      ),
     enabled: (options?.enabled ?? true) && mediaType != null && tmdbId != null && tmdbId > 0,
     refetchInterval: options?.refetchInterval,
     staleTime: DISCOVER_STALE_MS,

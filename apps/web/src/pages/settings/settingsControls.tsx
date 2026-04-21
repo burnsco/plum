@@ -38,9 +38,7 @@ export function Toggle({
       </span>
       <span className="flex flex-col">
         <span>{label}</span>
-        {description ? (
-          <span className="text-xs text-(--plum-muted)">{description}</span>
-        ) : null}
+        {description ? <span className="text-xs text-(--plum-muted)">{description}</span> : null}
       </span>
     </label>
   );

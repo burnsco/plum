@@ -14,9 +14,7 @@ export function PlayerLoadingOverlay({
       aria-label={ariaLabel}
     >
       <div className="player-loading-overlay__spinner" aria-hidden="true" />
-      {label.trim() !== "" ? (
-        <span className="player-loading-overlay__label">{label}</span>
-      ) : null}
+      {label.trim() !== "" ? <span className="player-loading-overlay__label">{label}</span> : null}
     </div>
   );
 }

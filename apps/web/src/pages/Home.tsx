@@ -1,30 +1,34 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { Library, MediaItem } from "../api";
 import { IdentifyMovieDialog } from "../components/IdentifyMovieDialog";
 import { IdentifyShowDialog } from "../components/IdentifyShowDialog";
+import { LibraryHeaderControls } from "../components/home/LibraryHeaderControls";
 import { MovieLibraryCardContextMenu } from "../components/home/MovieLibraryCardContextMenu";
+import { ScanStatusIndicator } from "../components/home/ScanStatusIndicator";
 import { ShowLibraryCardContextMenu } from "../components/home/ShowLibraryCardContextMenu";
 import { LibraryPosterGrid } from "../components/LibraryPosterGrid";
-import { LibraryViewControls } from "../components/LibraryViewControls";
 import { MediaDetailView, MediaTableView } from "../components/MediaListView";
 import { MusicLibraryView } from "../components/MusicLibraryView";
 import { MusicNowPlayingBar } from "../components/MusicNowPlayingBar";
 import { PosterPickerDialog } from "../components/PosterPickerDialog";
 import { MediaGridSkeleton, PageRouteSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import type { PosterGridItem } from "../components/types";
-import { useIdentifyQueue, type IdentifyLibraryPhase } from "../contexts/IdentifyQueueContext";
+import { useIdentifyQueue } from "../contexts/IdentifyQueueContext";
 import { usePlayerQueue } from "../contexts/PlayerContext";
 import { useScanQueue } from "../contexts/ScanQueueContext";
 import { useHomeLibraryDialogs } from "../hooks/useHomeLibraryDialogs";
+import {
+  canShowLibraryIdentifyFailure,
+  useLibraryActivityState,
+} from "../hooks/useLibraryActivityState";
 import {
   buildMovieCardModels,
   buildShowGroupCardModels,
   hasProviderMatch,
   isActiveIdentifyState,
 } from "../lib/homeLibraryCardModels";
-import { getEnrichmentPhase, getLibraryActivity } from "../lib/libraryActivity";
 import { groupMediaByShow } from "../lib/showGrouping";
 import { useLibraryViewPrefs } from "../lib/useLibraryViewPrefs";
 import { mediaItemNeedsIdentificationAttention } from "@/lib/unidentifiedMedia";
@@ -38,50 +42,9 @@ import {
 } from "../queries";
 
 const isTVOrAnime = (lib: Library) => lib.type === "tv" || lib.type === "anime";
-const IDENTIFY_POLL_INTERVAL_MS = 5_000;
-const SCAN_POLL_INTERVAL_MS = 2_000;
 
-function canShowFailureState(
-  identifyPhase: IdentifyLibraryPhase | undefined,
-  isProcessing: boolean,
-  hasActiveIdentifyItems: boolean,
-  identifyFailedCount: number,
-) {
-  const explicitFailure = identifyPhase === "identify-failed";
-  // Do not gate on react-query isFetching: background refetches (e.g. identify poll) would
-  // briefly hide failure and flip cards back to "Searching…", which looks like a glitch.
-  return (
-    !hasActiveIdentifyItems &&
-    (explicitFailure || (!isProcessing && identifyPhase === "complete" && identifyFailedCount > 0))
-  );
-}
-
-function mapBackendIdentifyPhase(phase?: string): IdentifyLibraryPhase | undefined {
-  switch (phase) {
-    case "queued":
-      return "queued";
-    case "identifying":
-      return "identifying";
-    case "completed":
-      return "complete";
-    case "failed":
-      return "identify-failed";
-    default:
-      return undefined;
-  }
-}
-
-function resolveLibraryIdentifyPhase(
-  localPhase: IdentifyLibraryPhase | undefined,
-  backendPhase: IdentifyLibraryPhase | undefined,
-) {
-  if (localPhase === "queued" || localPhase === "identifying" || localPhase === "soft-reveal") {
-    return localPhase;
-  }
-  if (backendPhase === "queued" || backendPhase === "identifying") {
-    return backendPhase;
-  }
-  return localPhase ?? backendPhase;
+function showActionKey(libraryId: number, showKey: string) {
+  return `${libraryId}:${showKey}`;
 }
 
 export function Home() {
@@ -116,38 +79,17 @@ export function Home() {
     if (selectedLib?.type !== "music" || !unidentifiedOnly) return;
     clearUnidentifiedFilter();
   }, [selectedLib?.type, unidentifiedOnly, clearUnidentifiedFilter]);
-  const selectedLibraryScanStatus = getLibraryScanStatus(selectedLibraryId);
-  const selectedLibraryBackendIdentifyPhase = mapBackendIdentifyPhase(
-    selectedLibraryScanStatus?.identifyPhase,
-  );
-  const selectedLibraryIdentifyPhase = resolveLibraryIdentifyPhase(
-    getLibraryPhase(selectedLibraryId),
-    selectedLibraryBackendIdentifyPhase,
-  );
-  const selectedLibraryActivity = getLibraryActivity({
-    scanPhase: selectedLibraryScanStatus?.phase,
-    enrichmentPhase: selectedLibraryScanStatus?.enrichmentPhase,
-    enriching: selectedLibraryScanStatus?.enriching === true,
-    identifyPhase: selectedLibraryScanStatus?.identifyPhase,
-    localIdentifyPhase: selectedLibraryIdentifyPhase,
+  const {
+    activity: selectedLibraryActivity,
+    identifyPhase: selectedLibraryIdentifyPhase,
+    isProcessing: isSelectedLibraryScanning,
+    pollInterval: selectedLibraryPollInterval,
+    scanStatus: selectedLibraryScanStatus,
+  } = useLibraryActivityState({
+    selectedLibraryId,
+    getLibraryPhase,
+    getLibraryScanStatus,
   });
-  const selectedLibraryEnrichmentPhase = getEnrichmentPhase(selectedLibraryScanStatus ?? {});
-  const isSelectedLibraryScanning =
-    selectedLibraryScanStatus?.phase === "queued" ||
-    selectedLibraryScanStatus?.phase === "scanning" ||
-    selectedLibraryEnrichmentPhase === "queued" ||
-    selectedLibraryEnrichmentPhase === "running" ||
-    selectedLibraryScanStatus?.identifyPhase === "queued" ||
-    selectedLibraryScanStatus?.identifyPhase === "identifying";
-  const selectedLibraryPollInterval =
-    selectedLibraryId == null
-      ? false
-      : isSelectedLibraryScanning
-        ? SCAN_POLL_INTERVAL_MS
-        : selectedLibraryIdentifyPhase === "identifying" ||
-            selectedLibraryIdentifyPhase === "soft-reveal"
-          ? IDENTIFY_POLL_INTERVAL_MS
-          : false;
   const selectedLibraryPageSize =
     selectedLib?.type === "music" ? 100 : layoutMode === "grid" ? 60 : 75;
   const {
@@ -172,6 +114,10 @@ export function Home() {
       : undefined;
   const refreshShowMutation = useRefreshShow();
   const markShowWatchedMutation = useMarkShowWatched();
+  const pendingMarkWatchedShowsRef = useRef<Set<string>>(new Set());
+  const [pendingMarkWatchedShows, setPendingMarkWatchedShows] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const refreshPlaybackTrackMetadataMutation = useRefreshPlaybackTrackMetadata();
   const confirmShowMutation = useConfirmShow();
   const {
@@ -196,7 +142,7 @@ export function Home() {
   const hasActiveIdentifyItems = selectedItems.some((item) =>
     isActiveIdentifyState(item.identify_state),
   );
-  const selectedLibraryCanShowFailure = canShowFailureState(
+  const selectedLibraryCanShowFailure = canShowLibraryIdentifyFailure(
     selectedLibraryIdentifyPhase,
     isSelectedLibraryScanning,
     hasActiveIdentifyItems,
@@ -241,75 +187,91 @@ export function Home() {
 
   const showCardState = useMemo((): PosterGridItem[] => {
     const lid = selectedLibraryId;
-    return showCardModels.map(({ base, group, progressEpisode, statusAction }) => ({
-      ...base,
-      onPlay: () => playShowGroup(group.episodes, progressEpisode),
-      onStatusAction:
-        statusAction === "confirm-show" && lid != null
-          ? () => confirmShowMutation.mutate({ libraryId: lid, showKey: group.showKey })
-          : statusAction === "identify-show"
-            ? () => setIdentifyGroup(group)
-            : undefined,
-      contextMenuContent:
-        lid == null ? undefined : (
-          <ShowLibraryCardContextMenu
-            refreshShowDisabled={refreshShowMutation.isPending}
-            refreshTracksDisabled={refreshPlaybackTrackMetadataMutation.isPending}
-            markShowWatchedDisabled={
-              markShowWatchedMutation.isPending || group.episodes.length === 0
-            }
-            onMarkShowWatchedAll={() => {
-              void markShowWatchedMutation
-                .mutateAsync({
+    return showCardModels.map(({ base, group, progressEpisode, statusAction }) => {
+      const markWatchedKey = lid == null ? "" : showActionKey(lid, group.showKey);
+      const markWatchedPending =
+        markWatchedKey !== "" && pendingMarkWatchedShows.has(markWatchedKey);
+
+      return {
+        ...base,
+        onPlay: () => playShowGroup(group.episodes, progressEpisode),
+        onStatusAction:
+          statusAction === "confirm-show" && lid != null
+            ? () => confirmShowMutation.mutate({ libraryId: lid, showKey: group.showKey })
+            : statusAction === "identify-show"
+              ? () => setIdentifyGroup(group)
+              : undefined,
+        contextMenuContent:
+          lid == null ? undefined : (
+            <ShowLibraryCardContextMenu
+              refreshShowDisabled={refreshShowMutation.isPending}
+              refreshTracksDisabled={refreshPlaybackTrackMetadataMutation.isPending}
+              markShowWatchedDisabled={markWatchedPending || group.episodes.length === 0}
+              onMarkShowWatchedAll={() => {
+                if (pendingMarkWatchedShowsRef.current.has(markWatchedKey)) return;
+                pendingMarkWatchedShowsRef.current.add(markWatchedKey);
+                setPendingMarkWatchedShows((current) => new Set(current).add(markWatchedKey));
+                void markShowWatchedMutation
+                  .mutateAsync({
+                    libraryId: lid,
+                    showKey: group.showKey,
+                    payload: { mode: "all" },
+                  })
+                  .then(() => {
+                    toast.success(
+                      `Every episode of “${group.showTitle}” is now marked as watched.`,
+                    );
+                  })
+                  .catch(() => {
+                    /* onError handled by mutation */
+                  })
+                  .finally(() => {
+                    pendingMarkWatchedShowsRef.current.delete(markWatchedKey);
+                    setPendingMarkWatchedShows((current) => {
+                      if (!current.has(markWatchedKey)) return current;
+                      const next = new Set(current);
+                      next.delete(markWatchedKey);
+                      return next;
+                    });
+                  });
+              }}
+              onChangePoster={() =>
+                setPosterPicker({
+                  kind: "show",
                   libraryId: lid,
                   showKey: group.showKey,
-                  payload: { mode: "all" },
+                  title: group.showTitle,
                 })
-                .then(() => {
-                  toast.success(
-                    `Every episode of “${group.showTitle}” is now marked as watched.`,
-                  );
-                })
-                .catch(() => {
-                  /* onError handled by mutation */
-                });
-            }}
-            onChangePoster={() =>
-              setPosterPicker({
-                kind: "show",
-                libraryId: lid,
-                showKey: group.showKey,
-                title: group.showTitle,
-              })
-            }
-            onRefreshShow={() =>
-              refreshShowMutation.mutate({ libraryId: lid, showKey: group.showKey })
-            }
-            onRescanTracks={() => {
-              const mediaIds = group.episodes.map((ep) => ep.id);
-              void refreshPlaybackTrackMetadataMutation
-                .mutateAsync({ libraryId: lid, mediaIds })
-                .then(() => {
-                  const n = mediaIds.length;
-                  toast.success(
-                    n === 1
-                      ? `Tracks and subtitles rescanned for one episode of “${group.showTitle}”.`
-                      : `Tracks and subtitles rescanned for ${n} episodes of “${group.showTitle}”.`,
-                  );
-                })
-                .catch((err: unknown) => {
-                  toast.error(
-                    err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
-                  );
-                });
-            }}
-            onIdentify={() => setIdentifyGroup(group)}
-            onOpenDetails={() =>
-              navigate(`/library/${lid}/show/${encodeURIComponent(group.showKey)}`)
-            }
-          />
-        ),
-    }));
+              }
+              onRefreshShow={() =>
+                refreshShowMutation.mutate({ libraryId: lid, showKey: group.showKey })
+              }
+              onRescanTracks={() => {
+                const mediaIds = group.episodes.map((ep) => ep.id);
+                void refreshPlaybackTrackMetadataMutation
+                  .mutateAsync({ libraryId: lid, mediaIds })
+                  .then(() => {
+                    const n = mediaIds.length;
+                    toast.success(
+                      n === 1
+                        ? `Tracks and subtitles rescanned for one episode of “${group.showTitle}”.`
+                        : `Tracks and subtitles rescanned for ${n} episodes of “${group.showTitle}”.`,
+                    );
+                  })
+                  .catch((err: unknown) => {
+                    toast.error(
+                      err instanceof Error ? err.message : "Could not rescan tracks and subtitles.",
+                    );
+                  });
+              }}
+              onIdentify={() => setIdentifyGroup(group)}
+              onOpenDetails={() =>
+                navigate(`/library/${lid}/show/${encodeURIComponent(group.showKey)}`)
+              }
+            />
+          ),
+      };
+    });
   }, [
     showCardModels,
     selectedLibraryId,
@@ -318,6 +280,7 @@ export function Home() {
     setIdentifyGroup,
     refreshShowMutation,
     markShowWatchedMutation,
+    pendingMarkWatchedShows,
     refreshPlaybackTrackMetadataMutation,
     navigate,
     setPosterPicker,
@@ -404,14 +367,7 @@ export function Home() {
       const item = selectedItems.find((m) => m.id === mid);
       return item != null && mediaItemNeedsIdentificationAttention(item);
     });
-  }, [
-    unidentifiedOnly,
-    selectedLib,
-    showCardState,
-    movieCardState,
-    showGroups,
-    selectedItems,
-  ]);
+  }, [unidentifiedOnly, selectedLib, showCardState, movieCardState, showGroups, selectedItems]);
 
   return (
     <>
@@ -450,24 +406,10 @@ export function Home() {
                   </button>
                 </p>
               ) : selectedLibraryActivity != null && selectedItems.length === 0 ? (
-                <p className="text-sm text-(--plum-muted)">
-                  {selectedLibraryActivity === "importing"
-                    ? "Importing library…"
-                    : selectedLibraryActivity === "analyze-queued"
-                      ? "Waiting for analyzer…"
-                    : selectedLibraryActivity === "analyzing"
-                      ? "Analyzing media…"
-                      : selectedLibraryActivity === "identify-queued"
-                        ? "Queued for identify…"
-                        : "Identifying library…"}
-                  {selectedLibraryActivity === "importing" && selectedLibraryScanStatus && (
-                    <>
-                      {" "}
-                      {selectedLibraryScanStatus.processed} processed •{" "}
-                      {selectedLibraryScanStatus.added} added
-                    </>
-                  )}
-                </p>
+                <ScanStatusIndicator
+                  activity={selectedLibraryActivity}
+                  scanStatus={selectedLibraryScanStatus}
+                />
               ) : selectedLibraryScanWarning ? (
                 <p className="text-sm text-(--plum-muted)">{selectedLibraryScanWarning}</p>
               ) : selectedItems.length === 0 ? (
@@ -502,31 +444,15 @@ export function Home() {
                 </div>
               ) : selectedLib.type !== "music" ? (
                 <>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-                    <div className="min-w-0">
-                      <h2 className="text-base font-semibold text-(--plum-text) truncate">
-                        {selectedLib.name}
-                      </h2>
-                      {unidentifiedOnly ? (
-                        <p className="mt-1 text-xs text-(--plum-text-2)">
-                          Showing titles that still need identification.
-                          <button
-                            type="button"
-                            className="ml-2 text-(--plum-accent) hover:underline"
-                            onClick={clearUnidentifiedFilter}
-                          >
-                            Show all
-                          </button>
-                        </p>
-                      ) : null}
-                    </div>
-                    <LibraryViewControls
-                      cardWidth={cardWidth}
-                      onCardWidthChange={setCardWidth}
-                      layoutMode={layoutMode}
-                      onLayoutModeChange={setLayoutMode}
-                    />
-                  </div>
+                  <LibraryHeaderControls
+                    cardWidth={cardWidth}
+                    layoutMode={layoutMode}
+                    onCardWidthChange={setCardWidth}
+                    onClearUnidentifiedFilter={clearUnidentifiedFilter}
+                    onLayoutModeChange={setLayoutMode}
+                    title={selectedLib.name}
+                    unidentifiedOnly={unidentifiedOnly}
+                  />
                   {layoutMode === "grid" ? (
                     <LibraryPosterGrid
                       items={selectedLibraryCards}

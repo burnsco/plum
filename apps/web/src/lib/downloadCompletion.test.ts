@@ -4,7 +4,13 @@ import { diffRemovedDownloads, downloadsToSnapshotMap } from "./downloadCompleti
 describe("diffRemovedDownloads", () => {
   it("returns empty when nothing was removed", () => {
     const items = [
-      { id: "radarr:1", title: "A", media_type: "movie" as const, source: "radarr" as const, status_text: "x" },
+      {
+        id: "radarr:1",
+        title: "A",
+        media_type: "movie" as const,
+        source: "radarr" as const,
+        status_text: "x",
+      },
     ];
     const prev = downloadsToSnapshotMap(items);
     expect(diffRemovedDownloads(prev, items)).toEqual([]);
@@ -16,7 +22,13 @@ describe("diffRemovedDownloads", () => {
       { id: "sonarr-tv:2", title: "Show", media_type: "tv", source: "sonarr-tv", status_text: "y" },
     ]);
     const next = [
-      { id: "radarr:1", title: "Film", media_type: "movie" as const, source: "radarr" as const, status_text: "x" },
+      {
+        id: "radarr:1",
+        title: "Film",
+        media_type: "movie" as const,
+        source: "radarr" as const,
+        status_text: "x",
+      },
     ];
     expect(diffRemovedDownloads(prev, next)).toEqual([
       { id: "sonarr-tv:2", title: "Show", hadError: false },
@@ -24,9 +36,7 @@ describe("diffRemovedDownloads", () => {
   });
 
   it("marks hadError when previous row had error_message", () => {
-    const prev = new Map([
-      ["radarr:9", { title: "Bad", error_message: "disk full" }],
-    ]);
+    const prev = new Map([["radarr:9", { title: "Bad", error_message: "disk full" }]]);
     expect(diffRemovedDownloads(prev, [])).toEqual([
       { id: "radarr:9", title: "Bad", hadError: true },
     ]);

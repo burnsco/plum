@@ -7,7 +7,9 @@ export type PosterPickerState =
 
 export function useHomeLibraryDialogs() {
   const [identifyGroup, setIdentifyGroup] = useState<ShowGroup | null>(null);
-  const [identifyMovieItem, setIdentifyMovieItem] = useState<{ id: number; title: string } | null>(null);
+  const [identifyMovieItem, setIdentifyMovieItem] = useState<{ id: number; title: string } | null>(
+    null,
+  );
   const [posterPicker, setPosterPicker] = useState<PosterPickerState | null>(null);
 
   return {

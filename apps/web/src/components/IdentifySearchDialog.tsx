@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
@@ -113,7 +107,12 @@ export function IdentifySearchDialog<Result extends IdentifySearchResult>({
             onKeyDown={(event) => event.key === "Enter" && void doSearch()}
             className="flex-1"
           />
-          <Button type="button" variant="outline" onClick={() => void doSearch()} disabled={loading}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void doSearch()}
+            disabled={loading}
+          >
             {loading ? "Searching..." : "Search"}
           </Button>
         </div>

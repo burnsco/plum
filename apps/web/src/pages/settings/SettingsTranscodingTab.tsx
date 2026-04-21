@@ -76,20 +76,23 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
               <div>
                 <h3 className="text-base font-medium text-(--plum-text)">Video Acceleration API</h3>
                 <p className="mt-1 text-sm text-(--plum-muted)">
-                  Enable VAAPI on the server and choose which source codecs are allowed to use it for
-                  decode.
+                  Enable VAAPI on the server and choose which source codecs are allowed to use it
+                  for decode.
                 </p>
               </div>
-                <Toggle
-                  label="Enable VAAPI"
-                  checked={form.vaapiEnabled}
+              <Toggle
+                label="Enable VAAPI"
+                checked={form.vaapiEnabled}
                 onChange={(checked) => props.setField("vaapiEnabled", checked)}
               />
             </div>
 
             <div className="mt-5 space-y-5">
               <div>
-                <label className="mb-2 block text-sm font-medium text-(--plum-text)" htmlFor="vaapi-device">
+                <label
+                  className="mb-2 block text-sm font-medium text-(--plum-text)"
+                  htmlFor="vaapi-device"
+                >
                   VAAPI device
                 </label>
                 <Input
@@ -135,9 +138,9 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                   path fails.
                 </p>
               </div>
-                <Toggle
-                  label="Enable hardware encoding"
-                  checked={form.hardwareEncodingEnabled}
+              <Toggle
+                label="Enable hardware encoding"
+                checked={form.hardwareEncodingEnabled}
                 onChange={(checked) => props.setField("hardwareEncodingEnabled", checked)}
               />
             </div>
@@ -171,8 +174,8 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                 >
                   Preferred hardware encode format
                 </label>
-                  <select
-                    id="preferred-encode-format"
+                <select
+                  id="preferred-encode-format"
                   value={form.preferredHardwareEncodeFormat}
                   onChange={(event) =>
                     props.setField(
@@ -215,8 +218,8 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                 </h3>
                 <p className="mt-1 text-sm text-(--plum-muted)">
                   When enabled, Plum may insert FFmpeg{" "}
-                  <code className="rounded bg-black/30 px-1 py-0.5 text-xs">tonemap_opencl</code> for
-                  sources that look HDR (PQ / HLG transfer, or 10-bit BT.2020). Requires
+                  <code className="rounded bg-black/30 px-1 py-0.5 text-xs">tonemap_opencl</code>{" "}
+                  for sources that look HDR (PQ / HLG transfer, or 10-bit BT.2020). Requires
                   OpenCL-capable drivers and a matching FFmpeg build. Does not apply when burning in
                   PGS subtitles.
                 </p>
@@ -228,7 +231,9 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
               />
             </div>
 
-            <div className={`mt-5 space-y-5 ${form.openclToneMappingEnabled ? "" : "pointer-events-none opacity-50"}`}>
+            <div
+              className={`mt-5 space-y-5 ${form.openclToneMappingEnabled ? "" : "pointer-events-none opacity-50"}`}
+            >
               <div>
                 <label
                   className="mb-2 block text-sm font-medium text-(--plum-text)"
@@ -255,8 +260,9 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                 </select>
                 <p className="mt-2 text-xs text-(--plum-muted)">
                   {
-                    openclTonemapAlgorithmOptions.find((o) => o.value === form.openclToneMapAlgorithm)
-                      ?.description
+                    openclTonemapAlgorithmOptions.find(
+                      (o) => o.value === form.openclToneMapAlgorithm,
+                    )?.description
                   }
                 </p>
               </div>
@@ -268,8 +274,8 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                 >
                   Highlight desaturation
                 </label>
-                  <Input
-                    id="opencl-tonemap-desat"
+                <Input
+                  id="opencl-tonemap-desat"
                   type="number"
                   min={0}
                   max={4}
@@ -283,8 +289,9 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                   }}
                 />
                 <p className="mt-2 text-xs text-(--plum-muted)">
-                  Passed to FFmpeg as <code className="rounded bg-black/30 px-1 py-0.5 text-xs">desat</code>{" "}
-                  (0–4). Try around 0.5 unless you want a more saturated HDR look.
+                  Passed to FFmpeg as{" "}
+                  <code className="rounded bg-black/30 px-1 py-0.5 text-xs">desat</code> (0–4). Try
+                  around 0.5 unless you want a more saturated HDR look.
                 </p>
               </div>
             </div>
@@ -327,7 +334,8 @@ export function SettingsTranscodingTab(props: TranscodingSettingsTabProps) {
                     : "text-(--plum-muted)"
               }`}
             >
-              {props.saveMessage ?? (props.dirty ? "Unsaved changes." : "Saved settings are active for future jobs.")}
+              {props.saveMessage ??
+                (props.dirty ? "Unsaved changes." : "Saved settings are active for future jobs.")}
             </p>
           </div>
         </aside>

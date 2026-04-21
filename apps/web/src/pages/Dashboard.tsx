@@ -11,9 +11,7 @@ import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-type DashboardEntry =
-  | HomeDashboard["continueWatching"][number]
-  | RecentlyAddedEntry;
+type DashboardEntry = HomeDashboard["continueWatching"][number] | RecentlyAddedEntry;
 
 type DashboardShelf =
   | "continueWatching"
@@ -149,7 +147,8 @@ const RECENT_RAILS: RecentRailConfig[] = [
     headingId: "dash-recent-tv-shows-heading",
     testId: "dashboard-recent-tv-shows-heading",
     countNoun: "show",
-    emptyMessage: "Grouped by series — newest episodes surface here once your TV library is scanned.",
+    emptyMessage:
+      "Grouped by series — newest episodes surface here once your TV library is scanned.",
   },
   {
     shelf: "recentlyAddedMovies",
@@ -176,7 +175,8 @@ const RECENT_RAILS: RecentRailConfig[] = [
     headingId: "dash-recent-anime-shows-heading",
     testId: "dashboard-recent-anime-shows-heading",
     countNoun: "show",
-    emptyMessage: "Grouped by series — newest anime episodes surface here once your library is scanned.",
+    emptyMessage:
+      "Grouped by series — newest anime episodes surface here once your library is scanned.",
   },
 ];
 
@@ -205,29 +205,37 @@ export function Dashboard() {
           <DashboardCardContextMenu
             canOpenDetails={Boolean(detailHref)}
             canRemoveFromContinueWatching={shelf === "continueWatching"}
-            removeDisabled={clearMediaProgressMutation.isPending || clearShowProgressMutation.isPending}
+            removeDisabled={
+              clearMediaProgressMutation.isPending || clearShowProgressMutation.isPending
+            }
             onPlay={() => card.onPlay?.()}
             onOpenDetails={() => {
               if (detailHref) navigate(detailHref);
             }}
             onRemoveFromContinueWatching={() => {
-              const isShowEntry = (entry.kind === "show" || entry.kind === "episode") && !!entry.show_key;
-              const clearOp = isShowEntry && entry.media.library_id
-                ? clearShowProgressMutation.mutateAsync({
-                    libraryId: entry.media.library_id,
-                    showKey: entry.show_key!,
-                  })
-                : clearMediaProgressMutation.mutateAsync({
-                    mediaId: entry.media.id,
-                    libraryId: entry.media.library_id ?? undefined,
-                  });
+              const isShowEntry =
+                (entry.kind === "show" || entry.kind === "episode") && !!entry.show_key;
+              const clearOp =
+                isShowEntry && entry.media.library_id
+                  ? clearShowProgressMutation.mutateAsync({
+                      libraryId: entry.media.library_id,
+                      showKey: entry.show_key!,
+                    })
+                  : clearMediaProgressMutation.mutateAsync({
+                      mediaId: entry.media.id,
+                      libraryId: entry.media.library_id ?? undefined,
+                    });
               void clearOp
                 .then(() => {
-                  toast.success(`Removed “${getDashboardEntryTitle(entry)}” from continue watching.`);
+                  toast.success(
+                    `Removed “${getDashboardEntryTitle(entry)}” from continue watching.`,
+                  );
                 })
                 .catch((err: unknown) => {
                   toast.error(
-                    err instanceof Error ? err.message : "Could not remove item from continue watching.",
+                    err instanceof Error
+                      ? err.message
+                      : "Could not remove item from continue watching.",
                   );
                 });
             }}
@@ -239,7 +247,8 @@ export function Dashboard() {
   );
 
   const continueWatchingCards = useMemo(
-    () => data?.continueWatching.map((entry) => buildDashboardCard(entry, "continueWatching")) ?? [],
+    () =>
+      data?.continueWatching.map((entry) => buildDashboardCard(entry, "continueWatching")) ?? [],
     [buildDashboardCard, data?.continueWatching],
   );
 
@@ -278,9 +287,7 @@ export function Dashboard() {
         </p>
       ) : null}
 
-      {isLoading ? (
-        <PageRouteSkeleton />
-      ) : null}
+      {isLoading ? <PageRouteSkeleton /> : null}
 
       {!isLoading && !error ? (
         <>
@@ -314,7 +321,11 @@ export function Dashboard() {
             const n = rail.entries.length;
             const plural = n === 1 ? "" : "s";
             return (
-              <section key={rail.shelf} className="flex flex-col gap-4" aria-labelledby={rail.headingId}>
+              <section
+                key={rail.shelf}
+                className="flex flex-col gap-4"
+                aria-labelledby={rail.headingId}
+              >
                 <div className="flex items-center justify-between gap-4">
                   <h2
                     id={rail.headingId}

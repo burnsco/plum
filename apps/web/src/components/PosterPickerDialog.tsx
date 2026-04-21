@@ -64,7 +64,9 @@ export function PosterPickerDialog(props: PosterPickerDialogProps) {
 
   const unavailableProviders = useMemo(
     () =>
-      (data?.provider_availability ?? []).filter((provider) => !provider.available && provider.reason),
+      (data?.provider_availability ?? []).filter(
+        (provider) => !provider.available && provider.reason,
+      ),
     [data?.provider_availability],
   );
 
