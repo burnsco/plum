@@ -11,6 +11,11 @@ import type { WebSubtitleRenderer } from "./useSubtitleController";
 
 type LoadedSubtitleTrack = SubtitleTrackOption & { body: string };
 
+const HLS_BUFFER_FULL_ERROR = "bufferFullError";
+const HLS_RECOVERABLE_GAP_ERRORS = new Set(["bufferStalledError", "bufferSeekOverHole"]);
+const HLS_BUFFER_TRIM_STATUS_MESSAGE = "Trimming playback buffer...";
+const HLS_BUFFER_TRIM_STATUS_CLEAR_MS = 1_500;
+
 export type UseHlsAttachmentParams = {
   isVideo: boolean;
   activeItemId: number | null;
@@ -20,7 +25,7 @@ export type UseHlsAttachmentParams = {
   videoRef: RefObject<HTMLVideoElement | null>;
   hlsRef: RefObject<Hls | null>;
   seekToAfterReloadRef: RefObject<number | null>;
-  setHlsStatusMessage: (message: string) => void;
+  setHlsStatusMessage: Dispatch<SetStateAction<string>>;
   markSubtitleReady: () => void;
   maybeRecoverInitialBufferGap: (video: HTMLVideoElement | null) => boolean;
   mediaRecoveryAttemptsRef: RefObject<number>;
@@ -83,15 +88,22 @@ export function useHlsAttachment({
 
     const hls = new Hls({
       enableWorker: true,
-      backBufferLength: 90,
-      maxBufferLength: 60,
-      maxMaxBufferLength: 120,
+      backBufferLength: 30,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      frontBufferFlushThreshold: 60,
       startFragPrefetch: true,
       startPosition: seekToAfterReloadRef.current !== null ? seekToAfterReloadRef.current : -1,
       xhrSetup: (xhr) => {
         xhr.withCredentials = true;
       },
     });
+    let bufferTrimStatusClearTimeout: ReturnType<typeof window.setTimeout> | null = null;
+    const clearBufferTrimStatusTimeout = () => {
+      if (bufferTrimStatusClearTimeout == null) return;
+      window.clearTimeout(bufferTrimStatusClearTimeout);
+      bufferTrimStatusClearTimeout = null;
+    };
     hlsRef.current = hls;
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setHlsStatusMessage("");
@@ -108,9 +120,9 @@ export function useHlsAttachment({
     hls.on(Hls.Events.ERROR, (_event, data: HlsErrorData) => {
       const formattedError = formatHlsErrorMessage(data);
       const isRecoverableGapError =
-        !data.fatal &&
-        (data.details === "bufferStalledError" || data.details === "bufferSeekOverHole");
-      if (!isRecoverableGapError) {
+        !data.fatal && data.details != null && HLS_RECOVERABLE_GAP_ERRORS.has(data.details);
+      const isRecoverableBufferFullError = !data.fatal && data.details === HLS_BUFFER_FULL_ERROR;
+      if (!isRecoverableGapError && !isRecoverableBufferFullError) {
         console.error("[PlaybackDock] HLS error", {
           mediaId: activeItemId,
           source: videoSourceUrl,
@@ -122,6 +134,17 @@ export function useHlsAttachment({
       }
 
       if (!data.fatal) {
+        if (isRecoverableBufferFullError) {
+          clearBufferTrimStatusTimeout();
+          setHlsStatusMessage(HLS_BUFFER_TRIM_STATUS_MESSAGE);
+          bufferTrimStatusClearTimeout = window.setTimeout(() => {
+            bufferTrimStatusClearTimeout = null;
+            setHlsStatusMessage((current) =>
+              current === HLS_BUFFER_TRIM_STATUS_MESSAGE ? "" : current,
+            );
+          }, HLS_BUFFER_TRIM_STATUS_CLEAR_MS);
+          return;
+        }
         if (data.details === "bufferStalledError") {
           const el = videoRef.current;
           if (maybeRecoverInitialBufferGap(el)) {
@@ -152,6 +175,7 @@ export function useHlsAttachment({
     hls.attachMedia(video);
 
     return () => {
+      clearBufferTrimStatusTimeout();
       hls.destroy();
       if (hlsRef.current === hls) {
         hlsRef.current = null;

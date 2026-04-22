@@ -11,6 +11,7 @@ import { useLibraries } from "../queries";
 import { PlaybackDock } from "./PlaybackDock";
 
 type MockHlsInstance = {
+  config: Record<string, unknown>;
   handlers: Map<string, Array<(...args: unknown[]) => void>>;
   loadSource: ReturnType<typeof vi.fn>;
   attachMedia: ReturnType<typeof vi.fn>;
@@ -70,13 +71,15 @@ vi.mock("hls.js", () => ({
     }
 
     handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    config: Record<string, unknown>;
     loadSource = vi.fn();
     attachMedia = vi.fn();
     destroy = vi.fn();
     startLoad = vi.fn();
     recoverMediaError = vi.fn();
 
-    constructor() {
+    constructor(config: Record<string, unknown>) {
+      this.config = config;
       mockHlsInstances.push(this);
     }
 
@@ -422,6 +425,56 @@ describe("PlaybackDock audio track selection", () => {
     });
     expect(mockHlsInstances).toHaveLength(1);
     expect(firstHls.destroy).not.toHaveBeenCalled();
+  });
+
+  it("uses bounded HLS buffers so browser SourceBuffers can evict old media", async () => {
+    renderDock();
+
+    await waitFor(() => {
+      expect(mockHlsInstances).toHaveLength(1);
+    });
+
+    expect(mockHlsInstances[0]?.config).toMatchObject({
+      backBufferLength: 30,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      frontBufferFlushThreshold: 60,
+    });
+  });
+
+  it("treats non-fatal HLS buffer quota errors as recoverable", async () => {
+    renderDock();
+
+    await waitFor(() => {
+      expect(mockHlsInstances).toHaveLength(1);
+    });
+
+    const hls = mockHlsInstances[0];
+    if (!hls) {
+      throw new Error("Expected an HLS instance");
+    }
+
+    act(() => {
+      hls.emit("error", "error", {
+        fatal: false,
+        type: "mediaError",
+        details: "bufferFullError",
+        error: new DOMException("SourceBuffer is full", "QuotaExceededError"),
+      });
+    });
+
+    expect(screen.getByRole("status", { name: "Trimming playback buffer..." })).toBeTruthy();
+    expect(console.error).not.toHaveBeenCalledWith(
+      "[PlaybackDock] HLS error",
+      expect.objectContaining({ details: "bufferFullError" }),
+    );
+
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("status", { name: "Trimming playback buffer..." })).toBeNull();
+      },
+      { timeout: 2500 },
+    );
   });
 
   it("restarts loading on fatal HLS network errors", async () => {
