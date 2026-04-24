@@ -589,7 +589,7 @@ describe("PlaybackDock audio track selection", () => {
     expect(mockChangeAudioTrack).not.toHaveBeenCalled();
   });
 
-  it("reapplies the default subtitle track when media becomes ready", async () => {
+  it("renders the default subtitle overlay when media becomes ready", async () => {
     const originalCue = window.VTTCue;
     const originalAddTextTrack = HTMLMediaElement.prototype.addTextTrack;
     const originalTextTracksDescriptor = Object.getOwnPropertyDescriptor(
@@ -682,26 +682,18 @@ describe("PlaybackDock audio track selection", () => {
 
       await waitFor(() => {
         expect(fetchSpy).toHaveBeenCalledTimes(1);
-        expect(addTextTrackMock).toHaveBeenCalledTimes(1);
+        expect(screen.getByText("Hello world")).toBeTruthy();
       });
 
-      await waitFor(() => {
-        const currentTracks = tracksByElement.get(video) ?? [];
-        expect(currentTracks[0]?.mode).toBe("showing");
-        expect(currentTracks[0]?.cues).toHaveLength(1);
-      });
+      expect(addTextTrackMock).not.toHaveBeenCalled();
 
       tracksByElement.set(video, []);
       fireEvent.loadedMetadata(video);
 
       await waitFor(() => {
-        expect(addTextTrackMock).toHaveBeenCalledTimes(2);
+        expect(screen.getByText("Hello world")).toBeTruthy();
       });
-
-      const recreatedTracks = tracksByElement.get(video) ?? [];
-      expect(recreatedTracks).toHaveLength(1);
-      expect(recreatedTracks[0]?.mode).toBe("showing");
-      expect(recreatedTracks[0]?.cues).toHaveLength(1);
+      expect(addTextTrackMock).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
       if (originalCue == null) {

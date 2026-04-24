@@ -47,16 +47,14 @@ import {
   type PlaybackTrackSource,
 } from "../../lib/playback/playbackDockSubtitleTracks";
 import {
-  applyCueLineSetting,
+  activeSubtitleCueTextsAt,
   bufferedRangeStartsNearZero,
-  buildSubtitleCues,
   clearTextTrackCues,
   formatTrackLabel,
   getBrowserAudioTracks,
   getPreferredAudioKey,
   getPreferredSubtitleKey,
   getSeasonEpisodeLabel,
-  hasTextTrack,
   nudgeVideoIntoBufferedRange,
   clampVideoSeekSeconds,
   resolvedVideoDuration,
@@ -212,7 +210,6 @@ export function usePlaybackDockController(): ReactNode {
   /** After the first `playing` event, brief `waiting` / `loadstart` must not show the full-screen loading overlay. */
   const videoPlaybackStartedRef = useRef(false);
   const manualSubtitleTrackRef = useRef<TextTrack | null>(null);
-  const manualSubtitleVideoRef = useRef<HTMLVideoElement | null>(null);
   const subtitleLoadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const blockedSubtitleRetryKeysRef = useRef<Set<string>>(new Set());
   const currentSubtitleMediaIdRef = useRef<number | null>(null);
@@ -656,6 +653,13 @@ export function usePlaybackDockController(): ReactNode {
   const subtitleRenderer = subtitleSelection.renderer;
   const activeAssSource = subtitleSelection.activeAssSource;
   const manualSubtitleTrackKey = subtitleSelection.manualTrackKey;
+  const managedSubtitleCueTexts = useMemo(() => {
+    if (subtitleRenderer !== "manual_vtt" || manualSubtitleTrackKey == null) return [];
+    const selectedTrack =
+      loadedSubtitleTracks.find((candidate) => candidate.key === manualSubtitleTrackKey) ?? null;
+    if (!selectedTrack) return [];
+    return activeSubtitleCueTextsAt(selectedTrack.body, playbackState.currentTime);
+  }, [loadedSubtitleTracks, manualSubtitleTrackKey, playbackState.currentTime, subtitleRenderer]);
 
   useEffect(() => {
     queuedSubtitlePreferenceRef.current = null;
@@ -985,7 +989,6 @@ export function usePlaybackDockController(): ReactNode {
         }
       }
       manualSubtitleTrackRef.current = null;
-      manualSubtitleVideoRef.current = null;
       setVideoAttachmentVersion((value) => value + 1);
       setSubtitleAttachmentVersion((value) => value + 1);
     }
@@ -1272,76 +1275,17 @@ export function usePlaybackDockController(): ReactNode {
     };
   }, [activeItem, isVideo, persistPlaybackProgress]);
 
-  const applyManagedSubtitleTrack = useCallback(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const hasLoadedSubtitles = loadedSubtitleTracks.length > 0;
-    const hasSelectedSubtitle = selectedSubtitleKey !== "off";
-
-    if (!hasSelectedSubtitle && !hasLoadedSubtitles) {
-      return;
+  const clearManagedSubtitleTrack = useCallback(() => {
+    clearTextTrackCues(manualSubtitleTrackRef.current);
+    if (manualSubtitleTrackRef.current) {
+      manualSubtitleTrackRef.current.mode = "disabled";
     }
-
-    if (subtitleRenderer !== "manual_vtt") {
-      clearTextTrackCues(manualSubtitleTrackRef.current);
-      if (manualSubtitleTrackRef.current) {
-        manualSubtitleTrackRef.current.mode = "disabled";
-      }
-      return;
-    }
-
-    let track = manualSubtitleTrackRef.current;
-    if (manualSubtitleVideoRef.current !== video || track == null || !hasTextTrack(video, track)) {
-      try {
-        track = video.addTextTrack("subtitles", "Plum subtitles", "und");
-      } catch {
-        return;
-      }
-      if (!track) {
-        return;
-      }
-      manualSubtitleTrackRef.current = track;
-      manualSubtitleVideoRef.current = video;
-    }
-
-    clearTextTrackCues(track);
-
-    const selectedTrack =
-      loadedSubtitleTracks.find((candidate) => candidate.key === manualSubtitleTrackKey) ?? null;
-    if (!selectedTrack) {
-      track.mode = "disabled";
-      return;
-    }
-
-    // HLS transcodes start at streamOffset into the media, but VTT timestamps remain absolute;
-    // shift cue times so they line up with video.currentTime on the 0-relative transcoded timeline.
-    // Direct delivery keeps video.currentTime as absolute media time, so no shift.
-    const cueOffsetSeconds =
-      (videoDelivery ?? "direct") === "direct" ? 0 : videoStreamOffsetSeconds;
-    for (const cue of buildSubtitleCues(selectedTrack.body, { offsetSeconds: cueOffsetSeconds })) {
-      applyCueLineSetting(cue, subtitleAppearance.position);
-      track.addCue(cue);
-    }
-    track.mode = "showing";
-  }, [
-    loadedSubtitleTracks,
-    manualSubtitleTrackKey,
-    selectedSubtitleKey,
-    subtitleAppearance.position,
-    subtitleRenderer,
-    videoDelivery,
-    videoStreamOffsetSeconds,
-  ]);
+  }, []);
 
   useEffect(() => {
-    applyManagedSubtitleTrack();
-    return () => {
-      clearTextTrackCues(manualSubtitleTrackRef.current);
-      if (manualSubtitleTrackRef.current) {
-        manualSubtitleTrackRef.current.mode = "disabled";
-      }
-    };
-  }, [applyManagedSubtitleTrack, subtitleAttachmentVersion, subtitleReadyVersion]);
+    clearManagedSubtitleTrack();
+    return clearManagedSubtitleTrack;
+  }, [clearManagedSubtitleTrack, subtitleAttachmentVersion, subtitleReadyVersion]);
   const syncBrowserAudioTrackSelection = useCallback(() => {
     const browserAudioTracks = getBrowserAudioTracks(videoRef.current);
     if (
@@ -1833,6 +1777,8 @@ export function usePlaybackDockController(): ReactNode {
         jassubVideoElement={jassubVideoElement}
         activeAssSource={activeAssSource}
         activeAssFontUrls={activeAssFontUrls}
+        managedSubtitleCueTexts={managedSubtitleCueTexts}
+        managedSubtitlePosition={subtitleAppearance.position}
         videoStreamOffsetSeconds={videoStreamOffsetSeconds}
         onAssStatusChange={handleAssStatusChange}
         onVideoDoubleClick={handleVideoDoubleClick}

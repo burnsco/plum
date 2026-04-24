@@ -1,10 +1,7 @@
 import { useMemo } from "react";
 import type Hls from "hls.js";
 import type { EmbeddedSubtitleDeliveryMode } from "../../api";
-import {
-  findHlsSubtitleTrackIndexForLogicalId,
-  type SubtitleTrackOption,
-} from "../../lib/playback/playerMedia";
+import type { SubtitleTrackOption } from "../../lib/playback/playerMedia";
 import type { SubtitleLoadState } from "./useSubtitleTransport";
 
 export type WebSubtitleRenderer = "none" | "hls_native" | "manual_vtt" | "ass" | "burn_in";
@@ -35,8 +32,8 @@ export function resolveWebSubtitleSelection({
   subtitleTrackRequests,
   subtitleLoadStateByKey,
   burnEmbeddedSubtitleStreamIndex,
-  videoSourceIsHls,
-  hls,
+  videoSourceIsHls: _videoSourceIsHls,
+  hls: _hls,
   resolutionVersion: _resolutionVersion,
 }: ResolveWebSubtitleSelectionParams): NormalizedSubtitleSelection {
   if (selectedSubtitleKey === "off") {
@@ -97,23 +94,6 @@ export function resolveWebSubtitleSelection({
       selectedDeliveryMode: "ass",
       loadState,
       activeAssSource: selectedTrack.assSrc,
-      manualTrackKey: null,
-    };
-  }
-
-  if (
-    videoSourceIsHls &&
-    hls != null &&
-    findHlsSubtitleTrackIndexForLogicalId(hls, selectedTrack.key) >= 0
-  ) {
-    return {
-      selectedTrack,
-      logicalId: selectedTrack.logicalId ?? null,
-      origin: selectedTrack.origin ?? null,
-      renderer: "hls_native",
-      selectedDeliveryMode: "hls_vtt",
-      loadState,
-      activeAssSource: null,
       manualTrackKey: null,
     };
   }

@@ -36,7 +36,7 @@ describe("resolveWebSubtitleSelection", () => {
     });
   });
 
-  it("prefers hls_native when the HLS track is present", () => {
+  it("uses managed VTT for normal tracks even when an HLS subtitle track is present", () => {
     const hls = {
       subtitleTracks: [{ url: "/api/playback/sessions/s/revisions/1/plum_subs_6578743a31.m3u8" }],
     } as { subtitleTracks: Array<{ url: string }> };
@@ -51,9 +51,9 @@ describe("resolveWebSubtitleSelection", () => {
         resolutionVersion: 1,
       }),
     ).toMatchObject({
-      renderer: "hls_native",
-      selectedDeliveryMode: "hls_vtt",
-      manualTrackKey: null,
+      renderer: "manual_vtt",
+      selectedDeliveryMode: "direct_vtt",
+      manualTrackKey: "ext:1",
     });
   });
 
@@ -104,7 +104,7 @@ describe("resolveWebSubtitleSelection", () => {
     });
   });
 
-  it("uses hls native when ass is eligible but web prefers hls vtt", () => {
+  it("uses managed VTT when web metadata prefers HLS VTT", () => {
     const hls = {
       subtitleTracks: [{ url: "/api/playback/sessions/s/revisions/1/plum_subs_6578743a31.m3u8" }],
     } as { subtitleTracks: Array<{ url: string }> };
@@ -129,9 +129,9 @@ describe("resolveWebSubtitleSelection", () => {
         resolutionVersion: 1,
       }),
     ).toMatchObject({
-      renderer: "hls_native",
-      selectedDeliveryMode: "hls_vtt",
-      manualTrackKey: null,
+      renderer: "manual_vtt",
+      selectedDeliveryMode: "direct_vtt",
+      manualTrackKey: "ext:1",
     });
   });
 

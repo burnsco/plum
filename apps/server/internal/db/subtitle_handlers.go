@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -100,7 +101,7 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 		// only between ow.Write and the real ResponseWriter, so on-disk VTT stays canonical.
 		w = ow
 	}
-	runErr := handleStreamEmbeddedSubtitleBody(w, r, dbConn, mediaID, streamIndex)
+	runErr := handleStreamEmbeddedSubtitleBody(w, r, dbConn, mediaID, streamIndex, offsetMs != 0)
 	if finalize != nil {
 		if closeErr := finalize(); runErr == nil {
 			runErr = closeErr
@@ -109,7 +110,7 @@ func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn
 	return runErr
 }
 
-func handleStreamEmbeddedSubtitleBody(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
+func handleStreamEmbeddedSubtitleBody(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int, offsetApplied bool) error {
 	item, err := GetMediaByID(dbConn, mediaID)
 	if err != nil {
 		return err
@@ -143,7 +144,7 @@ func handleStreamEmbeddedSubtitleBody(w http.ResponseWriter, r *http.Request, db
 	}
 
 	cachePath, cacheErr := embeddedSubtitleVTTCachePath(sourcePath, streamIndex)
-	if cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
+	if !offsetApplied && cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
 		slog.Debug("embedded subtitle cache hit", "media_id", mediaID, "stream_index", streamIndex)
 		return nil
 	}
@@ -155,7 +156,7 @@ func handleStreamEmbeddedSubtitleBody(w http.ResponseWriter, r *http.Request, db
 	lock := acquireSharedKeyLock(lockKey)
 	defer releaseSharedKeyLock(lockKey, lock)
 
-	if cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
+	if !offsetApplied && cacheErr == nil && tryServeEmbeddedSubtitleFromCache(w, r, cachePath) {
 		slog.Debug("embedded subtitle cache hit after lock", "media_id", mediaID, "stream_index", streamIndex)
 		return nil
 	}
@@ -1372,7 +1373,7 @@ func parseSubtitleStreamOffsetMs(r *http.Request) int64 {
 		return 0
 	}
 	v, err := strconv.ParseFloat(raw, 64)
-	if err != nil || v <= 0 {
+	if err != nil || v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) || v >= float64(math.MaxInt64)/1000 {
 		return 0
 	}
 	return -int64(v * 1000)

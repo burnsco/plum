@@ -24,7 +24,7 @@ export type HlsErrorData = {
   error?: Error;
 };
 
-type ParsedVttCueBlock = {
+export type ParsedVttCueBlock = {
   startTime: number;
   endTime: number;
   text: string;
@@ -497,6 +497,39 @@ export function parseVttCueBlocks(body: string): ParsedVttCueBlock[] {
   }
 
   return cues;
+}
+
+function decodeSubtitleTextEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+export function subtitleCueTextToPlainText(value: string): string {
+  return decodeSubtitleTextEntities(
+    value
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/?[^>]+>/g, "")
+      .split("\n")
+      .map((line) => line.trim())
+      .join("\n")
+      .trim(),
+  );
+}
+
+export function activeSubtitleCueTextsAt(
+  body: string,
+  mediaTimeSeconds: number,
+): string[] {
+  if (!Number.isFinite(mediaTimeSeconds) || mediaTimeSeconds < 0) return [];
+  return parseVttCueBlocks(body)
+    .filter((cue) => mediaTimeSeconds >= cue.startTime && mediaTimeSeconds < cue.endTime)
+    .map((cue) => subtitleCueTextToPlainText(cue.text))
+    .filter((text) => text !== "");
 }
 
 function subtitleLabelMatchesHint(trackLabel: string, hint: string): boolean {
