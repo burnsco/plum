@@ -1313,7 +1313,12 @@ export function usePlaybackDockController(): ReactNode {
       return;
     }
 
-    for (const cue of buildSubtitleCues(selectedTrack.body)) {
+    // HLS transcodes start at streamOffset into the media, but VTT timestamps remain absolute;
+    // shift cue times so they line up with video.currentTime on the 0-relative transcoded timeline.
+    // Direct delivery keeps video.currentTime as absolute media time, so no shift.
+    const cueOffsetSeconds =
+      (videoDelivery ?? "direct") === "direct" ? 0 : videoStreamOffsetSeconds;
+    for (const cue of buildSubtitleCues(selectedTrack.body, { offsetSeconds: cueOffsetSeconds })) {
       applyCueLineSetting(cue, subtitleAppearance.position);
       track.addCue(cue);
     }
@@ -1324,6 +1329,8 @@ export function usePlaybackDockController(): ReactNode {
     selectedSubtitleKey,
     subtitleAppearance.position,
     subtitleRenderer,
+    videoDelivery,
+    videoStreamOffsetSeconds,
   ]);
 
   useEffect(() => {

@@ -32,8 +32,38 @@ func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 		return ErrNotFound
 	}
 
+	offsetMs := parseSubtitleStreamOffsetMs(r)
+	writer := w
+	var finalize func() error
+	if offsetMs != 0 {
+		ow := newVTTOffsetResponseWriter(w, offsetMs)
+		writer = ow
+		finalize = ow.CloseAndWait
+	}
+	runErr := serveSubtitleBody(writer, r, s, offsetMs != 0)
+	if finalize != nil {
+		if closeErr := finalize(); runErr == nil {
+			runErr = closeErr
+		}
+	}
+	return runErr
+}
+
+func serveSubtitleBody(w http.ResponseWriter, r *http.Request, s *Subtitle, offsetApplied bool) error {
 	if s.Format == "vtt" {
 		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+		if offsetApplied {
+			// Offset path is revision-specific and streams through a transform pipe; Range /
+			// ETag handling from ServeFile would corrupt cue timings for partial responses.
+			w.Header().Set("Cache-Control", "no-store")
+			f, err := os.Open(s.Path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			_, err = io.Copy(w, f)
+			return err
+		}
 		// Sidecar file is tied to library path; reuse across playback sessions (If-None-Match via ServeFile).
 		w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
 		http.ServeFile(w, r, s.Path)
@@ -61,6 +91,25 @@ func HandleStreamSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB
 
 // HandleStreamEmbeddedSubtitle extracts an embedded subtitle stream and serves it as VTT.
 func HandleStreamEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
+	offsetMs := parseSubtitleStreamOffsetMs(r)
+	var finalize func() error
+	if offsetMs != 0 {
+		ow := newVTTOffsetResponseWriter(w, offsetMs)
+		finalize = ow.CloseAndWait
+		// Cache reads/writes (tee) see raw ffmpeg output — the offset transform is applied
+		// only between ow.Write and the real ResponseWriter, so on-disk VTT stays canonical.
+		w = ow
+	}
+	runErr := handleStreamEmbeddedSubtitleBody(w, r, dbConn, mediaID, streamIndex)
+	if finalize != nil {
+		if closeErr := finalize(); runErr == nil {
+			runErr = closeErr
+		}
+	}
+	return runErr
+}
+
+func handleStreamEmbeddedSubtitleBody(w http.ResponseWriter, r *http.Request, dbConn *sql.DB, mediaID int, streamIndex int) error {
 	item, err := GetMediaByID(dbConn, mediaID)
 	if err != nil {
 		return err
@@ -263,8 +312,40 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 		return err
 	}
 
-	w.Header().Set("Content-Type", "text/x-ssa; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	cachePath, cacheErr := embeddedSubtitleASSCachePath(sourcePath, streamIndex)
+	if cacheErr == nil && tryServeEmbeddedSubtitleAssFromCache(w, r, cachePath) {
+		slog.Debug("embedded ass cache hit", "media_id", mediaID, "stream_index", streamIndex)
+		return nil
+	}
+
+	lockKey := cachePath
+	if lockKey == "" {
+		lockKey = fmt.Sprintf("ass|%s|%d", sourcePath, streamIndex)
+	}
+	lock := acquireSharedKeyLock(lockKey)
+	defer releaseSharedKeyLock(lockKey, lock)
+
+	if cacheErr == nil && tryServeEmbeddedSubtitleAssFromCache(w, r, cachePath) {
+		slog.Debug("embedded ass cache hit after lock", "media_id", mediaID, "stream_index", streamIndex)
+		return nil
+	}
+
+	var teeFile *os.File
+	var tee io.Writer
+	partialPath := ""
+	if cacheErr == nil && cachePath != "" {
+		if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr == nil {
+			p := cachePath + ".partial"
+			f, oerr := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			if oerr == nil {
+				partialPath = p
+				teeFile = f
+				tee = f
+			} else {
+				slog.Warn("embedded ass cache open partial", "error", oerr)
+			}
+		}
+	}
 
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
 	ffmpegArgs = append(ffmpegArgs, ffopts.InputProbeSubtitleDemux...)
@@ -277,25 +358,22 @@ func HandleStreamEmbeddedSubtitleAss(w http.ResponseWriter, r *http.Request, dbC
 		ffmpegArgs = append(ffmpegArgs, "-c:s", "ass")
 	}
 	ffmpegArgs = append(ffmpegArgs, "-f", "ass", "-")
-	cmd := exec.CommandContext(r.Context(), "ffmpeg", ffmpegArgs...)
-	var stdoutBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		msg = trimFFmpegStderrProgress(msg)
-		if msg == "" {
-			msg = err.Error()
-		}
-		if len(msg) > 512 {
-			msg = msg[len(msg)-512:]
-		}
-		slog.Warn("ffmpeg embedded ass stream", "stderr_tail", msg)
-		return fmt.Errorf("ffmpeg error: %s", msg)
+
+	err = streamFFmpegASSWithOptionalTee(w, r, tee, ffmpegArgs...)
+	if teeFile != nil {
+		_ = teeFile.Close()
 	}
-	if _, werr := w.Write(stdoutBuf.Bytes()); werr != nil {
-		return werr
+	if err != nil {
+		if partialPath != "" {
+			_ = os.Remove(partialPath)
+		}
+		return err
+	}
+	if partialPath != "" && cachePath != "" {
+		if ren := os.Rename(partialPath, cachePath); ren != nil {
+			slog.Warn("embedded ass cache rename", "error", ren)
+			_ = os.Remove(partialPath)
+		}
 	}
 	return nil
 }
@@ -387,40 +465,55 @@ func transcodeEmbeddedSubtitleToWebVTT(
 }
 
 // ffmpegSubtitleTranscodeToWriter runs ffmpeg with stdout wired to out (disk cache materialization).
-func ffmpegSubtitleTranscodeToWriter(ctx context.Context, out io.Writer, transform webVTTTransform, args ...string) error {
+// When compactOverlaps is true, stdout is streamed through streamCompactWebVTTCueOverlaps so large
+// embedded ASS/SSA conversions do not buffer the full VTT in memory before reaching the cache file.
+func ffmpegSubtitleTranscodeToWriter(ctx context.Context, out io.Writer, compactOverlaps bool, args ...string) error {
 	ffmpegArgs := []string{"-hide_banner", "-nostats", "-loglevel", "warning"}
 	ffmpegArgs = append(ffmpegArgs, args...)
 	cmd := exec.CommandContext(ctx, "ffmpeg", ffmpegArgs...)
-	var stdout bytes.Buffer
-	if transform != nil {
-		cmd.Stdout = &stdout
-	} else {
-		cmd.Stdout = out
-	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		msg = trimFFmpegStderrProgress(msg)
-		if msg == "" {
-			msg = err.Error()
+
+	if !compactOverlaps {
+		cmd.Stdout = out
+		if err := cmd.Run(); err != nil {
+			return ffmpegCacheMaterializeError(err, &stderr)
 		}
-		if len(msg) > 512 {
-			msg = msg[len(msg)-512:]
-		}
-		slog.Warn("ffmpeg subtitle cache materialize", "stderr_tail", msg)
-		return fmt.Errorf("ffmpeg error: %s", msg)
+		return nil
 	}
-	if transform != nil {
-		transformed, err := transform(stdout.Bytes())
-		if err != nil {
-			return err
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	streamErr := streamCompactWebVTTCueOverlaps(stdout, out)
+	waitErr := cmd.Wait()
+	if streamErr != nil {
+		if waitErr != nil {
+			slog.Warn("ffmpeg subtitle cache materialize compact read", "error", streamErr)
 		}
-		if _, err := out.Write(transformed); err != nil {
-			return err
-		}
+		return streamErr
+	}
+	if waitErr != nil {
+		return ffmpegCacheMaterializeError(waitErr, &stderr)
 	}
 	return nil
+}
+
+func ffmpegCacheMaterializeError(cause error, stderr *bytes.Buffer) error {
+	msg := strings.TrimSpace(stderr.String())
+	msg = trimFFmpegStderrProgress(msg)
+	if msg == "" {
+		msg = cause.Error()
+	}
+	if len(msg) > 512 {
+		msg = msg[len(msg)-512:]
+	}
+	slog.Warn("ffmpeg subtitle cache materialize", "stderr_tail", msg)
+	return fmt.Errorf("ffmpeg error: %s", msg)
 }
 
 func resetWriterFileForRetry(f *os.File) error {
@@ -449,9 +542,9 @@ func materializeEmbeddedSubtitleCacheFile(ctx context.Context, sourcePath string
 		}
 	}()
 
-	transform := webVTTTransformForCompaction(shouldCompactConvertedSubtitleOverlaps(codec))
+	compactOverlaps := shouldCompactConvertedSubtitleOverlaps(codec)
 	tryWrite := func(args ...string) error {
-		return ffmpegSubtitleTranscodeToWriter(ctx, f, transform, args...)
+		return ffmpegSubtitleTranscodeToWriter(ctx, f, compactOverlaps, args...)
 	}
 
 	startedAt := time.Now()
@@ -637,6 +730,37 @@ func embeddedSubtitleVTTCachePath(sourcePath string, streamIndex int) (string, e
 	sum := sha256.Sum256([]byte(payload))
 	name := hex.EncodeToString(sum[:]) + ".vtt"
 	return filepath.Join(subtitleVTTCacheRoot(), name), nil
+}
+
+func embeddedSubtitleASSCachePath(sourcePath string, streamIndex int) (string, error) {
+	st, err := os.Stat(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	payload := fmt.Sprintf(
+		"ass-v1\x1e%s\x1e%d\x1e%d\x1e%d",
+		filepath.Clean(sourcePath),
+		st.Size(),
+		st.ModTime().UnixNano(),
+		streamIndex,
+	)
+	sum := sha256.Sum256([]byte(payload))
+	name := hex.EncodeToString(sum[:]) + ".ass"
+	return filepath.Join(subtitleVTTCacheRoot(), name), nil
+}
+
+func tryServeEmbeddedSubtitleAssFromCache(w http.ResponseWriter, r *http.Request, cachePath string) bool {
+	if cachePath == "" {
+		return false
+	}
+	fi, err := os.Stat(cachePath)
+	if err != nil || fi.Size() == 0 {
+		return false
+	}
+	w.Header().Set("Content-Type", "text/x-ssa; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
+	http.ServeFile(w, r, cachePath)
+	return true
 }
 
 func mediaAttachmentCacheRoot() string {
@@ -1013,6 +1137,29 @@ func streamFFmpegWebVTTWithOptionalTee(w http.ResponseWriter, r *http.Request, t
 	return streamFFmpegWebVTTWithOptionalTeeAndTransform(w, r, tee, nil, args...)
 }
 
+func streamFFmpegASSWithOptionalTee(w http.ResponseWriter, r *http.Request, tee io.Writer, args ...string) error {
+	w.Header().Set("Content-Type", "text/x-ssa; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd.Stdout = responseWriterForFFmpegStdoutAndTee(w, tee)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		msg = trimFFmpegStderrProgress(msg)
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		slog.Warn("ffmpeg embedded ass stream", "stderr_tail", msg)
+		return fmt.Errorf("ffmpeg error: %s", msg)
+	}
+	return nil
+}
+
 type webVTTTransform func([]byte) ([]byte, error)
 
 func webVTTTransformForCompaction(enabled bool) webVTTTransform {
@@ -1154,6 +1301,132 @@ func parseStreamingWebVTTCueBlock(lines []string) webVTTCueBlock {
 		break
 	}
 	return block
+}
+
+// streamWebVTTCueOffset reads WebVTT from src and writes to out, shifting every
+// cue block's timing by offsetMs. Cue blocks whose end time shifts to <= 0 are
+// dropped entirely (identifier and payload lines included). Header, NOTE, STYLE
+// and REGION blocks pass through verbatim. Used by the playback revision subtitle
+// path so hls.js receives cues aligned to the transcoded 0-relative timeline.
+func streamWebVTTCueOffset(src io.Reader, out io.Writer, offsetMs int64) error {
+	if offsetMs == 0 {
+		_, err := io.Copy(out, src)
+		return err
+	}
+	scanner := bufio.NewScanner(src)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	writer := &streamingWebVTTBlockWriter{out: out}
+	current := make([]string, 0, 4)
+	flush := func() error {
+		if len(current) == 0 {
+			return nil
+		}
+		block := parseStreamingWebVTTCueBlock(current)
+		current = current[:0]
+		if !block.parsedCue {
+			return writer.WriteBlock(block)
+		}
+		newStart := block.startMs + offsetMs
+		newEnd := block.endMs + offsetMs
+		if newEnd <= 0 {
+			return nil
+		}
+		if newStart < 0 {
+			newStart = 0
+		}
+		block.startMs = newStart
+		block.endMs = newEnd
+		block.lines[block.timingIdx] = formatWebVTTCueTimingLine(newStart, newEnd, block.settings)
+		return writer.WriteBlock(block)
+	}
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if err := flush(); err != nil {
+				return err
+			}
+			continue
+		}
+		current = append(current, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+	if writer.written {
+		_, err := io.WriteString(out, "\n")
+		return err
+	}
+	return nil
+}
+
+// parseSubtitleStreamOffsetMs reads the optional streamOffsetSeconds query param
+// (positive seconds that the transcoded stream skipped past) and returns the
+// corresponding negative millisecond shift to apply to subtitle cues. Returns 0
+// when the param is absent, malformed, non-positive, or non-finite.
+func parseSubtitleStreamOffsetMs(r *http.Request) int64 {
+	raw := strings.TrimSpace(r.URL.Query().Get("streamOffsetSeconds"))
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return -int64(v * 1000)
+}
+
+// vttOffsetResponseWriter wraps an http.ResponseWriter so that every Write is
+// piped through streamWebVTTCueOffset before reaching the underlying writer.
+// Callers must invoke CloseAndWait when the upstream producer (ffmpeg, file copy)
+// is done. Header access and ResponseController optimisations still target the
+// inner writer.
+type vttOffsetResponseWriter struct {
+	http.ResponseWriter
+	flusher http.Flusher
+	pipe    *io.PipeWriter
+	done    chan error
+}
+
+func newVTTOffsetResponseWriter(w http.ResponseWriter, offsetMs int64) *vttOffsetResponseWriter {
+	pr, pw := io.Pipe()
+	var target io.Writer = w
+	if fl, ok := w.(http.Flusher); ok {
+		target = &flushOnWrite{ResponseWriter: w, flush: fl}
+	}
+	v := &vttOffsetResponseWriter{ResponseWriter: w, pipe: pw, done: make(chan error, 1)}
+	if fl, ok := w.(http.Flusher); ok {
+		v.flusher = fl
+	}
+	go func() {
+		err := streamWebVTTCueOffset(pr, target, offsetMs)
+		_ = pr.CloseWithError(err)
+		v.done <- err
+	}()
+	return v
+}
+
+func (v *vttOffsetResponseWriter) Write(p []byte) (int, error) {
+	return v.pipe.Write(p)
+}
+
+func (v *vttOffsetResponseWriter) Flush() {
+	if v.flusher != nil {
+		v.flusher.Flush()
+	}
+}
+
+func (v *vttOffsetResponseWriter) Unwrap() http.ResponseWriter {
+	return v.ResponseWriter
+}
+
+// CloseAndWait signals end-of-stream to the transform goroutine and returns
+// any error from the final flush.
+func (v *vttOffsetResponseWriter) CloseAndWait() error {
+	_ = v.pipe.Close()
+	return <-v.done
 }
 
 func streamFFmpegWebVTTWithOptionalTeeAndTransform(w http.ResponseWriter, r *http.Request, tee io.Writer, transform webVTTTransform, args ...string) error {

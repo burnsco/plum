@@ -636,22 +636,35 @@ export function clearTextTrackCues(track: TextTrack | null) {
   if (wasDisabled) track.mode = "disabled";
 }
 
-export function buildSubtitleCues(body: string): TextTrackCue[] {
+/**
+ * Build VTTCues from a WebVTT body. When `offsetSeconds` is non-zero it is subtracted from each cue
+ * start/end so absolute-timed sidecars align with transcoded HLS streams that start partway into the
+ * media (video.currentTime is 0-relative after a server seek). Cues that fall entirely in the past
+ * after the shift are dropped.
+ */
+export function buildSubtitleCues(
+  body: string,
+  options: { offsetSeconds?: number } = {},
+): TextTrackCue[] {
   const CueConstructor =
     typeof window !== "undefined" ? (window.VTTCue ?? window.TextTrackCue) : undefined;
   if (!CueConstructor) {
     return [];
   }
+  const offset = Number.isFinite(options.offsetSeconds ?? 0) ? (options.offsetSeconds ?? 0) : 0;
 
   return parseVttCueBlocks(body)
-    .map((cueBlock) => {
+    .flatMap((cueBlock) => {
+      const start = cueBlock.startTime - offset;
+      const end = cueBlock.endTime - offset;
+      if (end <= 0) return [];
       const cue = new CueConstructor(
-        cueBlock.startTime,
-        cueBlock.endTime,
+        Math.max(0, start),
+        end,
         cueBlock.text,
       ) as TextTrackCue;
       applyVttCueSettings(cue, cueBlock.settings);
-      return cue;
+      return [cue];
     })
     .filter(Boolean);
 }

@@ -894,6 +894,7 @@ class PlumPlayerController(
         embeddedAudioTracks = session.embeddedAudioTracks.orEmpty()
         embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
+        activeBurnSubtitleStreamIndex = session.burnEmbeddedSubtitleStreamIndex
         introStateRef.set(IntroState(
             startSec = session.introStartSeconds,
             endSec = session.introEndSeconds,
@@ -911,6 +912,7 @@ class PlumPlayerController(
         session.embeddedAudioTracks?.let { embeddedAudioTracks = it }
         session.embeddedSubtitles?.let { embeddedSubtitleTracks = it }
         session.audioIndex?.let { serverAudioIndex = it }
+        session.burnEmbeddedSubtitleStreamIndex?.let { activeBurnSubtitleStreamIndex = it }
         mergeIntroFromSession(
             session.introStartSeconds,
             session.introEndSeconds,
