@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type Hls from "hls.js";
 import {
+  activeSubtitleCueTextsAt,
   consumeSubtitleResponseWithPartialUpdates,
   findHlsSubtitleTrackIndexForLogicalId,
   parseVttCueBlocks,
   plumHlsSubtitlePlaylistFileForTrackLogicalId,
+  subtitleCueTextToPlainText,
   streamingVttPrefixForParse,
 } from "./playerMedia";
 
@@ -124,5 +126,19 @@ describe("parseVttCueBlocks", () => {
     expect(cues).toHaveLength(1);
     expect(cues[0]!.startTime).toBe(1);
     expect(cues[0]!.endTime).toBe(2);
+  });
+});
+
+describe("activeSubtitleCueTextsAt", () => {
+  it("returns plain text for cues active at the media time", () => {
+    const body =
+      "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<i>Hello</i><br />world &amp; friends\n\n00:00:04.000 --> 00:00:05.000\nLater\n";
+
+    expect(activeSubtitleCueTextsAt(body, 2)).toEqual(["Hello\nworld & friends"]);
+    expect(activeSubtitleCueTextsAt(body, 3)).toEqual([]);
+  });
+
+  it("strips WebVTT tags before overlay rendering", () => {
+    expect(subtitleCueTextToPlainText("<v Bob>Hi</v> &lt;there&gt;")).toBe("Hi <there>");
   });
 });

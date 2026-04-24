@@ -1,5 +1,6 @@
 import { type CSSProperties, type SyntheticEvent } from "react";
 import { JassubRenderer } from "@/components/JassubRenderer";
+import type { SubtitleAppearance } from "../../lib/playbackPreferences";
 
 type PlaybackVideoStageProps = {
   mediaItemId: number;
@@ -8,6 +9,8 @@ type PlaybackVideoStageProps = {
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
   activeAssFontUrls: readonly string[];
+  managedSubtitleCueTexts: readonly string[];
+  managedSubtitlePosition: SubtitleAppearance["position"];
   videoStreamOffsetSeconds: number;
   onAssStatusChange: (status: "loading" | "ready" | "error" | "timeout") => void;
   onVideoDoubleClick: () => void;
@@ -33,6 +36,8 @@ export function PlaybackVideoStage({
   jassubVideoElement,
   activeAssSource,
   activeAssFontUrls,
+  managedSubtitleCueTexts,
+  managedSubtitlePosition,
   videoStreamOffsetSeconds,
   onAssStatusChange,
   onVideoDoubleClick,
@@ -74,6 +79,16 @@ export function PlaybackVideoStage({
           onError={onError}
           onEnded={onEnded}
         />
+        {managedSubtitleCueTexts.length > 0 && (
+          <div
+            className={`fullscreen-player__manual-subtitles fullscreen-player__manual-subtitles--${managedSubtitlePosition}`}
+            aria-live="off"
+          >
+            <div className="fullscreen-player__manual-subtitle-cue">
+              {managedSubtitleCueTexts.join("\n")}
+            </div>
+          </div>
+        )}
       </div>
       <JassubRenderer
         videoElement={jassubVideoElement}

@@ -616,6 +616,222 @@ func TestHandleStreamEmbeddedSubtitle_ServesConvertedVTT(t *testing.T) {
 	}
 }
 
+func TestHandleStreamEmbeddedSubtitle_WithOffsetBypassesCacheFile(t *testing.T) {
+	dbConn := newTestDB(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "Episode 2.mkv")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	ffmpegDir := t.TempDir()
+	countPath := filepath.Join(ffmpegDir, "count")
+	ffmpegPath := filepath.Join(ffmpegDir, "ffmpeg")
+	ffmpegScript := fmt.Sprintf(`#!/bin/sh
+count=0
+if [ -f %[1]q ]; then
+  count=$(cat %[1]q)
+fi
+count=$((count + 1))
+printf '%%s' "$count" > %[1]q
+last=""
+for a in "$@"; do last="$a"; done
+case "$last" in
+  -) printf 'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nShift me\n' ;;
+  *) printf '1\n00:00:01,000 --> 00:00:03,000\nShift me\n' >"$last" ;;
+esac
+`, countPath)
+	if err := os.WriteFile(ffmpegPath, []byte(ffmpegScript), 0o755); err != nil {
+		t.Fatalf("write ffmpeg shim: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", ffmpegDir+string(os.PathListSeparator)+originalPath); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("PATH", originalPath)
+	})
+
+	cacheDir := t.TempDir()
+	previousCacheDir := os.Getenv("PLUM_SUBTITLE_CACHE_DIR")
+	if err := os.Setenv("PLUM_SUBTITLE_CACHE_DIR", cacheDir); err != nil {
+		t.Fatalf("set subtitle cache dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("PLUM_SUBTITLE_CACHE_DIR", previousCacheDir)
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV Offset", "tv", root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Embedded Offset - S01E01", sourcePath, 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`,
+		mediaID, 9, "en", "English"); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	cachePath, err := embeddedSubtitleVTTCachePath(sourcePath, 9)
+	if err != nil {
+		t.Fatalf("embeddedSubtitleVTTCachePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nCanonical cache\n"), 0o644); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d?streamOffsetSeconds=1", mediaID, 9), nil)
+	if err := HandleStreamEmbeddedSubtitle(rec, req, dbConn, mediaID, 9); err != nil {
+		t.Fatalf("HandleStreamEmbeddedSubtitle: %v", err)
+	}
+
+	if body := rec.Body.String(); body != "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nShift me\n" {
+		t.Fatalf("unexpected offset subtitle body: %q", body)
+	}
+	countBytes, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatalf("read ffmpeg count: %v", err)
+	}
+	if strings.TrimSpace(string(countBytes)) != "2" {
+		t.Fatalf("ffmpeg invocation count = %q", string(countBytes))
+	}
+}
+
+func TestHandleStreamEmbeddedSubtitleAssStreamsAndCaches(t *testing.T) {
+	dbConn := newTestDB(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "Episode 1.mkv")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	ffmpegDir := t.TempDir()
+	countPath := filepath.Join(ffmpegDir, "count")
+	ffmpegPath := filepath.Join(ffmpegDir, "ffmpeg")
+	ffmpegScript := fmt.Sprintf(`#!/bin/sh
+count=0
+if [ -f %[1]q ]; then
+  count=$(cat %[1]q)
+fi
+count=$((count + 1))
+printf '%%s' "$count" > %[1]q
+printf '[Script Info]\nScriptType: v4.00+\n\n[Events]\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,Hello\n'
+`, countPath)
+	if err := os.WriteFile(ffmpegPath, []byte(ffmpegScript), 0o755); err != nil {
+		t.Fatalf("write ffmpeg shim: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", ffmpegDir+string(os.PathListSeparator)+originalPath); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("PATH", originalPath)
+	})
+	cacheDir := t.TempDir()
+	previousCacheDir := os.Getenv("PLUM_SUBTITLE_CACHE_DIR")
+	if err := os.Setenv("PLUM_SUBTITLE_CACHE_DIR", cacheDir); err != nil {
+		t.Fatalf("set subtitle cache dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("PLUM_SUBTITLE_CACHE_DIR", previousCacheDir)
+	})
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatalf("get user id: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+		userID, "TV ASS", "tv", root, now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	var refID int
+	if err := dbConn.QueryRow(`INSERT INTO tv_episodes (library_id, title, path, duration, match_status, season, episode) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		libraryID, "Embedded ASS - S01E01", sourcePath, 100, MatchStatusLocal, 1, 1).Scan(&refID); err != nil {
+		t.Fatalf("insert tv episode: %v", err)
+	}
+	var mediaID int
+	if err := dbConn.QueryRow(`INSERT INTO media_global (kind, ref_id) VALUES (?, ?) RETURNING id`, LibraryTypeTV, refID).Scan(&mediaID); err != nil {
+		t.Fatalf("insert media_global: %v", err)
+	}
+	if _, err := dbConn.Exec(`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported) VALUES (?, ?, ?, ?, ?, ?)`,
+		mediaID, 11, "en", "English", "ass", 1); err != nil {
+		t.Fatalf("insert embedded subtitle: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/media/%d/subtitles/embedded/%d/ass", mediaID, 11), nil)
+	rec := httptest.NewRecorder()
+	if err := HandleStreamEmbeddedSubtitleAss(rec, req, dbConn, mediaID, 11); err != nil {
+		t.Fatalf("HandleStreamEmbeddedSubtitleAss: %v", err)
+	}
+	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/x-ssa") {
+		t.Fatalf("expected ASS content type, got %q", contentType)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "[Script Info]") || !strings.Contains(body, "Hello") {
+		t.Fatalf("unexpected embedded ass body: %q", body)
+	}
+
+	secondRec := httptest.NewRecorder()
+	if err := HandleStreamEmbeddedSubtitleAss(secondRec, req, dbConn, mediaID, 11); err != nil {
+		t.Fatalf("HandleStreamEmbeddedSubtitleAss cached: %v", err)
+	}
+	if secondRec.Body.String() != rec.Body.String() {
+		t.Fatalf("cached body mismatch: %q", secondRec.Body.String())
+	}
+	countBytes, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatalf("read ffmpeg count: %v", err)
+	}
+	if strings.TrimSpace(string(countBytes)) != "1" {
+		t.Fatalf("ffmpeg extract count = %q", string(countBytes))
+	}
+}
+
+func TestParseSubtitleStreamOffsetMs_IgnoresNonFiniteAndOverflow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want int64
+	}{
+		{name: "nan", raw: "NaN", want: 0},
+		{name: "positive infinity", raw: "Inf", want: 0},
+		{name: "negative infinity", raw: "-Inf", want: 0},
+		{name: "overflow", raw: "9223372036854776", want: 0},
+		{name: "valid offset", raw: "1.5", want: -1500},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/subtitles?streamOffsetSeconds="+tt.raw, nil)
+			if got := parseSubtitleStreamOffsetMs(req); got != tt.want {
+				t.Fatalf("parseSubtitleStreamOffsetMs(%q) = %d, want %d", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCompactWebVTTCueOverlaps_TrimsEarlierASSDialogueCue(t *testing.T) {
 	input := []byte("WEBVTT\n\n" +
 		"00:00:01.000 --> 00:00:04.000 align:middle\n" +

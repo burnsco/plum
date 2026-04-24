@@ -787,7 +787,8 @@ func serveVirtualHlsSubtitlePlaylist(w http.ResponseWriter, revision *playbackRe
 	if !ok {
 		return db.ErrNotFound
 	}
-	body := BuildWebVttSubtitleMediaPlaylist(picked.VTTPath, durationSeconds)
+	remaining := durationSeconds - int(math.Floor(revision.startOffsetSeconds))
+	body := BuildWebVttSubtitleMediaPlaylist(picked.VTTPath, remaining, revision.startOffsetSeconds)
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
 	_, err := w.Write([]byte(body))

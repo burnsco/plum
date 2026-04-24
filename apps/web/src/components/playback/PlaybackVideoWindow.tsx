@@ -41,6 +41,8 @@ type PlaybackVideoWindowProps = {
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
   activeAssFontUrls: readonly string[];
+  managedSubtitleCueTexts: readonly string[];
+  managedSubtitlePosition: SubtitleAppearance["position"];
   videoStreamOffsetSeconds: number;
   onAssStatusChange: (status: "loading" | "ready" | "error" | "timeout") => void;
   onVideoDoubleClick: () => void;
@@ -140,6 +142,8 @@ export function PlaybackVideoWindow({
   jassubVideoElement,
   activeAssSource,
   activeAssFontUrls,
+  managedSubtitleCueTexts,
+  managedSubtitlePosition,
   videoStreamOffsetSeconds,
   onAssStatusChange,
   onVideoDoubleClick,
@@ -254,6 +258,8 @@ export function PlaybackVideoWindow({
         jassubVideoElement={jassubVideoElement}
         activeAssSource={activeAssSource}
         activeAssFontUrls={activeAssFontUrls}
+        managedSubtitleCueTexts={managedSubtitleCueTexts}
+        managedSubtitlePosition={managedSubtitlePosition}
         videoStreamOffsetSeconds={videoStreamOffsetSeconds}
         onAssStatusChange={onAssStatusChange}
         onVideoDoubleClick={onVideoDoubleClick}

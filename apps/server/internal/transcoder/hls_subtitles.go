@@ -215,19 +215,30 @@ func InjectHlsSubtitleRenditions(body string, tracks []HlsWebSubtitle) string {
 }
 
 // BuildWebVttSubtitleMediaPlaylist returns a minimal HLS media playlist pointing at one WebVTT resource.
-func BuildWebVttSubtitleMediaPlaylist(vttURL string, durationSeconds int) string {
+// When streamOffsetSeconds > 0 (revision started mid-media), the VTT URL is tagged with
+// ?streamOffsetSeconds=X so the subtitle endpoint shifts cue timings onto the transcoded stream's
+// 0-relative timeline.
+func BuildWebVttSubtitleMediaPlaylist(vttURL string, durationSeconds int, streamOffsetSeconds float64) string {
 	dur := durationSeconds
 	if dur <= 0 {
 		dur = 3600
 	}
 	ext := fmt.Sprintf("%.3f", float64(dur))
+	uri := vttURL
+	if streamOffsetSeconds > 0 {
+		sep := "?"
+		if strings.Contains(uri, "?") {
+			sep = "&"
+		}
+		uri = fmt.Sprintf("%s%sstreamOffsetSeconds=%.3f", uri, sep, streamOffsetSeconds)
+	}
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:3\n")
 	b.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", dur))
 	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
 	b.WriteString(fmt.Sprintf("#EXTINF:%s,\n", ext))
-	b.WriteString(vttURL)
+	b.WriteString(uri)
 	b.WriteString("\n")
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return b.String()

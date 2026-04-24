@@ -46,6 +46,7 @@ data class PlaybackSessionJson(
     @param:Json(name = "subtitles") val subtitles: List<SubtitleJson>? = null,
     @param:Json(name = "embeddedAudioTracks") val embeddedAudioTracks: List<EmbeddedAudioTrackJson>? = null,
     @param:Json(name = "embeddedSubtitles") val embeddedSubtitles: List<EmbeddedSubtitleJson>? = null,
+    @param:Json(name = "burnEmbeddedSubtitleStreamIndex") val burnEmbeddedSubtitleStreamIndex: Int? = null,
     @param:Json(name = "intro_start_seconds") val introStartSeconds: Double? = null,
     @param:Json(name = "intro_end_seconds") val introEndSeconds: Double? = null,
     @param:Json(name = "credits_start_seconds") val creditsStartSeconds: Double? = null,
