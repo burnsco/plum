@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -113,6 +114,8 @@ class DiscoverBrowseViewModel @Inject constructor(
     private var currentMediaType: String? = null
     private var currentGenreId: Int? = null
     private var isLoadingMore = false
+    private var refreshJob: Job? = null
+    private var browseRequestVersion = 0
 
     init {
         viewModelScope.launch {
@@ -132,8 +135,10 @@ class DiscoverBrowseViewModel @Inject constructor(
         currentMediaType = mediaType
         currentGenreId = genreId
         isLoadingMore = false
+        val requestVersion = ++browseRequestVersion
+        refreshJob?.cancel()
 
-        viewModelScope.launch {
+        refreshJob = viewModelScope.launch {
             val current = _state.value
             if (current is DiscoverBrowseUiState.Ready) {
                 _state.value = current.copy(refreshing = true, loadingMore = false)
@@ -150,6 +155,7 @@ class DiscoverBrowseViewModel @Inject constructor(
             cachedGenres = genres
 
             val browse = repository.browseDiscover(category, mediaType, genreId, page = 1).getOrElse {
+                if (requestVersion != browseRequestVersion) return@launch
                 if (current is DiscoverBrowseUiState.Ready) {
                     _state.value = current.copy(refreshing = false)
                 } else {
@@ -157,12 +163,14 @@ class DiscoverBrowseViewModel @Inject constructor(
                 }
                 return@launch
             }
+            if (requestVersion != browseRequestVersion) return@launch
+            val responseMediaType = browse.mediaType ?: mediaType
             _state.value = DiscoverBrowseUiState.Ready(
                 title = browse.title(),
                 category = browse.category,
                 mediaType = browse.mediaType,
                 genre = browse.genre,
-                genres = when (mediaType) {
+                genres = when (responseMediaType) {
                     "movie" -> genres.movieGenres
                     "tv" -> genres.tvGenres
                     else -> genres.movieGenres + genres.tvGenres
@@ -182,19 +190,32 @@ class DiscoverBrowseViewModel @Inject constructor(
         if (!current.hasMore || isLoadingMore) return
 
         isLoadingMore = true
+        val requestVersion = browseRequestVersion
+        val requestCategory = currentCategory
+        val requestMediaType = currentMediaType
+        val requestGenreId = currentGenreId
         val nextPage = current.currentPage + 1
 
         viewModelScope.launch {
             _state.value = current.copy(loadingMore = true)
 
             val browse = repository.browseDiscover(
-                currentCategory,
-                currentMediaType,
-                currentGenreId,
+                requestCategory,
+                requestMediaType,
+                requestGenreId,
                 page = nextPage,
             ).getOrElse {
+                if (requestVersion != browseRequestVersion) return@launch
                 isLoadingMore = false
                 _state.value = current.copy(loadingMore = false)
+                return@launch
+            }
+            if (requestVersion != browseRequestVersion ||
+                requestCategory != currentCategory ||
+                requestMediaType != currentMediaType ||
+                requestGenreId != currentGenreId
+            ) {
+                isLoadingMore = false
                 return@launch
             }
 
