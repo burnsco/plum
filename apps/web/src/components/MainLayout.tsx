@@ -1,7 +1,6 @@
 import { Suspense, lazy } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { DownloadCompletionNotifier } from "@/components/DownloadCompletionNotifier";
-import { LibraryReadyNotifier } from "@/components/LibraryReadyNotifier";
 import { PageRouteSkeleton, PlaybackDockSkeleton } from "@/components/loading/PlumLoadingSkeletons";
 import { usePlayerSession } from "@/contexts/PlayerContext";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
@@ -30,7 +29,6 @@ export function MainLayout() {
   return (
     <div className="flex h-screen overflow-hidden flex-col">
       <DownloadCompletionNotifier />
-      <LibraryReadyNotifier />
       <Toaster />
       <TopBar />
       <div className="flex flex-1 min-h-0">
