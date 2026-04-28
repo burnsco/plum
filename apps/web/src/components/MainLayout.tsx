@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { DownloadCompletionNotifier } from "@/components/DownloadCompletionNotifier";
 import { LibraryReadyNotifier } from "@/components/LibraryReadyNotifier";
 import { PageRouteSkeleton, PlaybackDockSkeleton } from "@/components/loading/PlumLoadingSkeletons";
+import { usePlayerSession } from "@/contexts/PlayerContext";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
@@ -11,6 +12,18 @@ import { Toaster } from "./ui/sonner";
 const PlaybackDock = lazy(() =>
   import("./PlaybackDock").then((m) => ({ default: m.PlaybackDock })),
 );
+
+function PlaybackDockSlot() {
+  const { activeItem, isDockOpen } = usePlayerSession();
+  if (activeItem == null && !isDockOpen) {
+    return null;
+  }
+  return (
+    <Suspense fallback={<PlaybackDockSkeleton />}>
+      <PlaybackDock />
+    </Suspense>
+  );
+}
 
 export function MainLayout() {
   const location = useLocation();
@@ -32,9 +45,7 @@ export function MainLayout() {
           </section>
         </main>
       </div>
-      <Suspense fallback={<PlaybackDockSkeleton />}>
-        <PlaybackDock />
-      </Suspense>
+      <PlaybackDockSlot />
     </div>
   );
 }
