@@ -11,13 +11,14 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import type Hls from "hls.js";
 import { PLAYBACK_PROGRESS_HEARTBEAT_MS } from "@plum/contracts";
-import { mediaStreamUrl } from "@plum/shared";
+import { buildBackendUrl, mediaStreamUrl } from "@plum/shared";
 import {
   BASE_URL,
   refreshPlaybackTracks,
   updateMediaProgress,
   type MediaItem,
   type PlaybackTrackMetadata,
+  type UpdateMediaProgressPayload,
 } from "../../api";
 import {
   usePlayerPlaybackPreferences,
@@ -85,6 +86,21 @@ import { useSubtitleController } from "./useSubtitleController";
 import { useSubtitleTransport, type LoadedSubtitleTrack } from "./useSubtitleTransport";
 
 const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
+
+function updateMediaProgressKeepalive(mediaId: number, payload: UpdateMediaProgressPayload): void {
+  const url = buildBackendUrl(BASE_URL, `/api/media/${mediaId}/progress`);
+  void fetch(url, {
+    method: "PUT",
+    credentials: "include",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch((err: unknown) => {
+    if (import.meta.env.DEV) {
+      console.warn("[PlaybackDock:updateMediaProgressKeepalive]", err);
+    }
+  });
+}
 
 type PlaybackState = {
   currentTime: number;
@@ -883,6 +899,7 @@ export function usePlaybackDockController(): ReactNode {
       force?: boolean;
       completed?: boolean;
       snapshot?: VideoProgressSnapshot | null;
+      keepalive?: boolean;
     }) => {
       if (!isVideo || !activeItem) return;
       const snapshot =
@@ -901,12 +918,17 @@ export function usePlaybackDockController(): ReactNode {
       ) {
         return;
       }
+      const payload = {
+        position_seconds: snapshot.positionSeconds,
+        duration_seconds: snapshot.durationSeconds,
+        completed,
+      };
       try {
-        await updateMediaProgress(activeItem.id, {
-          position_seconds: snapshot.positionSeconds,
-          duration_seconds: snapshot.durationSeconds,
-          completed,
-        });
+        if (options?.keepalive === true) {
+          updateMediaProgressKeepalive(activeItem.id, payload);
+        } else {
+          await updateMediaProgress(activeItem.id, payload);
+        }
         if (activeItem.library_id != null) {
           void queryClient.invalidateQueries({
             queryKey: queryKeys.library(activeItem.library_id),
@@ -1262,7 +1284,7 @@ export function usePlaybackDockController(): ReactNode {
   useEffect(() => {
     if (!isVideo || !activeItem) return;
     const persist = () => {
-      void persistPlaybackProgress({ force: true });
+      void persistPlaybackProgress({ force: true, keepalive: true });
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") persist();
