@@ -216,7 +216,9 @@ func (c *TMDBClient) getDiscoverOriginHub(ctx context.Context, origin string) (*
 	if err != nil {
 		return nil, err
 	}
-	onTheAir, err := c.fetchDiscoverListWithParams(ctx, "/discover/tv", withDiscoverSort(base, "popularity.desc"), string(DiscoverMediaTypeTV), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
+	onTheAirParams := cloneStringMap(base)
+	applyTMDBListPathToDiscoverSort("/tv/on_the_air", onTheAirParams)
+	onTheAir, err := c.fetchDiscoverListWithParams(ctx, "/discover/tv", onTheAirParams, string(DiscoverMediaTypeTV), tmdbDiscoverShelfTTL, tmdbDiscoverHubLimit, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -573,6 +575,8 @@ func applyTMDBListPathToDiscoverSort(basePath string, filtered map[string]string
 		filtered["primary_release_date.gte"] = today
 	case "/tv/on_the_air":
 		filtered["sort_by"] = "popularity.desc"
+		filtered["air_date.gte"] = today
+		filtered["air_date.lte"] = now.AddDate(0, 0, 7).Format("2006-01-02")
 	case "/movie/top_rated":
 		filtered["sort_by"] = "vote_average.desc"
 		filtered["vote_count.gte"] = "200"
@@ -594,7 +598,7 @@ func tmdbMediaBrowseRequest(
 	if genreID > 0 {
 		filtered := cloneStringMap(params)
 		filtered["with_genres"] = fmt.Sprintf("%d", genreID)
-		filtered["sort_by"] = "popularity.desc"
+		applyTMDBListPathToDiscoverSort(basePath, filtered)
 		if o := normalizeDiscoverOrigin(origin); o != "" {
 			filtered["with_origin_country"] = o
 		}
