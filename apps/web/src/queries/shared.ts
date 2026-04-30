@@ -288,7 +288,7 @@ const DEFAULT_QUERY_RETRY_LIMIT = 3;
 
 function getApiErrorTag(error: unknown): string | undefined {
   return typeof error === "object" && error != null && "_tag" in error
-    ? String((error as { _tag?: unknown })._tag)
+    ? String((error as Record<"_tag", unknown>)["_tag"])
     : undefined;
 }
 

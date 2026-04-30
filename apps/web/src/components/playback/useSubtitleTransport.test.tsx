@@ -26,7 +26,6 @@ function renderTransport(trackRequests: SubtitleTrackOption[]) {
   const blockedSubtitleRetryKeysRef = { current: new Set<string>() };
   const setPendingSubtitleKey = vi.fn<Dispatch<SetStateAction<string | null>>>();
   const setLoadedSubtitleTracks = vi.fn<Dispatch<SetStateAction<LoadedTrack[]>>>();
-  const setSubtitleStatusMessage = vi.fn<Dispatch<SetStateAction<string>>>();
 
   const hook = renderHook(() =>
     useSubtitleTransport({
@@ -37,7 +36,6 @@ function renderTransport(trackRequests: SubtitleTrackOption[]) {
       blockedSubtitleRetryKeysRef,
       setPendingSubtitleKey,
       setLoadedSubtitleTracks,
-      setSubtitleStatusMessage,
     }),
   );
 
@@ -47,7 +45,6 @@ function renderTransport(trackRequests: SubtitleTrackOption[]) {
     blockedSubtitleRetryKeysRef,
     setPendingSubtitleKey,
     setLoadedSubtitleTracks,
-    setSubtitleStatusMessage,
   };
 }
 
@@ -62,7 +59,7 @@ describe("useSubtitleTransport", () => {
 
   it("marks unsupported tracks as unavailable without fetching", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const { result, setSubtitleStatusMessage } = renderTransport([track({ supported: false })]);
+    const { result } = renderTransport([track({ supported: false })]);
 
     await act(async () => {
       await result.current.ensureSubtitleTrackLoaded("ext:1");
@@ -70,7 +67,7 @@ describe("useSubtitleTransport", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(result.current.subtitleLoadStateByKey["ext:1"]).toBe("error");
-    expect(setSubtitleStatusMessage).toHaveBeenCalledWith("This subtitle track is unavailable.");
+    expect(result.current.subtitleLoadDetailByKey["ext:1"]?.progress).toBe("error");
   });
 
   it("consumes streamed VTT bodies into loaded track state", async () => {
@@ -101,6 +98,7 @@ describe("useSubtitleTransport", () => {
     });
 
     expect(result.current.subtitleLoadStateByKey["ext:1"]).toBe("ready");
+    expect(result.current.subtitleLoadDetailByKey["ext:1"]?.progress).toBe("ready");
     expect(setLoadedSubtitleTracks.mock.calls.length).toBeGreaterThanOrEqual(1);
     const finalUpdater = setLoadedSubtitleTracks.mock.calls.at(-1)?.[0] as (
       current: LoadedTrack[],
@@ -120,7 +118,7 @@ describe("useSubtitleTransport", () => {
           });
         }),
     );
-    const { result, blockedSubtitleRetryKeysRef, setSubtitleStatusMessage } = renderTransport([
+    const { result, blockedSubtitleRetryKeysRef } = renderTransport([
       track({
         key: "emb:7",
         logicalId: "emb:7",
@@ -138,7 +136,7 @@ describe("useSubtitleTransport", () => {
 
     expect(result.current.subtitleLoadStateByKey["emb:7"]).toBe("timeout");
     expect(blockedSubtitleRetryKeysRef.current.has("emb:7")).toBe(true);
-    expect(setSubtitleStatusMessage).toHaveBeenCalledWith("Subtitle load timed out. Try again.");
+    expect(result.current.subtitleLoadDetailByKey["emb:7"]?.progress).toBe("timeout");
   });
 
   it("returns blocked state for keys that previously timed out or failed", async () => {
@@ -151,6 +149,61 @@ describe("useSubtitleTransport", () => {
 
     await waitFor(() => {
       expect(result.current.subtitleLoadStateByKey["ext:1"]).toBe("blocked");
+      expect(result.current.subtitleLoadDetailByKey["ext:1"]?.progress).toBe("blocked");
     });
+  });
+
+  it("clears load state and detail when reset", async () => {
+    const { result } = renderTransport([track({ supported: false })]);
+
+    await act(async () => {
+      await result.current.ensureSubtitleTrackLoaded("ext:1");
+    });
+    expect(result.current.subtitleLoadStateByKey["ext:1"]).toBe("error");
+
+    act(() => {
+      result.current.clearSubtitleLoadState();
+    });
+
+    expect(result.current.subtitleLoadStateByKey).toEqual({});
+    expect(result.current.subtitleLoadDetailByKey).toEqual({});
+  });
+
+  it("records byte progress for zero-cue partial chunks without committing cues", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const encoder = new TextEncoder();
+    let releaseSecondChunk: (() => void) | null = null;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode("WEBVTT\n\nNOTE warming cache\n"));
+            releaseSecondChunk = () => {
+              controller.enqueue(encoder.encode("00:00:01.000 --> 00:00:02.000\nHello\n\n"));
+              controller.close();
+            };
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const { result, setLoadedSubtitleTracks } = renderTransport([track()]);
+
+    let promise: Promise<void> | null = null;
+    act(() => {
+      promise = result.current.ensureSubtitleTrackLoaded("ext:1");
+    });
+    await waitFor(() => {
+      expect(result.current.subtitleLoadDetailByKey["ext:1"]?.progress).toBe("extracting");
+    });
+    expect(setLoadedSubtitleTracks).not.toHaveBeenCalled();
+    await act(async () => {
+      expect(setLoadedSubtitleTracks).not.toHaveBeenCalled();
+      releaseSecondChunk?.();
+      await promise;
+    });
+
+    expect(result.current.subtitleLoadDetailByKey["ext:1"]?.progress).toBe("ready");
+    expect(setLoadedSubtitleTracks).toHaveBeenCalled();
   });
 });

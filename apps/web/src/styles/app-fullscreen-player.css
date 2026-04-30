@@ -625,6 +625,7 @@
 }
 
 .fullscreen-player__ctrl-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -659,6 +660,17 @@
   border-color: var(--plum-border-strong);
   color: var(--plum-accent);
   box-shadow: 0 0 14px var(--plum-accent-glow);
+}
+
+.fullscreen-player__subtitle-ready-dot {
+  position: absolute;
+  right: 0.38rem;
+  bottom: 0.38rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #7dd3fc;
+  box-shadow: 0 0 8px rgba(125, 211, 252, 0.8);
 }
 
 /* Subtitle wrap */

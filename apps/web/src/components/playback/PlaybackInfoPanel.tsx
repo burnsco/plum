@@ -1,10 +1,12 @@
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
 
 export type PlaybackInfoPanelProps = {
   titleDisplay: string;
   videoStatusMessage: string;
   wsConnected: boolean;
   browserFullscreenActive: boolean;
+  showSubtitleRetry: boolean;
+  onRetrySubtitle: () => void | Promise<void>;
   onToggleBrowserFullscreen: () => void | Promise<void>;
   onClosePlayer: () => void;
 };
@@ -15,6 +17,8 @@ export function PlaybackInfoPanel({
   videoStatusMessage,
   wsConnected,
   browserFullscreenActive,
+  showSubtitleRetry,
+  onRetrySubtitle,
   onToggleBrowserFullscreen,
   onClosePlayer,
 }: PlaybackInfoPanelProps) {
@@ -34,6 +38,20 @@ export function PlaybackInfoPanel({
       </div>
       <div className="fullscreen-player__top-bar-tail">
         <div className="fullscreen-player__top-bar-actions">
+          {showSubtitleRetry && (
+            <button
+              type="button"
+              className="fullscreen-player__close-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                void onRetrySubtitle();
+              }}
+              aria-label="Retry subtitles"
+              title="Retry subtitles"
+            >
+              <RotateCcw className="size-5" strokeWidth={2.25} />
+            </button>
+          )}
           <button
             type="button"
             className={`fullscreen-player__close-btn${browserFullscreenActive ? " is-active" : ""}`}

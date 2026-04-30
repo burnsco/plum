@@ -9,6 +9,7 @@ type PlaybackVideoStageProps = {
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
   activeAssFontUrls: readonly string[];
+  jassubReloadKey: number;
   managedSubtitleCueTexts: readonly string[];
   managedSubtitlePosition: SubtitleAppearance["position"];
   videoStreamOffsetSeconds: number;
@@ -36,6 +37,7 @@ export function PlaybackVideoStage({
   jassubVideoElement,
   activeAssSource,
   activeAssFontUrls,
+  jassubReloadKey,
   managedSubtitleCueTexts,
   managedSubtitlePosition,
   videoStreamOffsetSeconds,
@@ -91,6 +93,7 @@ export function PlaybackVideoStage({
         )}
       </div>
       <JassubRenderer
+        key={`${activeAssSource ?? "off"}:${jassubReloadKey}`}
         videoElement={jassubVideoElement}
         assSrc={activeAssSource}
         fontUrls={activeAssFontUrls}

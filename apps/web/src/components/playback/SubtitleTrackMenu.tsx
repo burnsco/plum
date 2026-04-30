@@ -10,6 +10,7 @@ export function SubtitleTrackMenu({
   onButtonClick,
   options,
   selectedKey,
+  subtitleReady,
   onSelectTrack,
 }: {
   btnRef: RefObject<HTMLButtonElement | null>;
@@ -18,6 +19,7 @@ export function SubtitleTrackMenu({
   onButtonClick: () => void;
   options: TrackMenuOption[];
   selectedKey: string;
+  subtitleReady: boolean;
   onSelectTrack: (key: string) => void;
 }) {
   return (
@@ -31,6 +33,7 @@ export function SubtitleTrackMenu({
         onClick={onButtonClick}
       >
         <Subtitles className="size-[1.125rem]" strokeWidth={2.25} />
+        {subtitleReady && <span className="fullscreen-player__subtitle-ready-dot" />}
       </button>
       {open && (
         <TrackMenu
