@@ -339,23 +339,6 @@ function parseVttTimestamp(value: string): number | null {
   return hours * 3600 + minutes * 60 + seconds + millis / 1000;
 }
 
-/**
- * Normalizes bytes received so far for {@link buildSubtitleCues} / {@link parseVttCueBlocks}.
- *
- * While streaming we must **not** truncate to the last `\n\n`: ffmpeg often emits the first cue
- * as `WEBVTT`, blank line, timing line, then cue text **without** a trailing blank line for a long
- * time. Truncating to the header-only prefix yields zero cues and leaves the UI stuck on “Loading”.
- * {@link parseVttCueBlocks} already treats an in-progress last cue (no closing blank line) as a
- * valid block once the timing line is complete.
- */
-export function streamingVttPrefixForParse(accum: string, streamDone: boolean): string {
-  const n = accum.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
-  if (streamDone) {
-    return n;
-  }
-  return n;
-}
-
 function normalizeVttInput(raw: string): string {
   return raw.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 }
@@ -386,13 +369,8 @@ export async function consumeSubtitleResponseWithPartialUpdates(
   let lastFlushAt = 0;
 
   const flush = (streamDone: boolean) => {
-    const bodyForState = streamingVttPrefixForParse(accum, streamDone);
-    if (streamDone) {
-      const full = normalizeVttInput(accum);
-      onPartial(full, true);
-    } else {
-      onPartial(bodyForState, false);
-    }
+    const bodyForState = normalizeVttInput(accum);
+    onPartial(bodyForState, streamDone);
   };
 
   try {

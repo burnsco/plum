@@ -41,6 +41,7 @@ type PlaybackVideoWindowProps = {
   jassubVideoElement: HTMLVideoElement | null;
   activeAssSource: string | null;
   activeAssFontUrls: readonly string[];
+  jassubReloadKey: number;
   managedSubtitleCueTexts: readonly string[];
   managedSubtitlePosition: SubtitleAppearance["position"];
   videoStreamOffsetSeconds: number;
@@ -63,6 +64,9 @@ type PlaybackVideoWindowProps = {
   videoStatusMessage: string;
   wsConnected: boolean;
   browserFullscreenActive: boolean;
+  showSubtitleRetry: boolean;
+  subtitleReady: boolean;
+  onRetrySubtitle: () => void | Promise<void>;
   onToggleBrowserFullscreen: () => void | Promise<void>;
   onClosePlayer: () => void;
   controlsRef: RefObject<HTMLDivElement | null>;
@@ -142,6 +146,7 @@ export function PlaybackVideoWindow({
   jassubVideoElement,
   activeAssSource,
   activeAssFontUrls,
+  jassubReloadKey,
   managedSubtitleCueTexts,
   managedSubtitlePosition,
   videoStreamOffsetSeconds,
@@ -164,6 +169,9 @@ export function PlaybackVideoWindow({
   videoStatusMessage,
   wsConnected,
   browserFullscreenActive,
+  showSubtitleRetry,
+  subtitleReady,
+  onRetrySubtitle,
   onToggleBrowserFullscreen,
   onClosePlayer,
   controlsRef,
@@ -258,6 +266,7 @@ export function PlaybackVideoWindow({
         jassubVideoElement={jassubVideoElement}
         activeAssSource={activeAssSource}
         activeAssFontUrls={activeAssFontUrls}
+        jassubReloadKey={jassubReloadKey}
         managedSubtitleCueTexts={managedSubtitleCueTexts}
         managedSubtitlePosition={managedSubtitlePosition}
         videoStreamOffsetSeconds={videoStreamOffsetSeconds}
@@ -283,6 +292,8 @@ export function PlaybackVideoWindow({
         videoStatusMessage={videoStatusMessage}
         wsConnected={wsConnected}
         browserFullscreenActive={browserFullscreenActive}
+        showSubtitleRetry={showSubtitleRetry}
+        onRetrySubtitle={onRetrySubtitle}
         onToggleBrowserFullscreen={onToggleBrowserFullscreen}
         onClosePlayer={onClosePlayer}
       />
@@ -337,6 +348,7 @@ export function PlaybackVideoWindow({
             onSubtitleButtonClick={onSubtitleButtonClick}
             subtitleMenuTrackOptions={subtitleMenuTrackOptions}
             selectedSubtitleKey={selectedSubtitleKey}
+            subtitleReady={subtitleReady}
             onSelectSubtitleTrack={onSelectSubtitleTrack}
             audioBtnRef={audioBtnRef}
             audioMenuRef={audioMenuRef}

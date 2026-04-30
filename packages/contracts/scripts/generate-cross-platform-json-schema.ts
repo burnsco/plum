@@ -21,7 +21,7 @@ import {
   UpdatePlaybackSessionAudioPayloadSchema,
 } from "../src/index";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 /** One root object so shared $defs (e.g. MediaItem) are deduplicated. */
 const CrossPlatformWireBundle = Schema.Struct({
@@ -35,7 +35,7 @@ const CrossPlatformWireBundle = Schema.Struct({
   plumWebSocketCommand: PlumWebSocketCommandSchema,
 });
 
-const outDir = join(__dirname, "../generated/json-schema");
+const outDir = join(scriptDir, "../generated/json-schema");
 const outPath = join(outDir, "cross-platform-wire.draft2020-12.json");
 
 const doc = Schema.toJsonSchemaDocument(CrossPlatformWireBundle, {

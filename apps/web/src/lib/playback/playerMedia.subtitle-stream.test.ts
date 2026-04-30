@@ -7,27 +7,7 @@ import {
   parseVttCueBlocks,
   plumHlsSubtitlePlaylistFileForTrackLogicalId,
   subtitleCueTextToPlainText,
-  streamingVttPrefixForParse,
 } from "./playerMedia";
-
-describe("streamingVttPrefixForParse", () => {
-  it("returns the full accumulated body while streaming (first cue may lack trailing blank line)", () => {
-    expect(streamingVttPrefixForParse("WEBVTT", false)).toBe("WEBVTT");
-    const midCue = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello";
-    expect(streamingVttPrefixForParse(midCue, false)).toBe(midCue);
-  });
-
-  it("keeps later cues in the buffer even when the last cue is still open", () => {
-    const partial =
-      "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n\n00:00:03.000 --> 00:00:04.000\nWor";
-    expect(streamingVttPrefixForParse(partial, false)).toBe(partial);
-  });
-
-  it("returns full body when the stream is done", () => {
-    const full = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n";
-    expect(streamingVttPrefixForParse(full, true)).toBe(full);
-  });
-});
 
 describe("plumHlsSubtitlePlaylistFileForTrackLogicalId", () => {
   it("maps logical ids to virtual playlist filenames", () => {

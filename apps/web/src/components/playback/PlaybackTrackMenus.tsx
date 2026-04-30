@@ -14,6 +14,7 @@ export type PlaybackTrackMenusProps = {
   onSubtitleButtonClick: () => void;
   subtitleMenuTrackOptions: TrackMenuOption[];
   selectedSubtitleKey: string;
+  subtitleReady: boolean;
   onSelectSubtitleTrack: (key: string) => void;
   audioBtnRef: RefObject<HTMLButtonElement | null>;
   audioMenuRef: RefObject<HTMLDivElement | null>;
@@ -43,6 +44,7 @@ export function PlaybackTrackMenus({
   onSubtitleButtonClick,
   subtitleMenuTrackOptions,
   selectedSubtitleKey,
+  subtitleReady,
   onSelectSubtitleTrack,
   audioBtnRef,
   audioMenuRef,
@@ -83,6 +85,7 @@ export function PlaybackTrackMenus({
           onButtonClick={onSubtitleButtonClick}
           options={subtitleMenuTrackOptions}
           selectedKey={selectedSubtitleKey}
+          subtitleReady={subtitleReady}
           onSelectTrack={onSelectSubtitleTrack}
         />
       )}
