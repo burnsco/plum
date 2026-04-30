@@ -370,21 +370,24 @@ func (m *LibraryScanManager) resumeRecoveredEnrichment(
 		return
 	}
 	if len(tasks) == 0 {
-		var shouldThumb bool
+		var shouldIdentify, shouldThumb bool
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
 		if ok {
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
 			m.jobs[libraryID] = status
-			shouldThumb = libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime
-			if !shouldThumb {
+			shouldIdentify = identifyRequested && libraryType != db.LibraryTypeMusic && status.IdentifyPhase == libraryIdentifyPhaseIdle
+			shouldThumb = !shouldIdentify && (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime)
+			if !shouldIdentify && !shouldThumb {
 				m.finalizeActivityLocked(libraryID, status)
 			}
 		}
 		m.mu.Unlock()
 		m.flushStatus(libraryID, true)
-		if shouldThumb {
+		if shouldIdentify {
+			m.startIdentify(libraryID)
+		} else if shouldThumb {
 			go m.StartThumbnails(libraryID)
 		}
 		return
