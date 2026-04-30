@@ -153,6 +153,22 @@ describe("useSubtitleTransport", () => {
     });
   });
 
+  it("clears load state and detail when reset", async () => {
+    const { result } = renderTransport([track({ supported: false })]);
+
+    await act(async () => {
+      await result.current.ensureSubtitleTrackLoaded("ext:1");
+    });
+    expect(result.current.subtitleLoadStateByKey["ext:1"]).toBe("error");
+
+    act(() => {
+      result.current.clearSubtitleLoadState();
+    });
+
+    expect(result.current.subtitleLoadStateByKey).toEqual({});
+    expect(result.current.subtitleLoadDetailByKey).toEqual({});
+  });
+
   it("records byte progress for zero-cue partial chunks without committing cues", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000);
     const encoder = new TextEncoder();
@@ -163,9 +179,7 @@ describe("useSubtitleTransport", () => {
           start(controller) {
             controller.enqueue(encoder.encode("WEBVTT\n\nNOTE warming cache\n"));
             releaseSecondChunk = () => {
-              controller.enqueue(
-                encoder.encode("00:00:01.000 --> 00:00:02.000\nHello\n\n"),
-              );
+              controller.enqueue(encoder.encode("00:00:01.000 --> 00:00:02.000\nHello\n\n"));
               controller.close();
             };
           },

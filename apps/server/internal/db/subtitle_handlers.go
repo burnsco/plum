@@ -647,26 +647,26 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 			continue
 		}
 		lockKey := cachePath
-		lock := acquireSharedKeyLock(lockKey)
-		if fi, statErr := os.Stat(cachePath); statErr == nil && fi.Size() > 0 {
-			releaseSharedKeyLock(lockKey, lock)
-			continue
-		}
-		if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr != nil {
-			slog.Warn("subtitle cache warm mkdir", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", mkErr)
-			releaseSharedKeyLock(lockKey, lock)
-			continue
-		}
-		warmCtx, unregisterWarm := registerWarmEmbeddedSubtitleCacheJob(ctx, lockKey)
-		if matErr := materializeEmbeddedSubtitleCacheFile(warmCtx, sourcePath, sub.StreamIndex, sub.Codec, cachePath, mediaID); matErr != nil {
-			if warmCtx.Err() != nil {
-				slog.Info("subtitle cache warm yielded", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
-			} else {
-				slog.Warn("subtitle cache warm failed", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
+		func() {
+			lock := acquireSharedKeyLock(lockKey)
+			defer releaseSharedKeyLock(lockKey, lock)
+			if fi, statErr := os.Stat(cachePath); statErr == nil && fi.Size() > 0 {
+				return
 			}
-		}
-		unregisterWarm()
-		releaseSharedKeyLock(lockKey, lock)
+			if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr != nil {
+				slog.Warn("subtitle cache warm mkdir", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", mkErr)
+				return
+			}
+			warmCtx, unregisterWarm := registerWarmEmbeddedSubtitleCacheJob(ctx, lockKey)
+			defer unregisterWarm()
+			if matErr := materializeEmbeddedSubtitleCacheFile(warmCtx, sourcePath, sub.StreamIndex, sub.Codec, cachePath, mediaID); matErr != nil {
+				if warmCtx.Err() != nil {
+					slog.Info("subtitle cache warm yielded", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
+				} else {
+					slog.Warn("subtitle cache warm failed", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
+				}
+			}
+		}()
 	}
 }
 

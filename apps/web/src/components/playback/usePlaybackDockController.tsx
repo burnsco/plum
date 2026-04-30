@@ -91,6 +91,7 @@ import {
 } from "./useSubtitleTransport";
 
 const EMPTY_PLAYBACK_QUEUE: MediaItem[] = [];
+const SILENT_SUBTITLE_REFRESH_MESSAGE = "";
 
 function updateMediaProgressKeepalive(mediaId: number, payload: UpdateMediaProgressPayload): void {
   const url = buildBackendUrl(BASE_URL, `/api/media/${mediaId}/progress`);
@@ -633,6 +634,7 @@ export function usePlaybackDockController(): ReactNode {
     [activeItem, isVideo],
   );
   const {
+    clearSubtitleLoadState,
     ensureSubtitleTrackLoaded,
     setTrackLoadState,
     subtitleLoadDetailByKey,
@@ -676,11 +678,7 @@ export function usePlaybackDockController(): ReactNode {
   ]);
   const selectedSubtitleReady =
     selectedSubtitleKey !== "off" &&
-    (subtitleRenderer === "burn_in" ||
-      selectedSubtitleLoadDetail?.state === "ready" ||
-      (subtitleRenderer === "manual_vtt" &&
-        manualSubtitleTrackKey != null &&
-        loadedSubtitleTracks.some((track) => track.key === manualSubtitleTrackKey)));
+    (subtitleRenderer === "burn_in" || selectedSubtitleLoadDetail?.state === "ready");
   const selectedSubtitleStatusMessage = useMemo(() => {
     if (selectedSubtitleKey === "off") return "";
     if (subtitleRenderer === "burn_in") return "";
@@ -1215,6 +1213,7 @@ export function usePlaybackDockController(): ReactNode {
     subtitleLoadControllersRef.current.clear();
     blockedSubtitleRetryKeysRef.current.clear();
     setLoadedSubtitleTracks([]);
+    clearSubtitleLoadState();
     setAssLoadDetailByKey({});
     setAssReloadVersion(0);
     setRefreshedPlaybackTracks(null);
@@ -1249,7 +1248,7 @@ export function usePlaybackDockController(): ReactNode {
     setPlayerSettingsOpen(false);
     setIsVideoLoading(isVideo);
     setPendingSubtitleKey(null);
-  }, [activeItemDuration, activeItemId, isVideo]);
+  }, [activeItemDuration, activeItemId, clearSubtitleLoadState, isVideo]);
 
   useEffect(() => {
     if (!isVideo) return;
@@ -1503,7 +1502,7 @@ export function usePlaybackDockController(): ReactNode {
     setSubtitleStatusMessage("");
     blockedSubtitleRetryKeysRef.current.delete(selectedKey);
     if (subtitleRenderer === "ass") {
-      await refreshActivePlaybackTracks("");
+      await refreshActivePlaybackTracks(SILENT_SUBTITLE_REFRESH_MESSAGE);
       setAssLoadDetailByKey((current) => ({
         ...current,
         [selectedKey]: {

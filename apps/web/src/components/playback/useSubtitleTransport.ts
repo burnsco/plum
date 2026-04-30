@@ -91,6 +91,11 @@ export function useSubtitleTransport({
     [setTrackLoadDetail],
   );
 
+  const clearSubtitleLoadState = useCallback(() => {
+    setSubtitleLoadStateByKey({});
+    setSubtitleLoadDetailByKey({});
+  }, []);
+
   const ensureSubtitleTrackLoaded = useCallback(
     async (trackKey: string) => {
       if (trackKey === "off") return;
@@ -237,6 +242,7 @@ export function useSubtitleTransport({
   );
 
   return {
+    clearSubtitleLoadState,
     ensureSubtitleTrackLoaded,
     setTrackLoadDetail,
     setTrackLoadState,

@@ -15,7 +15,7 @@ YELLOW := \033[1;33m
 RED := \033[1;31m
 NC := \033[0m # No Color
 
-.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint lint-backend lint-frontend fmt fmt-backend fmt-frontend test test-server test-web android-tv-build deploy-tv deploy-tv-reinstall deploy-tv-install deploy-tv-reinstall-install deploy-tv-lr deploy-tv-lr-reinstall deploy-tv-lr-install deploy-tv-lr-reinstall-install
+.PHONY: help dev dev-clean dev-stop docker-dev docker-dev-clean build up down logs logs-app logs-frontend ps restart clean lint lint-backend lint-frontend fmt fmt-backend fmt-frontend test test-server test-web android-tv-build deploy-tv deploy-tv-reinstall deploy-tv-install deploy-tv-reinstall-install deploy-tv-lr deploy-tv-lr-reinstall deploy-tv-lr-install deploy-tv-lr-reinstall-install deploy-tv-all deploy-tv-all-reinstall
 
 # Default target
 help:
@@ -56,6 +56,8 @@ help:
 	@echo "  make deploy-tv-lr-install - 📺 LR TV install only, no launch"
 	@echo "  make deploy-tv-lr-reinstall - 📺 Same as deploy-tv-lr with uninstall first"
 	@echo "  make deploy-tv-lr-reinstall-install - 📺 LR reinstall, no launch"
+	@echo "  make deploy-tv-all - 📺 Build once, deploy to both TVs (desk then LR), launch both"
+	@echo "  make deploy-tv-all-reinstall - 📺 Uninstall first, then deploy to both TVs"
 	@echo ""
 	@echo "$(GREEN)Cleanup:$(NC)"
 	@echo "  make clean       - 🧹 Remove containers, volumes, and temp files"
@@ -153,6 +155,14 @@ deploy-tv-lr-install:
 
 deploy-tv-lr-reinstall-install:
 	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-lr.sh
+
+deploy-tv-all:
+	env PLUM_TV_ADB="$(PLUM_TV_ADB)" bash ./scripts/android-tv-deploy-desk.sh
+	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" bash ./scripts/android-tv-deploy-lr.sh
+
+deploy-tv-all-reinstall:
+	env PLUM_TV_ADB="$(PLUM_TV_ADB)" PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy-desk.sh
+	env PLUM_TV_ADB_LR="$(PLUM_TV_ADB_LR)" PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy-lr.sh
 
 clean:
 	$(DOCKER_COMPOSE) down -v
