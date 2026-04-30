@@ -45,6 +45,7 @@ const (
 	libraryIdentifyPhaseQueued      = "queued"
 	libraryIdentifyPhaseIdentifying = "identifying"
 	libraryIdentifyPhaseCompleted   = "completed"
+	libraryIdentifyPhasePartial     = "partial"
 	libraryIdentifyPhaseFailed      = "failed"
 
 	libraryThumbnailPhaseIdle    = "idle"
@@ -850,9 +851,6 @@ func (m *LibraryScanManager) run(libraryID int, status libraryScanStatus, librar
 		return
 	}
 	m.finish(libraryID, libraryScanPhaseCompleted, delta.Result, "")
-	if status.IdentifyRequested && libraryType != db.LibraryTypeMusic {
-		m.startIdentify(libraryID)
-	}
 	m.startEnrichment(libraryID, libraryType, path, subpaths, delta.TouchedFiles, status.IdentifyRequested)
 }
 
@@ -926,6 +924,10 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 		if err != nil {
 			status.IdentifyPhase = libraryIdentifyPhaseFailed
 			status.LastError = err.Error()
+		} else if result.Failed > 0 && result.Identified > 0 {
+			status.IdentifyPhase = libraryIdentifyPhasePartial
+			m.clearRetryStateLocked(libraryID, &status)
+			status.LastError = fmt.Sprintf("%d item(s) need manual identification", result.Failed)
 		} else if result.Failed > 0 {
 			status.IdentifyPhase = libraryIdentifyPhaseFailed
 			status.LastError = fmt.Sprintf("%d item(s) could not be identified automatically", result.Failed)
@@ -952,10 +954,11 @@ func (m *LibraryScanManager) startIdentify(libraryID int) {
 			"elapsed", time.Since(startedAt).Round(time.Millisecond),
 		)
 		m.flushStatus(libraryID, true)
-		if result.Identified == 0 {
-			if handler != nil && handler.SearchIndex != nil {
-				handler.SearchIndex.Queue(libraryID, false)
-			}
+		if result.Identified == 0 && handler != nil && handler.SearchIndex != nil {
+			handler.SearchIndex.Queue(libraryID, false)
+		}
+		if err == nil && (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime) {
+			go m.StartThumbnails(libraryID)
 		}
 		if err != nil {
 			_ = m.scheduleRetry(libraryID, true, err.Error())
@@ -1024,21 +1027,24 @@ func (m *LibraryScanManager) finish(libraryID int, phase string, result db.ScanR
 
 func (m *LibraryScanManager) startEnrichment(libraryID int, libraryType, path string, subpaths []string, tasks []db.EnrichmentTask, identifyRequested bool) {
 	if len(tasks) == 0 {
-		var shouldThumb bool
+		var shouldIdentify, shouldThumb bool
 		m.mu.Lock()
 		status, ok := m.jobs[libraryID]
 		if ok {
 			status.EnrichmentPhase = libraryEnrichmentPhaseIdle
 			status.Enriching = false
 			m.jobs[libraryID] = status
-			shouldThumb = libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime
-			if !shouldThumb {
+			shouldIdentify = status.IdentifyRequested && libraryType != db.LibraryTypeMusic && status.IdentifyPhase == libraryIdentifyPhaseIdle
+			shouldThumb = !shouldIdentify && (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime)
+			if !shouldIdentify && !shouldThumb {
 				m.finalizeActivityLocked(libraryID, status)
 			}
 		}
 		m.mu.Unlock()
 		m.flushStatus(libraryID, true)
-		if shouldThumb {
+		if shouldIdentify {
+			m.startIdentify(libraryID)
+		} else if shouldThumb {
 			go m.StartThumbnails(libraryID)
 		}
 		return
@@ -1191,13 +1197,16 @@ func (m *LibraryScanManager) finishEnrichment(libraryID int, queueThumbnails boo
 		delete(m.enrichCancels, libraryID)
 	}
 	libraryType := m.types[libraryID]
-	shouldThumb := queueThumbnails && (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime)
-	if !shouldThumb {
+	shouldIdentify := status.IdentifyRequested && libraryType != db.LibraryTypeMusic && status.IdentifyPhase == libraryIdentifyPhaseIdle
+	shouldThumb := !shouldIdentify && queueThumbnails && (libraryType == db.LibraryTypeTV || libraryType == db.LibraryTypeAnime)
+	if !shouldIdentify && !shouldThumb {
 		m.finalizeActivityLocked(libraryID, status)
 	}
 	m.mu.Unlock()
 	m.flushStatus(libraryID, true)
-	if shouldThumb {
+	if shouldIdentify {
+		m.startIdentify(libraryID)
+	} else if shouldThumb {
 		go m.StartThumbnails(libraryID)
 	}
 }

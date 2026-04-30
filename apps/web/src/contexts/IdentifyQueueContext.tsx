@@ -19,6 +19,7 @@ export type IdentifyLibraryPhase =
   | "queued"
   | "identifying"
   | "soft-reveal"
+  | "partial"
   | "identify-failed"
   | "complete";
 
@@ -159,7 +160,11 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
             identifyRetryCountsRef.current.delete(nextLibraryId);
             setLibraryIdentifyPhase(
               nextLibraryId,
-              result.failed > 0 ? "identify-failed" : "complete",
+              result.failed > 0 && result.identified > 0
+                ? "partial"
+                : result.failed > 0
+                  ? "identify-failed"
+                  : "complete",
             );
           })
           .catch((error) => {
@@ -267,6 +272,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
           const identifyPhase = identifyPhasesRef.current.get(libraryId);
           if (
             identifyPhase === "complete" ||
+            identifyPhase === "partial" ||
             identifyPhase === "identify-failed" ||
             identifyPhase === "soft-reveal"
           ) {
@@ -285,6 +291,7 @@ export function IdentifyQueueProvider({ children }: { children: ReactNode }) {
       ) {
         if (
           identifyPhase === "complete" ||
+          identifyPhase === "partial" ||
           identifyPhase === "identify-failed" ||
           identifyPhase === "soft-reveal"
         ) {

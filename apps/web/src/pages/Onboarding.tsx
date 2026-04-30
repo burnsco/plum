@@ -24,6 +24,9 @@ type AddedLibrary = {
   phase: "queued" | "scanning" | "completed" | "failed";
   enrichmentPhase: "idle" | "queued" | "running";
   enriching: boolean;
+  identifyPhase: "idle" | "queued" | "identifying" | "completed" | "partial" | "failed";
+  identifiedCount: number;
+  identifyFailedCount: number;
   addedCount: number;
   updatedCount: number;
   removedCount: number;
@@ -54,6 +57,9 @@ function mergeLibraryScanStatus(
     phase: status.phase === "idle" ? "queued" : status.phase,
     enrichmentPhase: getEnrichmentPhase(status),
     enriching: status.enriching,
+    identifyPhase: status.identifyPhase,
+    identifiedCount: status.identified,
+    identifyFailedCount: status.identifyFailed,
     addedCount: status.added,
     updatedCount: status.updated,
     removedCount: status.removed,
@@ -107,7 +113,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
         library.phase === "queued" ||
         library.phase === "scanning" ||
         library.enrichmentPhase === "queued" ||
-        library.enrichmentPhase === "running",
+        library.enrichmentPhase === "running" ||
+        library.identifyPhase === "queued" ||
+        library.identifyPhase === "identifying",
     );
     if (pendingLibraries.length === 0) return;
 
@@ -218,6 +226,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
             phase: "queued",
             enrichmentPhase: "idle",
             enriching: false,
+            identifyPhase: "idle",
+            identifiedCount: 0,
+            identifyFailedCount: 0,
             addedCount: 0,
             updatedCount: 0,
             removedCount: 0,
@@ -259,6 +270,9 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
           phase: "queued",
           enrichmentPhase: "idle",
           enriching: false,
+          identifyPhase: "idle",
+          identifiedCount: 0,
+          identifyFailedCount: 0,
           addedCount: 0,
           updatedCount: 0,
           removedCount: 0,
@@ -282,9 +296,6 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
       );
       if (createdLibraries.length > 0) {
         setAddedLibraries((prev) => [...prev, ...scannedLibraries]);
-      }
-      if (existingPaths.size > 0) {
-        onGoToHome();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add default libraries.");
@@ -376,7 +387,7 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
                 disabled={loading || addingDefaults}
                 onClick={handleAddDefaultLibraries}
               >
-                {addingDefaults ? "Adding…" : "Add default libraries and continue"}
+                {addingDefaults ? "Adding…" : "Add default libraries"}
               </button>
               <button
                 type="button"
@@ -459,11 +470,16 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
                             scanPhase: lib.phase,
                             enrichmentPhase: lib.enrichmentPhase,
                             enriching: lib.enriching,
+                            identifyPhase: lib.identifyPhase,
                           }),
                         ) ?? lib.phase
                       ).toLowerCase()}
                       {lib.addedCount > 0 ? `, added ${lib.addedCount}` : ""}
                       {lib.updatedCount > 0 ? `, updated ${lib.updatedCount}` : ""}
+                      {lib.identifiedCount > 0 ? `, identified ${lib.identifiedCount}` : ""}
+                      {lib.identifyFailedCount > 0
+                        ? `, ${lib.identifyFailedCount} need review`
+                        : ""}
                       {lib.unmatchedCount > 0 ? `, unmatched ${lib.unmatchedCount}` : ""}
                       {lib.skippedCount > 0 ? `, skipped ${lib.skippedCount}` : ""}
                       {lib.removedCount > 0 ? `, removed ${lib.removedCount}` : ""}
@@ -471,6 +487,14 @@ export function Onboarding({ onGoToHome }: OnboardingProps) {
                     </li>
                   ))}
                 </ul>
+                <button
+                  type="button"
+                  className="auth-submit secondary"
+                  disabled={loading || addingDefaults}
+                  onClick={handleFinishSetup}
+                >
+                  Continue to Plum
+                </button>
               </div>
             )}
           </div>

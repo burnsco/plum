@@ -29,7 +29,7 @@ export function canShowLibraryIdentifyFailure(
   hasActiveIdentifyItems: boolean,
   identifyFailedCount: number,
 ) {
-  const explicitFailure = identifyPhase === "identify-failed";
+  const explicitFailure = identifyPhase === "identify-failed" || identifyPhase === "partial";
   // Do not gate on react-query isFetching: background refetches (e.g. identify poll) would
   // briefly hide failure and flip cards back to "Searching...", which looks like a glitch.
   return (
@@ -46,6 +46,8 @@ function mapBackendIdentifyPhase(phase?: string): IdentifyLibraryPhase | undefin
       return "identifying";
     case "completed":
       return "complete";
+    case "partial":
+      return "partial";
     case "failed":
       return "identify-failed";
     default:

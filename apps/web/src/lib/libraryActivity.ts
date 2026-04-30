@@ -69,7 +69,12 @@ export function getLibraryActivity(options: {
   if (backendIdentifyQueued || localIdentifyQueued) {
     return "identify-queued";
   }
-  if (options.identifyPhase === "failed" || options.localIdentifyPhase === "identify-failed") {
+  if (
+    options.identifyPhase === "failed" ||
+    options.identifyPhase === "partial" ||
+    options.localIdentifyPhase === "identify-failed" ||
+    options.localIdentifyPhase === "partial"
+  ) {
     return undefined;
   }
   if (options.scanPhase === "queued" || options.scanPhase === "scanning") {
