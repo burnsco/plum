@@ -747,13 +747,20 @@ export type LibraryEnrichmentPhase = "idle" | "queued" | "running";
 
 export const LibraryEnrichmentPhaseSchema = Schema.Literals(["idle", "queued", "running"]);
 
-export type LibraryIdentifyPhase = "idle" | "queued" | "identifying" | "completed" | "failed";
+export type LibraryIdentifyPhase =
+  | "idle"
+  | "queued"
+  | "identifying"
+  | "completed"
+  | "partial"
+  | "failed";
 
 export const LibraryIdentifyPhaseSchema = Schema.Literals([
   "idle",
   "queued",
   "identifying",
   "completed",
+  "partial",
   "failed",
 ]);
 

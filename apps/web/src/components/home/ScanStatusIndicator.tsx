@@ -16,6 +16,9 @@ export function ScanStatusIndicator({ activity, scanStatus }: ScanStatusIndicato
           {scanStatus.processed} processed • {scanStatus.added} added
         </>
       ) : null}
+      {activity === "identifying" && scanStatus && scanStatus.identified > 0 ? (
+        <> {scanStatus.identified} identified</>
+      ) : null}
     </p>
   );
 }

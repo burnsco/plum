@@ -56,6 +56,17 @@ describe("getLibraryActivity", () => {
     ).toBeUndefined();
   });
 
+  it("hides analyzing when identify has partial results needing review", () => {
+    expect(
+      getLibraryActivity({
+        scanPhase: "completed",
+        enrichmentPhase: "running",
+        enriching: true,
+        identifyPhase: "partial",
+      }),
+    ).toBeUndefined();
+  });
+
   it("shows queued identify separately from active identify", () => {
     expect(
       getLibraryActivity({

@@ -112,7 +112,7 @@ function buildRecentLibraryActivity(
   if (previous == null || !isLibraryProcessing(previous) || isLibraryProcessing(next)) {
     return null;
   }
-  if (next.phase === "failed" || next.identifyPhase === "failed") {
+  if (next.phase === "failed" || (next.identifyPhase === "failed" && next.identified === 0)) {
     return {
       libraryId: next.libraryId,
       status: "failed",
@@ -124,7 +124,9 @@ function buildRecentLibraryActivity(
   if (isSuccessfulLibraryCompletion(next)) {
     const detail =
       next.identifyRequested && next.identified > 0
-        ? `Identified ${next.identified} item${next.identified === 1 ? "" : "s"}`
+        ? next.identifyFailed > 0
+          ? `Identified ${next.identified}; ${next.identifyFailed} need review`
+          : `Identified ${next.identified} item${next.identified === 1 ? "" : "s"}`
         : next.processed > 0
           ? `Processed ${next.processed} item${next.processed === 1 ? "" : "s"}`
           : undefined;

@@ -2415,7 +2415,7 @@ describe("App library and player wiring", () => {
     ).toBeTruthy();
   });
 
-  it("auto-enters the app after adding default libraries while identify runs in the background", async () => {
+  it("keeps onboarding progress visible after adding default libraries", async () => {
     mockAuthSession({ hasAdmin: false, user: null });
     vi.spyOn(api, "getSetupStatus").mockResolvedValue(defaultSetupStatus);
     vi.spyOn(api, "createAdmin").mockResolvedValue({
@@ -2471,7 +2471,7 @@ describe("App library and player wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create admin/i }));
 
     expect(await screen.findByRole("heading", { name: /Add libraries/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Add default libraries and continue/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add default libraries/i }));
 
     await waitFor(() => {
       expect(api.startLibraryScan).toHaveBeenNthCalledWith(1, 11, { identify: true });
@@ -2480,7 +2480,8 @@ describe("App library and player wiring", () => {
       expect(api.startLibraryScan).toHaveBeenNthCalledWith(4, 14, { identify: true });
     });
 
-    expect(await screen.findByText(/No media in this library yet/i)).toBeTruthy();
+    expect(await screen.findByText(/Added libraries:/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Continue to Plum/i })).toBeTruthy();
   });
 
   it("renders transcoding settings for admins", async () => {

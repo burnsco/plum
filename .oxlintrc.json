@@ -8,6 +8,12 @@
   },
   "rules": {
     "eslint/no-shadow": "off",
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["_tag", "__dirname", "__PLUM_VITEST_LAYOUT__"]
+      }
+    ],
     "eslint/no-extend-native": "off",
     "eslint/no-await-in-loop": "off",
     "import/no-named-as-default": "off",

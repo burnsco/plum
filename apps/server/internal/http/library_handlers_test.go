@@ -2220,6 +2220,77 @@ func TestLibraryScanManager_FailedMovieNoMatchReindexesAfterTerminalState(t *tes
 	}
 }
 
+func TestLibraryScanManager_PartialAutoMatchIsNotHardFailure(t *testing.T) {
+	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	now := time.Now().UTC()
+	var userID int
+	if err := dbConn.QueryRow(`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?) RETURNING id`, "partial@test.com", "hash", now).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var libraryID int
+	if err := dbConn.QueryRow(`INSERT INTO libraries (user_id, name, type, path, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`, userID, "Movies", db.LibraryTypeMovie, "/movies", now).Scan(&libraryID); err != nil {
+		t.Fatalf("insert library: %v", err)
+	}
+	for _, title := range []string{"Matched Movie", "Unknown Movie"} {
+		if _, err := dbConn.Exec(`INSERT INTO movies (library_id, title, path, duration, match_status) VALUES (?, ?, ?, ?, ?)`,
+			libraryID, title, "/movies/"+title+".mkv", 0, db.MatchStatusLocal,
+		); err != nil {
+			t.Fatalf("insert movie: %v", err)
+		}
+	}
+
+	manager := NewLibraryScanManager(context.Background(), dbConn, &identifyStub{
+		movieResult: func() func(context.Context, metadata.MediaInfo) (*metadata.MatchResult, error) {
+			var calls int32
+			return func(_ context.Context, info metadata.MediaInfo) (*metadata.MatchResult, error) {
+				if atomic.AddInt32(&calls, 1) == 2 {
+					return nil, nil
+				}
+				return &metadata.MatchResult{Title: info.Title, Provider: "tmdb", ExternalID: "123"}, nil
+			}
+		}(),
+	}, nil, "")
+	manager.mu.Lock()
+	manager.jobs[libraryID] = libraryScanStatus{
+		LibraryID:         libraryID,
+		Phase:             libraryScanPhaseCompleted,
+		IdentifyPhase:     libraryIdentifyPhaseIdle,
+		IdentifyRequested: true,
+		MaxRetries:        3,
+	}
+	manager.paths[libraryID] = "/movies"
+	manager.types[libraryID] = db.LibraryTypeMovie
+	manager.mu.Unlock()
+
+	manager.startIdentify(libraryID)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := manager.status(libraryID)
+		if status.IdentifyPhase == libraryIdentifyPhasePartial {
+			if status.Identified != 1 || status.IdentifyFailed != 1 {
+				t.Fatalf("status counts = identified %d failed %d", status.Identified, status.IdentifyFailed)
+			}
+			if status.LastError != "1 item(s) need manual identification" {
+				t.Fatalf("last error = %q", status.LastError)
+			}
+			return
+		}
+		if status.IdentifyPhase == libraryIdentifyPhaseFailed {
+			t.Fatalf("partial identify was marked as hard failure: %+v", status)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("identify did not become partial: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestIdentifyLibrary_GroupsTVEpisodesByShow(t *testing.T) {
 	dbConn, err := db.InitDB(filepath.Join(t.TempDir(), "plum.db"))
 	if err != nil {

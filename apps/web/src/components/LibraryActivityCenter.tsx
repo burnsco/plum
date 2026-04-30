@@ -81,6 +81,21 @@ function getNowSummary(status: LibraryScanStatus): { label: string; details: str
       ? `${activityPhaseLabel(displayEntry.phase)}: ${formatActivityPath(displayEntry)}`
       : null;
 
+  if (status.identifyPhase === "partial") {
+    const details = [
+      `Identified ${status.identified} item${status.identified === 1 ? "" : "s"}`,
+      `${status.identifyFailed} item${status.identifyFailed === 1 ? "" : "s"} need review`,
+    ];
+    return { label: "Partially identified", details };
+  }
+
+  if (status.identifyPhase === "completed" && status.identified > 0) {
+    return {
+      label: "Identified",
+      details: [`Matched ${status.identified} item${status.identified === 1 ? "" : "s"}`],
+    };
+  }
+
   if (status.identifyPhase === "identifying") {
     const details: string[] = [];
     if (entryLine) details.push(entryLine);
