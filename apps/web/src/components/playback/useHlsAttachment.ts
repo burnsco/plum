@@ -93,6 +93,7 @@ export function useHlsAttachment({
       backBufferLength: 30,
       maxBufferLength: 30,
       maxMaxBufferLength: 60,
+      maxBufferSize: 512 * 1000 * 1000,
       frontBufferFlushThreshold: 60,
       startFragPrefetch: true,
       startPosition: seekToAfterReloadRef.current !== null ? seekToAfterReloadRef.current : -1,

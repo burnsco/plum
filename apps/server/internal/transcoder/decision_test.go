@@ -80,3 +80,34 @@ func TestDecidePlaybackBurnForcesTranscode(t *testing.T) {
 		t.Fatalf("burn idx = %d", decision.BurnEmbeddedSubtitleStreamIdx)
 	}
 }
+
+func TestDecidePlaybackRemuxTranscodesMP3AudioForHLS(t *testing.T) {
+	probe := playbackSourceProbe{
+		Container: "mkv",
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "h264"},
+			{Index: 1, CodecType: "audio", CodecName: "mp3"},
+		},
+	}
+	capabilities := ClientPlaybackCapabilities{
+		SupportsMSEHLS: true,
+		Containers:     []string{"mp4"},
+		VideoCodecs:    []string{"h264"},
+		AudioCodecs:    []string{"mp3", "aac"},
+	}
+
+	decision := decidePlayback(42, probe, capabilities, -1, nil)
+
+	if decision.Delivery != "remux" {
+		t.Fatalf("delivery = %q, want remux", decision.Delivery)
+	}
+	if !decision.VideoCopy {
+		t.Fatal("expected video copy for H.264 remux")
+	}
+	if decision.AudioCopy {
+		t.Fatal("expected MP3 audio to transcode for HLS compatibility")
+	}
+	if !decision.AudioTranscode {
+		t.Fatal("expected audio transcode for MP3 remux")
+	}
+}

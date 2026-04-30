@@ -192,7 +192,7 @@ func isHLSSafeVideoCodec(codec string) bool {
 
 func isHLSSafeAudioCodec(codec string) bool {
 	switch normalizeCodecName(codec) {
-	case "", "aac", "mp3", "ac3", "eac3":
+	case "", "aac", "ac3", "eac3":
 		return true
 	default:
 		return false

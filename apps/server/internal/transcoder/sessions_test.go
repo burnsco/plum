@@ -645,6 +645,10 @@ func TestParseHlsSegmentIndex(t *testing.T) {
 	if !ok || n != 22 {
 		t.Fatalf("got %d ok=%v", n, ok)
 	}
+	n, ok = parseHlsSegmentIndex("segment_00023.m4s")
+	if !ok || n != 23 {
+		t.Fatalf("got %d ok=%v for m4s", n, ok)
+	}
 	if _, ok := parseHlsSegmentIndex("other.ts"); ok {
 		t.Fatal("unexpected ok")
 	}

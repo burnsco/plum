@@ -842,6 +842,10 @@ func (m *PlaybackSessionManager) ServeFile(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	case ".ts":
 		w.Header().Set("Content-Type", "video/mp2t")
+	case ".m4s":
+		w.Header().Set("Content-Type", "video/iso.segment")
+	case ".mp4":
+		w.Header().Set("Content-Type", "video/mp4")
 	}
 	w.Header().Set("Cache-Control", "no-store")
 
@@ -1335,12 +1339,17 @@ func countHlsSegmentEntriesFromPlaylist(playlist string) int {
 	return strings.Count(string(raw), "#EXTINF:")
 }
 
-// parseHlsSegmentIndex parses segment indices from ffmpeg HLS output names like "segment_00022.ts".
+// parseHlsSegmentIndex parses segment indices from ffmpeg HLS output names like
+// "segment_00022.ts" or fragmented-MP4 remux segments like "segment_00022.m4s".
 func parseHlsSegmentIndex(fileBase string) (index int, ok bool) {
-	if !strings.HasPrefix(fileBase, "segment_") || !strings.HasSuffix(fileBase, ".ts") {
+	if !strings.HasPrefix(fileBase, "segment_") {
 		return 0, false
 	}
-	num := strings.TrimSuffix(strings.TrimPrefix(fileBase, "segment_"), ".ts")
+	ext := filepath.Ext(fileBase)
+	if ext != ".ts" && ext != ".m4s" {
+		return 0, false
+	}
+	num := strings.TrimSuffix(strings.TrimPrefix(fileBase, "segment_"), ext)
 	n, err := strconv.Atoi(num)
 	if err != nil || n < 0 {
 		return 0, false
@@ -1348,9 +1357,9 @@ func parseHlsSegmentIndex(fileBase string) (index int, ok bool) {
 	return n, true
 }
 
-// transcodeSegmentAppearDeadline is how long to wait for segment_<index>.ts to exist while ffmpeg
-// is still catching up from t=0 (e.g. subtitle burn-in starts a fresh transcode but the web client
-// resumes at the previous wall-clock position and requests a deep segment immediately).
+// transcodeSegmentAppearDeadline is how long to wait for segment_<index> media to exist while
+// ffmpeg is still catching up from t=0 (e.g. subtitle burn-in starts a fresh transcode but the web
+// client resumes at the previous wall-clock position and requests a deep segment immediately).
 func transcodeSegmentAppearDeadline(segmentIndex int) time.Duration {
 	const maxWait = 8 * time.Minute
 	const baseline = 15 * time.Second
@@ -1379,7 +1388,7 @@ func countNonEmptyHlsSegments(root string) int {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, "segment_") || !strings.HasSuffix(name, ".ts") {
+		if _, ok := parseHlsSegmentIndex(name); !ok {
 			continue
 		}
 		info, err := entry.Info()
@@ -1403,9 +1412,14 @@ func waitForPlaybackFile(ctx context.Context, target string) error {
 	waitCap := 1500 * time.Millisecond
 	ext := filepath.Ext(target)
 	switch ext {
-	case ".ts":
+	case ".ts", ".m4s":
 		if idx, ok := parseHlsSegmentIndex(filepath.Base(target)); ok {
 			waitCap = transcodeSegmentAppearDeadline(idx)
+		}
+	case ".mp4":
+		if filepath.Base(target) == "init.mp4" {
+			const hlsInitSegmentAppearWait = 2 * time.Minute
+			waitCap = hlsInitSegmentAppearWait
 		}
 	case ".m3u8":
 		// Master / variant playlists can lag segment creation while ffmpeg initializes (especially
@@ -1441,7 +1455,7 @@ func waitForPlaybackFile(ctx context.Context, target string) error {
 
 func isPlaybackArtifact(target string) bool {
 	switch filepath.Ext(target) {
-	case ".m3u8", ".ts":
+	case ".m3u8", ".ts", ".m4s", ".mp4":
 		return true
 	default:
 		return false

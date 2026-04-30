@@ -89,6 +89,9 @@ func buildRemuxHLSPlan(
 	}
 
 	args = append(args, "-c:v", "copy")
+	if video, ok := probe.primaryVideoStream(); ok && video.CodecName == "hevc" {
+		args = append(args, "-tag:v", "hvc1")
+	}
 	if decision.AudioCopy {
 		args = append(args, "-c:a", "copy")
 	} else {
@@ -340,7 +343,7 @@ func appendSingleVariantHLSOutputArgs(args []string, outDir string, playlistBase
 		playlistBase = "index"
 	}
 	playlistPath := filepath.Join(outDir, playlistBase+".m3u8")
-	segmentPath := filepath.Join(outDir, "segment_%05d.ts")
+	segmentPath := filepath.Join(outDir, "segment_%05d.m4s")
 	return append(args,
 		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", hlsSegmentDurationSeconds),
 		"-muxpreload", "0",
@@ -349,6 +352,8 @@ func appendSingleVariantHLSOutputArgs(args []string, outDir string, playlistBase
 		"-hls_time", strconv.Itoa(hlsSegmentDurationSeconds),
 		"-hls_list_size", "0",
 		"-hls_playlist_type", "event",
+		"-hls_segment_type", "fmp4",
+		"-hls_fmp4_init_filename", "init.mp4",
 		"-hls_flags", "append_list+independent_segments+temp_file",
 		"-hls_segment_filename", segmentPath,
 		playlistPath,

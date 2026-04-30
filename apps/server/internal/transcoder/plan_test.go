@@ -515,6 +515,19 @@ func TestBuildPlaybackHLSPlans_RemuxUsesMainPlaylistWhenWebSubtitlesExist(t *tes
 	if !strings.HasSuffix(last, "main.m3u8") {
 		t.Fatalf("expected ffmpeg HLS output main.m3u8, last arg = %q", last)
 	}
+	if !containsArgPair(plans[0].Args, "-hls_segment_type", "fmp4") {
+		t.Fatalf("expected fragmented MP4 HLS remux output: %v", plans[0].Args)
+	}
+	if !containsArgPair(plans[0].Args, "-hls_fmp4_init_filename", "init.mp4") {
+		t.Fatalf("expected fMP4 init segment in remux args: %v", plans[0].Args)
+	}
+	segmentTemplateIndex := indexOfArg(plans[0].Args, "-hls_segment_filename")
+	if segmentTemplateIndex < 0 || segmentTemplateIndex+1 >= len(plans[0].Args) {
+		t.Fatalf("missing segment filename template: %v", plans[0].Args)
+	}
+	if !strings.HasSuffix(plans[0].Args[segmentTemplateIndex+1], "segment_%05d.m4s") {
+		t.Fatalf("expected .m4s remux segments, got %q", plans[0].Args[segmentTemplateIndex+1])
+	}
 }
 
 func TestBuildPlaybackHLSPlans_RemuxSingleIndexWhenNoWebSubtitles(t *testing.T) {
@@ -542,6 +555,34 @@ func TestBuildPlaybackHLSPlans_RemuxSingleIndexWhenNoWebSubtitles(t *testing.T) 
 	last := plans[0].Args[len(plans[0].Args)-1]
 	if !strings.HasSuffix(last, "index.m3u8") {
 		t.Fatalf("expected index.m3u8 output, last arg = %q", last)
+	}
+	if !containsArgPair(plans[0].Args, "-hls_segment_type", "fmp4") {
+		t.Fatalf("expected fragmented MP4 HLS remux output: %v", plans[0].Args)
+	}
+}
+
+func TestBuildPlaybackHLSPlans_RemuxTagsHEVCAsHvc1(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	probe := playbackSourceProbe{
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "hevc"},
+			{Index: 1, CodecType: "audio", CodecName: "aac"},
+		},
+	}
+	plans := buildPlaybackHLSPlans(
+		"/media/uhd.mkv",
+		"/tmp/out",
+		settings,
+		probe,
+		playbackDecision{Delivery: "remux", BurnEmbeddedSubtitleStreamIdx: -1, AudioIndex: -1, AudioCopy: true},
+		0,
+		db.MediaItem{},
+	)
+	if len(plans) != 1 {
+		t.Fatalf("plan count = %d", len(plans))
+	}
+	if !containsArgPair(plans[0].Args, "-tag:v", "hvc1") {
+		t.Fatalf("expected HEVC remux to use hvc1 tag: %v", plans[0].Args)
 	}
 }
 
