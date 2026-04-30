@@ -79,7 +79,7 @@ func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesSubripTranscodePrefersHlsVtt
 	}
 }
 
-func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesDirectASS(t *testing.T) {
+func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesDirectASSPrefersVTT(t *testing.T) {
 	subs := embeddedSubtitlesForPlaybackJSON(
 		db.MediaItem{
 			EmbeddedSubtitles: []db.EmbeddedSubtitle{
@@ -104,7 +104,7 @@ func TestEmbeddedSubtitlesForPlaybackJSON_ClassifiesDirectASS(t *testing.T) {
 	if !got.VttEligible || !got.AssEligible {
 		t.Fatalf("expected vttEligible and assEligible, got %#v", got)
 	}
-	if got.PreferredWebDeliveryMode == nil || *got.PreferredWebDeliveryMode != PlaybackEmbeddedSubtitleDeliveryModeASS {
+	if got.PreferredWebDeliveryMode == nil || *got.PreferredWebDeliveryMode != PlaybackEmbeddedSubtitleDeliveryModeDirectVTT {
 		t.Fatalf("preferredWebDeliveryMode = %#v", got.PreferredWebDeliveryMode)
 	}
 	if got.PreferredAndroidDeliveryMode == nil || *got.PreferredAndroidDeliveryMode != PlaybackEmbeddedSubtitleDeliveryModeDirectVTT {

@@ -51,7 +51,7 @@ describe("buildSubtitleTrackRequests", () => {
     expect(emb?.assSrc).toMatch(/\/ass$/);
   });
 
-  it("prefers ass for native embedded ass when session omits preferred mode", () => {
+  it("prefers managed vtt for native embedded ass to avoid first-load extraction stalls", () => {
     const tracks = buildSubtitleTrackRequests({
       mediaId: 99,
       embeddedSubtitles: [
@@ -65,7 +65,26 @@ describe("buildSubtitleTrackRequests", () => {
       ],
     });
     const emb = tracks.find((t) => t.key === "emb:5");
-    expect(emb?.preferredWebDeliveryMode).toBe("ass");
+    expect(emb?.preferredWebDeliveryMode).toBe("direct_vtt");
+    expect(emb?.assSrc).toMatch(/\/ass$/);
+  });
+
+  it("overrides server ass preference for embedded ass tracks", () => {
+    const tracks = buildSubtitleTrackRequests({
+      mediaId: 99,
+      embeddedSubtitles: [
+        {
+          streamIndex: 5,
+          language: "en",
+          title: "Styled",
+          codec: "ass",
+          assEligible: true,
+          preferredWebDeliveryMode: "ass",
+        },
+      ],
+    });
+    const emb = tracks.find((t) => t.key === "emb:5");
+    expect(emb?.preferredWebDeliveryMode).toBe("direct_vtt");
   });
 });
 

@@ -114,20 +114,19 @@ function inferredEmbeddedDeliveryModes(
 function inferredPreferredWebDeliveryMode(
   subtitle: EmbeddedSubtitle,
   requiresBurn: boolean,
-  assEligible: boolean,
 ): EmbeddedSubtitleDeliveryMode | undefined {
-  if (subtitle.preferredWebDeliveryMode != null) {
-    return subtitle.preferredWebDeliveryMode;
-  }
   if (subtitle.supported === false) {
     return undefined;
   }
   if (requiresBurn) {
     return "burn_in";
   }
-  const codec = (subtitle.codec ?? "").trim().toLowerCase();
-  if (assEligible && (codec === "ass" || codec === "ssa")) {
-    return "ass";
+
+  // Embedded ASS/SSA extraction has to scan the media container before JASSUB can render a
+  // complete script. Prefer managed VTT so cues can appear progressively instead of leaving
+  // anime-style tracks on "Loading subtitles..." for a long first load.
+  if (subtitle.preferredWebDeliveryMode != null && subtitle.preferredWebDeliveryMode !== "ass") {
+    return subtitle.preferredWebDeliveryMode;
   }
   return "direct_vtt";
 }
@@ -175,7 +174,6 @@ export function buildSubtitleTrackRequests(
       const preferredWebDeliveryMode = inferredPreferredWebDeliveryMode(
         subtitle,
         requiresBurn,
-        assEligible,
       );
       const labelBase = formatSubtitleTrackLabel(
         subtitle.title,
