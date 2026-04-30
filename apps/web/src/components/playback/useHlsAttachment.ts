@@ -15,6 +15,8 @@ const HLS_BUFFER_FULL_ERROR = "bufferFullError";
 const HLS_RECOVERABLE_GAP_ERRORS = new Set(["bufferStalledError", "bufferSeekOverHole"]);
 const HLS_BUFFER_TRIM_STATUS_MESSAGE = "Trimming playback buffer...";
 const HLS_BUFFER_TRIM_STATUS_CLEAR_MS = 1_500;
+const HLS_RESYNC_STATUS_MESSAGE = "Resyncing playback...";
+const HLS_RESYNC_STATUS_CLEAR_MS = 1_500;
 
 export type UseHlsAttachmentParams = {
   isVideo: boolean;
@@ -104,6 +106,12 @@ export function useHlsAttachment({
       window.clearTimeout(bufferTrimStatusClearTimeout);
       bufferTrimStatusClearTimeout = null;
     };
+    let resyncStatusClearTimeout: ReturnType<typeof window.setTimeout> | null = null;
+    const clearResyncStatusTimeout = () => {
+      if (resyncStatusClearTimeout == null) return;
+      window.clearTimeout(resyncStatusClearTimeout);
+      resyncStatusClearTimeout = null;
+    };
     hlsRef.current = hls;
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setHlsStatusMessage("");
@@ -148,7 +156,14 @@ export function useHlsAttachment({
         if (data.details === "bufferStalledError") {
           const el = videoRef.current;
           if (maybeRecoverInitialBufferGap(el)) {
-            setHlsStatusMessage("Resyncing playback...");
+            clearResyncStatusTimeout();
+            setHlsStatusMessage(HLS_RESYNC_STATUS_MESSAGE);
+            resyncStatusClearTimeout = window.setTimeout(() => {
+              resyncStatusClearTimeout = null;
+              setHlsStatusMessage((current) =>
+                current === HLS_RESYNC_STATUS_MESSAGE ? "" : current,
+              );
+            }, HLS_RESYNC_STATUS_CLEAR_MS);
             if (el) ignorePromise(el.play(), "useHlsAttachment:hlsBufferStallResync");
           }
         }
@@ -176,6 +191,7 @@ export function useHlsAttachment({
 
     return () => {
       clearBufferTrimStatusTimeout();
+      clearResyncStatusTimeout();
       hls.destroy();
       if (hlsRef.current === hls) {
         hlsRef.current = null;

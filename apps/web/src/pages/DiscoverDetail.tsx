@@ -174,6 +174,19 @@ export function DiscoverDetail() {
 
             <p className="max-w-3xl text-sm leading-7 text-white/78">{details.overview}</p>
 
+            {details.genres.length ? (
+              <div className="flex flex-wrap gap-2">
+                {details.genres.map((genre) => (
+                  <span
+                    key={genre}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-[0.12em] text-white/60"
+                  >
+                    {genre}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap gap-3">
               {primaryMatch ? (
                 <Button asChild>
