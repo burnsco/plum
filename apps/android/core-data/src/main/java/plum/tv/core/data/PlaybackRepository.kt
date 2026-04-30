@@ -22,6 +22,22 @@ class PlaybackRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val okHttpClient: OkHttpClient,
 ) {
+    private val warmCacheClient by lazy {
+        okHttpClient.newBuilder()
+            .cache(null)
+            .callTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val hlsProbeClient by lazy {
+        okHttpClient.newBuilder()
+            .cache(null)
+            .callTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+    }
+
     suspend fun createSession(
         mediaId: Int,
         audioIndex: Int? = null,
@@ -99,30 +115,18 @@ class PlaybackRepository @Inject constructor(
         val base = sessionRepository.serverUrl.first()?.trim()?.trimEnd('/') ?: return
         val url = "$base/api/media/$mediaId/embedded-subtitles/warm-cache"
         withContext(Dispatchers.IO) {
-            val client =
-                okHttpClient.newBuilder()
-                    .cache(null)
-                    .callTimeout(15, TimeUnit.SECONDS)
-                    .readTimeout(15, TimeUnit.SECONDS)
-                    .build()
             val req =
                 Request.Builder()
                     .url(url)
                     .post(byteArrayOf().toRequestBody(null))
                     .build()
-            runCatching { client.newCall(req).execute().close() }
+            runCatching { warmCacheClient.newCall(req).execute().close() }
         }
     }
 
     /** True when the master playlist exists and looks parseable (avoids swapping the player to an empty m3u8). */
     suspend fun hlsMasterPlaylistLooksReady(absoluteUrl: String): Boolean =
         withContext(Dispatchers.IO) {
-            val client =
-                okHttpClient.newBuilder()
-                    .cache(null)
-                    .callTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(5, TimeUnit.SECONDS)
-                    .build()
             val req =
                 Request.Builder()
                     .url(absoluteUrl)
@@ -130,7 +134,7 @@ class PlaybackRepository @Inject constructor(
                     .get()
                     .build()
             runCatching {
-                client.newCall(req).execute().use { resp ->
+                hlsProbeClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@use false
                     val body = resp.body.string()
                     body.startsWith("#EXTM3U") && body.length >= 32

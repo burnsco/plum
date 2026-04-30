@@ -244,6 +244,9 @@ class PlumPlayerController(
     private var lastAppliedStreamRevision: Int = -1
 
     @Volatile
+    private var warmedEmbeddedSubtitleCacheKey: String? = null
+
+    @Volatile
     private var embeddedAudioTracks: List<EmbeddedAudioTrackJson> = emptyList()
 
     @Volatile
@@ -364,6 +367,7 @@ class PlumPlayerController(
                         validateBurnSubtitleStreamAfterReload()
                     }
                     lastAppliedStreamRevision = session.revision ?: -1
+                    warmEmbeddedSubtitleCachesIfNeeded(session)
                 }
 
                 override suspend fun transitionToDirectPlayback(
@@ -919,6 +923,7 @@ class PlumPlayerController(
             session.creditsStartSeconds,
             session.creditsEndSeconds,
         )
+        warmEmbeddedSubtitleCachesIfNeeded(session)
     }
 
     private fun trackGroups(trackType: Int): List<Tracks.Group> =
@@ -962,6 +967,18 @@ class PlumPlayerController(
             return true
         }
         return pgsBinaryEligible
+    }
+
+    private fun warmEmbeddedSubtitleCachesIfNeeded(session: PlaybackSessionJson) {
+        if (embeddedSubtitleTracks.none { it.supportsAndroidTextDelivery() || it.supportsAndroidPgsBinaryDelivery() }) {
+            return
+        }
+        val key = session.mediaId.toString()
+        if (warmedEmbeddedSubtitleCacheKey == key) return
+        warmedEmbeddedSubtitleCacheKey = key
+        applicationScope.launch(controllerJob + Dispatchers.IO) {
+            runCatching { playbackRepository.warmEmbeddedSubtitleCaches(session.mediaId) }
+        }
     }
 
     private fun logSubtitleSnapshot(reason: String) {
@@ -2252,12 +2269,15 @@ class PlumPlayerController(
         label: String,
         persist: suspend () -> Unit,
     ) {
-        persist()
         val cfg = configurationId.trim()
         val needsBurnReload = activeBurnSubtitleStreamIndex != null && hlsSessionId != null
         val burnReloadLockHeld = needsBurnReload && burnSessionCoordinator.tryLockConcurrentBurnReload()
-        if (needsBurnReload && !burnReloadLockHeld) return
+        if (needsBurnReload && !burnReloadLockHeld) {
+            updateStatus("Switching subtitles…")
+            return
+        }
         try {
+            persist()
             if (needsBurnReload) {
                 val resumeSec = player.currentPosition / 1000.0f
                 pendingSubtitleRestore =
@@ -2342,6 +2362,7 @@ class PlumPlayerController(
                 action is SubtitleSelectionAction.ReloadWithBurn
         val burnReloadLockHeld = needsBurnReload && burnSessionCoordinator.tryLockConcurrentBurnReload()
         if (needsBurnReload && !burnReloadLockHeld) {
+            updateStatus("Switching subtitles…")
             return
         }
         try {
@@ -2677,9 +2698,6 @@ class PlumPlayerController(
     }
 
     private suspend fun createAndLoadMedia(mediaId: Int, resumeSec: Float) {
-        applicationScope.launch(controllerJob + Dispatchers.IO) {
-            runCatching { playbackRepository.warmEmbeddedSubtitleCaches(mediaId) }
-        }
         val audioIndex = serverAudioIndex.takeIf { it >= 0 }
         playbackRepository.createSession(mediaId, audioIndex = audioIndex, burnEmbeddedSubtitleStreamIndex = activeBurnSubtitleStreamIndex).fold(
             onSuccess = { session ->
@@ -2714,6 +2732,7 @@ class PlumPlayerController(
         pendingSubtitleRestore = null
         pendingCatalogConfigurationId = null
         activeBurnSubtitleStreamIndex = null
+        warmedEmbeddedSubtitleCacheKey = null
         appliedStoredSubtitlePreferenceForMedia = false
         appliedStoredExoAudioPreferenceForMedia = false
         updateError(null)
