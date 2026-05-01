@@ -175,13 +175,6 @@ class SubtitleCoordinator {
                 if (sideLoaded.any { other -> shouldDropDemuxedDuplicate(candidate, other) }) {
                     return@filter false
                 }
-                // HLS manifest renditions arrive without a Plum logicalId. When a sideloaded
-                // subtitle with a logicalId already covers the same language/label, the demuxed
-                // row is a duplicate the user can't distinguish — drop it so the picker shows
-                // exactly one entry per source stream (matches Jellyfin's per-stream display).
-                if (candidate.logicalId == null && sideLoaded.any { it.coversDemuxedSibling(candidate) }) {
-                    return@filter false
-                }
                 true
             }
         if (withoutCeaOrDeduped.isNotEmpty()) return withoutCeaOrDeduped
@@ -203,14 +196,6 @@ class SubtitleCoordinator {
             return true
         }
         return false
-    }
-
-    private fun SubtitleTextTrackCandidate.coversDemuxedSibling(
-        demuxed: SubtitleTextTrackCandidate,
-    ): Boolean {
-        if (logicalId == null) return false
-        if (renderKind != demuxed.renderKind) return false
-        return label.equals(demuxed.label, ignoreCase = true)
     }
 
     private fun SubtitleTextTrackCandidate.detailWithSourceTag(

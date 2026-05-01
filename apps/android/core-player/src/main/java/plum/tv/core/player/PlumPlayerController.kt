@@ -1320,14 +1320,14 @@ class PlumPlayerController(
             else -> {
                 val lab = fmt.label?.trim()?.lowercase(Locale.US).orEmpty()
                 if (lab.isNotEmpty()) {
-                    matches
-                        .firstOrNull {
+                    val labelMatches =
+                        matches.filter {
                             val t = it.title.trim().lowercase(Locale.US)
                             t == lab || lab.contains(t) || t.contains(lab)
                         }
-                        ?.let { return it }
+                    if (labelMatches.size == 1) return labelMatches.first()
                 }
-                matches.firstOrNull()
+                null
             }
         }
     }
@@ -1824,9 +1824,10 @@ class PlumPlayerController(
     }
 
     /**
-     * When Exo selects a manifest/demuxed text track but Plum sideloads the same stream (emb:/ext:),
-     * cues often fail to reach [androidx.media3.ui.PlayerView]; prefer the sideload row when it matches
-     * the catalog logical id or the same normalized language as the current selection.
+     * When Exo selects a manifest/demuxed text track but Plum sideloads the same stream (emb:),
+     * cues often fail to reach [androidx.media3.ui.PlayerView]; prefer the sideload row only when
+     * the catalog match gives us the same logical id. Language alone is ambiguous for multi-track
+     * files with generic labels.
      */
     private fun preferSideloadTextOverDemuxedManifestIfNeeded() {
         if (player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return
@@ -1837,10 +1838,7 @@ class PlumPlayerController(
         val selLogical =
             embeddedCatalogForDemuxedTextFormat(sel.format)?.let(subtitleCoordinator::logicalIdForEmbedded)
 
-        val normSel =
-            TrackLanguagePreference.normalize(sel.format.language).ifEmpty {
-                TrackLanguagePreference.normalize(sel.format.label)
-            }
+        if (selLogical == null) return
 
         val groups = player.currentTracks.groups
         var bestGi = -1
@@ -1856,14 +1854,7 @@ class PlumPlayerController(
                 if (pri <= 0) continue
 
                 val sid = fmt.id?.trim().orEmpty()
-                val sameLogical = selLogical != null && sid.isNotEmpty() && selLogical == sid
-                val langMatch =
-                    normSel.isNotEmpty() &&
-                        (
-                            TrackLanguagePreference.matchesLanguage(fmt.language, normSel) ||
-                                TrackLanguagePreference.matchesLanguage(fmt.label, normSel)
-                        )
-                if (!sameLogical && !langMatch) continue
+                if (sid.isEmpty() || selLogical != sid) continue
 
                 if (pri > bestPri) {
                     bestPri = pri

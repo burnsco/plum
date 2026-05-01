@@ -178,10 +178,9 @@ class SubtitleCoordinatorTest {
     }
 
     @Test
-    fun buildPickerOptions_dropsLogicalIdLessDemuxedSiblingOfSideload() {
-        // HLS manifest renditions arrive without a Plum logicalId; once the sideload sibling
-        // covers the same label/render kind, the demuxed row is a duplicate the user can't
-        // distinguish — drop it.
+    fun buildPickerOptions_keepsLogicalIdLessDemuxedTrackNextToSideload() {
+        // A manifest row without a Plum logicalId cannot be proven to be the same source stream
+        // as a sideload row. Keep it rather than hiding a potentially distinct subtitle.
         val options =
             coordinator.buildPickerOptions(
                 SubtitlePickerBuildInput(
@@ -241,7 +240,63 @@ class SubtitleCoordinatorTest {
                 ),
             )
 
-        assertEquals(listOf("off", "t:1:0", "t:3:0"), options.map { it.id })
+        assertEquals(listOf("off", "t:0:0", "t:1:0", "t:2:0", "t:3:0"), options.map { it.id })
+        assertEquals("WEBVTT · fallback", options[1].detail)
+        assertEquals("WEBVTT · sideload", options[2].detail)
+        assertEquals("WEBVTT · fallback", options[3].detail)
+        assertEquals("WEBVTT · sideload", options[4].detail)
+    }
+
+    @Test
+    fun buildPickerOptions_keepsMultipleSameLabelLogicalIdLessDemuxedTracks() {
+        val options =
+            coordinator.buildPickerOptions(
+                SubtitlePickerBuildInput(
+                    textDisabled = false,
+                    textTracks =
+                        listOf(
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 0,
+                                trackIndex = 0,
+                                pickerId = "t:0:0",
+                                logicalId = null,
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 1,
+                                trackIndex = 0,
+                                pickerId = "t:1:0",
+                                logicalId = null,
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 2,
+                                trackIndex = 0,
+                                pickerId = "t:2:0",
+                                logicalId = "emb:3",
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = true,
+                                sideLoadPriority = 300,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                        ),
+                    burnTracks = emptyList(),
+                ),
+            )
+
+        assertEquals(listOf("off", "t:0:0", "t:1:0", "t:2:0"), options.map { it.id })
     }
 
     @Test
