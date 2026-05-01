@@ -149,15 +149,14 @@ class SubtitleCoordinator {
 
     fun isBurnInEmbeddedTrack(subtitle: EmbeddedSubtitleJson): Boolean {
         if (subtitle.supported == false) return false
-        // Only fall back to burn-in when neither sideloaded text nor PGS binary delivery is
-        // available. Otherwise the picker would render both a text row and a burn-in row for the
-        // same source stream (e.g. anime ASS tracks the server can extract as VTT).
-        if (subtitle.vttEligible || subtitle.pgsBinaryEligible) return false
-        if (subtitle.deliveryModes?.any { it.mode == "direct_vtt" || it.mode == "hls_vtt" || it.mode == "pgs_binary" } == true) {
+        // Only suppress burn-in when a text cue path is available. Raw PGS sideloads are not
+        // reliable across Android/Media3 playback paths, so keep the server burn-in fallback
+        // visible for bitmap subtitles while avoiding duplicate rows for ASS/SRT WebVTT tracks.
+        if (subtitle.supportsAndroidTextDelivery()) return false
+        if (subtitle.deliveryModes?.any { it.mode == "direct_vtt" || it.mode == "hls_vtt" } == true) {
             return false
         }
-        if (subtitle.preferredAndroidDeliveryMode == "burn_in") return true
-        return subtitle.deliveryModes?.any { it.mode == "burn_in" } == true
+        return subtitle.supportsBurnInDelivery()
     }
 
     fun logicalIdForEmbedded(subtitle: EmbeddedSubtitleJson): String =
@@ -168,14 +167,30 @@ class SubtitleCoordinator {
     ): List<SubtitleTextTrackCandidate> {
         if (textTracks.isEmpty()) return emptyList()
         val sideLoaded = textTracks.filter { it.sideLoadPriority > 0 }
-        val withoutCeaOrDeduped =
-            textTracks.filter { candidate ->
-                if (candidate.isCeaClosedCaption) return@filter false
-                if (candidate.sideLoadPriority > 0) return@filter true
-                if (sideLoaded.any { other -> shouldDropDemuxedDuplicate(candidate, other) }) {
-                    return@filter false
+        val promotedSideloadPickerIds =
+            textTracks
+                .mapNotNull { candidate ->
+                    if (!candidate.selected || candidate.sideLoadPriority > 0) return@mapNotNull null
+                    sideLoaded
+                        .filter { other -> shouldDropDemuxedDuplicate(candidate, other) }
+                        .sortedByDescending { it.sideLoadPriority }
+                        .firstOrNull()
+                        ?.pickerId
                 }
-                true
+                .toSet()
+        val withoutCeaOrDeduped =
+            textTracks.mapNotNull { candidate ->
+                if (candidate.isCeaClosedCaption) return@mapNotNull null
+                if (candidate.sideLoadPriority > 0) {
+                    if (!candidate.selected && candidate.pickerId in promotedSideloadPickerIds) {
+                        return@mapNotNull candidate.copy(selected = true)
+                    }
+                    return@mapNotNull candidate
+                }
+                if (sideLoaded.any { other -> shouldDropDemuxedDuplicate(candidate, other) }) {
+                    return@mapNotNull null
+                }
+                candidate
             }
         if (withoutCeaOrDeduped.isNotEmpty()) return withoutCeaOrDeduped
         // Exo sometimes only reports CEA-608 before HLS WebVTT renditions arrive; hiding every row
@@ -195,8 +210,15 @@ class SubtitleCoordinator {
         if (candidateLogical != null && otherLogical != null && candidateLogical == otherLogical) {
             return true
         }
-        return false
+        return candidateLogical == null &&
+            candidate.label.normalizedDuplicateLabel() == other.label.normalizedDuplicateLabel() &&
+            candidate.renderKind == other.renderKind
     }
+
+    private fun String.normalizedDuplicateLabel(): String =
+        trim()
+            .lowercase(Locale.US)
+            .replace(Regex("\\s+"), " ")
 
     private fun SubtitleTextTrackCandidate.detailWithSourceTag(
         allVisibleTextTracks: List<SubtitleTextTrackCandidate>,

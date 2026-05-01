@@ -24,6 +24,11 @@ internal fun EmbeddedSubtitleJson.supportsAndroidPgsBinaryDelivery(): Boolean {
     return pgsBinaryEligible
 }
 
+internal fun EmbeddedSubtitleJson.supportsBurnInDelivery(): Boolean {
+    if (supported == false) return false
+    return deliveryModes?.any { it.mode == "burn_in" } == true || preferredAndroidDeliveryMode == "burn_in"
+}
+
 internal fun EmbeddedSubtitleJson.preferredAndroidEmbeddedSubtitleDelivery(): AndroidEmbeddedSubtitleDelivery? {
     val textEligible = supportsAndroidTextDelivery()
     val pgsEligible = supportsAndroidPgsBinaryDelivery()
