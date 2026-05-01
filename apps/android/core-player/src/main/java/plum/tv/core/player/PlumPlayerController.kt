@@ -2616,6 +2616,15 @@ class PlumPlayerController(
                 return@forEach
             }
             val delivery = subtitle.preferredAndroidEmbeddedSubtitleDelivery() ?: return@forEach
+            if (
+                delivery == AndroidEmbeddedSubtitleDelivery.PgsBinary &&
+                    hlsSessionId != null &&
+                    subtitle.supportsBurnInDelivery()
+            ) {
+                // Media3's external SUP/PGS rendering is inconsistent when merged into Plum HLS
+                // playback. Prefer the server burn-in row exposed in the picker for these streams.
+                return@forEach
+            }
             val subtitleUrl =
                 when (delivery) {
                     AndroidEmbeddedSubtitleDelivery.TextVtt ->

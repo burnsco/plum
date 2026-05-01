@@ -6,7 +6,7 @@ BUN ?= bun
 # Default desk TV (TCP adb). Override: make deploy-tv PLUM_TV_ADB=192.168.1.5:5555
 PLUM_TV_ADB ?= 192.168.2.11:5555
 # Living-room TV (TCP adb). Override: make deploy-tv-lr PLUM_TV_ADB_LR=192.168.2.x:5555
-PLUM_TV_ADB_LR ?= 192.168.2.20:5555
+PLUM_TV_ADB_LR ?= 192.168.2.100:5555
 
 # Colors
 BLUE := \033[1;34m
