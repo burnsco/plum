@@ -362,6 +362,59 @@ class SubtitleCoordinatorTest {
     }
 
     @Test
+    fun buildPickerOptions_promotesOnlyOneSideloadWhenDuplicateLabelsMatchSelectedFallback() {
+        val options =
+            coordinator.buildPickerOptions(
+                SubtitlePickerBuildInput(
+                    textDisabled = false,
+                    textTracks =
+                        listOf(
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 0,
+                                trackIndex = 0,
+                                pickerId = "t:0:0",
+                                logicalId = null,
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = true,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 1,
+                                trackIndex = 0,
+                                pickerId = "t:1:0",
+                                logicalId = "emb:3",
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 300,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 2,
+                                trackIndex = 0,
+                                pickerId = "t:2:0",
+                                logicalId = "emb:4",
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 300,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                        ),
+                    burnTracks = emptyList(),
+                ),
+            )
+
+        assertEquals(listOf("off", "t:1:0", "t:2:0"), options.map { it.id })
+        assertEquals(listOf(false, true, false), options.map { it.selected })
+    }
+
+    @Test
     fun resolveSelectionAction_switchingTextWhileBurningReloadsWithoutBurnAndRestoresTrack() {
         val action =
             coordinator.resolveSelectionAction(

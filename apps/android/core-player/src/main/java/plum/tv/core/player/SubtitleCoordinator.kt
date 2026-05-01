@@ -167,20 +167,22 @@ class SubtitleCoordinator {
     ): List<SubtitleTextTrackCandidate> {
         if (textTracks.isEmpty()) return emptyList()
         val sideLoaded = textTracks.filter { it.sideLoadPriority > 0 }
-        val selectedDroppedDuplicateKeys =
+        val promotedSideloadPickerIds =
             textTracks
-                .filter { candidate ->
-                    candidate.selected &&
-                        candidate.sideLoadPriority <= 0 &&
-                        sideLoaded.any { other -> shouldDropDemuxedDuplicate(candidate, other) }
+                .mapNotNull { candidate ->
+                    if (!candidate.selected || candidate.sideLoadPriority > 0) return@mapNotNull null
+                    sideLoaded
+                        .filter { other -> shouldDropDemuxedDuplicate(candidate, other) }
+                        .sortedByDescending { it.sideLoadPriority }
+                        .firstOrNull()
+                        ?.pickerId
                 }
-                .map { it.duplicateKey() }
                 .toSet()
         val withoutCeaOrDeduped =
             textTracks.mapNotNull { candidate ->
                 if (candidate.isCeaClosedCaption) return@mapNotNull null
                 if (candidate.sideLoadPriority > 0) {
-                    if (!candidate.selected && candidate.duplicateKey() in selectedDroppedDuplicateKeys) {
+                    if (!candidate.selected && candidate.pickerId in promotedSideloadPickerIds) {
                         return@mapNotNull candidate.copy(selected = true)
                     }
                     return@mapNotNull candidate
@@ -212,9 +214,6 @@ class SubtitleCoordinator {
             candidate.label.normalizedDuplicateLabel() == other.label.normalizedDuplicateLabel() &&
             candidate.renderKind == other.renderKind
     }
-
-    private fun SubtitleTextTrackCandidate.duplicateKey(): String =
-        "${label.normalizedDuplicateLabel()}|$renderKind"
 
     private fun String.normalizedDuplicateLabel(): String =
         trim()
