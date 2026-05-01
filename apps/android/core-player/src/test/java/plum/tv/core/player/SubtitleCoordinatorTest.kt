@@ -64,7 +64,9 @@ class SubtitleCoordinatorTest {
     }
 
     @Test
-    fun buildPickerOptions_keepsLabelOnlyFallbackWhenLogicalIdsDoNotMatch() {
+    fun buildPickerOptions_keepsDemuxedFallbackWhenLabelDiffersFromSideload() {
+        // When the manifest-only row has a different label/render kind than the sideload, it is
+        // not a duplicate — keep it so the user can still pick a usable track.
         val options =
             coordinator.buildPickerOptions(
                 SubtitlePickerBuildInput(
@@ -76,7 +78,7 @@ class SubtitleCoordinatorTest {
                                 trackIndex = 0,
                                 pickerId = "t:0:0",
                                 logicalId = null,
-                                label = "English",
+                                label = "Spanish",
                                 detail = "WEBVTT",
                                 selected = true,
                                 sideLoadPriority = 0,
@@ -101,7 +103,7 @@ class SubtitleCoordinatorTest {
             )
 
         assertEquals(listOf("off", "t:0:0", "t:1:0"), options.map { it.id })
-        assertEquals("WEBVTT · fallback", options[1].detail)
+        assertEquals("WEBVTT", options[1].detail)
         assertEquals("WEBVTT · sideload", options[2].detail)
     }
 
@@ -149,6 +151,97 @@ class SubtitleCoordinatorTest {
             )
 
         assertTrue(coordinator.isBurnInEmbeddedTrack(burnOnly))
+    }
+
+    @Test
+    fun isBurnInEmbeddedTrack_skipsWhenTextDeliveryAlsoAvailable() {
+        // Anime ASS streams are vttEligible AND list burn_in as a fallback delivery; the picker
+        // must not render both a text row and a burn-in row for the same source stream.
+        val textPlusBurnFallback =
+            EmbeddedSubtitleJson(
+                streamIndex = 3,
+                language = "en",
+                title = "English",
+                codec = "ass",
+                supported = true,
+                vttEligible = true,
+                pgsBinaryEligible = false,
+                deliveryModes =
+                    listOf(
+                        EmbeddedSubtitleDeliveryModeJson(mode = "direct_vtt", requiresReload = false),
+                        EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true),
+                    ),
+                preferredAndroidDeliveryMode = "burn_in",
+            )
+
+        assertFalse(coordinator.isBurnInEmbeddedTrack(textPlusBurnFallback))
+    }
+
+    @Test
+    fun buildPickerOptions_dropsLogicalIdLessDemuxedSiblingOfSideload() {
+        // HLS manifest renditions arrive without a Plum logicalId; once the sideload sibling
+        // covers the same label/render kind, the demuxed row is a duplicate the user can't
+        // distinguish — drop it.
+        val options =
+            coordinator.buildPickerOptions(
+                SubtitlePickerBuildInput(
+                    textDisabled = false,
+                    textTracks =
+                        listOf(
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 0,
+                                trackIndex = 0,
+                                pickerId = "t:0:0",
+                                logicalId = null,
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 1,
+                                trackIndex = 0,
+                                pickerId = "t:1:0",
+                                logicalId = "emb:3",
+                                label = "English",
+                                detail = "WEBVTT",
+                                selected = true,
+                                sideLoadPriority = 300,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 2,
+                                trackIndex = 0,
+                                pickerId = "t:2:0",
+                                logicalId = null,
+                                label = "English (SDH)",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 0,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                            SubtitleTextTrackCandidate(
+                                groupIndex = 3,
+                                trackIndex = 0,
+                                pickerId = "t:3:0",
+                                logicalId = "emb:4",
+                                label = "English (SDH)",
+                                detail = "WEBVTT",
+                                selected = false,
+                                sideLoadPriority = 300,
+                                renderKind = SubtitleLogicalRenderKind.TextCue,
+                                isCeaClosedCaption = false,
+                            ),
+                        ),
+                    burnTracks = emptyList(),
+                ),
+            )
+
+        assertEquals(listOf("off", "t:1:0", "t:3:0"), options.map { it.id })
     }
 
     @Test

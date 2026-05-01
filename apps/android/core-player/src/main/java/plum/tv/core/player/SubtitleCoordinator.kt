@@ -149,13 +149,15 @@ class SubtitleCoordinator {
 
     fun isBurnInEmbeddedTrack(subtitle: EmbeddedSubtitleJson): Boolean {
         if (subtitle.supported == false) return false
-        if (subtitle.preferredAndroidDeliveryMode == "burn_in") {
-            return true
+        // Only fall back to burn-in when neither sideloaded text nor PGS binary delivery is
+        // available. Otherwise the picker would render both a text row and a burn-in row for the
+        // same source stream (e.g. anime ASS tracks the server can extract as VTT).
+        if (subtitle.vttEligible || subtitle.pgsBinaryEligible) return false
+        if (subtitle.deliveryModes?.any { it.mode == "direct_vtt" || it.mode == "hls_vtt" || it.mode == "pgs_binary" } == true) {
+            return false
         }
-        if (subtitle.deliveryModes?.any { it.mode == "burn_in" } == true) {
-            return !subtitle.vttEligible && !subtitle.pgsBinaryEligible
-        }
-        return !subtitle.vttEligible && !subtitle.pgsBinaryEligible
+        if (subtitle.preferredAndroidDeliveryMode == "burn_in") return true
+        return subtitle.deliveryModes?.any { it.mode == "burn_in" } == true
     }
 
     fun logicalIdForEmbedded(subtitle: EmbeddedSubtitleJson): String =
@@ -170,7 +172,17 @@ class SubtitleCoordinator {
             textTracks.filter { candidate ->
                 if (candidate.isCeaClosedCaption) return@filter false
                 if (candidate.sideLoadPriority > 0) return@filter true
-                sideLoaded.none { other -> shouldDropDemuxedDuplicate(candidate, other) }
+                if (sideLoaded.any { other -> shouldDropDemuxedDuplicate(candidate, other) }) {
+                    return@filter false
+                }
+                // HLS manifest renditions arrive without a Plum logicalId. When a sideloaded
+                // subtitle with a logicalId already covers the same language/label, the demuxed
+                // row is a duplicate the user can't distinguish — drop it so the picker shows
+                // exactly one entry per source stream (matches Jellyfin's per-stream display).
+                if (candidate.logicalId == null && sideLoaded.any { it.coversDemuxedSibling(candidate) }) {
+                    return@filter false
+                }
+                true
             }
         if (withoutCeaOrDeduped.isNotEmpty()) return withoutCeaOrDeduped
         // Exo sometimes only reports CEA-608 before HLS WebVTT renditions arrive; hiding every row
@@ -191,6 +203,14 @@ class SubtitleCoordinator {
             return true
         }
         return false
+    }
+
+    private fun SubtitleTextTrackCandidate.coversDemuxedSibling(
+        demuxed: SubtitleTextTrackCandidate,
+    ): Boolean {
+        if (logicalId == null) return false
+        if (renderKind != demuxed.renderKind) return false
+        return label.equals(demuxed.label, ignoreCase = true)
     }
 
     private fun SubtitleTextTrackCandidate.detailWithSourceTag(

@@ -1234,8 +1234,20 @@ class PlumPlayerController(
     private fun EmbeddedAudioTrackJson.displayLabel(): String? =
         listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
 
-    private fun EmbeddedSubtitleJson.displayLabel(): String? =
-        listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+    private fun EmbeddedSubtitleJson.displayLabel(): String? {
+        val base = listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+            ?: return null
+        // Two English subtitle tracks (regular + SDH) collapse to identical labels otherwise; mirror
+        // Jellyfin's DisplayTitle convention so users can tell them apart in the picker.
+        val suffix = when {
+            hearingImpaired -> " (SDH)"
+            forced -> " (Forced)"
+            else -> ""
+        }
+        if (suffix.isEmpty()) return base
+        if (base.contains("SDH", ignoreCase = true) || base.contains("forced", ignoreCase = true)) return base
+        return base + suffix
+    }
 
     /**
      * In-band CEA-608/708 from Exo often has label "CEA-608" and no language; ffprobe catalog lists the
@@ -1441,11 +1453,20 @@ class PlumPlayerController(
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
 
-    private fun sidecarCatalogPickerLabel(sub: SubtitleJson): String =
-        listOfNotNull(
+    private fun sidecarCatalogPickerLabel(sub: SubtitleJson): String {
+        val base = listOfNotNull(
             sub.title.trim().takeIf { it.isNotEmpty() },
             languageLabel(sub.language),
-        ).firstOrNull() ?: "Subtitle ${sub.id}"
+        ).firstOrNull() ?: return "Subtitle ${sub.id}"
+        val suffix = when {
+            sub.hearingImpaired -> " (SDH)"
+            sub.forced -> " (Forced)"
+            else -> ""
+        }
+        if (suffix.isEmpty()) return base
+        if (base.contains("SDH", ignoreCase = true) || base.contains("forced", ignoreCase = true)) return base
+        return base + suffix
+    }
 
     /**
      * Rows from the playback session catalog that are not yet represented in [textCandidates]
