@@ -162,6 +162,54 @@ describe("Sidebar", () => {
     expect(refreshItem).toHaveAttribute("data-disabled");
   });
 
+  it("requests identify when scanning a video library", async () => {
+    const queueLibraryScan = vi.fn();
+    mockUseLibraries.mockReturnValue({
+      data: [{ id: 2, name: "Movies", type: "movie", path: "/movies", user_id: 1 }],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useLibraries>);
+    mockUseIdentifyQueue.mockReturnValue({
+      getLibraryPhase: vi.fn(() => undefined),
+      identifyPhases: {},
+      queueLibraryIdentify: vi.fn(),
+    });
+    mockUseScanQueue.mockReturnValue({
+      getLibraryScanStatus: vi.fn(() => ({
+        libraryId: 2,
+        phase: "completed",
+        enrichmentPhase: "idle",
+        enriching: false,
+        identifyPhase: "idle",
+        identified: 0,
+        identifyFailed: 0,
+        processed: 95,
+        added: 95,
+        updated: 0,
+        removed: 0,
+        unmatched: 0,
+        skipped: 0,
+        identifyRequested: false,
+        estimatedItems: 95,
+        queuePosition: 0,
+      })),
+      activeLibraryIds: [],
+      activityScanStatuses: [],
+      recentLibraryActivities: [],
+      scanStatuses: {},
+      hasLibraryScanStatus: vi.fn(),
+      queueLibraryScan,
+    });
+
+    renderSidebar();
+
+    fireEvent.contextMenu(screen.getByRole("link", { name: /Movies/i }));
+
+    const scanItem = await screen.findByRole("menuitem", { name: /Scan for changes/i });
+    fireEvent.click(scanItem);
+
+    expect(queueLibraryScan).toHaveBeenCalledWith(2, { identify: true });
+  });
+
   it("hides metadata refresh for music libraries", async () => {
     const queueLibraryScan = vi.fn();
     mockUseLibraries.mockReturnValue({

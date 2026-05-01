@@ -953,22 +953,6 @@ class PlumPlayerController(
         return false
     }
 
-    private fun EmbeddedSubtitleJson.supportsAndroidTextDelivery(): Boolean {
-        if (supported == false) return false
-        if (deliveryModes?.any { it.mode == "direct_vtt" || it.mode == "hls_vtt" } == true) {
-            return true
-        }
-        return vttEligible
-    }
-
-    private fun EmbeddedSubtitleJson.supportsAndroidPgsBinaryDelivery(): Boolean {
-        if (supported == false) return false
-        if (deliveryModes?.any { it.mode == "pgs_binary" } == true) {
-            return true
-        }
-        return pgsBinaryEligible
-    }
-
     private fun warmEmbeddedSubtitleCachesIfNeeded(session: PlaybackSessionJson) {
         if (embeddedSubtitleTracks.none { it.supportsAndroidTextDelivery() || it.supportsAndroidPgsBinaryDelivery() }) {
             return
@@ -1302,28 +1286,13 @@ class PlumPlayerController(
         return ceaEmbedded.firstOrNull()
     }
 
-    private fun codecMatchesEmbeddedSubtitleCodec(codec: String?, mime: String): Boolean {
-        val c = codec?.trim()?.lowercase(Locale.US).orEmpty()
-        if (c.isEmpty()) return false
-        val m = mime.lowercase(Locale.US)
-        return when {
-            // Server converts subrip/ass to WebVTT for HLS subtitle groups, so text/vtt is a valid
-            // mime match for any text codec that the HLS manifest would carry.
-            c.contains("subrip") || c == "srt" -> m.contains("subrip") || m.contains("x-subrip") || m.contains("vtt")
-            c.contains("ass") || c.contains("ssa") -> m.contains("ass") || m.contains("ssa") || m.contains("vtt")
-            c.contains("webvtt") || c == "text" || c == "mov_text" || c == "hdmv_text_subtitle" ->
-                m.contains("vtt") || m.contains("webvtt")
-            c.contains("ttml") || c == "tx3g" -> m.contains("ttml")
-            c.contains("pgs") || c.contains("pgssub") || c == "hdmv_pgs_subtitle" -> m.contains("pgs") || m.contains("dvdsub")
-            else -> false
-        }
-    }
-
     private fun roughEmbeddedMatchForText(fmt: Format, sub: EmbeddedSubtitleJson): Boolean {
         if (fmt.isCea608ClosedCaptionTrack()) return false
         if (isCeaEmbeddedCatalogCodec(sub.codec)) return false
         val mime = fmt.sampleMimeType.orEmpty()
-        if (!codecMatchesEmbeddedSubtitleCodec(sub.codec, mime)) return false
+        if (!embeddedSubtitleCodecMatchesTextFormat(sub.codec, mime, pgsTextDeliveryEligible = sub.supportsAndroidTextDelivery())) {
+            return false
+        }
         val fn = TrackLanguagePreference.normalize(fmt.language)
         val sn = TrackLanguagePreference.normalize(sub.language)
         if (fn.isEmpty() || sn.isEmpty()) return true
@@ -2622,8 +2591,9 @@ class PlumPlayerController(
         }
 
         // Native HLS subtitle discovery is unreliable on Android/Media3 for Plum's embedded subtitle
-        // renditions as well, so sideload WebVTT for every embedded text track regardless of delivery.
-        // Picker de-dupe hides duplicate HLS/native rows when both paths appear.
+        // renditions as well, so sideload exactly one direct subtitle path per embedded stream.
+        // Prefer WebVTT because the server text extraction path is the most consistent renderer path;
+        // keep raw PGS only for bitmap streams without text delivery.
         embeddedSubtitleTracks.forEach { subtitle ->
             // Session payload omits bitmap/unsupported streams server-side; keep client guard for older servers.
             if (subtitle.supported == false) {
@@ -2633,47 +2603,24 @@ class PlumPlayerController(
                 )
                 return@forEach
             }
-            if (!subtitle.supportsAndroidTextDelivery()) {
-                return@forEach
-            }
+            val delivery = subtitle.preferredAndroidEmbeddedSubtitleDelivery() ?: return@forEach
             val subtitleUrl =
-                playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+                when (delivery) {
+                    AndroidEmbeddedSubtitleDelivery.TextVtt ->
+                        playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+                    AndroidEmbeddedSubtitleDelivery.PgsBinary ->
+                        playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}/sup")
+                }
+            val mimeType =
+                when (delivery) {
+                    AndroidEmbeddedSubtitleDelivery.TextVtt -> MimeTypes.TEXT_VTT
+                    AndroidEmbeddedSubtitleDelivery.PgsBinary -> MimeTypes.APPLICATION_PGS
+                }
             val logicalId = subtitleCoordinator.logicalIdForEmbedded(subtitle)
             val builder =
                 MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
                     .setId(logicalId)
-                    // Embedded extract endpoint always serves text/vtt (ffmpeg).
-                    .setMimeType(MimeTypes.TEXT_VTT)
-                    .setSelectionFlags(
-                        subtitleSelectionFlags(
-                            default = subtitle.default,
-                            forced = subtitle.forced,
-                            hearingImpaired = subtitle.hearingImpaired,
-                        ),
-                    )
-                    .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
-            if (subtitle.language.isNotBlank()) {
-                builder.setLanguage(subtitle.language)
-            }
-            if (subtitle.title.isNotBlank()) {
-                builder.setLabel(subtitle.title)
-            }
-            subtitleConfigurations += builder.build()
-        }
-
-        // Blu-ray style: many language tracks are HDMV PGS (not WebVTT). HLS manifests only carry our
-        // WebVTT renditions, so sideload raw PGS for every eligible stream (direct + transcode).
-        embeddedSubtitleTracks.forEach { subtitle ->
-            if (!subtitle.supportsAndroidPgsBinaryDelivery()) {
-                return@forEach
-            }
-            val subtitleUrl =
-                playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}/sup")
-            val logicalId = subtitleCoordinator.logicalIdForEmbedded(subtitle)
-            val builder =
-                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                    .setId(logicalId)
-                    .setMimeType(MimeTypes.APPLICATION_PGS)
+                    .setMimeType(mimeType)
                     .setSelectionFlags(
                         subtitleSelectionFlags(
                             default = subtitle.default,

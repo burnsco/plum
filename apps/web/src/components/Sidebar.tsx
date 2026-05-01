@@ -132,7 +132,7 @@ export function Sidebar() {
                 <ContextMenuContent>
                   <ContextMenuItem
                     disabled={isBusy}
-                    onSelect={() => void queueLibraryScan(lib.id, { identify: false })}
+                    onSelect={() => void queueLibraryScan(lib.id, { identify: lib.type !== "music" })}
                   >
                     <ScanLine className="size-4 text-(--plum-muted)" />
                     Scan for changes
