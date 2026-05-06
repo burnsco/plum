@@ -1,18 +1,26 @@
 import { LibraryActivityCenter } from "@/components/LibraryActivityCenter";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { approveQuickConnectCode } from "@/api";
 import { HorizontalScrollRail } from "@/components/ui/page";
 import { useAuthActions, useAuthState } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { useLibraries, useUnidentifiedLibrarySummaries } from "@/queries";
-import { Search, Settings, User } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Link2, Search, Settings, User } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 /** Plum logo icon — purple plum fruit on a dark button */
@@ -180,23 +188,119 @@ function SettingsButton({ isActive }: { isActive: boolean }) {
 }
 
 function UserMenu({ email, onSignOut }: { email?: string | null; onSignOut: () => void }) {
+  const quickConnectInputRef = useRef<HTMLInputElement>(null);
+  const [quickConnectOpen, setQuickConnectOpen] = useState(false);
+  const [quickConnectCode, setQuickConnectCode] = useState("");
+  const [quickConnectBusy, setQuickConnectBusy] = useState(false);
+  const [quickConnectMessage, setQuickConnectMessage] = useState<string | null>(null);
+
+  const normalizedQuickConnectCode = quickConnectCode
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, "")
+    .slice(0, 6);
+
+  useEffect(() => {
+    if (quickConnectOpen) {
+      quickConnectInputRef.current?.focus();
+    }
+  }, [quickConnectOpen]);
+
+  async function approveCode() {
+    if (quickConnectBusy) return;
+    setQuickConnectMessage(null);
+    if (normalizedQuickConnectCode.length !== 6) {
+      setQuickConnectMessage("Enter the 6-character code shown on the TV.");
+      return;
+    }
+    setQuickConnectBusy(true);
+    try {
+      await approveQuickConnectCode({ code: normalizedQuickConnectCode });
+      setQuickConnectMessage("TV connected.");
+      window.setTimeout(() => {
+        setQuickConnectOpen(false);
+        setQuickConnectCode("");
+        setQuickConnectMessage(null);
+      }, 900);
+    } catch (error) {
+      setQuickConnectMessage(error instanceof Error ? error.message : "Quick connect failed.");
+    } finally {
+      setQuickConnectBusy(false);
+    }
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="icon" size="icon" aria-label="Profile">
-          <User className="size-5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        {email && <div className="truncate px-2 py-1.5 text-sm text-(--plum-muted)">{email}</div>}
-        <DropdownMenuItem
-          onSelect={() => onSignOut()}
-          className="text-(--plum-accent) focus:text-(--plum-accent)"
-        >
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="icon" size="icon" aria-label="Profile">
+            <User className="size-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          {email && (
+            <div className="truncate px-2 py-1.5 text-sm text-(--plum-muted)">{email}</div>
+          )}
+          <DropdownMenuItem
+            onSelect={() => {
+              setQuickConnectOpen(true);
+              setQuickConnectMessage(null);
+            }}
+          >
+            <Link2 className="mr-2 size-4" />
+            Quick connect
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => onSignOut()}
+            className="text-(--plum-accent) focus:text-(--plum-accent)"
+          >
+            Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Dialog open={quickConnectOpen} onOpenChange={setQuickConnectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Quick connect</DialogTitle>
+            <DialogDescription>
+              Enter the 6-character code shown on the TV to connect it to this account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Input
+              ref={quickConnectInputRef}
+              value={normalizedQuickConnectCode}
+              onChange={(event) => setQuickConnectCode(event.target.value)}
+              maxLength={6}
+              inputMode="text"
+              aria-label="TV quick connect code"
+              className="h-12 font-mono text-lg font-semibold tracking-[0.25em] uppercase"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void approveCode();
+                }
+              }}
+            />
+            {quickConnectMessage ? (
+              <p className="text-sm text-(--plum-muted)">{quickConnectMessage}</p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setQuickConnectOpen(false)}
+                disabled={quickConnectBusy}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void approveCode()} disabled={quickConnectBusy}>
+                {quickConnectBusy ? "Connecting..." : "Connect TV"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

@@ -429,6 +429,10 @@ type quickConnectCodeResponse struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
+type quickConnectApproveRequest struct {
+	Code string `json:"code"`
+}
+
 // CreateQuickConnectCode issues a short-lived alphanumeric code so a TV (or other device) can sign in as
 // the current user without typing a password. Requires an authenticated session (same as the web UI).
 func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Request) {
@@ -476,6 +480,83 @@ func (h *AuthHandler) CreateQuickConnectCode(w http.ResponseWriter, r *http.Requ
 	http.Error(w, "could not allocate code", http.StatusServiceUnavailable)
 }
 
+// CreateDeviceQuickConnectCode starts the reversed quick-connect flow from a TV. The returned code is
+// pending until an authenticated browser approves it.
+func (h *AuthHandler) CreateDeviceQuickConnectCode(w http.ResponseWriter, r *http.Request) {
+	if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+		http.Error(w, "too many attempts", http.StatusTooManyRequests)
+		return
+	}
+
+	now := time.Now().UTC()
+	_, _ = h.DB.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Unix())
+
+	const maxTries = 32
+	const ttl = 15 * time.Minute
+	expires := now.Add(ttl)
+
+	var code string
+	for range maxTries {
+		var err error
+		code, err = randomQuickConnectCode()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		res, err := h.DB.Exec(
+			`INSERT OR IGNORE INTO quick_connect_codes (code, user_id, expires_at, created_at) VALUES (?, NULL, ?, ?)`,
+			code, expires.Unix(), now.Unix(),
+		)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(quickConnectCodeResponse{Code: code, ExpiresAt: expires}); err != nil {
+				slog.Error("json encode error", "error", err)
+			}
+			return
+		}
+	}
+	http.Error(w, "could not allocate code", http.StatusServiceUnavailable)
+}
+
+// ApproveQuickConnectCode binds a pending TV-generated quick-connect code to the current browser user.
+func (h *AuthHandler) ApproveQuickConnectCode(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var payload quickConnectApproveRequest
+	if !decodeRequestJSON(w, r, &payload) {
+		return
+	}
+	code := normalizeQuickConnectCode(payload.Code)
+	if code == "" {
+		http.Error(w, "invalid code", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	_, _ = h.DB.Exec(`DELETE FROM quick_connect_codes WHERE expires_at < ?`, now.Unix())
+	res, err := h.DB.Exec(
+		`UPDATE quick_connect_codes SET user_id = ? WHERE code = ? AND user_id IS NULL AND expires_at > ?`,
+		user.ID, code, now.Unix(),
+	)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		http.Error(w, "invalid, expired, or already used code", http.StatusUnauthorized)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type quickConnectRedeemRequest struct {
 	Code string `json:"code"`
 }
@@ -499,17 +580,16 @@ func normalizeQuickConnectCode(s string) string {
 
 // RedeemQuickConnect exchanges a valid quick-connect code for a bearer session (same JSON as device-login).
 func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request) {
-	if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
-		http.Error(w, "too many attempts", http.StatusTooManyRequests)
-		return
-	}
-
 	var payload quickConnectRedeemRequest
 	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	code := normalizeQuickConnectCode(payload.Code)
 	if code == "" {
+		if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		}
 		http.Error(w, "invalid code", http.StatusBadRequest)
 		return
 	}
@@ -527,7 +607,7 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 		slog.Debug("quick connect cleanup expired codes", "error", err)
 	}
 
-	var userID int
+	var userID sql.NullInt64
 	var expUnix int64
 	err = tx.QueryRow(
 		`SELECT user_id, expires_at FROM quick_connect_codes WHERE code = ?`,
@@ -535,6 +615,10 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	).Scan(&userID, &expUnix)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+				http.Error(w, "too many attempts", http.StatusTooManyRequests)
+				return
+			}
 			if quickConnectRegisterFailedGuess(code) {
 				http.Error(w, "too many invalid attempts for this code", http.StatusTooManyRequests)
 				return
@@ -550,8 +634,17 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	if expUnix <= 0 || now.Unix() > expUnix {
 		_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE code = ?`, code)
 		_ = tx.Commit()
+		if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		}
 		time.Sleep(300 * time.Millisecond)
 		http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+		return
+	}
+	if !userID.Valid {
+		w.Header().Set("Retry-After", "2")
+		http.Error(w, "quick connect pending approval", http.StatusAccepted)
 		return
 	}
 
@@ -563,10 +656,14 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	var u db.User
 	err = tx.QueryRow(
 		`SELECT id, email, password_hash, is_admin, created_at FROM users WHERE id = ?`,
-		userID,
+		userID.Int64,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+				http.Error(w, "too many attempts", http.StatusTooManyRequests)
+				return
+			}
 			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
 			return
 		}

@@ -697,6 +697,14 @@ export const QuickConnectCodeResponseSchema = Schema.Struct({
   expiresAt: Schema.String,
 });
 
+export interface QuickConnectApprovePayload {
+  code: string;
+}
+
+export const QuickConnectApprovePayloadSchema = Schema.Struct({
+  code: Schema.String,
+});
+
 export interface SetupStatus {
   hasAdmin: boolean;
   libraryDefaults: {

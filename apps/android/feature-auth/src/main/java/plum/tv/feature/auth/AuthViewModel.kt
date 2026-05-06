@@ -3,6 +3,7 @@ package plum.tv.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -112,7 +113,7 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    /** Redeem a 6-character code created in the web app (Settings → Quick connect). */
+    /** Legacy flow: redeem a 6-character code created in the web app. */
     fun redeemQuickConnect(code: String, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             val normalized =
@@ -131,6 +132,49 @@ class AuthViewModel @Inject constructor(
                         )
                 }
             onResult(result)
+        }
+    }
+
+    fun startDeviceQuickConnect(
+        onCode: (String) -> Unit,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val created = withTimeoutOrNull(15_000) {
+                sessionRepository.createDeviceQuickConnectCode()
+            }
+                ?: Result.failure(
+                    Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                )
+            val code = created.getOrElse {
+                onResult(Result.failure(it))
+                return@launch
+            }
+            onCode(code)
+
+            val deadline = System.currentTimeMillis() + 15 * 60 * 1_000
+            while (System.currentTimeMillis() < deadline) {
+                val result = withTimeoutOrNull(15_000) {
+                    sessionRepository.completeDeviceQuickConnect(code)
+                }
+                    ?: Result.failure(
+                        Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                    )
+                result
+                    .onSuccess { login ->
+                        if (login != null) {
+                            invalidateAllLocalCatalogCaches()
+                            onResult(Result.success(Unit))
+                            return@launch
+                        }
+                    }
+                    .onFailure {
+                        onResult(Result.failure(it))
+                        return@launch
+                    }
+                delay(2_000)
+            }
+            onResult(Result.failure(Exception("Quick connect code expired. Generate a new code.")))
         }
     }
 
