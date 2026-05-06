@@ -108,7 +108,7 @@ func TestDeviceLogin_ReturnsSessionTokenJSON(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 
-	handler := &AuthHandler{DB: dbConn, Limiter: NewAuthRateLimiter(20, time.Minute)}
+	handler := &AuthHandler{DB: dbConn, Limiter: NewAuthRateLimiter(1, time.Minute)}
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/device-login", strings.NewReader(`{"email":"device@example.com","password":"correct-password"}`))
 	rec := httptest.NewRecorder()
 	handler.DeviceLogin(rec, req)
@@ -300,16 +300,21 @@ func TestQuickConnect_DeviceCodeApproveAndRedeem(t *testing.T) {
 		t.Fatalf("expected 6-character code, got %q", created.Code)
 	}
 
-	pendingReq := httptest.NewRequest(
-		http.MethodPost,
-		"/api/auth/quick-connect/redeem",
-		strings.NewReader(`{"code":"`+created.Code+`"}`),
-	)
-	pendingReq.Header.Set("Content-Type", "application/json")
-	pendingRec := httptest.NewRecorder()
-	handler.RedeemQuickConnect(pendingRec, pendingReq)
-	if pendingRec.Code != http.StatusAccepted {
-		t.Fatalf("expected pending redeem, got %d body=%q", pendingRec.Code, pendingRec.Body.String())
+	for range 3 {
+		pendingReq := httptest.NewRequest(
+			http.MethodPost,
+			"/api/auth/quick-connect/redeem",
+			strings.NewReader(`{"code":"`+created.Code+`"}`),
+		)
+		pendingReq.Header.Set("Content-Type", "application/json")
+		pendingRec := httptest.NewRecorder()
+		handler.RedeemQuickConnect(pendingRec, pendingReq)
+		if pendingRec.Code != http.StatusAccepted {
+			t.Fatalf("expected pending redeem, got %d body=%q", pendingRec.Code, pendingRec.Body.String())
+		}
+		if pendingRec.Header().Get("Retry-After") != "2" {
+			t.Fatalf("expected Retry-After=2, got %q", pendingRec.Header().Get("Retry-After"))
+		}
 	}
 
 	approveReq := httptest.NewRequest(

@@ -580,17 +580,16 @@ func normalizeQuickConnectCode(s string) string {
 
 // RedeemQuickConnect exchanges a valid quick-connect code for a bearer session (same JSON as device-login).
 func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request) {
-	if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
-		http.Error(w, "too many attempts", http.StatusTooManyRequests)
-		return
-	}
-
 	var payload quickConnectRedeemRequest
 	if !decodeRequestJSON(w, r, &payload) {
 		return
 	}
 	code := normalizeQuickConnectCode(payload.Code)
 	if code == "" {
+		if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		}
 		http.Error(w, "invalid code", http.StatusBadRequest)
 		return
 	}
@@ -616,6 +615,10 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	).Scan(&userID, &expUnix)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+				http.Error(w, "too many attempts", http.StatusTooManyRequests)
+				return
+			}
 			if quickConnectRegisterFailedGuess(code) {
 				http.Error(w, "too many invalid attempts for this code", http.StatusTooManyRequests)
 				return
@@ -631,6 +634,10 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	if expUnix <= 0 || now.Unix() > expUnix {
 		_, _ = tx.Exec(`DELETE FROM quick_connect_codes WHERE code = ?`, code)
 		_ = tx.Commit()
+		if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		}
 		time.Sleep(300 * time.Millisecond)
 		http.Error(w, "invalid or expired code", http.StatusUnauthorized)
 		return
@@ -653,6 +660,10 @@ func (h *AuthHandler) RedeemQuickConnect(w http.ResponseWriter, r *http.Request)
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if !h.rateLimiter().Allow(clientIP(r), time.Now()) {
+				http.Error(w, "too many attempts", http.StatusTooManyRequests)
+				return
+			}
 			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
 			return
 		}
