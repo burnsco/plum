@@ -5,11 +5,11 @@
     "": {
       "name": "@plum/monorepo",
       "dependencies": {
-        "@radix-ui/react-dialog": "^1.1.15",
+        "@radix-ui/react-dialog": "latest",
       },
       "devDependencies": {
-        "concurrently": "^9.2.1",
-        "typescript": "^6.0.3",
+        "concurrently": "latest",
+        "typescript": "latest",
       },
     },
     "apps/server": {

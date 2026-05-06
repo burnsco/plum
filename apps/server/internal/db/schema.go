@@ -1171,7 +1171,7 @@ var schemaMigrations = []schemaMigration{
 			_, err := tx.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS quick_connect_codes (
   code TEXT NOT NULL PRIMARY KEY,
-  user_id INTEGER NOT NULL,
+  user_id INTEGER,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1297,6 +1297,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_media_attachments_media_stream ON media_at
 			return err
 		},
 	},
+	{
+		version: 37,
+		name:    "quick_connect_codes_pending_user",
+		apply:   migrateQuickConnectCodesNullableUserTx,
+	},
 }
 
 func migrateQuickConnectCodesToUnixTx(ctx context.Context, tx *sql.Tx) error {
@@ -1310,7 +1315,7 @@ func migrateQuickConnectCodesToUnixTx(ctx context.Context, tx *sql.Tx) error {
 	}
 	if _, err := tx.ExecContext(ctx, `CREATE TABLE quick_connect_codes_unix (
   code TEXT NOT NULL PRIMARY KEY,
-  user_id INTEGER NOT NULL,
+  user_id INTEGER,
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1347,6 +1352,43 @@ func migrateQuickConnectCodesToUnixTx(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `ALTER TABLE quick_connect_codes_unix RENAME TO quick_connect_codes`); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_user_id ON quick_connect_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_quick_connect_codes_expires_at ON quick_connect_codes(expires_at);
+`)
+	return err
+}
+
+func migrateQuickConnectCodesNullableUserTx(ctx context.Context, tx *sql.Tx) error {
+	var tableName string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='quick_connect_codes'`).Scan(&tableName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE quick_connect_codes_nullable (
+  code TEXT NOT NULL PRIMARY KEY,
+  user_id INTEGER,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT OR IGNORE INTO quick_connect_codes_nullable (code, user_id, expires_at, created_at)
+SELECT code, user_id, expires_at, created_at FROM quick_connect_codes
+`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE quick_connect_codes`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE quick_connect_codes_nullable RENAME TO quick_connect_codes`); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `

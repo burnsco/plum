@@ -193,13 +193,9 @@ private fun LoginRoute(
                 color = PlumTheme.palette.textSecondary,
             )
         }
-        PlumActionButton(
-            label = "Sign in with TV code",
-            onClick = onOpenQuickConnect,
-            variant = PlumButtonVariant.Secondary,
-        )
+        PlumActionButton(label = "Quick connect", onClick = onOpenQuickConnect)
         TvText(
-            text = "Use a 6-character code from the web app: Settings → Quick connect.",
+            text = "Generate a code on this TV, then enter it from the Plum web profile menu.",
             style = PlumTheme.typography.bodySmall,
             color = PlumTheme.palette.muted,
         )
@@ -226,21 +222,24 @@ private fun QuickConnectRoute(
     onSuccess: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var code by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val codeFocus = remember { FocusRequester() }
+    val connectFocus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
         delay(16)
-        codeFocus.requestFocus()
+        connectFocus.requestFocus()
     }
 
-    fun submit() {
+    fun start() {
         if (busy) return
         busy = true
         error = null
-        viewModel.redeemQuickConnect(code) { result ->
+        code = null
+        viewModel.startDeviceQuickConnect(
+            onCode = { code = it },
+        ) { result ->
             busy = false
             result.onSuccess { onSuccess() }
             result.onFailure { error = it.message ?: "Quick connect failed" }
@@ -253,28 +252,32 @@ private fun QuickConnectRoute(
             .padding(48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Sign in with code")
+        Text("Quick connect")
         TvText(
-            text = "On your computer, open Plum (signed in as the account you want on this TV) → Settings → Quick connect, then generate a code. Enter the 6 characters here (server URL must already be set).",
+            text = "Generate a code on this TV, then open Plum on your computer or phone. Use the profile menu → Quick connect and enter the code.",
             style = PlumTheme.typography.bodySmall,
             color = PlumTheme.palette.muted,
         )
-        OutlinedTextField(
-            value = code,
-            onValueChange = { raw ->
-                code =
-                    raw.uppercase().filter { it.isDigit() || it in 'A'..'Z' }.take(6)
-            },
-            modifier = Modifier.focusRequester(codeFocus),
-            singleLine = true,
-            label = { Text("6-character code") },
-        )
+        code?.let {
+            TvText(
+                text = it,
+                style = PlumTheme.typography.displaySmall,
+                color = PlumTheme.palette.text,
+            )
+            TvText(
+                text = "Waiting for web approval...",
+                style = PlumTheme.typography.bodySmall,
+                color = PlumTheme.palette.muted,
+            )
+        }
         error?.let { Text(it) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PlumActionButton(label = "Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
             PlumActionButton(
-                label = if (busy) "Signing in…" else "Connect",
-                onClick = { submit() },
+                label = if (busy) "Waiting..." else if (code == null) "Generate code" else "New code",
+                onClick = { start() },
+                modifier = Modifier.focusRequester(connectFocus),
+                enabled = !busy,
             )
         }
     }

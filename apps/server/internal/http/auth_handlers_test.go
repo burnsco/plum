@@ -29,7 +29,7 @@ END;
 		t.Fatalf("create trigger: %v", err)
 	}
 
-	handler := &AuthHandler{DB: dbConn}
+	handler := &AuthHandler{DB: dbConn, Limiter: NewAuthRateLimiter(20, time.Minute)}
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/admin-setup", strings.NewReader(`{"email":"admin@example.com","password":"strong-password"}`))
 	rec := httptest.NewRecorder()
 
@@ -108,7 +108,7 @@ func TestDeviceLogin_ReturnsSessionTokenJSON(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 
-	handler := &AuthHandler{DB: dbConn}
+	handler := &AuthHandler{DB: dbConn, Limiter: NewAuthRateLimiter(20, time.Minute)}
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/device-login", strings.NewReader(`{"email":"device@example.com","password":"correct-password"}`))
 	rec := httptest.NewRecorder()
 	handler.DeviceLogin(rec, req)
@@ -253,5 +253,107 @@ func TestQuickConnect_CreateAndRedeem(t *testing.T) {
 	handler.RedeemQuickConnect(againRec, redeemAgain)
 	if againRec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected second redeem to fail, got %d", againRec.Code)
+	}
+}
+
+func TestQuickConnect_DeviceCodeApproveAndRedeem(t *testing.T) {
+	dbConn, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer dbConn.Close()
+
+	passwordHash, err := auth.HashPassword("passwordpassword")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	res, err := dbConn.Exec(
+		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?)`,
+		"admin@example.com",
+		passwordHash,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	uid, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("last insert id: %v", err)
+	}
+
+	handler := &AuthHandler{DB: dbConn, Limiter: NewAuthRateLimiter(20, time.Minute)}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/auth/quick-connect/device", nil)
+	createRec := httptest.NewRecorder()
+	handler.CreateDeviceQuickConnectCode(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create device code: %d body=%q", createRec.Code, createRec.Body.String())
+	}
+
+	var created struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if len(created.Code) != 6 {
+		t.Fatalf("expected 6-character code, got %q", created.Code)
+	}
+
+	pendingReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/quick-connect/redeem",
+		strings.NewReader(`{"code":"`+created.Code+`"}`),
+	)
+	pendingReq.Header.Set("Content-Type", "application/json")
+	pendingRec := httptest.NewRecorder()
+	handler.RedeemQuickConnect(pendingRec, pendingReq)
+	if pendingRec.Code != http.StatusAccepted {
+		t.Fatalf("expected pending redeem, got %d body=%q", pendingRec.Code, pendingRec.Body.String())
+	}
+
+	approveReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/quick-connect/approve",
+		strings.NewReader(`{"code":"`+created.Code+`"}`),
+	)
+	approveReq.Header.Set("Content-Type", "application/json")
+	approveReq = approveReq.WithContext(withUser(approveReq.Context(), &db.User{
+		ID:      int(uid),
+		Email:   "admin@example.com",
+		IsAdmin: true,
+	}))
+	approveRec := httptest.NewRecorder()
+	handler.ApproveQuickConnectCode(approveRec, approveReq)
+	if approveRec.Code != http.StatusNoContent {
+		t.Fatalf("approve code: %d body=%q", approveRec.Code, approveRec.Body.String())
+	}
+
+	redeemReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/quick-connect/redeem",
+		strings.NewReader(`{"code":"`+created.Code+`"}`),
+	)
+	redeemReq.Header.Set("Content-Type", "application/json")
+	redeemRec := httptest.NewRecorder()
+	handler.RedeemQuickConnect(redeemRec, redeemReq)
+	if redeemRec.Code != http.StatusOK {
+		t.Fatalf("redeem approved code: %d body=%q", redeemRec.Code, redeemRec.Body.String())
+	}
+
+	var sessionPayload struct {
+		SessionToken string `json:"sessionToken"`
+		User         struct {
+			Email string `json:"email"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(redeemRec.Body.Bytes(), &sessionPayload); err != nil {
+		t.Fatalf("decode redeem: %v", err)
+	}
+	if sessionPayload.SessionToken == "" {
+		t.Fatal("expected session token")
+	}
+	if sessionPayload.User.Email != "admin@example.com" {
+		t.Fatalf("user email = %q", sessionPayload.User.Email)
 	}
 }

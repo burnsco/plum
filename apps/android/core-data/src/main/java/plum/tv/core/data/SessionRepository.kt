@@ -148,6 +148,56 @@ class SessionRepository @Inject constructor(
             Log.w(TAG, "quick connect failure error=${it.message}", it)
         }
 
+    suspend fun createDeviceQuickConnectCode(): Result<String> =
+        runCatching {
+            Log.i(TAG, "quick connect device create start")
+            val api = getPlumApi()
+            val res = api.createDeviceQuickConnect()
+            if (!res.isSuccessful) {
+                error(
+                    PlumHttpMessages.preferBody(
+                        "Quick connect",
+                        res.code(),
+                        res.errorBody()?.string(),
+                    ),
+                )
+            }
+            val body = res.body() ?: error("Empty quick connect response")
+            body.code
+        }.onFailure {
+            Log.w(TAG, "quick connect device create failure error=${it.message}", it)
+        }
+
+    suspend fun completeDeviceQuickConnect(code: String): Result<DeviceLoginResult?> =
+        runCatching {
+            val api = getPlumApi()
+            val res = api.redeemQuickConnect(QuickConnectRedeemRequest(code = code.trim()))
+            if (res.code() == 202) {
+                return@runCatching null
+            }
+            if (!res.isSuccessful) {
+                error(
+                    PlumHttpMessages.preferBody(
+                        "Quick connect",
+                        res.code(),
+                        res.errorBody()?.string(),
+                    ),
+                )
+            }
+            val body = res.body() ?: error("Empty quick connect response")
+            prefs.setSessionToken(body.sessionToken)
+            tokenBridge.setToken(body.sessionToken)
+            Log.i(TAG, "quick connect device success userId=${body.user.id}")
+            DeviceLoginResult(
+                userId = body.user.id,
+                email = body.user.email,
+                sessionToken = body.sessionToken,
+                expiresAtIso = body.expiresAt,
+            )
+        }.onFailure {
+            Log.w(TAG, "quick connect device failure error=${it.message}", it)
+        }
+
     suspend fun logout() {
         Log.i(TAG, "logout start")
         runCatching {

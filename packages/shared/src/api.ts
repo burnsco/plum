@@ -139,6 +139,7 @@ import {
   PlumWebSocketCommandSchema,
   PlumWebSocketEventSchema,
   PosterCandidatesResponseSchema,
+  QuickConnectApprovePayloadSchema,
   QuickConnectCodeResponseSchema,
   ScanLibraryResultSchema,
   SearchResponseSchema,
@@ -770,6 +771,23 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
         schema: QuickConnectCodeResponseSchema,
         errorMessage: ({ status, body }) => body || `Quick connect: ${status}`,
       }),
+    approveQuickConnectCode: (payload: { code: string }) =>
+      decodeSchemaEffect(
+        QuickConnectApprovePayloadSchema,
+        payload,
+        "POST",
+        "/api/auth/quick-connect/approve",
+        "Invalid quick connect payload.",
+      ).pipe(
+        Effect.flatMap((validatedPayload) =>
+          voidRequestEffect({
+            method: "POST",
+            path: "/api/auth/quick-connect/approve",
+            body: validatedPayload,
+            errorMessage: ({ status, body }) => body || `Quick connect approval: ${status}`,
+          }),
+        ),
+      ),
     getMe: () =>
       jsonRequestEffect({
         path: "/api/auth/me",
@@ -1575,6 +1593,8 @@ export function createPlumApiClient(options: CreatePlumApiClientOptions) {
     login: (payload: CredentialsPayload) => run(effects.login(payload)),
     logout: () => run(effects.logout()),
     createQuickConnectCode: () => run(effects.createQuickConnectCode()),
+    approveQuickConnectCode: (payload: { code: string }) =>
+      run(effects.approveQuickConnectCode(payload)),
     getMe: () => run(effects.getMe()),
     createLibrary: (payload: CreateLibraryPayload) => run(effects.createLibrary(payload)),
     listLibraries: () => run(effects.listLibraries()),

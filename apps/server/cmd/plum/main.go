@@ -286,6 +286,7 @@ func buildRouter(
 	r.Post("/api/auth/admin-setup", authHandler.AdminSetup)
 	r.Post("/api/auth/login", authHandler.Login)
 	r.Post("/api/auth/device-login", authHandler.DeviceLogin)
+	r.Post("/api/auth/quick-connect/device", authHandler.CreateDeviceQuickConnectCode)
 	r.Post("/api/auth/quick-connect/redeem", authHandler.RedeemQuickConnect)
 	r.Post("/api/auth/logout", authHandler.Logout)
 	r.Get("/api/auth/me", authHandler.Me)
@@ -308,6 +309,7 @@ func buildRouter(
 		})
 
 		protected.Post("/api/auth/quick-connect", authHandler.CreateQuickConnectCode)
+		protected.Post("/api/auth/quick-connect/approve", authHandler.ApproveQuickConnectCode)
 		protected.Post("/api/libraries", libHandler.CreateLibrary)
 		protected.Get("/api/libraries", libHandler.ListLibraries)
 		protected.Get("/api/libraries/unidentified-summary", libHandler.ListUnidentifiedLibrarySummaries)

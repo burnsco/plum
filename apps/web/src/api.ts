@@ -118,6 +118,7 @@ export const {
   login,
   logout,
   createQuickConnectCode,
+  approveQuickConnectCode,
   getMe,
   createLibrary,
   getLibraryScanStatus,

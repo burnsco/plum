@@ -26,7 +26,6 @@ import {
   useUpdateLibraryPlaybackPreferences,
   useUpdateTranscodingSettings,
 } from "@/queries";
-import { createQuickConnectCode } from "@/api";
 import { cn } from "@/lib/utils";
 import {
   Captions,
@@ -261,11 +260,6 @@ export function Settings() {
   const [metadataArtworkSaveMessage, setMetadataArtworkSaveMessage] = useState<string | null>(null);
   const [metadataArtworkDirty, setMetadataArtworkDirty] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("playback");
-  const [quickConnect, setQuickConnect] = useState<{ code: string; expiresAt: string } | null>(
-    null,
-  );
-  const [quickConnectBusy, setQuickConnectBusy] = useState(false);
-  const [quickConnectErr, setQuickConnectErr] = useState<string | null>(null);
   const arrProfilesAutoRefreshPendingRef = useRef(false);
 
   useEffect(() => {
@@ -395,19 +389,6 @@ export function Settings() {
       }));
     } finally {
       setSavingLibraryId(null);
-    }
-  };
-
-  const generateQuickConnect = async () => {
-    setQuickConnectBusy(true);
-    setQuickConnectErr(null);
-    try {
-      const res = await createQuickConnectCode();
-      setQuickConnect({ code: res.code, expiresAt: res.expiresAt });
-    } catch (e) {
-      setQuickConnectErr(e instanceof Error ? e.message : "Could not generate code.");
-    } finally {
-      setQuickConnectBusy(false);
     }
   };
 
@@ -590,13 +571,7 @@ export function Settings() {
   // ── Tab: Playback ──────────────────────────────────────────────────────────
 
   const generalTabContent = user ? (
-    <SettingsGeneralTab
-      userEmail={user.email}
-      quickConnect={quickConnect}
-      quickConnectBusy={quickConnectBusy}
-      quickConnectErr={quickConnectErr}
-      onGenerateQuickConnect={() => void generateQuickConnect()}
-    />
+    <SettingsGeneralTab userEmail={user.email} />
   ) : null;
 
   const playbackTabContent = (
