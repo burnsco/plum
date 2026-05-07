@@ -25,10 +25,10 @@
     "typecheck": "bun run --cwd apps/web typecheck && bun run --cwd packages/shared typecheck && bun run --cwd packages/contracts typecheck",
     "server:test": "bun run --cwd apps/server test",
     "validate:fast": "bun lint && bun typecheck && bun run server:test",
-    "validate:full": "bun run validate:fast && bun run --cwd apps/web test && bun run build && bun run --cwd apps/server build && bun run android:lint && bun run android:assemble",
+    "validate:full": "bun run validate:fast && bun run --cwd apps/web test && bun run build && bun run --cwd apps/server build && bun run validate:android",
     "validate:web": "bun run --cwd apps/web lint && bun run --cwd packages/shared lint && bun run --cwd packages/contracts lint && bun run --cwd apps/web typecheck && bun run --cwd packages/shared typecheck && bun run --cwd packages/contracts typecheck && bun run --cwd apps/web test && bun run build",
     "validate:server": "bun run server:test && bun run --cwd apps/server build",
-    "validate:android": "bun run android:lint && bun run android:assemble",
+    "validate:android": "bun run android:lint && bun run android:detekt && bun run android:format:check && bun run android:assemble",
     "validate": "bun run validate:fast",
     "android:assemble": "bash ./scripts/android-tv.sh :app:assembleDebug",
     "android:install": "bash ./scripts/android-tv.sh :app:installDebug",
@@ -43,7 +43,10 @@
     "deploy-tv-lr-install": "PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-lr.sh",
     "deploy-tv-lr-reinstall": "PLUM_TV_REINSTALL=1 bash ./scripts/android-tv-deploy-lr.sh",
     "deploy-tv-lr-reinstall-install": "PLUM_TV_REINSTALL=1 PLUM_TV_NO_LAUNCH=1 bash ./scripts/android-tv-deploy-lr.sh",
-    "android:lint": "bash ./scripts/android-tv.sh :app:lintDebug"
+    "android:lint": "bash ./scripts/android-tv.sh lintDebug",
+    "android:detekt": "bash ./scripts/android-tv.sh detekt",
+    "android:format:check": "bash ./scripts/android-tv.sh spotlessCheck",
+    "android:format": "bash ./scripts/android-tv.sh spotlessApply"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15"

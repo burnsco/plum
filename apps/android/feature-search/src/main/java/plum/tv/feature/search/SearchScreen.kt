@@ -23,9 +23,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import plum.tv.core.network.SearchResultJson
 import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.LocalServerBaseUrl
-import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
@@ -37,7 +37,7 @@ import plum.tv.core.ui.resolveArtworkUrl
 fun SearchRoute(
     onOpenMovie: (libraryId: Int, mediaId: Int) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
-    viewModel: SearchViewModel = hiltViewModel(),
+    viewModel: SearchViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val queryFieldFocus = remember { FocusRequester() }
@@ -51,7 +51,7 @@ fun SearchRoute(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PlumScreenPadding(),
         horizontalArrangement = Arrangement.spacedBy(PlumTheme.metrics.cardGap),
-        verticalArrangement = Arrangement.spacedBy(PlumTheme.metrics.sectionGap),
+        verticalArrangement = Arrangement.spacedBy(PlumTheme.metrics.sectionGap)
     ) {
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
             PlumScreenTitle("Search", "Find movies and shows across your libraries.")
@@ -63,7 +63,7 @@ fun SearchRoute(
                 singleLine = true,
                 label = { Text("Query") },
                 modifier = Modifier.fillMaxWidth().focusRequester(queryFieldFocus),
-                colors = plumOutlinedFieldColors(),
+                colors = plumOutlinedFieldColors()
             )
         }
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
@@ -72,12 +72,12 @@ fun SearchRoute(
                 TypeButton(
                     selected = state.type == SearchType.Movies,
                     label = "Movies",
-                    onClick = { viewModel.setType(SearchType.Movies) },
+                    onClick = { viewModel.setType(SearchType.Movies) }
                 )
                 TypeButton(
                     selected = state.type == SearchType.Shows,
                     label = "Shows",
-                    onClick = { viewModel.setType(SearchType.Shows) },
+                    onClick = { viewModel.setType(SearchType.Shows) }
                 )
             }
         }
@@ -86,9 +86,11 @@ fun SearchRoute(
             state.loading -> item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 Text("Searching...", color = PlumTheme.palette.muted)
             }
+
             trimmedQuery.length < 2 -> item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 Text("Type at least 2 characters to search.", color = PlumTheme.palette.muted)
             }
+
             state.error != null -> {
                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                     Text(state.error ?: "Search failed", color = PlumTheme.palette.muted)
@@ -97,9 +99,11 @@ fun SearchRoute(
                     PlumActionButton("Retry", onClick = { viewModel.retry() }, leadingBadge = "R")
                 }
             }
+
             state.results.isEmpty() -> item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 Text("No results for \"$trimmedQuery\".", color = PlumTheme.palette.muted)
             }
+
             else -> {
                 items(state.results, key = { it.href }) { result ->
                     SearchResultCard(
@@ -108,9 +112,9 @@ fun SearchRoute(
                             handleOpenHref(
                                 result = result,
                                 onOpenMovie = onOpenMovie,
-                                onOpenShow = onOpenShow,
+                                onOpenShow = onOpenShow
                             )
-                        },
+                        }
                     )
                 }
             }
@@ -124,7 +128,7 @@ private fun TypeButton(selected: Boolean, label: String, onClick: () -> Unit) {
         label = label,
         onClick = onClick,
         variant = if (selected) PlumButtonVariant.Primary else PlumButtonVariant.Secondary,
-        leadingBadge = if (selected) "ON" else null,
+        leadingBadge = if (selected) "ON" else null
     )
 }
 
@@ -136,14 +140,14 @@ private fun SearchResultCard(result: SearchResultJson, onClick: () -> Unit) {
         subtitle = result.subtitle,
         imageUrl = resolveArtworkUrl(serverBase, result.posterUrl, result.posterPath, PlumImageSizes.POSTER_GRID),
         onClick = onClick,
-        focusedScale = 1f,
+        focusedScale = 1f
     )
 }
 
 private fun handleOpenHref(
     result: SearchResultJson,
     onOpenMovie: (libraryId: Int, mediaId: Int) -> Unit,
-    onOpenShow: (libraryId: Int, showKey: String) -> Unit,
+    onOpenShow: (libraryId: Int, showKey: String) -> Unit
 ) {
     val parts = result.href.trim().trim('/').split('/')
     if (parts.size == 4 && parts[0] == "library") {
@@ -153,6 +157,7 @@ private fun handleOpenHref(
                 val mediaId = parts[3].toIntOrNull() ?: return
                 onOpenMovie(libraryId, mediaId)
             }
+
             "show" -> onOpenShow(libraryId, parts[3])
         }
         return
@@ -163,6 +168,7 @@ private fun handleOpenHref(
             val mediaId = parts.lastOrNull()?.toIntOrNull() ?: return
             onOpenMovie(result.libraryId, mediaId)
         }
+
         "show" -> {
             val showKey = parts.lastOrNull() ?: return
             onOpenShow(result.libraryId, showKey)

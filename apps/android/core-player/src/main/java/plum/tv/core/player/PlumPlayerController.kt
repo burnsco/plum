@@ -2,11 +2,11 @@ package plum.tv.core.player
 
 import android.app.ActivityManager
 import android.content.Context
-import androidx.annotation.OptIn
 import android.net.Uri
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -16,22 +16,25 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.text.TextRenderer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.TsExtractor
 import java.util.ArrayList
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,11 +48,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
-import plum.tv.core.data.PlayerSubtitlePreferences
 import plum.tv.core.data.PlaybackRepository
+import plum.tv.core.data.PlayerSubtitlePreferences
 import plum.tv.core.data.PlumWebSocketManager
 import plum.tv.core.data.TrackLanguagePreference
 import plum.tv.core.network.EmbeddedAudioTrackJson
@@ -57,12 +62,8 @@ import plum.tv.core.network.EmbeddedSubtitleJson
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.PlaybackSessionJson
 import plum.tv.core.network.PlaybackSessionUpdateEventJson
-import plum.tv.core.network.SubtitleJson
 import plum.tv.core.network.ShowEpisodesResponseJson
-import kotlin.math.roundToInt
-import kotlin.math.roundToLong
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import plum.tv.core.network.SubtitleJson
 
 private fun formatDetectedVideoAspectLabel(videoSize: VideoSize): String? {
     val w = videoSize.width
@@ -83,7 +84,7 @@ private fun formatDetectedVideoAspectLabel(videoSize: VideoSize): String? {
 internal fun subtitleSelectionFlags(
     default: Boolean,
     forced: Boolean,
-    hearingImpaired: Boolean,
+    hearingImpaired: Boolean
 ): Int {
     var flags = 0
     if (default) {
@@ -98,12 +99,11 @@ internal fun subtitleSelectionFlags(
     return flags
 }
 
-internal fun subtitleRoleFlags(hearingImpaired: Boolean): Int =
-    if (hearingImpaired) {
-        C.ROLE_FLAG_CAPTION
-    } else {
-        C.ROLE_FLAG_SUBTITLE
-    }
+internal fun subtitleRoleFlags(hearingImpaired: Boolean): Int = if (hearingImpaired) {
+    C.ROLE_FLAG_CAPTION
+} else {
+    C.ROLE_FLAG_SUBTITLE
+}
 
 internal fun subtitleTrackSourceLabelForFormatId(formatId: String?): String? {
     val id = formatId?.trim().orEmpty()
@@ -121,26 +121,26 @@ data class PlayerQueueItem(
     val backdropPath: String? = null,
     val backdropUrl: String? = null,
     val showPosterPath: String? = null,
-    val showPosterUrl: String? = null,
+    val showPosterUrl: String? = null
 )
 
 private data class ProgressPersistSnapshot(
     val mediaId: Int,
     val positionSec: Long,
     val durationSec: Long,
-    val completed: Boolean,
+    val completed: Boolean
 )
 
 private data class IntroWindow(
     val startSec: Double,
-    val endSec: Double,
+    val endSec: Double
 )
 
 private data class IntroState(
     val startSec: Double? = null,
     val endSec: Double? = null,
     val creditsStartSec: Double? = null,
-    val creditsEndSec: Double? = null,
+    val creditsEndSec: Double? = null
 )
 
 /** Preserves subtitle choice across [setMediaItem] when audio switch replaces the HLS timeline. */
@@ -149,7 +149,7 @@ private data class SubtitleRestoreState(
     val language: String?,
     val label: String?,
     /** [MediaItem.SubtitleConfiguration.Builder.setId] / [Format.id] when sideloading; HLS uses manifest ids. */
-    val configurationId: String?,
+    val configurationId: String?
 )
 
 data class PlayerUiState(
@@ -171,7 +171,7 @@ data class PlayerUiState(
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
     /** Display aspect ratio detected from the video stream (e.g. `1.85:1`), for UI hints when mode is auto. */
-    val detectedVideoAspectLabel: String? = null,
+    val detectedVideoAspectLabel: String? = null
 ) {
     val progressFraction: Float
         get() = if (durationMs > 0) (positionMs.coerceAtMost(durationMs).toDouble() / durationMs).toFloat() else 0f
@@ -188,7 +188,7 @@ data class UpNextOverlayState(
     val backdropPath: String?,
     val backdropUrl: String?,
     val showPosterPath: String?,
-    val showPosterUrl: String?,
+    val showPosterUrl: String?
 )
 
 private const val RESTART_PREVIOUS_THRESHOLD_MS = 10_000L
@@ -227,7 +227,7 @@ class PlumPlayerController(
     private val libraryId: Int? = null,
     private val showKey: String? = null,
     private val navDisplayTitle: String? = null,
-    private val navDisplaySubtitle: String? = null,
+    private val navDisplaySubtitle: String? = null
 ) {
     /**
      * Cancels all controller-scoped [applicationScope] work in [close] so preference writes and
@@ -275,8 +275,8 @@ class PlumPlayerController(
     private val _uiState =
         MutableStateFlow(
             PlayerUiState(
-                status = "Starting…",
-            ),
+                status = "Starting…"
+            )
         )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
@@ -305,12 +305,13 @@ class PlumPlayerController(
                 setEnableDecoderFallback(true)
             }
 
+            @OptIn(ExperimentalApi::class)
             override fun buildTextRenderers(
                 context: Context,
                 output: TextOutput,
                 outputLooper: android.os.Looper,
                 extensionRendererMode: Int,
-                out: ArrayList<Renderer>,
+                out: ArrayList<Renderer>
             ) {
                 val textRenderer = TextRenderer(output, outputLooper)
                 textRenderer.experimentalSetLegacyDecodingEnabled(true)
@@ -330,7 +331,7 @@ class PlumPlayerController(
                     TsExtractor.TS_PACKET_SIZE * 1800
                 } else {
                     TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES
-                },
+                }
             )
             setConstantBitrateSeekingEnabled(true)
             setConstantBitrateSeekingAlwaysEnabled(true)
@@ -351,6 +352,7 @@ class PlumPlayerController(
     private var progressJob: Job? = null
     private var queueLoadJob: Job? = null
     private var upNextJob: Job? = null
+
     /** Polls until a new revision’s HLS master is readable; cancelled when WebSocket applies the swap. */
     private var revisionReadyPollJob: Job? = null
     private val progressPersistMutex = Mutex()
@@ -360,7 +362,7 @@ class PlumPlayerController(
             object : CreatedPlaybackSessionApplyHost {
                 override fun integrateSessionTrackMetadata(
                     session: PlaybackSessionJson,
-                    validateBurnAfterMetadata: Boolean,
+                    validateBurnAfterMetadata: Boolean
                 ) {
                     replaceTrackMetadataFromSession(session)
                     if (validateBurnAfterMetadata) {
@@ -373,7 +375,7 @@ class PlumPlayerController(
                 override suspend fun transitionToDirectPlayback(
                     streamUrl: String,
                     resumeSec: Float,
-                    durationSeconds: Double,
+                    durationSeconds: Double
                 ) {
                     hlsSessionId = null
                     val url = playbackRepository.absoluteStreamUrl(streamUrl)
@@ -385,7 +387,7 @@ class PlumPlayerController(
 
                 override suspend fun transitionToHlsPlayback(
                     session: PlaybackSessionJson,
-                    resumeSec: Float,
+                    resumeSec: Float
                 ) {
                     val sid =
                         session.sessionId ?: run {
@@ -423,7 +425,7 @@ class PlumPlayerController(
                     updateError("Unknown delivery: $delivery")
                     updateStatus("Error")
                 }
-            },
+            }
         )
 
     private val subtitleCoordinator = SubtitleCoordinator()
@@ -456,19 +458,19 @@ class PlumPlayerController(
                         playbackRepository.createSession(
                             mediaId,
                             audioIndex = audioIndex,
-                            burnEmbeddedSubtitleStreamIndex = burnIndex,
+                            burnEmbeddedSubtitleStreamIndex = burnIndex
                         )
                     }
                 }
 
                 override suspend fun applyPlaybackSessionAfterBurnReload(
                     session: PlaybackSessionJson,
-                    resumeSec: Float,
+                    resumeSec: Float
                 ) {
                     createdSessionApplicator.apply(
                         session,
                         resumeSec,
-                        validateBurnAfterMetadata = true,
+                        validateBurnAfterMetadata = true
                     )
                 }
 
@@ -477,7 +479,7 @@ class PlumPlayerController(
                     updateError(error.message ?: "Failed to change subtitle burn-in")
                     updateStatus("Error")
                 }
-            },
+            }
         )
 
     /** Prevents double [close] and use-after-[androidx.media3.exoplayer.ExoPlayer.release]. */
@@ -558,7 +560,9 @@ class PlumPlayerController(
                             updateStatus("Ended")
                             scheduleUpNextCountdown()
                         }
+
                         Player.STATE_BUFFERING -> refreshUiState()
+
                         Player.STATE_READY -> {
                             tryApplyPendingCatalogSubtitleIfNeeded()
                             preferNonCea608TextTrackOnceIfNeeded()
@@ -608,7 +612,7 @@ class PlumPlayerController(
                     updateError(detail)
                     updateStatus("Error")
                 }
-            },
+            }
         )
 
         scope.launch {
@@ -702,6 +706,7 @@ class PlumPlayerController(
                             append(it)
                         }
                     }
+
                 else -> {
                     // IO_UNSPECIFIED often wraps an IOException with a useful message on an inner cause.
                     val innerFirst =
@@ -719,8 +724,7 @@ class PlumPlayerController(
         return if (codeName.isNullOrBlank()) baseMessage else "$baseMessage ($codeName)"
     }
 
-    private fun currentQueueItem(): PlayerQueueItem? =
-        episodeQueue.getOrNull(queueIndex)
+    private fun currentQueueItem(): PlayerQueueItem? = episodeQueue.getOrNull(queueIndex)
 
     /**
      * ExoPlayer sometimes reports only the first HLS playlist window as [Player.getDuration] while
@@ -783,30 +787,28 @@ class PlumPlayerController(
         return IntroWindow(startSec = start, endSec = end)
     }
 
-    private fun positionInsideIntroWindow(positionSec: Double, window: IntroWindow): Boolean {
-        return positionSec >= window.startSec - INTRO_SKIP_LEADING_SLACK_SEC &&
-            positionSec < window.endSec - INTRO_SKIP_TRAILING_SLACK_SEC
-    }
+    private fun positionInsideIntroWindow(positionSec: Double, window: IntroWindow): Boolean = positionSec >= window.startSec - INTRO_SKIP_LEADING_SLACK_SEC &&
+        positionSec < window.endSec - INTRO_SKIP_TRAILING_SLACK_SEC
 
     private fun mergeIntroFromSession(
         start: Double?,
         end: Double?,
         creditsStart: Double? = null,
-        creditsEnd: Double? = null,
+        creditsEnd: Double? = null
     ) {
         introStateRef.updateAndGet { prev ->
             prev.copy(
                 startSec = start ?: prev.startSec,
                 endSec = end ?: prev.endSec,
                 creditsStartSec = creditsStart ?: prev.creditsStartSec,
-                creditsEndSec = creditsEnd ?: prev.creditsEndSec,
+                creditsEndSec = creditsEnd ?: prev.creditsEndSec
             )
         }
     }
 
     private fun refreshUiState(
         statusOverride: String? = null,
-        errorOverride: String? = null,
+        errorOverride: String? = null
     ) {
         val item = currentQueueItem()
         val title =
@@ -848,32 +850,32 @@ class PlumPlayerController(
                 subtitleTrackSourceLabel = currentSubtitleTrackSourceLabel(),
                 queueIndex = queueIndex,
                 queueSize = episodeQueue.size,
-                detectedVideoAspectLabel = cachedVideoAspectLabel,
+                detectedVideoAspectLabel = cachedVideoAspectLabel
             )
     }
 
-    private fun buildEpisodeQueue(response: ShowEpisodesResponseJson): List<PlayerQueueItem> {
-        return response.seasons.flatMap { season ->
-            season.episodes.map { episode ->
-                val seasonNo = episode.season
-                val episodeNo = episode.episode
-                val label =
-                    when {
-                        seasonNo != null && episodeNo != null ->
-                            "S${seasonNo.toString().padStart(2, '0')}E${episodeNo.toString().padStart(2, '0')}"
-                        seasonNo != null -> "Season $seasonNo"
-                        else -> null
-                    }
-                PlayerQueueItem(
-                    mediaId = episode.id,
-                    title = episode.title,
-                    subtitle = label,
-                    backdropPath = episode.backdropPath,
-                    backdropUrl = episode.backdropUrl,
-                    showPosterPath = episode.showPosterPath,
-                    showPosterUrl = episode.showPosterUrl,
-                )
-            }
+    private fun buildEpisodeQueue(response: ShowEpisodesResponseJson): List<PlayerQueueItem> = response.seasons.flatMap { season ->
+        season.episodes.map { episode ->
+            val seasonNo = episode.season
+            val episodeNo = episode.episode
+            val label =
+                when {
+                    seasonNo != null && episodeNo != null ->
+                        "S${seasonNo.toString().padStart(2, '0')}E${episodeNo.toString().padStart(2, '0')}"
+
+                    seasonNo != null -> "Season $seasonNo"
+
+                    else -> null
+                }
+            PlayerQueueItem(
+                mediaId = episode.id,
+                title = episode.title,
+                subtitle = label,
+                backdropPath = episode.backdropPath,
+                backdropUrl = episode.backdropUrl,
+                showPosterPath = episode.showPosterPath,
+                showPosterUrl = episode.showPosterUrl
+            )
         }
     }
 
@@ -888,7 +890,7 @@ class PlumPlayerController(
                 episodeQueue = emptyList()
                 queueIndex = -1
                 refreshUiState()
-            },
+            }
         )
     }
 
@@ -899,12 +901,14 @@ class PlumPlayerController(
         embeddedSubtitleTracks = session.embeddedSubtitles.orEmpty()
         serverAudioIndex = session.audioIndex ?: -1
         activeBurnSubtitleStreamIndex = session.burnEmbeddedSubtitleStreamIndex
-        introStateRef.set(IntroState(
-            startSec = session.introStartSeconds,
-            endSec = session.introEndSeconds,
-            creditsStartSec = session.creditsStartSeconds,
-            creditsEndSec = session.creditsEndSeconds,
-        ))
+        introStateRef.set(
+            IntroState(
+                startSec = session.introStartSeconds,
+                endSec = session.introEndSeconds,
+                creditsStartSec = session.creditsStartSeconds,
+                creditsEndSec = session.creditsEndSeconds
+            )
+        )
     }
 
     /**
@@ -921,13 +925,12 @@ class PlumPlayerController(
             session.introStartSeconds,
             session.introEndSeconds,
             session.creditsStartSeconds,
-            session.creditsEndSeconds,
+            session.creditsEndSeconds
         )
         warmEmbeddedSubtitleCachesIfNeeded(session)
     }
 
-    private fun trackGroups(trackType: Int): List<Tracks.Group> =
-        player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
+    private fun trackGroups(trackType: Int): List<Tracks.Group> = player.currentTracks.groups.filter { it.type == trackType && it.length > 0 }
 
     /**
      * Embedded subs that only work in HLS via server burn-in (no WebVTT / binary PGS sideload path).
@@ -992,11 +995,11 @@ class PlumPlayerController(
                         (0 until group.length).joinToString(
                             separator = ",",
                             prefix = "g$groupIndex[",
-                            postfix = "]",
+                            postfix = "]"
                         ) { trackIndex ->
                             val fmt = group.mediaTrackGroup.getFormat(trackIndex)
                             val selectedMark = if (group.isTrackSelected(trackIndex)) "*" else ""
-                            "${trackIndex}${selectedMark}:{id=${fmt.id.orEmpty()},mime=${fmt.sampleMimeType.orEmpty()},label=${fmt.label.orEmpty()},lang=${fmt.language.orEmpty()}}"
+                            "${trackIndex}$selectedMark:{id=${fmt.id.orEmpty()},mime=${fmt.sampleMimeType.orEmpty()},label=${fmt.label.orEmpty()},lang=${fmt.language.orEmpty()}}"
                         }
                     }
                 append(if (textEntries.isEmpty()) "none" else textEntries.joinToString(" "))
@@ -1010,12 +1013,10 @@ class PlumPlayerController(
         Log.d("PlumTV", "subtitle snapshot $snapshot")
     }
 
-    private fun exoAudioTrackCount(): Int =
-        trackGroups(C.TRACK_TYPE_AUDIO).sumOf { it.length }
+    private fun exoAudioTrackCount(): Int = trackGroups(C.TRACK_TYPE_AUDIO).sumOf { it.length }
 
     /** Distinct server-side audio stream indices (transcode/remux session). */
-    private fun serverEmbeddedAudioChoiceCount(): Int =
-        embeddedAudioTracks.map { it.streamIndex }.distinct().size
+    private fun serverEmbeddedAudioChoiceCount(): Int = embeddedAudioTracks.map { it.streamIndex }.distinct().size
 
     private fun selectedAudioFormat(): Format? {
         for (g in trackGroups(C.TRACK_TYPE_AUDIO)) {
@@ -1047,7 +1048,7 @@ class PlumPlayerController(
     private data class FlatAudioTrack(
         val groupIndex: Int,
         val trackIndex: Int,
-        val format: Format,
+        val format: Format
     )
 
     private fun flattenExoAudioTracks(): List<FlatAudioTrack> {
@@ -1188,8 +1189,11 @@ class PlumPlayerController(
         return when {
             titlePart.isNotEmpty() && langPart != null && !titlePart.contains(langPart, ignoreCase = true) ->
                 "$titlePart · $langPart"
+
             titlePart.isNotEmpty() -> titlePart
+
             langPart != null -> langPart
+
             else -> "Track ${t.streamIndex + 1}"
         }
     }
@@ -1231,8 +1235,7 @@ class PlumPlayerController(
         return subtitleTrackSourceLabelForFormatId(fmt.id)
     }
 
-    private fun EmbeddedAudioTrackJson.displayLabel(): String? =
-        listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
+    private fun EmbeddedAudioTrackJson.displayLabel(): String? = listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
 
     private fun EmbeddedSubtitleJson.displayLabel(): String? {
         val base = listOfNotNull(title.trim().takeIf { it.isNotEmpty() }, languageLabel(language)).firstOrNull()
@@ -1316,7 +1319,9 @@ class PlumPlayerController(
         val matches = embeddedSubtitleTracks.filter { roughEmbeddedMatchForText(fmt, it) }
         return when (matches.size) {
             0 -> null
+
             1 -> matches.first()
+
             else -> {
                 val lab = fmt.label?.trim()?.lowercase(Locale.US).orEmpty()
                 if (lab.isNotEmpty()) {
@@ -1342,7 +1347,7 @@ class PlumPlayerController(
         }?.let { sub ->
             return listOfNotNull(
                 sub.title.trim().takeIf { it.isNotEmpty() },
-                languageLabel(sub.language),
+                languageLabel(sub.language)
             ).firstOrNull()
         }
         return embeddedCatalogForDemuxedTextFormat(fmt)?.displayLabel()
@@ -1386,6 +1391,7 @@ class PlumPlayerController(
                 mime.contains("dvbsub") ||
                 mime.contains("vobsub") ||
                 mime.contains("x-subpicture") -> SubtitleLogicalRenderKind.Bitmap
+
             else -> SubtitleLogicalRenderKind.TextCue
         }
     }
@@ -1429,7 +1435,7 @@ class PlumPlayerController(
                     2 -> "Stereo"
                     6 -> "5.1 surround"
                     8 -> "7.1 surround"
-                    else -> "${channelCount} channels"
+                    else -> "$channelCount channels"
                 }
         }
         if (sampleRate > 0) {
@@ -1456,7 +1462,7 @@ class PlumPlayerController(
     private fun sidecarCatalogPickerLabel(sub: SubtitleJson): String {
         val base = listOfNotNull(
             sub.title.trim().takeIf { it.isNotEmpty() },
-            languageLabel(sub.language),
+            languageLabel(sub.language)
         ).firstOrNull() ?: return "Subtitle ${sub.id}"
         val suffix = when {
             sub.hearingImpaired -> " (SDH)"
@@ -1475,7 +1481,7 @@ class PlumPlayerController(
     private fun buildSubtitleCatalogPickerOptions(
         textCandidates: List<SubtitleTextTrackCandidate>,
         groups: List<Tracks.Group>,
-        textDisabled: Boolean,
+        textDisabled: Boolean
     ): List<TrackPickerOption> {
         val covered = mutableSetOf<String>()
         for (c in textCandidates) {
@@ -1485,10 +1491,9 @@ class PlumPlayerController(
             g.mediaTrackGroup.getFormat(c.trackIndex).id?.trim()?.takeIf { it.isNotEmpty() }?.let { covered += it }
         }
         val sel = selectedSubtitleFormat()
-        fun isSelectedForConfig(cfg: String): Boolean =
-            activeBurnSubtitleStreamIndex == null &&
-                !textDisabled &&
-                sel?.id?.trim() == cfg
+        fun isSelectedForConfig(cfg: String): Boolean = activeBurnSubtitleStreamIndex == null &&
+            !textDisabled &&
+            sel?.id?.trim() == cfg
 
         val out = mutableListOf<TrackPickerOption>()
         for (sub in externalSubtitles) {
@@ -1500,7 +1505,7 @@ class PlumPlayerController(
                     id = "catalog-ext:${sub.id}",
                     label = sidecarCatalogPickerLabel(sub),
                     selected = isSelectedForConfig(cfg),
-                    detail = "Library",
+                    detail = "Library"
                 )
         }
         for (emb in embeddedSubtitleTracks) {
@@ -1521,7 +1526,7 @@ class PlumPlayerController(
                     id = "catalog-emb:${emb.streamIndex}",
                     label = emb.displayLabel() ?: "Subtitle ${emb.streamIndex + 1}",
                     selected = isSelectedForConfig(cfg),
-                    detail = detail,
+                    detail = detail
                 )
         }
         return out
@@ -1556,7 +1561,7 @@ class PlumPlayerController(
                         selected = !textDisabled && g.isTrackSelected(j) && activeBurnSubtitleStreamIndex == null,
                         sideLoadPriority = subtitleSideloadPriority(fmt),
                         renderKind = fmt.subtitleRenderKind(),
-                        isCeaClosedCaption = fmt.isCea608ClosedCaptionTrack(),
+                        isCeaClosedCaption = fmt.isCea608ClosedCaptionTrack()
                     )
             }
         }
@@ -1565,7 +1570,7 @@ class PlumPlayerController(
                 subtitleCoordinator.buildBurnTrackCandidate(
                     subtitle = subtitle,
                     activeBurnSubtitleStreamIndex = activeBurnSubtitleStreamIndex,
-                    label = subtitle.burnInPickerLabel(),
+                    label = subtitle.burnInPickerLabel()
                 )
             }
         val base =
@@ -1573,8 +1578,8 @@ class PlumPlayerController(
                 SubtitlePickerBuildInput(
                     textDisabled = textDisabled,
                     textTracks = textCandidates,
-                    burnTracks = burnTracks,
-                ),
+                    burnTracks = burnTracks
+                )
             )
         val catalogExtras = buildSubtitleCatalogPickerOptions(textCandidates, groups, textDisabled)
         if (catalogExtras.isEmpty()) return base
@@ -1646,7 +1651,7 @@ class PlumPlayerController(
                         id = id,
                         label = label,
                         selected = selected,
-                        detail = fmt.audioPickerDetail(),
+                        detail = fmt.audioPickerDetail()
                     )
             }
         }
@@ -1670,7 +1675,7 @@ class PlumPlayerController(
         val fmt = mg.getFormat(trackIndex)
         Log.d(
             "PlumTV",
-            "apply text override group=$groupIndex track=$trackIndex id=${fmt.id.orEmpty()} mime=${fmt.sampleMimeType.orEmpty()} label=${fmt.label.orEmpty()} lang=${fmt.language.orEmpty()}",
+            "apply text override group=$groupIndex track=$trackIndex id=${fmt.id.orEmpty()} mime=${fmt.sampleMimeType.orEmpty()} label=${fmt.label.orEmpty()} lang=${fmt.language.orEmpty()}"
         )
         val b = player.trackSelectionParameters.buildUpon()
         b.clearOverridesOfType(C.TRACK_TYPE_TEXT)
@@ -1713,12 +1718,14 @@ class PlumPlayerController(
                 } ?: return
                 TrackLanguagePreference.normalize(emb.language) to emb.title.trim()
             }
+
             cfg.startsWith("ext:") -> {
                 val sub = externalSubtitles.firstOrNull {
                     subtitleCoordinator.logicalIdForSidecar(it) == cfg
                 } ?: return
                 TrackLanguagePreference.normalize(sub.language) to sub.title.trim()
             }
+
             else -> return
         }
         if (lang.isNotEmpty() && trySelectStoredTextSubtitle(lang, label)) {
@@ -1882,7 +1889,7 @@ class PlumPlayerController(
         return PlayerSubtitlePreferences.ManualTrackLanguagePreferences(
             defaultAudioLanguage = o.defaultAudioLanguage ?: g.defaultAudioLanguage,
             defaultSubtitleLanguage = o.defaultSubtitleLanguage ?: g.defaultSubtitleLanguage,
-            defaultSubtitleLabelHint = o.defaultSubtitleLabelHint ?: g.defaultSubtitleLabelHint,
+            defaultSubtitleLabelHint = o.defaultSubtitleLabelHint ?: g.defaultSubtitleLabelHint
         )
     }
 
@@ -1896,7 +1903,7 @@ class PlumPlayerController(
         if (distinct.size < 2) return false
         val want =
             TrackLanguagePreference.normalize(
-                effectiveManualTrackLanguagePreferences().defaultAudioLanguage,
+                effectiveManualTrackLanguagePreferences().defaultAudioLanguage
             )
         if (want.isEmpty()) return false
         val target =
@@ -1919,6 +1926,7 @@ class PlumPlayerController(
                 updateError(updated.error ?: "Audio preference failed")
                 return false
             }
+
             "ready" -> {
                 lastAppliedStreamRevision = updated.revision ?: -1
                 val url = playbackRepository.absoluteStreamUrl(updated.streamUrl)
@@ -1927,6 +1935,7 @@ class PlumPlayerController(
                 loadAndPlay(url, firstResumeSec)
                 return true
             }
+
             else -> {
                 val rev = updated.revision
                 val relUrl = updated.streamUrl
@@ -1958,7 +1967,7 @@ class PlumPlayerController(
         if (hlsSessionId != null) return
         val want =
             TrackLanguagePreference.normalize(
-                effectiveManualTrackLanguagePreferences().defaultAudioLanguage,
+                effectiveManualTrackLanguagePreferences().defaultAudioLanguage
             )
         if (want.isEmpty()) return
         val groups = player.currentTracks.groups
@@ -1996,7 +2005,7 @@ class PlumPlayerController(
                                 disabled = true,
                                 language = null,
                                 label = null,
-                                configurationId = null,
+                                configurationId = null
                             )
                         activeBurnSubtitleStreamIndex = null
                         burnSessionCoordinator.reloadForBurnSubtitle(resumeSec)
@@ -2008,6 +2017,7 @@ class PlumPlayerController(
                 }
                 appliedStoredSubtitlePreferenceForMedia = true
             }
+
             subLangRaw.isNotEmpty() -> {
                 val subLang = TrackLanguagePreference.normalize(subLangRaw)
                 val hint = prefs.defaultSubtitleLabelHint
@@ -2025,7 +2035,7 @@ class PlumPlayerController(
                                 disabled = true,
                                 language = null,
                                 label = null,
-                                configurationId = null,
+                                configurationId = null
                             )
                         activeBurnSubtitleStreamIndex = burnIdx
                         burnSessionCoordinator.reloadForBurnSubtitle(resumeSec)
@@ -2076,7 +2086,7 @@ class PlumPlayerController(
                 langMatched.filter { pick ->
                     TrackLanguagePreference.subtitleLabelMatchesHint(
                         pick.format.label?.trim().orEmpty().ifEmpty { pick.format.language?.trim().orEmpty() },
-                        hint,
+                        hint
                     )
                 }
             } else {
@@ -2116,6 +2126,7 @@ class PlumPlayerController(
             when (trackId) {
                 SubtitlePickerTrackId.Off ->
                     TrackLanguagePreference.NONE to ""
+
                 is SubtitlePickerTrackId.BurnIn -> {
                     val sub = embeddedSubtitleTracks.firstOrNull { it.streamIndex == trackId.streamIndex }
                     val lang =
@@ -2124,6 +2135,7 @@ class PlumPlayerController(
                         }.ifEmpty { "und" }
                     lang to sub?.title?.trim().orEmpty()
                 }
+
                 is SubtitlePickerTrackId.TextTrack -> {
                     val group = player.currentTracks.groups.getOrNull(trackId.groupIndex)
                     val fmt =
@@ -2144,7 +2156,7 @@ class PlumPlayerController(
                 playerSubtitlePreferences.mergeShowTrackLanguageOverride(
                     ck,
                     defaultSubtitleLanguage = langHint.first,
-                    defaultSubtitleLabelHint = langHint.second,
+                    defaultSubtitleLabelHint = langHint.second
                 )
             }
         }
@@ -2161,7 +2173,7 @@ class PlumPlayerController(
             disabled = false,
             language = fmt.language,
             label = fmt.label,
-            configurationId = fmt.id?.trim()?.takeIf { it.isNotEmpty() },
+            configurationId = fmt.id?.trim()?.takeIf { it.isNotEmpty() }
         )
     }
 
@@ -2220,7 +2232,7 @@ class PlumPlayerController(
             playerSubtitlePreferences.mergeShowTrackLanguageOverride(
                 ck,
                 defaultSubtitleLanguage = lang,
-                defaultSubtitleLabelHint = sub.title.trim(),
+                defaultSubtitleLabelHint = sub.title.trim()
             )
         }
     }
@@ -2235,7 +2247,7 @@ class PlumPlayerController(
             playerSubtitlePreferences.mergeShowTrackLanguageOverride(
                 ck,
                 defaultSubtitleLanguage = lang,
-                defaultSubtitleLabelHint = emb.title.trim(),
+                defaultSubtitleLabelHint = emb.title.trim()
             )
         }
     }
@@ -2248,7 +2260,7 @@ class PlumPlayerController(
         configurationId: String,
         language: String,
         label: String,
-        persist: suspend () -> Unit,
+        persist: suspend () -> Unit
     ) {
         val cfg = configurationId.trim()
         val needsBurnReload = activeBurnSubtitleStreamIndex != null && hlsSessionId != null
@@ -2266,7 +2278,7 @@ class PlumPlayerController(
                         disabled = false,
                         language = language,
                         label = label,
-                        configurationId = cfg,
+                        configurationId = cfg
                     )
                 activeBurnSubtitleStreamIndex = null
                 burnSessionCoordinator.reloadForBurnSubtitle(resumeSec)
@@ -2292,10 +2304,11 @@ class PlumPlayerController(
                     configurationId = subtitleCoordinator.logicalIdForSidecar(sub),
                     language = sub.language,
                     label = sub.title,
-                    persist = { suspendPersistSidecarSubtitlePreference(sub) },
+                    persist = { suspendPersistSidecarSubtitlePreference(sub) }
                 )
                 return
             }
+
             id.startsWith("catalog-emb:") -> {
                 val stream = id.removePrefix("catalog-emb:").toIntOrNull() ?: return
                 val emb = embeddedSubtitleTracks.firstOrNull { it.streamIndex == stream } ?: return
@@ -2303,7 +2316,7 @@ class PlumPlayerController(
                     configurationId = subtitleCoordinator.logicalIdForEmbedded(emb),
                     language = emb.language,
                     label = emb.title,
-                    persist = { suspendPersistEmbeddedSubtitleCatalogPreference(emb) },
+                    persist = { suspendPersistEmbeddedSubtitleCatalogPreference(emb) }
                 )
                 return
             }
@@ -2323,16 +2336,17 @@ class PlumPlayerController(
                         disabled = false,
                         language = fmt?.language,
                         label = fmt?.label,
-                        configurationId = fmt?.id?.trim()?.takeIf { it.isNotEmpty() },
+                        configurationId = fmt?.id?.trim()?.takeIf { it.isNotEmpty() }
                     )
                 }
+
                 else -> null
             }
         val action =
             subtitleCoordinator.resolveSelectionAction(
                 currentBurnStreamIndex = activeBurnSubtitleStreamIndex,
                 trackId = trackId,
-                selectedTextRestore = selectedTextRestore,
+                selectedTextRestore = selectedTextRestore
             )
         if (action is SubtitleSelectionAction.NoOp) {
             persistManualSubtitlePreference(trackId)
@@ -2349,9 +2363,12 @@ class PlumPlayerController(
         try {
             when (action) {
                 SubtitleSelectionAction.NoOp -> Unit
+
                 SubtitleSelectionAction.DisableText -> disableTextTracks()
+
                 is SubtitleSelectionAction.ApplyTextTrack ->
                     applyTextTrackOverride(action.groupIndex, action.trackIndex)
+
                 is SubtitleSelectionAction.ReloadWithBurn -> {
                     val resumeSec = player.currentPosition / 1000.0f
                     pendingSubtitleRestore =
@@ -2359,11 +2376,12 @@ class PlumPlayerController(
                             disabled = action.restore.disabled,
                             language = action.restore.language,
                             label = action.restore.label,
-                            configurationId = action.restore.configurationId,
+                            configurationId = action.restore.configurationId
                         )
                     activeBurnSubtitleStreamIndex = action.streamIndex
                     burnSessionCoordinator.reloadForBurnSubtitle(resumeSec)
                 }
+
                 is SubtitleSelectionAction.ReloadWithoutBurn -> {
                     val resumeSec = player.currentPosition / 1000.0f
                     pendingSubtitleRestore =
@@ -2371,7 +2389,7 @@ class PlumPlayerController(
                             disabled = action.restore.disabled,
                             language = action.restore.language,
                             label = action.restore.label,
-                            configurationId = action.restore.configurationId,
+                            configurationId = action.restore.configurationId
                         )
                     activeBurnSubtitleStreamIndex = null
                     burnSessionCoordinator.reloadForBurnSubtitle(resumeSec)
@@ -2429,14 +2447,16 @@ class PlumPlayerController(
                     swapToReadyStream(
                         streamUrl = session.streamUrl,
                         revision = session.revision,
-                        durationSeconds = session.durationSeconds,
+                        durationSeconds = session.durationSeconds
                     )
                     updateStatus("Playing")
                 }
+
                 "error" -> {
                     updateError(session.error ?: "Audio switch failed")
                     updateStatus("Error")
                 }
+
                 else -> {
                     // PATCH typically returns "starting": do not swap immediately — an empty/partial m3u8
                     // leaves ExoPlayer buffering for a long time. Keep the current revision playing
@@ -2517,6 +2537,7 @@ class PlumPlayerController(
                         refreshUiState()
                     }
                 }
+
             is TrackPicker.Audio ->
                 scope.launch(Dispatchers.Main) {
                     when {
@@ -2532,7 +2553,7 @@ class PlumPlayerController(
                                 showTrackCompositeKey()?.let { ck ->
                                     playerSubtitlePreferences.mergeShowTrackLanguageOverride(
                                         ck,
-                                        defaultAudioLanguage = lang,
+                                        defaultAudioLanguage = lang
                                     )
                                 }
                             }
@@ -2543,6 +2564,7 @@ class PlumPlayerController(
                                 applyExoAudioSelection(pair.first, pair.second)
                             }
                         }
+
                         id.startsWith("a:") -> {
                             val rest = id.removePrefix("a:").split(":")
                             if (rest.size != 2) return@launch
@@ -2560,7 +2582,7 @@ class PlumPlayerController(
                                 showTrackCompositeKey()?.let { ck ->
                                     playerSubtitlePreferences.mergeShowTrackLanguageOverride(
                                         ck,
-                                        defaultAudioLanguage = lang,
+                                        defaultAudioLanguage = lang
                                     )
                                 }
                             }
@@ -2589,8 +2611,8 @@ class PlumPlayerController(
                         subtitleSelectionFlags(
                             default = subtitle.default,
                             forced = subtitle.forced,
-                            hearingImpaired = subtitle.hearingImpaired,
-                        ),
+                            hearingImpaired = subtitle.hearingImpaired
+                        )
                     )
                     .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
             if (subtitle.language.isNotBlank()) {
@@ -2611,15 +2633,15 @@ class PlumPlayerController(
             if (subtitle.supported == false) {
                 android.util.Log.d(
                     "PlumTV",
-                    "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}",
+                    "Skipping embedded subtitle stream=${subtitle.streamIndex} (unsupported) codec=${subtitle.codec.orEmpty()}"
                 )
                 return@forEach
             }
             val delivery = subtitle.preferredAndroidEmbeddedSubtitleDelivery() ?: return@forEach
             if (
                 delivery == AndroidEmbeddedSubtitleDelivery.PgsBinary &&
-                    hlsSessionId != null &&
-                    subtitle.supportsBurnInDelivery()
+                hlsSessionId != null &&
+                subtitle.supportsBurnInDelivery()
             ) {
                 // Media3's external SUP/PGS rendering is inconsistent when merged into Plum HLS
                 // playback. Prefer the server burn-in row exposed in the picker for these streams.
@@ -2629,6 +2651,7 @@ class PlumPlayerController(
                 when (delivery) {
                     AndroidEmbeddedSubtitleDelivery.TextVtt ->
                         playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}")
+
                     AndroidEmbeddedSubtitleDelivery.PgsBinary ->
                         playbackRepository.absoluteStreamUrl("/api/media/$mediaId/subtitles/embedded/${subtitle.streamIndex}/sup")
                 }
@@ -2646,8 +2669,8 @@ class PlumPlayerController(
                         subtitleSelectionFlags(
                             default = subtitle.default,
                             forced = subtitle.forced,
-                            hearingImpaired = subtitle.hearingImpaired,
-                        ),
+                            hearingImpaired = subtitle.hearingImpaired
+                        )
                     )
                     .setRoleFlags(subtitleRoleFlags(subtitle.hearingImpaired))
             if (subtitle.language.isNotBlank()) {
@@ -2682,14 +2705,14 @@ class PlumPlayerController(
                 createdSessionApplicator.apply(
                     session,
                     resumeSec,
-                    validateBurnAfterMetadata = false,
+                    validateBurnAfterMetadata = false
                 )
             },
             onFailure = { e ->
                 if (this.mediaId != mediaId) return@fold
                 updateError(e.message ?: "Playback failed")
                 updateStatus("Error")
-            },
+            }
         )
         if (this.mediaId == mediaId) {
             refreshUiState()
@@ -2742,7 +2765,7 @@ class PlumPlayerController(
                                 backdropPath = next.backdropPath,
                                 backdropUrl = next.backdropUrl,
                                 showPosterPath = next.showPosterPath,
-                                showPosterUrl = next.showPosterUrl,
+                                showPosterUrl = next.showPosterUrl
                             )
                         delay(1_000)
                     }
@@ -2760,7 +2783,7 @@ class PlumPlayerController(
     private suspend fun switchToMedia(
         mediaId: Int,
         resumeSec: Float = 0f,
-        suppressUpNextJobCancel: Boolean = false,
+        suppressUpNextJobCancel: Boolean = false
     ) {
         if (suppressUpNextJobCancel) {
             _upNext.value = null
@@ -2792,7 +2815,7 @@ class PlumPlayerController(
     private suspend fun swapToReadyStream(
         streamUrl: String,
         revision: Int?,
-        durationSeconds: Double,
+        durationSeconds: Double
     ) {
         val url = playbackRepository.absoluteStreamUrl(streamUrl)
         // When `revision` is absent (older servers), only the URL can disambiguate stream swaps.
@@ -2829,7 +2852,7 @@ class PlumPlayerController(
             ev.introStartSeconds,
             ev.introEndSeconds,
             ev.creditsStartSeconds,
-            ev.creditsEndSeconds,
+            ev.creditsEndSeconds
         )
         when (ev.status) {
             "ready" -> {
@@ -2837,17 +2860,20 @@ class PlumPlayerController(
                 swapToReadyStream(
                     streamUrl = ev.streamUrl,
                     revision = ev.revision,
-                    durationSeconds = ev.durationSeconds,
+                    durationSeconds = ev.durationSeconds
                 )
                 updateStatus("Playing")
             }
+
             "error" -> {
                 updateError(ev.error ?: "Playback error")
                 updateStatus("Error")
             }
+
             "closed" -> {
                 updateStatus("Ended")
             }
+
             else -> updateStatus("Preparing…")
         }
     }
@@ -2870,7 +2896,7 @@ class PlumPlayerController(
         targetMediaId: Int,
         posMs: Long,
         durMs: Long,
-        completed: Boolean,
+        completed: Boolean
     ) {
         val durSec = durMs / 1000.0
         if (durSec <= 0.0) return
@@ -2881,7 +2907,7 @@ class PlumPlayerController(
                 mediaId = targetMediaId,
                 positionSec = posSec.roundToLong(),
                 durationSec = durSec.roundToLong(),
-                completed = completed,
+                completed = completed
             )
 
         val shouldPersist =
@@ -2904,7 +2930,7 @@ class PlumPlayerController(
                         targetMediaId,
                         positionSec = posSec,
                         durationSec = durSec,
-                        completed = completed,
+                        completed = completed
                     )
                 }
             }.isSuccess
@@ -2919,7 +2945,7 @@ class PlumPlayerController(
 
     private suspend fun persistProgressAsync(
         completed: Boolean,
-        mediaIdOverride: Int? = null,
+        mediaIdOverride: Int? = null
     ) {
         val targetMediaId = mediaIdOverride ?: mediaId
         val (posMs, durMs) =
@@ -3087,7 +3113,7 @@ class PlumPlayerController(
                                 closingMediaId,
                                 posMs,
                                 durMs,
-                                completed = ended,
+                                completed = ended
                             )
                         } catch (_: Throwable) {
                         }

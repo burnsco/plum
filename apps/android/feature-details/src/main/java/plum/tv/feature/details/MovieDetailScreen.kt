@@ -26,14 +26,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
-import plum.tv.core.ui.PlumCastMember
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumCastMember
+import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.PlumDetailBackground
 import plum.tv.core.ui.PlumDetailHeroHeader
 import plum.tv.core.ui.PlumImageSizes
-import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumStatePanel
@@ -44,7 +44,7 @@ import plum.tv.core.ui.resolveArtworkUrl
 fun MovieDetailRoute(
     onBack: () -> Unit,
     onPlay: (mediaId: Int, libraryId: Int, title: String, subtitle: String?) -> Unit,
-    viewModel: MovieDetailViewModel = hiltViewModel(),
+    viewModel: MovieDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val serverBase = LocalServerBaseUrl.current
@@ -52,16 +52,17 @@ fun MovieDetailRoute(
     when (val s = state) {
         is MovieDetailUiState.Loading -> Box(
             Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             PlumStatePanel(
                 title = "Loading",
-                message = "Fetching movie details…",
+                message = "Fetching movie details…"
             )
         }
+
         is MovieDetailUiState.Error -> Box(
             Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             PlumStatePanel(
                 title = "Could not load movie",
@@ -71,9 +72,10 @@ fun MovieDetailRoute(
                         PlumActionButton("Retry", onClick = { viewModel.load() }, leadingBadge = "R")
                         PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
                     }
-                },
+                }
             )
         }
+
         is MovieDetailUiState.Ready -> {
             val d = s.details
             val playFocus = remember(d.mediaId) { FocusRequester() }
@@ -89,37 +91,40 @@ fun MovieDetailRoute(
 
             PlumDetailBackground(
                 backdropUrl = backdropUrl,
-                scrim = PlumScrims.backdropHorizontal,
+                scrim = PlumScrims.backdropHorizontal
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
                         .padding(horizontal = 36.dp, vertical = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     PlumDetailHeroHeader(posterUrl = posterUrl) {
                         Text(
                             text = d.title,
                             style = PlumTheme.typography.headlineMedium,
                             color = Color.White,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Bold
                         )
 
                         PlumMetadataChips(
                             values = buildList {
                                 d.releaseDate?.take(4)?.takeIf { it.isNotBlank() }?.let(::add)
-                                d.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
+                                d.runtime?.takeIf { it > 0 }?.let { add("$it min") }
                                 d.imdbRating?.let { add("\u2605 ${"%.1f".format(it)}") }
                                 addAll(d.genres.take(4))
                                 if (d.completed == true) {
                                     add("Watched")
                                 } else if ((d.progressSeconds ?: 0.0) > 0 || (d.progressPercent ?: 0.0) > 0) {
                                     val p = d.progressPercent?.toInt()?.coerceIn(0, 100)
-                                    if (p != null && p > 0) add("$p% watched")
-                                    else add("In progress")
+                                    if (p != null && p > 0) {
+                                        add("$p% watched")
+                                    } else {
+                                        add("In progress")
+                                    }
                                 }
-                            },
+                            }
                         )
 
                         if (d.overview.isNotBlank()) {
@@ -128,7 +133,7 @@ fun MovieDetailRoute(
                                 maxLines = 4,
                                 overflow = TextOverflow.Ellipsis,
                                 style = PlumTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.8f),
+                                color = Color.White.copy(alpha = 0.8f)
                             )
                         }
 
@@ -148,10 +153,10 @@ fun MovieDetailRoute(
                                         d.mediaId,
                                         d.libraryId,
                                         d.title,
-                                        d.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                        d.releaseDate?.take(4)?.takeIf { it.length == 4 }
                                     )
                                 },
-                                leadingBadge = "▶",
+                                leadingBadge = "▶"
                             )
                             PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Secondary)
                         }
@@ -165,9 +170,9 @@ fun MovieDetailRoute(
                                     PlumCastMember(
                                         name = member.name,
                                         character = member.character,
-                                        profilePath = member.profilePath,
+                                        profilePath = member.profilePath
                                     )
-                                },
+                                }
                         )
                     }
                 }

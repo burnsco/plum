@@ -12,6 +12,5 @@ import javax.inject.Singleton
 object DataModule {
     @Provides
     @Singleton
-    fun provideMoshi(): Moshi =
-        Moshi.Builder().build()
+    fun provideMoshi(): Moshi = Moshi.Builder().build()
 }

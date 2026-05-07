@@ -36,7 +36,7 @@ class PlumWebSocketManager @Inject constructor(
     private val prefs: SessionPreferences,
     private val tokenBridge: AuthTokenBridge,
     private val moshi: Moshi,
-    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) {
     private companion object {
         const val TAG = "PlumTV"
@@ -51,12 +51,13 @@ class PlumWebSocketManager @Inject constructor(
     private val attachedSessionIds = linkedSetOf<String>()
 
     private var socket: WebSocket? = null
+
     /** Cancels the reconnect loop and all work launched under it ([start] replaces with a fresh supervisor). */
     private var loopSupervisor: Job? = null
 
     private val _updates = MutableSharedFlow<PlaybackSessionUpdateEventJson>(
         extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val playbackSessionUpdates: SharedFlow<PlaybackSessionUpdateEventJson> = _updates.asSharedFlow()
 
@@ -130,7 +131,7 @@ class PlumWebSocketManager @Inject constructor(
                             if (catalogRefreshCoordinator.handleWebSocketText(
                                     libraryScanUpdateAdapter,
                                     libraryCatalogChangedAdapter,
-                                    text,
+                                    text
                                 )
                             ) {
                                 return
@@ -158,14 +159,13 @@ class PlumWebSocketManager @Inject constructor(
                                 cont.resume(Unit)
                             }
                         }
-                    },
+                    }
                 )
             cont.invokeOnCancellation { ws.cancel() }
         }
     }
 
-    private fun parseUpdate(text: String): PlaybackSessionUpdateEventJson? =
-        parsePlaybackSessionWsUpdate(playbackUpdateAdapter, text)
+    private fun parseUpdate(text: String): PlaybackSessionUpdateEventJson? = parsePlaybackSessionWsUpdate(playbackUpdateAdapter, text)
 
     fun sendAttach(sessionId: String) {
         Log.d(TAG, "ws attach session=$sessionId")
@@ -195,19 +195,15 @@ class PlumWebSocketManager @Inject constructor(
         }
     }
 
-    private fun snapshotAttachedSessions(): List<String> =
-        synchronized(socketLock) {
-            attachedSessionIds.toList()
-        }
+    private fun snapshotAttachedSessions(): List<String> = synchronized(socketLock) {
+        attachedSessionIds.toList()
+    }
 
-    private fun shouldSendTo(webSocket: WebSocket, sessionId: String): Boolean =
-        synchronized(socketLock) {
-            socket === webSocket && sessionId in attachedSessionIds
-        }
+    private fun shouldSendTo(webSocket: WebSocket, sessionId: String): Boolean = synchronized(socketLock) {
+        socket === webSocket && sessionId in attachedSessionIds
+    }
 
-    private fun attachCommandJson(sessionId: String): String =
-        attachCommandAdapter.toJson(AttachPlaybackSessionCommandJson(sessionId = sessionId))
+    private fun attachCommandJson(sessionId: String): String = attachCommandAdapter.toJson(AttachPlaybackSessionCommandJson(sessionId = sessionId))
 
-    private fun detachCommandJson(sessionId: String): String =
-        detachCommandAdapter.toJson(DetachPlaybackSessionCommandJson(sessionId = sessionId))
+    private fun detachCommandJson(sessionId: String): String = detachCommandAdapter.toJson(DetachPlaybackSessionCommandJson(sessionId = sessionId))
 }

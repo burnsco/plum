@@ -21,7 +21,7 @@ import plum.tv.core.network.LibraryScanStatusJson
 @Singleton
 class LibraryScanStatusPoller @Inject constructor(
     private val sessionRepository: SessionRepository,
-    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) {
     private companion object {
         const val TAG = "PlumTV"
@@ -84,8 +84,12 @@ class LibraryScanStatusPoller @Inject constructor(
 private fun isScanActivelyProcessing(scan: LibraryScanStatusJson): Boolean {
     val enrichment =
         when {
-            scan.enrichmentPhase == "queued" || scan.enrichmentPhase == "running" -> checkNotNull(scan.enrichmentPhase)
+            scan.enrichmentPhase == "queued" || scan.enrichmentPhase == "running" -> checkNotNull(
+                scan.enrichmentPhase
+            )
+
             scan.enriching -> "running"
+
             else -> "idle"
         }
     return scan.phase == "queued" ||

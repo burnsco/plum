@@ -20,34 +20,35 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import plum.tv.core.network.LibraryJson
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumPanel
 import plum.tv.core.ui.PlumScreenPadding
 import plum.tv.core.ui.PlumScreenTitle
-import plum.tv.core.ui.PlumTheme
-import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumStatePanel
+import plum.tv.core.ui.PlumTheme
 
 @Composable
 fun LibraryListRoute(
     onOpenLibrary: (libraryId: Int) -> Unit,
     libraryType: String? = null,
-    viewModel: LibraryListViewModel = hiltViewModel(),
+    viewModel: LibraryListViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     when (val s = state) {
         is LibraryListUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PlumStatePanel(
                 title = "Loading libraries",
-                message = "Pulling your shelves into view.",
+                message = "Pulling your shelves into view."
             )
         }
+
         is LibraryListUiState.Error -> LazyVerticalGrid(
             columns = GridCells.Fixed(1),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PlumScreenPadding(),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
                 PlumStatePanel(
@@ -59,19 +60,20 @@ fun LibraryListRoute(
                             label = "Retry",
                             onClick = { viewModel.refresh() },
                             variant = PlumButtonVariant.Primary,
-                            leadingBadge = "R",
+                            leadingBadge = "R"
                         )
-                    },
+                    }
                 )
             }
         }
+
         is LibraryListUiState.Ready -> {
             val libraries = filterLibrariesByType(s.libraries, libraryType)
             if (libraries.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     PlumStatePanel(
                         title = "No libraries yet",
-                        message = "Add a library on the server to start browsing movies, shows, anime, or music.",
+                        message = "Add a library on the server to start browsing movies, shows, anime, or music."
                     )
                 }
             } else {
@@ -82,14 +84,14 @@ fun LibraryListRoute(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PlumScreenPadding(),
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     items(libraries, key = { it.id }) { lib ->
                         PlumPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 PlumScreenTitle(
                                     title = lib.name,
-                                    subtitle = libraryLabel(lib),
+                                    subtitle = libraryLabel(lib)
                                 )
                                 val openModifier =
                                     if (lib.id == libraries.first().id) {
@@ -102,7 +104,7 @@ fun LibraryListRoute(
                                     label = "Open library",
                                     onClick = { onOpenLibrary(lib.id) },
                                     variant = PlumButtonVariant.Secondary,
-                                    leadingBadge = "GO",
+                                    leadingBadge = "GO"
                                 )
                             }
                         }
@@ -113,11 +115,10 @@ fun LibraryListRoute(
     }
 }
 
-private fun libraryLabel(lib: LibraryJson): String =
-    when {
-        lib.type == "movie" -> "Movies"
-        lib.type == "music" -> "Music"
-        lib.type == "anime" || (lib.type == "tv" && lib.name.contains("anime", ignoreCase = true)) -> "Anime"
-        lib.type == "tv" -> "TV"
-        else -> lib.type.replaceFirstChar { it.uppercase() }
-    }
+private fun libraryLabel(lib: LibraryJson): String = when {
+    lib.type == "movie" -> "Movies"
+    lib.type == "music" -> "Music"
+    lib.type == "anime" || (lib.type == "tv" && lib.name.contains("anime", ignoreCase = true)) -> "Anime"
+    lib.type == "tv" -> "TV"
+    else -> lib.type.replaceFirstChar { it.uppercase() }
+}

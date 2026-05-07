@@ -22,17 +22,17 @@ data class LibraryScanStatusJson(
     @param:Json(name = "identifyRequested") val identifyRequested: Boolean = false,
     @param:Json(name = "error") val error: String? = null,
     @param:Json(name = "lastError") val lastError: String? = null,
-    @param:Json(name = "finishedAt") val finishedAt: String? = null,
+    @param:Json(name = "finishedAt") val finishedAt: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class LibraryScanUpdateWsEventJson(
     @param:Json(name = "type") val type: String,
-    @param:Json(name = "scan") val scan: LibraryScanStatusJson,
+    @param:Json(name = "scan") val scan: LibraryScanStatusJson
 )
 
 @JsonClass(generateAdapter = true)
 data class LibraryCatalogChangedWsEventJson(
     @param:Json(name = "type") val type: String,
-    @param:Json(name = "libraryId") val libraryId: Int,
+    @param:Json(name = "libraryId") val libraryId: Int
 )

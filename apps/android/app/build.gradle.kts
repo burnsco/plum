@@ -13,18 +13,17 @@ fun String.asBuildConfigString(): String = "\"" + replace("\\", "\\\\").replace(
 
 val localProps = loadLocalProperties()
 
-fun localProperty(name: String): String =
-    localProps.getProperty(name)
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-        ?: ""
+fun localProperty(name: String): String = localProps.getProperty(name)
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: ""
 
 /** Matches web onboarding “Quick start with default admin” credentials for debug builds only. */
-private fun debugDefaultAdminEmailBuildConfig(): String =
-    localProperty("plumTv.defaultAdminEmail").ifEmpty { "admin@example.com" }.asBuildConfigString()
+private fun debugDefaultAdminEmailBuildConfig(): String = localProperty("plumTv.defaultAdminEmail").ifEmpty { "admin@example.com" }.asBuildConfigString()
 
-private fun debugDefaultAdminPasswordBuildConfig(): String =
-    localProperty("plumTv.defaultAdminPassword").ifEmpty { "passwordpassword" }.asBuildConfigString()
+private fun debugDefaultAdminPasswordBuildConfig(): String = localProperty("plumTv.defaultAdminPassword").ifEmpty {
+    "passwordpassword"
+}.asBuildConfigString()
 
 plugins {
     id("plum.android.application")
@@ -44,7 +43,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "DEFAULT_SERVER_URL", localProperty("plumTv.defaultServerUrl").asBuildConfigString())
+        buildConfigField(
+            "String",
+            "DEFAULT_SERVER_URL",
+            localProperty("plumTv.defaultServerUrl").asBuildConfigString()
+        )
         buildConfigField("String", "DEFAULT_ADMIN_EMAIL", "\"\"")
         buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", "\"\"")
     }
@@ -74,7 +77,11 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "DEFAULT_ADMIN_EMAIL", debugDefaultAdminEmailBuildConfig())
-            buildConfigField("String", "DEFAULT_ADMIN_PASSWORD", debugDefaultAdminPasswordBuildConfig())
+            buildConfigField(
+                "String",
+                "DEFAULT_ADMIN_PASSWORD",
+                debugDefaultAdminPasswordBuildConfig()
+            )
         }
         release {
             isMinifyEnabled = true
@@ -85,7 +92,7 @@ android {
                     ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
+                "proguard-rules.pro"
             )
         }
     }

@@ -11,11 +11,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
-import org.json.JSONObject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import org.json.JSONObject
 import plum.tv.core.data.di.ApplicationScope
 
 private val Context.playerPrefsDataStore: DataStore<Preferences> by preferencesDataStore(name = "plum_player")
@@ -23,7 +23,7 @@ private val Context.playerPrefsDataStore: DataStore<Preferences> by preferencesD
 @Singleton
 class PlayerSubtitlePreferences @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    @param:ApplicationScope private val scope: CoroutineScope,
+    @param:ApplicationScope private val scope: CoroutineScope
 ) {
     private val store get() = context.playerPrefsDataStore
 
@@ -42,14 +42,14 @@ class PlayerSubtitlePreferences @Inject constructor(
     data class ShowTrackLanguageOverride(
         val defaultAudioLanguage: String? = null,
         val defaultSubtitleLanguage: String? = null,
-        val defaultSubtitleLabelHint: String? = null,
+        val defaultSubtitleLabelHint: String? = null
     )
 
     data class ManualTrackLanguagePreferences(
         /** Normalized BCP-style code; empty = follow server / first track. */
         val defaultAudioLanguage: String = "",
         val defaultSubtitleLanguage: String = "",
-        val defaultSubtitleLabelHint: String = "",
+        val defaultSubtitleLabelHint: String = ""
     )
 
     val manualTrackLanguages: StateFlow<ManualTrackLanguagePreferences> =
@@ -58,7 +58,7 @@ class PlayerSubtitlePreferences @Inject constructor(
                 ManualTrackLanguagePreferences(
                     defaultAudioLanguage = prefs[Keys.defaultAudioLanguage]?.trim().orEmpty(),
                     defaultSubtitleLanguage = prefs[Keys.defaultSubtitleLanguage]?.trim().orEmpty(),
-                    defaultSubtitleLabelHint = prefs[Keys.defaultSubtitleLabelHint]?.trim().orEmpty(),
+                    defaultSubtitleLabelHint = prefs[Keys.defaultSubtitleLabelHint]?.trim().orEmpty()
                 )
             }
             .stateIn(scope, SharingStarted.Eagerly, ManualTrackLanguagePreferences())
@@ -73,7 +73,7 @@ class PlayerSubtitlePreferences @Inject constructor(
             SubtitleAppearance(
                 size = SubtitleSize.fromStorage(prefs[Keys.subtitleSize]),
                 position = SubtitlePosition.fromStorage(prefs[Keys.subtitlePosition]),
-                colorHex = normalizeColorHex(prefs[Keys.subtitleColor]),
+                colorHex = normalizeColorHex(prefs[Keys.subtitleColor])
             )
         }
         .stateIn(scope, SharingStarted.Eagerly, SubtitleAppearance.DEFAULT)
@@ -109,7 +109,7 @@ class PlayerSubtitlePreferences @Inject constructor(
         compositeKey: String,
         defaultAudioLanguage: String? = null,
         defaultSubtitleLanguage: String? = null,
-        defaultSubtitleLabelHint: String? = null,
+        defaultSubtitleLabelHint: String? = null
     ) {
         if (compositeKey.isBlank()) return
         store.edit { pref ->
@@ -119,7 +119,7 @@ class PlayerSubtitlePreferences @Inject constructor(
                 ShowTrackLanguageOverride(
                     defaultAudioLanguage = defaultAudioLanguage ?: prev.defaultAudioLanguage,
                     defaultSubtitleLanguage = defaultSubtitleLanguage ?: prev.defaultSubtitleLanguage,
-                    defaultSubtitleLabelHint = defaultSubtitleLabelHint ?: prev.defaultSubtitleLabelHint,
+                    defaultSubtitleLabelHint = defaultSubtitleLabelHint ?: prev.defaultSubtitleLabelHint
                 )
             if (next.defaultAudioLanguage == null &&
                 next.defaultSubtitleLanguage == null &&
@@ -154,8 +154,8 @@ class PlayerSubtitlePreferences @Inject constructor(
                             ShowTrackLanguageOverride(
                                 defaultAudioLanguage = audio,
                                 defaultSubtitleLanguage = sub,
-                                defaultSubtitleLabelHint = hint,
-                            ),
+                                defaultSubtitleLabelHint = hint
+                            )
                         )
                     }
                 }

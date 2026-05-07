@@ -15,11 +15,11 @@ class SubtitleCoordinatorTest {
     fun logicalIdForSidecar_prefersWireValueAndKeepsFallback() {
         assertEquals(
             "ext:11",
-            coordinator.logicalIdForSidecar(SubtitleJson(id = 11, logicalId = "ext:11")),
+            coordinator.logicalIdForSidecar(SubtitleJson(id = 11, logicalId = "ext:11"))
         )
         assertEquals(
             "ext:12",
-            coordinator.logicalIdForSidecar(SubtitleJson(id = 12)),
+            coordinator.logicalIdForSidecar(SubtitleJson(id = 12))
         )
     }
 
@@ -41,7 +41,7 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 1,
@@ -53,11 +53,11 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
-                            ),
+                                isCeaClosedCaption = false
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:0:0"), options.map { it.id })
@@ -83,7 +83,7 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 1,
@@ -95,11 +95,11 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
-                            ),
+                                isCeaClosedCaption = false
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:0:0", "t:1:0"), options.map { it.id })
@@ -125,11 +125,11 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = true,
-                            ),
+                                isCeaClosedCaption = true
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:0:0"), options.map { it.id })
@@ -146,8 +146,10 @@ class SubtitleCoordinatorTest {
                 supported = true,
                 vttEligible = false,
                 pgsBinaryEligible = false,
-                deliveryModes = listOf(EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true)),
-                preferredAndroidDeliveryMode = "burn_in",
+                deliveryModes = listOf(
+                    EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true)
+                ),
+                preferredAndroidDeliveryMode = "burn_in"
             )
 
         assertTrue(coordinator.isBurnInEmbeddedTrack(burnOnly))
@@ -168,10 +170,13 @@ class SubtitleCoordinatorTest {
                 pgsBinaryEligible = false,
                 deliveryModes =
                     listOf(
-                        EmbeddedSubtitleDeliveryModeJson(mode = "direct_vtt", requiresReload = false),
-                        EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true),
+                        EmbeddedSubtitleDeliveryModeJson(
+                            mode = "direct_vtt",
+                            requiresReload = false
+                        ),
+                        EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true)
                     ),
-                preferredAndroidDeliveryMode = "burn_in",
+                preferredAndroidDeliveryMode = "burn_in"
             )
 
         assertFalse(coordinator.isBurnInEmbeddedTrack(textPlusBurnFallback))
@@ -190,10 +195,13 @@ class SubtitleCoordinatorTest {
                 pgsBinaryEligible = true,
                 deliveryModes =
                     listOf(
-                        EmbeddedSubtitleDeliveryModeJson(mode = "pgs_binary", requiresReload = false),
-                        EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true),
+                        EmbeddedSubtitleDeliveryModeJson(
+                            mode = "pgs_binary",
+                            requiresReload = false
+                        ),
+                        EmbeddedSubtitleDeliveryModeJson(mode = "burn_in", requiresReload = true)
                     ),
-                preferredAndroidDeliveryMode = "pgs_binary",
+                preferredAndroidDeliveryMode = "pgs_binary"
             )
 
         assertTrue(coordinator.isBurnInEmbeddedTrack(pgsWithBurnFallback))
@@ -219,7 +227,7 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 1,
@@ -231,7 +239,7 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 2,
@@ -243,7 +251,7 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 3,
@@ -255,11 +263,11 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
-                            ),
+                                isCeaClosedCaption = false
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:1:0", "t:3:0"), options.map { it.id })
@@ -285,7 +293,7 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 1,
@@ -297,7 +305,7 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 2,
@@ -309,11 +317,11 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
-                            ),
+                                isCeaClosedCaption = false
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:2:0"), options.map { it.id })
@@ -337,7 +345,7 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 1,
@@ -349,11 +357,11 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
-                            ),
+                                isCeaClosedCaption = false
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:1:0"), options.map { it.id })
@@ -379,7 +387,7 @@ class SubtitleCoordinatorTest {
                                 selected = true,
                                 sideLoadPriority = 0,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 1,
@@ -391,7 +399,7 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
+                                isCeaClosedCaption = false
                             ),
                             SubtitleTextTrackCandidate(
                                 groupIndex = 2,
@@ -403,11 +411,11 @@ class SubtitleCoordinatorTest {
                                 selected = false,
                                 sideLoadPriority = 300,
                                 renderKind = SubtitleLogicalRenderKind.TextCue,
-                                isCeaClosedCaption = false,
-                            ),
+                                isCeaClosedCaption = false
+                            )
                         ),
-                    burnTracks = emptyList(),
-                ),
+                    burnTracks = emptyList()
+                )
             )
 
         assertEquals(listOf("off", "t:1:0", "t:2:0"), options.map { it.id })
@@ -425,8 +433,8 @@ class SubtitleCoordinatorTest {
                         disabled = false,
                         language = "eng",
                         label = "English",
-                        configurationId = "emb:7",
-                    ),
+                        configurationId = "emb:7"
+                    )
             )
 
         val reload = action as SubtitleSelectionAction.ReloadWithoutBurn
@@ -440,7 +448,7 @@ class SubtitleCoordinatorTest {
             coordinator.resolveSelectionAction(
                 currentBurnStreamIndex = 4,
                 trackId = SubtitlePickerTrackId.Off,
-                selectedTextRestore = null,
+                selectedTextRestore = null
             )
 
         val reload = action as SubtitleSelectionAction.ReloadWithoutBurn
@@ -453,7 +461,7 @@ class SubtitleCoordinatorTest {
             coordinator.resolveSelectionAction(
                 currentBurnStreamIndex = 12,
                 trackId = SubtitlePickerTrackId.BurnIn(streamIndex = 12),
-                selectedTextRestore = null,
+                selectedTextRestore = null
             )
 
         assertTrue(action is SubtitleSelectionAction.NoOp)

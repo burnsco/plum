@@ -127,7 +127,7 @@ Run these from the repository root unless noted otherwise.
 | `bun run validate:full` | Full validation including web tests/build and Android debug build |
 | `bun run validate:web` | Web-only validation |
 | `bun run validate:server` | Go tests and build |
-| `bun run validate:android` | Android TV lint and debug assemble |
+| `bun run validate:android` | Android TV lint, detekt, format check, and debug assemble |
 | `make dev` | Local helper workflow for development |
 | `make docker-dev` | Start the Docker-based dev stack |
 

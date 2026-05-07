@@ -17,7 +17,7 @@ fun tmdbTitleBridgeMap(items: Iterable<LibraryBrowseItemJson>): Map<String, Stri
 
 fun resolvedShowKeyForBrowseItem(
     item: LibraryBrowseItemJson,
-    titleBridge: Map<String, String>,
+    titleBridge: Map<String, String>
 ): String {
     if (item.type != "tv" && item.type != "anime") return ""
     val tid = item.tmdbId
@@ -43,7 +43,7 @@ data class LibraryShowBrowseRow(
     val displayTitle: String,
     /** Episode used for poster / library_id (show-level artwork). */
     val posterItem: LibraryBrowseItemJson,
-    val episodes: List<LibraryBrowseItemJson>,
+    val episodes: List<LibraryBrowseItemJson>
 )
 
 /**
@@ -78,11 +78,10 @@ fun groupLibraryBrowseItemsByShow(items: List<LibraryBrowseItemJson>): List<Libr
             showKey = key,
             displayTitle = getShowName(first.title),
             posterItem = posterEp,
-            episodes = eps,
+            episodes = eps
         )
     }
 }
 
 /** True when every item is a TV or anime episode (typical TV/anime libraries). */
-fun isShowOnlyBrowseLibrary(items: List<LibraryBrowseItemJson>): Boolean =
-    items.isNotEmpty() && items.all { it.type == "tv" || it.type == "anime" }
+fun isShowOnlyBrowseLibrary(items: List<LibraryBrowseItemJson>): Boolean = items.isNotEmpty() && items.all { it.type == "tv" || it.type == "anime" }

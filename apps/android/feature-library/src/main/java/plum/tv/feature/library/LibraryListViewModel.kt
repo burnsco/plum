@@ -21,7 +21,7 @@ sealed interface LibraryListUiState {
 @HiltViewModel
 class LibraryListViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
-    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<LibraryListUiState>(LibraryListUiState.Loading)
@@ -42,7 +42,7 @@ class LibraryListViewModel @Inject constructor(
             _state.value = LibraryListUiState.Loading
             browseRepository.libraries(forceRefresh = false).fold(
                 onSuccess = { libs -> _state.value = LibraryListUiState.Ready(libs) },
-                onFailure = { e -> _state.value = LibraryListUiState.Error(e.message ?: "Failed to load libraries") },
+                onFailure = { e -> _state.value = LibraryListUiState.Error(e.message ?: "Failed to load libraries") }
             )
         }
     }
@@ -52,7 +52,7 @@ class LibraryListViewModel @Inject constructor(
             _state.value = LibraryListUiState.Loading
             browseRepository.libraries(forceRefresh = true).fold(
                 onSuccess = { libs -> _state.value = LibraryListUiState.Ready(libs) },
-                onFailure = { e -> _state.value = LibraryListUiState.Error(e.message ?: "Failed to load libraries") },
+                onFailure = { e -> _state.value = LibraryListUiState.Error(e.message ?: "Failed to load libraries") }
             )
         }
     }

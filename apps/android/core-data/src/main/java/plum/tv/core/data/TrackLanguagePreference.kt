@@ -39,7 +39,7 @@ object TrackLanguagePreference {
             "zh" to "zh",
             "chi" to "zh",
             "zho" to "zh",
-            "chinese" to "zh",
+            "chinese" to "zh"
         )
 
     fun normalize(raw: String?): String {

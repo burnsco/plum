@@ -11,12 +11,12 @@ class SubtitleMetadataFlagsTest {
             subtitleSelectionFlags(
                 default = true,
                 forced = true,
-                hearingImpaired = false,
+                hearingImpaired = false
             )
 
         assertEquals(
             C.SELECTION_FLAG_DEFAULT or C.SELECTION_FLAG_FORCED or C.SELECTION_FLAG_AUTOSELECT,
-            flags,
+            flags
         )
     }
 
@@ -26,7 +26,7 @@ class SubtitleMetadataFlagsTest {
             subtitleSelectionFlags(
                 default = false,
                 forced = false,
-                hearingImpaired = true,
+                hearingImpaired = true
             )
 
         assertEquals(0, flags)

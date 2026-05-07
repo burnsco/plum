@@ -7,12 +7,12 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 import plum.tv.core.data.di.ApplicationScope
 
 @Module
@@ -25,8 +25,7 @@ object MediaModule {
     @Provides
     @Singleton
     @ApplicationScope
-    fun provideApplicationScope(): CoroutineScope =
-        CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * ExoPlayer reads HLS playlists and many segment GETs through this factory.
@@ -41,9 +40,7 @@ object MediaModule {
      */
     @Provides
     @Singleton
-    fun providePlumMediaDataSourceFactory(
-        okHttpClient: OkHttpClient,
-    ): DataSource.Factory {
+    fun providePlumMediaDataSourceFactory(okHttpClient: OkHttpClient): DataSource.Factory {
         val mediaClient =
             okHttpClient.newBuilder()
                 .cache(null)

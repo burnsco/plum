@@ -17,15 +17,15 @@ fun LibraryHubRoute(
         libraryId: Int?,
         showKey: String?,
         displayTitle: String?,
-        displaySubtitle: String?,
+        displaySubtitle: String?
     ) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
     onOpenLibrary: (libraryId: Int) -> Unit,
-    viewModel: LibraryListViewModel = hiltViewModel(),
+    viewModel: LibraryListViewModel = hiltViewModel()
 ) {
     LibraryListRoute(
         onOpenLibrary = onOpenLibrary,
         libraryType = libraryType,
-        viewModel = viewModel,
+        viewModel = viewModel
     )
 }

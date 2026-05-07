@@ -15,32 +15,30 @@ import retrofit2.http.Query
 @JsonClass(generateAdapter = true)
 data class DeviceLoginRequest(
     @param:Json(name = "email") val email: String,
-    @param:Json(name = "password") val password: String,
+    @param:Json(name = "password") val password: String
 )
 
 @JsonClass(generateAdapter = true)
-data class QuickConnectRedeemRequest(
-    @param:Json(name = "code") val code: String,
-)
+data class QuickConnectRedeemRequest(@param:Json(name = "code") val code: String)
 
 @JsonClass(generateAdapter = true)
 data class QuickConnectCodeResponseJson(
     @param:Json(name = "code") val code: String,
-    @param:Json(name = "expiresAt") val expiresAt: String,
+    @param:Json(name = "expiresAt") val expiresAt: String
 )
 
 @JsonClass(generateAdapter = true)
 data class UserJson(
     @param:Json(name = "id") val id: Int,
     @param:Json(name = "email") val email: String,
-    @param:Json(name = "is_admin") val isAdmin: Boolean,
+    @param:Json(name = "is_admin") val isAdmin: Boolean
 )
 
 @JsonClass(generateAdapter = true)
 data class DeviceLoginResponseJson(
     @param:Json(name = "user") val user: UserJson,
     @param:Json(name = "sessionToken") val sessionToken: String,
-    @param:Json(name = "expiresAt") val expiresAt: String,
+    @param:Json(name = "expiresAt") val expiresAt: String
 )
 
 interface PlumApi {
@@ -48,7 +46,9 @@ interface PlumApi {
     suspend fun deviceLogin(@Body body: DeviceLoginRequest): Response<DeviceLoginResponseJson>
 
     @POST("/api/auth/quick-connect/redeem")
-    suspend fun redeemQuickConnect(@Body body: QuickConnectRedeemRequest): Response<DeviceLoginResponseJson>
+    suspend fun redeemQuickConnect(
+        @Body body: QuickConnectRedeemRequest
+    ): Response<DeviceLoginResponseJson>
 
     @POST("/api/auth/quick-connect/device")
     suspend fun createDeviceQuickConnect(): Response<QuickConnectCodeResponseJson>
@@ -69,7 +69,7 @@ interface PlumApi {
     suspend fun libraryMedia(
         @Path("id") libraryId: Int,
         @Query("offset") offset: Int? = null,
-        @Query("limit") limit: Int? = null,
+        @Query("limit") limit: Int? = null
     ): Response<LibraryMediaPageJson>
 
     @GET("/api/libraries/{id}/scan")
@@ -78,37 +78,37 @@ interface PlumApi {
     @GET("/api/libraries/{libraryId}/movies/{mediaId}")
     suspend fun movieDetails(
         @Path("libraryId") libraryId: Int,
-        @Path("mediaId") mediaId: Int,
+        @Path("mediaId") mediaId: Int
     ): Response<LibraryMovieDetailsJson>
 
     @GET("/api/libraries/{libraryId}/shows/{showKey}/details")
     suspend fun showDetails(
         @Path("libraryId") libraryId: Int,
-        @Path("showKey", encoded = true) showKey: String,
+        @Path("showKey", encoded = true) showKey: String
     ): Response<LibraryShowDetailsJson>
 
     @GET("/api/libraries/{libraryId}/shows/{showKey}/episodes")
     suspend fun showEpisodes(
         @Path("libraryId") libraryId: Int,
-        @Path("showKey", encoded = true) showKey: String,
+        @Path("showKey", encoded = true) showKey: String
     ): Response<ShowEpisodesResponseJson>
 
     @PUT("/api/media/{id}/progress")
     suspend fun updateMediaProgress(
         @Path("id") mediaId: Int,
-        @Body body: UpdateMediaProgressPayloadJson,
+        @Body body: UpdateMediaProgressPayloadJson
     ): Response<Unit>
 
     @POST("/api/playback/sessions/{id}")
     suspend fun createPlaybackSession(
         @Path("id") mediaId: Int,
-        @Body body: CreatePlaybackSessionPayloadJson,
+        @Body body: CreatePlaybackSessionPayloadJson
     ): Response<PlaybackSessionJson>
 
     @PATCH("/api/playback/sessions/{sessionId}/audio")
     suspend fun updatePlaybackSessionAudio(
         @Path("sessionId") sessionId: String,
-        @Body body: UpdatePlaybackSessionAudioPayloadJson,
+        @Body body: UpdatePlaybackSessionAudioPayloadJson
     ): Response<PlaybackSessionJson>
 
     @DELETE("/api/playback/sessions/{sessionId}")
@@ -120,12 +120,12 @@ interface PlumApi {
         @Query("library_id") libraryId: Int? = null,
         @Query("limit") limit: Int? = null,
         @Query("type") mediaType: String? = null,
-        @Query("genre") genre: String? = null,
+        @Query("genre") genre: String? = null
     ): Response<SearchResponseJson>
 
     @GET("/api/discover")
     suspend fun discover(
-        @Query("origin_country") originCountry: String? = null,
+        @Query("origin_country") originCountry: String? = null
     ): Response<DiscoverResponseJson>
 
     @GET("/api/discover/genres")
@@ -137,7 +137,7 @@ interface PlumApi {
         @Query("media_type") mediaType: String? = null,
         @Query("genre") genreId: Int? = null,
         @Query("page") page: Int? = null,
-        @Query("origin_country") originCountry: String? = null,
+        @Query("origin_country") originCountry: String? = null
     ): Response<DiscoverBrowseResponseJson>
 
     @GET("/api/discover/search")
@@ -146,13 +146,13 @@ interface PlumApi {
     @GET("/api/discover/{mediaType}/{tmdbId}")
     suspend fun discoverTitleDetails(
         @Path("mediaType") mediaType: String,
-        @Path("tmdbId") tmdbId: Int,
+        @Path("tmdbId") tmdbId: Int
     ): Response<DiscoverTitleDetailsJson>
 
     @POST("/api/discover/{mediaType}/{tmdbId}/add")
     suspend fun addDiscoverTitle(
         @Path("mediaType") mediaType: String,
-        @Path("tmdbId") tmdbId: Int,
+        @Path("tmdbId") tmdbId: Int
     ): Response<DiscoverAcquisitionJson>
 
     @GET("/api/downloads")

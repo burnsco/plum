@@ -5,7 +5,7 @@ data class TrackPickerOption(
     val label: String,
     val selected: Boolean,
     /** Secondary line in the picker (codec, channels, language, mime, etc.). */
-    val detail: String? = null,
+    val detail: String? = null
 )
 
 sealed class TrackPicker {
@@ -14,11 +14,11 @@ sealed class TrackPicker {
 
     data class Subtitles(
         override val title: String = "Subtitles",
-        override val options: List<TrackPickerOption>,
+        override val options: List<TrackPickerOption>
     ) : TrackPicker()
 
     data class Audio(
         override val title: String = "Audio",
-        override val options: List<TrackPickerOption>,
+        override val options: List<TrackPickerOption>
     ) : TrackPicker()
 }

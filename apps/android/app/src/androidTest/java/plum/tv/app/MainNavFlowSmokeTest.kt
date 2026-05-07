@@ -1,6 +1,10 @@
 package plum.tv.app
 
 import android.content.Context
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -8,10 +12,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import kotlinx.coroutines.runBlocking
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -26,19 +26,17 @@ import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import org.junit.runner.RunWith
 
-private val Context.smokeSessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "plum_session")
+private val Context.smokeSessionDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "plum_session"
+)
 
 private val keyServerUrl = stringPreferencesKey("server_url")
 private val keySessionToken = stringPreferencesKey("session_token")
 
-private fun jsonResponse(
-    code: Int,
-    body: String,
-): MockResponse =
-    MockResponse()
-        .setResponseCode(code)
-        .addHeader("Content-Type", "application/json; charset=utf-8")
-        .setBody(body)
+private fun jsonResponse(code: Int, body: String): MockResponse = MockResponse()
+    .setResponseCode(code)
+    .addHeader("Content-Type", "application/json; charset=utf-8")
+    .setBody(body)
 
 @RunWith(AndroidJUnit4::class)
 class MainNavFlowSmokeTest {
@@ -60,24 +58,32 @@ class MainNavFlowSmokeTest {
                                             object : WebSocketListener() {
                                                 override fun onOpen(
                                                     webSocket: WebSocket,
-                                                    response: Response,
+                                                    response: Response
                                                 ) {
                                                     // Keep test server quiet; app may send attach frames.
                                                 }
-                                            },
+                                            }
                                         )
+
                                 request.method == "POST" && path == "/api/auth/device-login" ->
                                     jsonResponse(200, DEVICE_LOGIN_JSON)
+
                                 request.method == "GET" && path == "/api/auth/me" ->
                                     jsonResponse(200, ME_JSON)
+
                                 request.method == "GET" && path == "/api/home" ->
                                     jsonResponse(200, HOME_JSON)
+
                                 request.method == "GET" && path == "/api/libraries" ->
                                     jsonResponse(200, "[]")
-                                request.method == "POST" && path.startsWith("/api/playback/sessions/") ->
+
+                                request.method == "POST" &&
+                                    path.startsWith("/api/playback/sessions/") ->
                                     jsonResponse(200, PLAYBACK_SESSION_JSON)
+
                                 request.method == "PUT" && path.startsWith("/api/media/") ->
                                     MockResponse().setResponseCode(204)
+
                                 else ->
                                     MockResponse()
                                         .setResponseCode(404)
@@ -131,7 +137,9 @@ class MainNavFlowSmokeTest {
                     .isNotEmpty()
         }
 
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(
+            android.view.KeyEvent.KEYCODE_BACK
+        )
 
         composeRule.waitUntil(timeoutMillis = 30_000) {
             composeRule

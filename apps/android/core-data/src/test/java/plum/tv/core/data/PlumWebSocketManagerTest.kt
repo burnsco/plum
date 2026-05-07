@@ -28,69 +28,67 @@ class PlumWebSocketManagerTest {
             .build()
 
     @Test
-    fun start_opensWebSocketWhenCredentialsPresent() =
-        runBlocking {
-            val server = newWebSocketServer()
-            server.mock.start()
-            val baseUrl = server.mock.url("/").toString().trimEnd('/')
+    fun start_opensWebSocketWhenCredentialsPresent() = runBlocking {
+        val server = newWebSocketServer()
+        server.mock.start()
+        val baseUrl = server.mock.url("/").toString().trimEnd('/')
+        try {
+            val prefs = mockk<SessionPreferences>(relaxed = true)
+            every { prefs.serverUrl } returns MutableStateFlow(baseUrl)
+            val tokenBridge = AuthTokenBridge()
+            tokenBridge.setToken("unit-test-token")
+            val catalog = mockk<LibraryCatalogRefreshCoordinator>(relaxed = true)
+            val mgr =
+                PlumWebSocketManager(
+                    OkHttpClient(),
+                    prefs,
+                    tokenBridge,
+                    moshi,
+                    catalog
+                )
             try {
-                val prefs = mockk<SessionPreferences>(relaxed = true)
-                every { prefs.serverUrl } returns MutableStateFlow(baseUrl)
-                val tokenBridge = AuthTokenBridge()
-                tokenBridge.setToken("unit-test-token")
-                val catalog = mockk<LibraryCatalogRefreshCoordinator>(relaxed = true)
-                val mgr =
-                    PlumWebSocketManager(
-                        OkHttpClient(),
-                        prefs,
-                        tokenBridge,
-                        moshi,
-                        catalog,
-                    )
-                try {
-                    mgr.start()
-                    assertTrue(server.opened.await(20, TimeUnit.SECONDS))
-                } finally {
-                    mgr.stop()
-                }
+                mgr.start()
+                assertTrue(server.opened.await(20, TimeUnit.SECONDS))
             } finally {
-                server.mock.shutdown()
+                mgr.stop()
             }
+        } finally {
+            server.mock.shutdown()
         }
+    }
 
     @Test
-    fun start_connectsAfterCredentialsAppearFollowingMissingAuth() =
-        runBlocking {
-            val server = newWebSocketServer()
-            server.mock.start()
-            val baseUrl = server.mock.url("/").toString().trimEnd('/')
+    fun start_connectsAfterCredentialsAppearFollowingMissingAuth() = runBlocking {
+        val server = newWebSocketServer()
+        server.mock.start()
+        val baseUrl = server.mock.url("/").toString().trimEnd('/')
+        try {
+            val urlState = MutableStateFlow<String?>(null)
+            val prefs = mockk<SessionPreferences>(relaxed = true)
+            every { prefs.serverUrl } returns urlState
+            val tokenBridge = AuthTokenBridge()
+            val catalog = mockk<LibraryCatalogRefreshCoordinator>(relaxed = true)
+            val mgr =
+                PlumWebSocketManager(
+                    OkHttpClient(),
+                    prefs,
+                    tokenBridge,
+                    moshi,
+                    catalog
+                )
             try {
-                val urlState = MutableStateFlow<String?>(null)
-                val prefs = mockk<SessionPreferences>(relaxed = true)
-                every { prefs.serverUrl } returns urlState
-                val tokenBridge = AuthTokenBridge()
-                val catalog = mockk<LibraryCatalogRefreshCoordinator>(relaxed = true)
-                val mgr =
-                    PlumWebSocketManager(
-                        OkHttpClient(),
-                        prefs,
-                        tokenBridge,
-                        moshi,
-                        catalog,
-                    )
-                try {
-                    mgr.start()
-                    delay(300)
-                    urlState.value = baseUrl
-                    tokenBridge.setToken("late-token")
-                    assertTrue(server.opened.await(25, TimeUnit.SECONDS))
-                } finally {
-                    mgr.stop()
-                }
+                mgr.start()
+                delay(300)
+                urlState.value = baseUrl
+                tokenBridge.setToken("late-token")
+                assertTrue(server.opened.await(25, TimeUnit.SECONDS))
             } finally {
-                server.mock.shutdown()
+                mgr.stop()
             }
+        } finally {
+            server.mock.shutdown()
         }
+    }
 
     private fun newWebSocketServer(): WsServer {
         val opened = CountDownLatch(1)
@@ -104,21 +102,15 @@ class PlumWebSocketManagerTest {
                     return MockResponse()
                         .withWebSocketUpgrade(
                             object : WebSocketListener() {
-                                override fun onOpen(
-                                    webSocket: WebSocket,
-                                    response: Response,
-                                ) {
+                                override fun onOpen(webSocket: WebSocket, response: Response) {
                                     opened.countDown()
                                 }
-                            },
+                            }
                         )
                 }
             }
         return WsServer(mock, opened)
     }
 
-    private data class WsServer(
-        val mock: MockWebServer,
-        val opened: CountDownLatch,
-    )
+    private data class WsServer(val mock: MockWebServer, val opened: CountDownLatch)
 }

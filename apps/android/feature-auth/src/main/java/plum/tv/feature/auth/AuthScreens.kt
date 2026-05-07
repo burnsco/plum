@@ -18,15 +18,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.Text as TvText
 import kotlinx.coroutines.delay
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumTheme
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 
 @Composable
 fun AuthNavHost(
@@ -34,7 +34,7 @@ fun AuthNavHost(
     defaultServerUrl: String,
     defaultAdminEmail: String,
     defaultAdminPassword: String,
-    viewModel: AuthViewModel = hiltViewModel(),
+    viewModel: AuthViewModel = hiltViewModel()
 ) {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = "splash") {
@@ -46,7 +46,7 @@ fun AuthNavHost(
                 defaultAdminPassword = defaultAdminPassword,
                 onNeedServer = { navController.navigate("server") { popUpTo("splash") { inclusive = true } } },
                 onNeedLogin = { navController.navigate("login") { popUpTo("splash") { inclusive = true } } },
-                onReady = onAuthenticated,
+                onReady = onAuthenticated
             )
         }
         composable("server") {
@@ -57,7 +57,7 @@ fun AuthNavHost(
                     navController.navigate("login") {
                         popUpTo("server") { inclusive = true }
                     }
-                },
+                }
             )
         }
         composable("login") {
@@ -66,14 +66,14 @@ fun AuthNavHost(
                 defaultAdminEmail = defaultAdminEmail,
                 defaultAdminPassword = defaultAdminPassword,
                 onSuccess = onAuthenticated,
-                onOpenQuickConnect = { navController.navigate("quick_connect") },
+                onOpenQuickConnect = { navController.navigate("quick_connect") }
             )
         }
         composable("quick_connect") {
             QuickConnectRoute(
                 viewModel = viewModel,
                 onSuccess = onAuthenticated,
-                onBack = { navController.popBackStack() },
+                onBack = { navController.popBackStack() }
             )
         }
     }
@@ -87,7 +87,7 @@ private fun SplashRoute(
     defaultAdminPassword: String,
     onNeedServer: () -> Unit,
     onNeedLogin: () -> Unit,
-    onReady: () -> Unit,
+    onReady: () -> Unit
 ) {
     LaunchedEffect(defaultServerUrl, defaultAdminEmail, defaultAdminPassword) {
         when (viewModel.bootstrap(defaultServerUrl, defaultAdminEmail, defaultAdminPassword)) {
@@ -103,25 +103,25 @@ private fun SplashRoute(
 private fun ServerRoute(
     viewModel: AuthViewModel,
     defaultServerUrl: String,
-    onSaved: () -> Unit,
+    onSaved: () -> Unit
 ) {
     var url by remember {
         mutableStateOf(
-            viewModel.serverUrl.value ?: defaultServerUrl.ifBlank { "http://10.0.2.2:8080" },
+            viewModel.serverUrl.value ?: defaultServerUrl.ifBlank { "http://10.0.2.2:8080" }
         )
     }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(48.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Plum server URL")
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
             modifier = Modifier,
-            singleLine = true,
+            singleLine = true
         )
         Button(onClick = {
             viewModel.saveServerUrl(url.trim(), onDone = { onSaved() })
@@ -137,7 +137,7 @@ private fun LoginRoute(
     defaultAdminEmail: String,
     defaultAdminPassword: String,
     onSuccess: () -> Unit,
-    onOpenQuickConnect: () -> Unit,
+    onOpenQuickConnect: () -> Unit
 ) {
     var email by remember { mutableStateOf(defaultAdminEmail) }
     var password by remember { mutableStateOf(defaultAdminPassword) }
@@ -171,7 +171,7 @@ private fun LoginRoute(
         modifier = Modifier
             .fillMaxSize()
             .padding(48.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Sign in")
         if (quickStartAvailable) {
@@ -180,36 +180,36 @@ private fun LoginRoute(
             PlumActionButton(
                 label = if (busy) "Signing in…" else "Quick start with default admin",
                 onClick = { runLogin(defaultAdminEmail, defaultAdminPassword) },
-                modifier = Modifier.focusRequester(quickStartFocus),
+                modifier = Modifier.focusRequester(quickStartFocus)
             )
             TvText(
                 text = "Same credentials as Plum web onboarding (dev). One click — no typing.",
                 style = PlumTheme.typography.bodySmall,
-                color = PlumTheme.palette.muted,
+                color = PlumTheme.palette.muted
             )
             TvText(
                 text = "Or enter email and password below.",
                 style = PlumTheme.typography.labelLarge,
-                color = PlumTheme.palette.textSecondary,
+                color = PlumTheme.palette.textSecondary
             )
         }
         PlumActionButton(label = "Quick connect", onClick = onOpenQuickConnect)
         TvText(
             text = "Generate a code on this TV, then enter it from the Plum web profile menu.",
             style = PlumTheme.typography.bodySmall,
-            color = PlumTheme.palette.muted,
+            color = PlumTheme.palette.muted
         )
         OutlinedTextField(value = email, onValueChange = { email = it }, singleLine = true, label = { Text("Email") })
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
             singleLine = true,
-            label = { Text("Password") },
+            label = { Text("Password") }
         )
         error?.let { Text(it) }
         Button(
             onClick = { runLogin(email, password) },
-            enabled = !busy,
+            enabled = !busy
         ) {
             Text(if (busy) "Signing in…" else "Login")
         }
@@ -220,7 +220,7 @@ private fun LoginRoute(
 private fun QuickConnectRoute(
     viewModel: AuthViewModel,
     onSuccess: () -> Unit,
-    onBack: () -> Unit,
+    onBack: () -> Unit
 ) {
     var code by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -238,7 +238,7 @@ private fun QuickConnectRoute(
         error = null
         code = null
         viewModel.startDeviceQuickConnect(
-            onCode = { code = it },
+            onCode = { code = it }
         ) { result ->
             busy = false
             result.onSuccess { onSuccess() }
@@ -250,34 +250,40 @@ private fun QuickConnectRoute(
         modifier = Modifier
             .fillMaxSize()
             .padding(48.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Quick connect")
         TvText(
             text = "Generate a code on this TV, then open Plum on your computer or phone. Use the profile menu → Quick connect and enter the code.",
             style = PlumTheme.typography.bodySmall,
-            color = PlumTheme.palette.muted,
+            color = PlumTheme.palette.muted
         )
         code?.let {
             TvText(
                 text = it,
                 style = PlumTheme.typography.displaySmall,
-                color = PlumTheme.palette.text,
+                color = PlumTheme.palette.text
             )
             TvText(
                 text = "Waiting for web approval...",
                 style = PlumTheme.typography.bodySmall,
-                color = PlumTheme.palette.muted,
+                color = PlumTheme.palette.muted
             )
         }
         error?.let { Text(it) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PlumActionButton(label = "Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
             PlumActionButton(
-                label = if (busy) "Waiting..." else if (code == null) "Generate code" else "New code",
+                label = if (busy) {
+                    "Waiting..."
+                } else if (code == null) {
+                    "Generate code"
+                } else {
+                    "New code"
+                },
                 onClick = { start() },
                 modifier = Modifier.focusRequester(connectFocus),
-                enabled = !busy,
+                enabled = !busy
             )
         }
     }

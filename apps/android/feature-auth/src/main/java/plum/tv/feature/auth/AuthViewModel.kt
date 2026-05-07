@@ -3,6 +3,8 @@ package plum.tv.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Locale
+import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
@@ -12,20 +14,18 @@ import kotlinx.coroutines.withTimeoutOrNull
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.LibraryCatalogRefreshCoordinator
 import plum.tv.core.data.SessionRepository
-import java.util.Locale
-import javax.inject.Inject
 
 enum class StartupState {
     NeedServer,
     NeedLogin,
-    Authenticated,
+    Authenticated
 }
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val browseRepository: BrowseRepository,
-    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    private val catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) : ViewModel() {
 
     private fun invalidateAllLocalCatalogCaches() {
@@ -36,20 +36,20 @@ class AuthViewModel @Inject constructor(
     val serverUrl = sessionRepository.serverUrl.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        null,
+        null
     )
 
     val sessionToken = sessionRepository.sessionToken.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        null,
+        null
     )
 
     fun saveServerUrl(
         url: String,
         onUrlChangedInvalidate: (() -> Unit)? = null,
         /** Called on the main thread after the URL is persisted (or if the save coroutine fails). */
-        onDone: (() -> Unit)? = null,
+        onDone: (() -> Unit)? = null
     ) {
         viewModelScope.launch {
             try {
@@ -69,7 +69,7 @@ class AuthViewModel @Inject constructor(
     suspend fun bootstrap(
         defaultServerUrl: String,
         defaultAdminEmail: String,
-        defaultAdminPassword: String,
+        defaultAdminPassword: String
     ): StartupState {
         sessionRepository.hydrateTokenFromStore()
         val currentServerUrl = sessionRepository.serverUrl.first()?.trim()?.trimEnd('/')
@@ -107,7 +107,9 @@ class AuthViewModel @Inject constructor(
                         .map { }
                 }
                     ?: Result.failure(
-                        Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                        Exception(
+                            "Could not reach the server in time. Check the URL, network, and that Plum is running."
+                        )
                     )
             onResult(result)
         }
@@ -128,23 +130,24 @@ class AuthViewModel @Inject constructor(
                             .map { }
                     }
                         ?: Result.failure(
-                            Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                            Exception(
+                                "Could not reach the server in time. Check the URL, network, and that Plum is running."
+                            )
                         )
                 }
             onResult(result)
         }
     }
 
-    fun startDeviceQuickConnect(
-        onCode: (String) -> Unit,
-        onResult: (Result<Unit>) -> Unit,
-    ) {
+    fun startDeviceQuickConnect(onCode: (String) -> Unit, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             val created = withTimeoutOrNull(15_000) {
                 sessionRepository.createDeviceQuickConnectCode()
             }
                 ?: Result.failure(
-                    Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                    Exception(
+                        "Could not reach the server in time. Check the URL, network, and that Plum is running."
+                    )
                 )
             val code = created.getOrElse {
                 onResult(Result.failure(it))
@@ -158,7 +161,9 @@ class AuthViewModel @Inject constructor(
                     sessionRepository.completeDeviceQuickConnect(code)
                 }
                     ?: Result.failure(
-                        Exception("Could not reach the server in time. Check the URL, network, and that Plum is running."),
+                        Exception(
+                            "Could not reach the server in time. Check the URL, network, and that Plum is running."
+                        )
                     )
                 result
                     .onSuccess { login ->

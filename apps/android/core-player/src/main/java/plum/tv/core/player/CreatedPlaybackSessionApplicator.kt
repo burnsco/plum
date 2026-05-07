@@ -15,13 +15,13 @@ interface CreatedPlaybackSessionApplyHost {
      */
     fun integrateSessionTrackMetadata(
         session: PlaybackSessionJson,
-        validateBurnAfterMetadata: Boolean,
+        validateBurnAfterMetadata: Boolean
     )
 
     suspend fun transitionToDirectPlayback(
         streamUrl: String,
         resumeSec: Float,
-        durationSeconds: Double,
+        durationSeconds: Double
     )
 
     suspend fun transitionToHlsPlayback(session: PlaybackSessionJson, resumeSec: Float)
@@ -31,13 +31,11 @@ interface CreatedPlaybackSessionApplyHost {
     fun reportUnknownDelivery(delivery: String)
 }
 
-class CreatedPlaybackSessionApplicator(
-    private val host: CreatedPlaybackSessionApplyHost,
-) {
+class CreatedPlaybackSessionApplicator(private val host: CreatedPlaybackSessionApplyHost) {
     suspend fun apply(
         session: PlaybackSessionJson,
         resumeSec: Float,
-        validateBurnAfterMetadata: Boolean,
+        validateBurnAfterMetadata: Boolean
     ) {
         host.integrateSessionTrackMetadata(session, validateBurnAfterMetadata)
         when (session.delivery) {
@@ -45,10 +43,12 @@ class CreatedPlaybackSessionApplicator(
                 host.transitionToDirectPlayback(
                     session.streamUrl,
                     resumeSec,
-                    session.durationSeconds,
+                    session.durationSeconds
                 )
+
             "remux", "transcode" ->
                 host.transitionToHlsPlayback(session, resumeSec)
+
             else ->
                 host.reportUnknownDelivery(session.delivery)
         }
