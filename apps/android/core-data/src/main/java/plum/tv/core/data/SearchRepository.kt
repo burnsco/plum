@@ -6,15 +6,13 @@ import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.SearchResponseJson
 
 @Singleton
-class SearchRepository @Inject constructor(
-    private val sessionRepository: SessionRepository,
-) {
+class SearchRepository @Inject constructor(private val sessionRepository: SessionRepository) {
     suspend fun searchLibraryMedia(
         query: String,
         libraryId: Int? = null,
         type: String? = null,
         genre: String? = null,
-        limit: Int = 30,
+        limit: Int = 30
     ): Result<SearchResponseJson> = runCatching {
         val api = sessionRepository.getPlumApi()
         val res = api.searchLibraryMedia(
@@ -22,7 +20,7 @@ class SearchRepository @Inject constructor(
             libraryId = libraryId,
             limit = limit,
             mediaType = type,
-            genre = genre,
+            genre = genre
         )
         if (!res.isSuccessful) {
             error(PlumHttpMessages.preferBody("Search", res.code(), res.errorBody()?.string()))
@@ -30,4 +28,3 @@ class SearchRepository @Inject constructor(
         res.body() ?: error("Empty search response")
     }
 }
-

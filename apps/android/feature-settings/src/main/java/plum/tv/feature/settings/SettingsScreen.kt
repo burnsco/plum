@@ -31,7 +31,7 @@ import plum.tv.feature.auth.AuthViewModel
 fun SettingsRoute(
     onLogoutComplete: () -> Unit,
     defaultServerUrl: String,
-    viewModel: AuthViewModel = hiltViewModel(),
+    viewModel: AuthViewModel = hiltViewModel()
 ) {
     val serverUrl by viewModel.serverUrl.collectAsState(initial = null)
     var url by remember(serverUrl, defaultServerUrl) {
@@ -42,7 +42,7 @@ fun SettingsRoute(
 
     Column(
         modifier = Modifier.fillMaxSize().padding(PlumScreenPadding()),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         PlumScreenTitle("Settings", "Manage the connected server and your current session.")
         Text("Server URL", color = PlumTheme.palette.textSecondary)
@@ -51,23 +51,23 @@ fun SettingsRoute(
             onValueChange = { url = it },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().focusRequester(urlFieldFocus),
-            colors = plumOutlinedFieldColors(),
+            colors = plumOutlinedFieldColors()
         )
         PlumActionButton(
             label = "Save server URL",
             onClick = { viewModel.saveServerUrl(url.trim(), onUrlChangedInvalidate = onLogoutComplete) },
             variant = PlumButtonVariant.Primary,
-            leadingBadge = "SV",
+            leadingBadge = "SV"
         )
         Text(
             text = "Changing the server clears your session; sign in again after switching.",
-            color = PlumTheme.palette.muted,
+            color = PlumTheme.palette.muted
         )
         PlumActionButton(
             label = "Log out",
             onClick = { viewModel.logout(onLogoutComplete) },
             variant = PlumButtonVariant.Secondary,
-            leadingBadge = "LO",
+            leadingBadge = "LO"
         )
     }
 }

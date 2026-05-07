@@ -1,13 +1,13 @@
 package plum.tv.core.player
 
 import java.util.Locale
-import plum.tv.core.network.SubtitleJson
 import plum.tv.core.network.EmbeddedSubtitleJson
+import plum.tv.core.network.SubtitleJson
 
 enum class SubtitleLogicalRenderKind {
     TextCue,
     Bitmap,
-    Unknown,
+    Unknown
 }
 
 data class SubtitleTextTrackCandidate(
@@ -20,7 +20,7 @@ data class SubtitleTextTrackCandidate(
     val selected: Boolean,
     val sideLoadPriority: Int,
     val renderKind: SubtitleLogicalRenderKind,
-    val isCeaClosedCaption: Boolean,
+    val isCeaClosedCaption: Boolean
 )
 
 data class SubtitleBurnTrackCandidate(
@@ -29,20 +29,20 @@ data class SubtitleBurnTrackCandidate(
     val streamIndex: Int,
     val label: String,
     val detail: String?,
-    val selected: Boolean,
+    val selected: Boolean
 )
 
 data class SubtitlePickerBuildInput(
     val textDisabled: Boolean,
     val textTracks: List<SubtitleTextTrackCandidate>,
-    val burnTracks: List<SubtitleBurnTrackCandidate>,
+    val burnTracks: List<SubtitleBurnTrackCandidate>
 )
 
 data class SubtitleRestorePlan(
     val disabled: Boolean,
     val language: String?,
     val label: String?,
-    val configurationId: String?,
+    val configurationId: String?
 )
 
 sealed class SubtitleSelectionAction {
@@ -58,21 +58,22 @@ sealed class SubtitleSelectionAction {
 }
 
 class SubtitleCoordinator {
-    fun logicalIdForSidecar(subtitle: SubtitleJson): String =
-        subtitle.logicalId?.takeIf { it.isNotBlank() } ?: "ext:${subtitle.id}"
+    fun logicalIdForSidecar(subtitle: SubtitleJson): String = subtitle.logicalId?.takeIf { it.isNotBlank() } ?: "ext:${subtitle.id}"
 
     fun buildPickerOptions(input: SubtitlePickerBuildInput): List<TrackPickerOption> {
         val visibleTextTracks = filterVisibleTextTracks(input.textTracks)
         var anyTrackSelected = false
         val options = mutableListOf<TrackPickerOption>()
 
-        val offSelected = input.textDisabled || (visibleTextTracks.none { it.selected } && input.burnTracks.none { it.selected })
+        val offSelected =
+            input.textDisabled ||
+                (visibleTextTracks.none { it.selected } && input.burnTracks.none { it.selected })
         options +=
             TrackPickerOption(
                 id = SubtitlePickerTrackId.Off.toWireId(),
                 label = "Off",
                 selected = offSelected,
-                detail = "Hide subtitles",
+                detail = "Hide subtitles"
             )
 
         for (track in visibleTextTracks) {
@@ -84,7 +85,7 @@ class SubtitleCoordinator {
                     id = track.pickerId,
                     label = track.label,
                     selected = track.selected,
-                    detail = track.detailWithSourceTag(visibleTextTracks),
+                    detail = track.detailWithSourceTag(visibleTextTracks)
                 )
         }
 
@@ -97,7 +98,7 @@ class SubtitleCoordinator {
                     id = track.pickerId,
                     label = track.label,
                     selected = track.selected,
-                    detail = track.detail,
+                    detail = track.detail
                 )
         }
 
@@ -110,42 +111,53 @@ class SubtitleCoordinator {
     fun resolveSelectionAction(
         currentBurnStreamIndex: Int?,
         trackId: SubtitlePickerTrackId,
-        selectedTextRestore: SubtitleRestorePlan?,
-    ): SubtitleSelectionAction =
-        when (trackId) {
-            SubtitlePickerTrackId.Off ->
-                if (currentBurnStreamIndex != null) {
-                    SubtitleSelectionAction.ReloadWithoutBurn(
-                        restore = SubtitleRestorePlan(disabled = true, language = null, label = null, configurationId = null),
+        selectedTextRestore: SubtitleRestorePlan?
+    ): SubtitleSelectionAction = when (trackId) {
+        SubtitlePickerTrackId.Off ->
+            if (currentBurnStreamIndex != null) {
+                SubtitleSelectionAction.ReloadWithoutBurn(
+                    restore = SubtitleRestorePlan(
+                        disabled = true,
+                        language = null,
+                        label = null,
+                        configurationId = null
                     )
-                } else {
-                    SubtitleSelectionAction.DisableText
-                }
-            is SubtitlePickerTrackId.BurnIn ->
-                if (currentBurnStreamIndex == trackId.streamIndex) {
-                    SubtitleSelectionAction.NoOp
-                } else {
-                    SubtitleSelectionAction.ReloadWithBurn(
-                        streamIndex = trackId.streamIndex,
-                        restore = SubtitleRestorePlan(disabled = true, language = null, label = null, configurationId = null),
+                )
+            } else {
+                SubtitleSelectionAction.DisableText
+            }
+
+        is SubtitlePickerTrackId.BurnIn ->
+            if (currentBurnStreamIndex == trackId.streamIndex) {
+                SubtitleSelectionAction.NoOp
+            } else {
+                SubtitleSelectionAction.ReloadWithBurn(
+                    streamIndex = trackId.streamIndex,
+                    restore = SubtitleRestorePlan(
+                        disabled = true,
+                        language = null,
+                        label = null,
+                        configurationId = null
                     )
-                }
-            is SubtitlePickerTrackId.TextTrack ->
-                if (currentBurnStreamIndex != null) {
-                    SubtitleSelectionAction.ReloadWithoutBurn(
-                        restore =
-                            selectedTextRestore
-                                ?: SubtitleRestorePlan(
-                                    disabled = false,
-                                    language = null,
-                                    label = null,
-                                    configurationId = null,
-                                ),
-                    )
-                } else {
-                    SubtitleSelectionAction.ApplyTextTrack(trackId.groupIndex, trackId.trackIndex)
-                }
-        }
+                )
+            }
+
+        is SubtitlePickerTrackId.TextTrack ->
+            if (currentBurnStreamIndex != null) {
+                SubtitleSelectionAction.ReloadWithoutBurn(
+                    restore =
+                        selectedTextRestore
+                            ?: SubtitleRestorePlan(
+                                disabled = false,
+                                language = null,
+                                label = null,
+                                configurationId = null
+                            )
+                )
+            } else {
+                SubtitleSelectionAction.ApplyTextTrack(trackId.groupIndex, trackId.trackIndex)
+            }
+    }
 
     fun isBurnInEmbeddedTrack(subtitle: EmbeddedSubtitleJson): Boolean {
         if (subtitle.supported == false) return false
@@ -153,24 +165,29 @@ class SubtitleCoordinator {
         // reliable across Android/Media3 playback paths, so keep the server burn-in fallback
         // visible for bitmap subtitles while avoiding duplicate rows for ASS/SRT WebVTT tracks.
         if (subtitle.supportsAndroidTextDelivery()) return false
-        if (subtitle.deliveryModes?.any { it.mode == "direct_vtt" || it.mode == "hls_vtt" } == true) {
+        if (subtitle.deliveryModes?.any { it.mode == "direct_vtt" || it.mode == "hls_vtt" } ==
+            true
+        ) {
             return false
         }
         return subtitle.supportsBurnInDelivery()
     }
 
-    fun logicalIdForEmbedded(subtitle: EmbeddedSubtitleJson): String =
-        subtitle.logicalId?.takeIf { it.isNotBlank() } ?: "emb:${subtitle.streamIndex}"
+    fun logicalIdForEmbedded(subtitle: EmbeddedSubtitleJson): String = subtitle.logicalId?.takeIf { it.isNotBlank() } ?: "emb:${subtitle.streamIndex}"
 
     private fun filterVisibleTextTracks(
-        textTracks: List<SubtitleTextTrackCandidate>,
+        textTracks: List<SubtitleTextTrackCandidate>
     ): List<SubtitleTextTrackCandidate> {
         if (textTracks.isEmpty()) return emptyList()
         val sideLoaded = textTracks.filter { it.sideLoadPriority > 0 }
         val promotedSideloadPickerIds =
             textTracks
                 .mapNotNull { candidate ->
-                    if (!candidate.selected || candidate.sideLoadPriority > 0) return@mapNotNull null
+                    if (!candidate.selected ||
+                        candidate.sideLoadPriority > 0
+                    ) {
+                        return@mapNotNull null
+                    }
                     sideLoaded
                         .filter { other -> shouldDropDemuxedDuplicate(candidate, other) }
                         .sortedByDescending { it.sideLoadPriority }
@@ -203,7 +220,7 @@ class SubtitleCoordinator {
 
     private fun shouldDropDemuxedDuplicate(
         candidate: SubtitleTextTrackCandidate,
-        other: SubtitleTextTrackCandidate,
+        other: SubtitleTextTrackCandidate
     ): Boolean {
         val candidateLogical = candidate.logicalId
         val otherLogical = other.logicalId
@@ -215,24 +232,25 @@ class SubtitleCoordinator {
             candidate.renderKind == other.renderKind
     }
 
-    private fun String.normalizedDuplicateLabel(): String =
-        trim()
-            .lowercase(Locale.US)
-            .replace(Regex("\\s+"), " ")
+    private fun String.normalizedDuplicateLabel(): String = trim()
+        .lowercase(Locale.US)
+        .replace(Regex("\\s+"), " ")
 
     private fun SubtitleTextTrackCandidate.detailWithSourceTag(
-        allVisibleTextTracks: List<SubtitleTextTrackCandidate>,
+        allVisibleTextTracks: List<SubtitleTextTrackCandidate>
     ): String? {
         val parts = mutableListOf<String>()
         detail?.trim()?.takeIf { it.isNotEmpty() }?.let { parts += it }
         val sourceTag =
             when {
                 sideLoadPriority > 0 -> "sideload"
+
                 allVisibleTextTracks.any {
                     it.sideLoadPriority > 0 &&
                         it.label == label &&
                         it.renderKind == renderKind
                 } -> "fallback"
+
                 else -> null
             }
         if (sourceTag != null) {
@@ -244,14 +262,13 @@ class SubtitleCoordinator {
     fun buildBurnTrackCandidate(
         subtitle: EmbeddedSubtitleJson,
         activeBurnSubtitleStreamIndex: Int?,
-        label: String,
-    ): SubtitleBurnTrackCandidate =
-        SubtitleBurnTrackCandidate(
-            pickerId = SubtitlePickerTrackId.BurnIn(subtitle.streamIndex).toWireId(),
-            logicalId = logicalIdForEmbedded(subtitle),
-            streamIndex = subtitle.streamIndex,
-            label = label,
-            detail = subtitle.codec?.uppercase(Locale.US),
-            selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex,
-        )
+        label: String
+    ): SubtitleBurnTrackCandidate = SubtitleBurnTrackCandidate(
+        pickerId = SubtitlePickerTrackId.BurnIn(subtitle.streamIndex).toWireId(),
+        logicalId = logicalIdForEmbedded(subtitle),
+        streamIndex = subtitle.streamIndex,
+        label = label,
+        detail = subtitle.codec?.uppercase(Locale.US),
+        selected = activeBurnSubtitleStreamIndex == subtitle.streamIndex
+    )
 }

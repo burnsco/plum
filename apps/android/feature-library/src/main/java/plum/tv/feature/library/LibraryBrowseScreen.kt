@@ -24,15 +24,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import plum.tv.core.network.LibraryBrowseItemJson
 import plum.tv.core.network.LibraryShowBrowseRow
 import plum.tv.core.network.showKeyForBrowseItem
+import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
 import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScreenPadding
-import plum.tv.core.ui.PlumTheme
-import plum.tv.core.ui.LaunchedTvFocusTo
 import plum.tv.core.ui.PlumStatePanel
+import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.resolveImageUrl
 
@@ -40,7 +40,7 @@ import plum.tv.core.ui.resolveImageUrl
 fun LibraryBrowseRoute(
     onOpenMovie: (libraryId: Int, mediaId: Int) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
-    viewModel: LibraryBrowseViewModel = hiltViewModel(),
+    viewModel: LibraryBrowseViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val gridState = rememberLazyGridState()
@@ -58,8 +58,9 @@ fun LibraryBrowseRoute(
                     Triple(
                         lastVisible,
                         s.rows.size,
-                        s.hasMore && !s.loadingMore,
+                        s.hasMore && !s.loadingMore
                     )
+
                 else -> Triple(lastVisible, 0, false)
             }
         }
@@ -75,9 +76,10 @@ fun LibraryBrowseRoute(
         is LibraryBrowseUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PlumStatePanel(
                 title = "Loading library",
-                message = "Scanning the shelf and grouping titles.",
+                message = "Scanning the shelf and grouping titles."
             )
         }
+
         is LibraryBrowseUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PlumStatePanel(
                 title = "Could not load this library",
@@ -87,11 +89,12 @@ fun LibraryBrowseRoute(
                         label = "Retry",
                         onClick = { viewModel.loadInitial(forceNetwork = true) },
                         variant = PlumButtonVariant.Primary,
-                        leadingBadge = "R",
+                        leadingBadge = "R"
                     )
-                },
+                }
             )
         }
+
         is LibraryBrowseUiState.Ready -> {
             LaunchedTvFocusTo(
                 s.rows.firstOrNull().let { row ->
@@ -101,58 +104,59 @@ fun LibraryBrowseRoute(
                         null -> "empty"
                     }
                 },
-                focusRequester = firstPosterFocus,
+                focusRequester = firstPosterFocus
             )
             LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = minCell),
-            state = gridState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PlumScreenPadding(),
-            horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
-            verticalArrangement = Arrangement.spacedBy(metrics.cardGap),
-        ) {
-            if (s.rows.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    PlumStatePanel(
-                        modifier = Modifier.fillMaxWidth(),
-                        title = "No titles in this library",
-                        message = "This shelf is empty or still syncing from the server.",
-                    )
+                columns = GridCells.Adaptive(minSize = minCell),
+                state = gridState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PlumScreenPadding(),
+                horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
+                verticalArrangement = Arrangement.spacedBy(metrics.cardGap)
+            ) {
+                if (s.rows.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        PlumStatePanel(
+                            modifier = Modifier.fillMaxWidth(),
+                            title = "No titles in this library",
+                            message = "This shelf is empty or still syncing from the server."
+                        )
+                    }
                 }
-            }
-            itemsIndexed(
-                s.rows,
-                key = { _, row ->
+                itemsIndexed(
+                    s.rows,
+                    key = { _, row ->
+                        when (row) {
+                            is LibraryBrowseGridRow.Movie -> "m-${row.item.id}"
+                            is LibraryBrowseGridRow.Show -> "s-${row.row.showKey}"
+                        }
+                    }
+                ) { index, row ->
+                    val posterModifier =
+                        if (index == 0 && s.rows.isNotEmpty()) {
+                            Modifier.focusRequester(firstPosterFocus)
+                        } else {
+                            Modifier
+                        }
                     when (row) {
-                        is LibraryBrowseGridRow.Movie -> "m-${row.item.id}"
-                        is LibraryBrowseGridRow.Show -> "s-${row.row.showKey}"
-                    }
-                },
-            ) { index, row ->
-                val posterModifier =
-                    if (index == 0 && s.rows.isNotEmpty()) {
-                        Modifier.focusRequester(firstPosterFocus)
-                    } else {
-                        Modifier
-                    }
-                when (row) {
-                    is LibraryBrowseGridRow.Movie ->
-                        BrowseMoviePosterCard(row.item, posterModifier) {
-                            val lib = row.item.libraryId ?: return@BrowseMoviePosterCard
-                            when (row.item.type) {
-                                "movie" -> onOpenMovie(lib, row.item.id)
-                                "tv", "anime" -> onOpenShow(lib, showKeyForBrowseItem(row.item))
-                                else -> onOpenMovie(lib, row.item.id)
+                        is LibraryBrowseGridRow.Movie ->
+                            BrowseMoviePosterCard(row.item, posterModifier) {
+                                val lib = row.item.libraryId ?: return@BrowseMoviePosterCard
+                                when (row.item.type) {
+                                    "movie" -> onOpenMovie(lib, row.item.id)
+                                    "tv", "anime" -> onOpenShow(lib, showKeyForBrowseItem(row.item))
+                                    else -> onOpenMovie(lib, row.item.id)
+                                }
                             }
-                        }
-                    is LibraryBrowseGridRow.Show ->
-                        BrowseShowPosterCard(row.row, posterModifier) {
-                            val lib = row.row.posterItem.libraryId ?: return@BrowseShowPosterCard
-                            onOpenShow(lib, row.row.showKey)
-                        }
+
+                        is LibraryBrowseGridRow.Show ->
+                            BrowseShowPosterCard(row.row, posterModifier) {
+                                val lib = row.row.posterItem.libraryId ?: return@BrowseShowPosterCard
+                                onOpenShow(lib, row.row.showKey)
+                            }
+                    }
                 }
             }
-        }
         }
     }
 }
@@ -161,7 +165,7 @@ fun LibraryBrowseRoute(
 private fun BrowseMoviePosterCard(
     item: LibraryBrowseItemJson,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
+    onClick: () -> Unit
 ) {
     val serverBase = LocalServerBaseUrl.current
     val sz = PlumImageSizes.POSTER_GRID_COMPACT
@@ -178,7 +182,7 @@ private fun BrowseMoviePosterCard(
         compact = true,
         progressPercent = item.progressPercent,
         watched = item.completed == true,
-        focusedScale = 1f,
+        focusedScale = 1f
     )
 }
 
@@ -186,7 +190,7 @@ private fun BrowseMoviePosterCard(
 private fun BrowseShowPosterCard(
     row: LibraryShowBrowseRow,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
+    onClick: () -> Unit
 ) {
     val serverBase = LocalServerBaseUrl.current
     val ep = row.posterItem
@@ -210,6 +214,6 @@ private fun BrowseShowPosterCard(
         modifier = modifier,
         compact = true,
         watched = unwatched == 0 && row.episodes.isNotEmpty(),
-        focusedScale = 1f,
+        focusedScale = 1f
     )
 }

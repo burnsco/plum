@@ -10,8 +10,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import plum.tv.core.network.CreatePlaybackSessionPayloadJson
-import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.PlaybackSessionJson
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.UpdateMediaProgressPayloadJson
 import plum.tv.core.network.UpdatePlaybackSessionAudioPayloadJson
 import plum.tv.core.network.androidTvClientCapabilities
@@ -20,7 +20,7 @@ import plum.tv.core.network.resolveBackendUrl
 @Singleton
 class PlaybackRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
-    private val okHttpClient: OkHttpClient,
+    private val okHttpClient: OkHttpClient
 ) {
     private val warmCacheClient by lazy {
         okHttpClient.newBuilder()
@@ -41,13 +41,13 @@ class PlaybackRepository @Inject constructor(
     suspend fun createSession(
         mediaId: Int,
         audioIndex: Int? = null,
-        burnEmbeddedSubtitleStreamIndex: Int? = null,
+        burnEmbeddedSubtitleStreamIndex: Int? = null
     ): Result<PlaybackSessionJson> = runCatching {
         val api = sessionRepository.getPlumApi()
         val payload = CreatePlaybackSessionPayloadJson(
             audioIndex = audioIndex,
             clientCapabilities = androidTvClientCapabilities(),
-            burnEmbeddedSubtitleStreamIndex = burnEmbeddedSubtitleStreamIndex,
+            burnEmbeddedSubtitleStreamIndex = burnEmbeddedSubtitleStreamIndex
         )
         val res = api.createPlaybackSession(mediaId, payload)
         if (!res.isSuccessful) {
@@ -55,40 +55,55 @@ class PlaybackRepository @Inject constructor(
                 PlumHttpMessages.userFacingHttpError(
                     "Create playback session",
                     res.code(),
-                    res.errorBody()?.string(),
-                ),
+                    res.errorBody()?.string()
+                )
             )
         }
         res.body() ?: error("Empty playback session")
     }
 
-    suspend fun updateProgress(mediaId: Int, positionSec: Double, durationSec: Double, completed: Boolean? = null) {
+    suspend fun updateProgress(
+        mediaId: Int,
+        positionSec: Double,
+        durationSec: Double,
+        completed: Boolean? = null
+    ) {
         val api = sessionRepository.getPlumApi()
         val res = api.updateMediaProgress(
             mediaId,
             UpdateMediaProgressPayloadJson(
                 positionSeconds = positionSec,
                 durationSeconds = durationSec,
-                completed = completed,
-            ),
+                completed = completed
+            )
         )
         if (!res.isSuccessful) {
             throw IllegalStateException(
-                PlumHttpMessages.userFacingHttpError("Progress", res.code(), res.errorBody()?.string()),
+                PlumHttpMessages.userFacingHttpError(
+                    "Progress",
+                    res.code(),
+                    res.errorBody()?.string()
+                )
             )
         }
     }
 
-    suspend fun updateSessionAudio(sessionId: String, audioIndex: Int): Result<PlaybackSessionJson> = runCatching {
+    suspend fun updateSessionAudio(
+        sessionId: String,
+        audioIndex: Int
+    ): Result<PlaybackSessionJson> = runCatching {
         val api = sessionRepository.getPlumApi()
-        val res = api.updatePlaybackSessionAudio(sessionId, UpdatePlaybackSessionAudioPayloadJson(audioIndex))
+        val res = api.updatePlaybackSessionAudio(
+            sessionId,
+            UpdatePlaybackSessionAudioPayloadJson(audioIndex)
+        )
         if (!res.isSuccessful) {
             error(
                 PlumHttpMessages.userFacingHttpError(
                     "Update playback session audio",
                     res.code(),
-                    res.errorBody()?.string(),
-                ),
+                    res.errorBody()?.string()
+                )
             )
         }
         res.body() ?: error("Empty session")
@@ -125,20 +140,19 @@ class PlaybackRepository @Inject constructor(
     }
 
     /** True when the master playlist exists and looks parseable (avoids swapping the player to an empty m3u8). */
-    suspend fun hlsMasterPlaylistLooksReady(absoluteUrl: String): Boolean =
-        withContext(Dispatchers.IO) {
-            val req =
-                Request.Builder()
-                    .url(absoluteUrl)
-                    .header("Cache-Control", "no-cache")
-                    .get()
-                    .build()
-            runCatching {
-                hlsProbeClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use false
-                    val body = resp.body.string()
-                    body.startsWith("#EXTM3U") && body.length >= 32
-                }
-            }.getOrDefault(false)
-        }
+    suspend fun hlsMasterPlaylistLooksReady(absoluteUrl: String): Boolean = withContext(Dispatchers.IO) {
+        val req =
+            Request.Builder()
+                .url(absoluteUrl)
+                .header("Cache-Control", "no-cache")
+                .get()
+                .build()
+        runCatching {
+            hlsProbeClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use false
+                val body = resp.body.string()
+                body.startsWith("#EXTM3U") && body.length >= 32
+            }
+        }.getOrDefault(false)
+    }
 }

@@ -23,7 +23,7 @@ sealed interface DiscoverUiState {
     data object Loading : DiscoverUiState
     data class Ready(
         val discover: DiscoverResponseJson,
-        val genres: DiscoverGenresResponseJson,
+        val genres: DiscoverGenresResponseJson
     ) : DiscoverUiState
     data class Error(val message: String) : DiscoverUiState
 }
@@ -44,7 +44,7 @@ sealed interface DiscoverBrowseUiState {
         /** True while a filter change is loading new results (grid stays visible). */
         val refreshing: Boolean = false,
         /** True while appending the next page (bottom loading indicator). */
-        val loadingMore: Boolean = false,
+        val loadingMore: Boolean = false
     ) : DiscoverBrowseUiState
     data class Error(val message: String) : DiscoverBrowseUiState
 }
@@ -54,7 +54,7 @@ sealed interface DiscoverDetailUiState {
     data class Ready(
         val details: DiscoverTitleDetailsJson,
         val addingTitle: Boolean = false,
-        val addError: String? = null,
+        val addError: String? = null
     ) : DiscoverDetailUiState
     data class Error(val message: String) : DiscoverDetailUiState
 }
@@ -63,7 +63,7 @@ sealed interface DownloadsUiState {
     data object Loading : DownloadsUiState
     data class Ready(
         val configured: Boolean,
-        val items: List<DownloadItemJson>,
+        val items: List<DownloadItemJson>
     ) : DownloadsUiState
     data class Error(val message: String) : DownloadsUiState
 }
@@ -71,7 +71,7 @@ sealed interface DownloadsUiState {
 @HiltViewModel
 class DiscoverViewModel @Inject constructor(
     private val repository: DiscoverRepository,
-    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) : ViewModel() {
     private val _state = MutableStateFlow<DiscoverUiState>(DiscoverUiState.Loading)
     val state: StateFlow<DiscoverUiState> = _state.asStateFlow()
@@ -104,7 +104,7 @@ class DiscoverViewModel @Inject constructor(
 @HiltViewModel
 class DiscoverBrowseViewModel @Inject constructor(
     private val repository: DiscoverRepository,
-    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) : ViewModel() {
     private val _state = MutableStateFlow<DiscoverBrowseUiState>(DiscoverBrowseUiState.Loading)
     val state: StateFlow<DiscoverBrowseUiState> = _state.asStateFlow()
@@ -179,7 +179,7 @@ class DiscoverBrowseViewModel @Inject constructor(
                 totalResults = browse.totalResults,
                 currentPage = browse.page,
                 totalPages = browse.totalPages,
-                hasMore = browse.page < browse.totalPages,
+                hasMore = browse.page < browse.totalPages
             )
         }
     }
@@ -203,7 +203,7 @@ class DiscoverBrowseViewModel @Inject constructor(
                 requestCategory,
                 requestMediaType,
                 requestGenreId,
-                page = nextPage,
+                page = nextPage
             ).getOrElse {
                 if (requestVersion != browseRequestVersion) return@launch
                 isLoadingMore = false
@@ -230,7 +230,7 @@ class DiscoverBrowseViewModel @Inject constructor(
                 totalPages = browse.totalPages,
                 totalResults = browse.totalResults,
                 hasMore = browse.page < browse.totalPages,
-                loadingMore = false,
+                loadingMore = false
             )
         }
     }
@@ -240,12 +240,18 @@ class DiscoverBrowseViewModel @Inject constructor(
         val categoryName = category
         return when {
             genreName != null && mediaType == "movie" -> "$genreName Movies"
+
             genreName != null && mediaType == "tv" -> "$genreName TV"
+
             genreName != null -> genreName
+
             !categoryName.isNullOrBlank() -> categoryName.replace('-', ' ')
                 .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+
             mediaType == "movie" -> "Movies"
+
             mediaType == "tv" -> "TV Shows"
+
             else -> "Browse"
         }
     }
@@ -254,7 +260,7 @@ class DiscoverBrowseViewModel @Inject constructor(
 @HiltViewModel
 class DiscoverDetailViewModel @Inject constructor(
     private val repository: DiscoverRepository,
-    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) : ViewModel() {
     private val _state = MutableStateFlow<DiscoverDetailUiState>(DiscoverDetailUiState.Loading)
     val state: StateFlow<DiscoverDetailUiState> = _state.asStateFlow()
@@ -303,7 +309,7 @@ class DiscoverDetailViewModel @Inject constructor(
                 _state.value =
                     latest.copy(
                         addingTitle = false,
-                        addError = e.message ?: "Failed to add title",
+                        addError = e.message ?: "Failed to add title"
                     )
                 return@launch
             }
@@ -316,7 +322,7 @@ private const val DOWNLOADS_POLL_INTERVAL_MS = 5_000L
 
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
-    private val repository: DiscoverRepository,
+    private val repository: DiscoverRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow<DownloadsUiState>(DownloadsUiState.Loading)
     val state: StateFlow<DownloadsUiState> = _state.asStateFlow()
@@ -346,7 +352,7 @@ class DownloadsViewModel @Inject constructor(
                     Log.w(
                         "DownloadsViewModel",
                         "remove download failed",
-                        result.exceptionOrNull(),
+                        result.exceptionOrNull()
                     )
                 }
             } finally {
@@ -371,7 +377,7 @@ class DownloadsViewModel @Inject constructor(
         }
         _state.value = DownloadsUiState.Ready(
             configured = downloads.configured,
-            items = downloads.items,
+            items = downloads.items
         )
     }
 }

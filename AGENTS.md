@@ -20,10 +20,10 @@ Root scripts in `package.json`:
 | Command | Purpose |
 | --- | --- |
 | `bun run validate` / `validate:fast` | Frequent check: lint + typecheck (web, shared, contracts) + server tests. Default pre-commit style bar. |
-| `validate:full` | Merge gate: everything in `validate:fast`, plus web unit tests, web production build, Go build, Android `lintDebug` + `assembleDebug`. |
+| `validate:full` | Merge gate: everything in `validate:fast`, plus web unit tests, web production build, Go build, Android lint/detekt/format checks + `assembleDebug`. |
 | `validate:web` | Web stack only: lint/typecheck for web + shared + contracts, web tests, web build. |
 | `validate:server` | Server only: `go test ./...` + Go build via `apps/server` scripts. |
-| `validate:android` | Android TV only: `lintDebug` + `assembleDebug` (requires SDK; see **Android TV development**). |
+| `validate:android` | Android TV only: `lintDebug` + detekt + Spotless format check + `assembleDebug` (requires SDK; see **Android TV development**). |
 
 `validate:full` currently runs `bun run --cwd apps/web test` (full Vitest suite). For the subset that excludes `App.test.tsx`, use `bun run --cwd apps/web test:stable`; for that file alone, `bun run --cwd apps/web test:app`.
 

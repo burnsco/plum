@@ -11,7 +11,9 @@ androidx-tv-foundation = "1.0.0-beta01"
 androidx-tv-material = "1.1.0-beta01"
 coil = "3.4.0"
 coroutines = "1.10.2"
+detekt = "2.0.0-alpha.3"
 junit = "4.13.2"
+ktlint = "1.8.0"
 mockk = "1.14.2"
 hilt = "2.59.2"
 kotlin = "2.3.20"
@@ -20,6 +22,7 @@ media3 = "1.10.0"
 moshi = "1.15.2"
 okhttp = "5.3.0"
 retrofit = "3.0.0"
+spotless = "8.4.0"
 
 [libraries]
 # Used by build-logic (compileOnly) — keep versions in sync with [plugins] / [versions].
@@ -69,6 +72,8 @@ retrofit-converter-moshi = { module = "com.squareup.retrofit2:converter-moshi", 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

@@ -21,7 +21,7 @@ import plum.tv.core.network.LibraryScanUpdateWsEventJson
  */
 @Singleton
 class LibraryCatalogRefreshCoordinator @Inject constructor(
-    private val browseRepository: BrowseRepository,
+    private val browseRepository: BrowseRepository
 ) {
     private companion object {
         const val TAG = "PlumTV"
@@ -33,7 +33,7 @@ class LibraryCatalogRefreshCoordinator @Inject constructor(
     private val _events =
         MutableSharedFlow<CatalogRefreshEvent>(
             extraBufferCapacity = 32,
-            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST
         )
     val catalogRefreshEvents: SharedFlow<CatalogRefreshEvent> = _events.asSharedFlow()
 
@@ -58,7 +58,7 @@ class LibraryCatalogRefreshCoordinator @Inject constructor(
     fun handleWebSocketText(
         scanAdapter: JsonAdapter<LibraryScanUpdateWsEventJson>,
         catalogChangedAdapter: JsonAdapter<LibraryCatalogChangedWsEventJson>,
-        text: String,
+        text: String
     ): Boolean {
         val catalogParsed = runCatching { catalogChangedAdapter.fromJson(text) }.getOrNull()
         if (catalogParsed != null && catalogParsed.type == "library_catalog_changed") {
@@ -98,7 +98,7 @@ class LibraryCatalogRefreshCoordinator @Inject constructor(
 
 data class CatalogRefreshEvent(
     val libraryId: Int,
-    val invalidateDiscover: Boolean,
+    val invalidateDiscover: Boolean
 )
 
 /** Minimal copy for comparisons; ignores activity and other fields the web client does not use for invalidation. */
@@ -119,29 +119,28 @@ private data class ScanStatusSnapshot(
     val identifyRequested: Boolean,
     val error: String?,
     val lastError: String?,
-    val finishedAt: String?,
+    val finishedAt: String?
 )
 
-private fun plum.tv.core.network.LibraryScanStatusJson.toSnapshot(): ScanStatusSnapshot =
-    ScanStatusSnapshot(
-        libraryId = libraryId,
-        phase = phase,
-        enrichmentPhase = enrichmentPhase,
-        enriching = enriching,
-        identifyPhase = identifyPhase,
-        identified = identified,
-        identifyFailed = identifyFailed,
-        processed = processed,
-        added = added,
-        updated = updated,
-        removed = removed,
-        unmatched = unmatched,
-        skipped = skipped,
-        identifyRequested = identifyRequested,
-        error = error,
-        lastError = lastError,
-        finishedAt = finishedAt,
-    )
+private fun plum.tv.core.network.LibraryScanStatusJson.toSnapshot(): ScanStatusSnapshot = ScanStatusSnapshot(
+    libraryId = libraryId,
+    phase = phase,
+    enrichmentPhase = enrichmentPhase,
+    enriching = enriching,
+    identifyPhase = identifyPhase,
+    identified = identified,
+    identifyFailed = identifyFailed,
+    processed = processed,
+    added = added,
+    updated = updated,
+    removed = removed,
+    unmatched = unmatched,
+    skipped = skipped,
+    identifyRequested = identifyRequested,
+    error = error,
+    lastError = lastError,
+    finishedAt = finishedAt
+)
 
 private fun enrichmentPhaseActive(status: ScanStatusSnapshot): String {
     if (status.enrichmentPhase == "queued" || status.enrichmentPhase == "running") {

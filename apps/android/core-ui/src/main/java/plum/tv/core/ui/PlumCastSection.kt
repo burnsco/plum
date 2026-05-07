@@ -27,7 +27,7 @@ data class PlumCastMember(
     val name: String,
     val character: String? = null,
     val profilePath: String? = null,
-    val profileUrl: String? = null,
+    val profileUrl: String? = null
 )
 
 /** Compact horizontal cast strip — circular headshots with name + role underneath. */
@@ -36,52 +36,52 @@ fun PlumCastSection(
     cast: List<PlumCastMember>,
     serverBase: String,
     modifier: Modifier = Modifier,
-    title: String = "Cast",
+    title: String = "Cast"
 ) {
     val palette = PlumTheme.palette
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PlumSectionHeader(title = title)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(vertical = 4.dp),
+            contentPadding = PaddingValues(vertical = 4.dp)
         ) {
             items(cast.take(20), key = { it.name }) { member ->
                 val photo = resolveArtworkUrl(
                     serverBase,
                     member.profileUrl,
                     member.profilePath,
-                    PlumImageSizes.THUMB_SMALL,
+                    PlumImageSizes.THUMB_SMALL
                 )
                 Column(
                     modifier = Modifier.width(72.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(56.dp)
-                            .clip(CircleShape),
+                            .clip(CircleShape)
                     ) {
                         if (!photo.isNullOrBlank()) {
                             AsyncImage(
                                 model = photo,
                                 contentDescription = member.name,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
+                                contentScale = ContentScale.Crop
                             )
                         } else {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .background(palette.surface),
-                                contentAlignment = Alignment.Center,
+                                contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = member.name.trim().firstOrNull()
                                         ?.uppercaseChar()?.toString() ?: "?",
                                     style = PlumTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = palette.muted,
+                                    color = palette.muted
                                 )
                             }
                         }
@@ -92,7 +92,7 @@ fun PlumCastSection(
                         color = palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
+                        textAlign = TextAlign.Center
                     )
                     member.character?.takeIf { it.isNotBlank() }?.let { character ->
                         Text(
@@ -101,7 +101,7 @@ fun PlumCastSection(
                             color = palette.muted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }

@@ -10,9 +10,7 @@ import plum.tv.feature.library.filterLibrariesByType
 import plum.tv.feature.library.libraryRailType
 
 @HiltViewModel
-class MainNavViewModel @Inject constructor(
-    private val browseRepository: BrowseRepository,
-) : ViewModel() {
+class MainNavViewModel @Inject constructor(private val browseRepository: BrowseRepository) : ViewModel() {
 
     /**
      * When exactly one library matches [type] (TV / Movies / Anime / Music), return its id so the

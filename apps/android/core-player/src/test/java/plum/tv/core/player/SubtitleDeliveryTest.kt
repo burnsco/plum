@@ -15,10 +15,13 @@ class SubtitleDeliveryTest {
                 codec = "hdmv_pgs_subtitle",
                 supported = true,
                 vttEligible = true,
-                pgsBinaryEligible = true,
+                pgsBinaryEligible = true
             )
 
-        assertEquals(AndroidEmbeddedSubtitleDelivery.TextVtt, subtitle.preferredAndroidEmbeddedSubtitleDelivery())
+        assertEquals(
+            AndroidEmbeddedSubtitleDelivery.TextVtt,
+            subtitle.preferredAndroidEmbeddedSubtitleDelivery()
+        )
     }
 
     @Test
@@ -28,10 +31,13 @@ class SubtitleDeliveryTest {
                 codec = "hdmv_pgs_subtitle",
                 supported = true,
                 vttEligible = false,
-                pgsBinaryEligible = true,
+                pgsBinaryEligible = true
             )
 
-        assertEquals(AndroidEmbeddedSubtitleDelivery.PgsBinary, subtitle.preferredAndroidEmbeddedSubtitleDelivery())
+        assertEquals(
+            AndroidEmbeddedSubtitleDelivery.PgsBinary,
+            subtitle.preferredAndroidEmbeddedSubtitleDelivery()
+        )
     }
 
     @Test
@@ -43,11 +49,14 @@ class SubtitleDeliveryTest {
                 deliveryModes =
                     listOf(
                         EmbeddedSubtitleDeliveryModeJson(mode = "direct_vtt"),
-                        EmbeddedSubtitleDeliveryModeJson(mode = "pgs_binary"),
-                    ),
+                        EmbeddedSubtitleDeliveryModeJson(mode = "pgs_binary")
+                    )
             )
 
-        assertEquals(AndroidEmbeddedSubtitleDelivery.TextVtt, subtitle.preferredAndroidEmbeddedSubtitleDelivery())
+        assertEquals(
+            AndroidEmbeddedSubtitleDelivery.TextVtt,
+            subtitle.preferredAndroidEmbeddedSubtitleDelivery()
+        )
     }
 
     @Test
@@ -56,15 +65,15 @@ class SubtitleDeliveryTest {
             embeddedSubtitleCodecMatchesTextFormat(
                 codec = "hdmv_pgs_subtitle",
                 mime = "text/vtt",
-                pgsTextDeliveryEligible = true,
-            ),
+                pgsTextDeliveryEligible = true
+            )
         )
         assertFalse(
             embeddedSubtitleCodecMatchesTextFormat(
                 codec = "hdmv_pgs_subtitle",
                 mime = "text/vtt",
-                pgsTextDeliveryEligible = false,
-            ),
+                pgsTextDeliveryEligible = false
+            )
         )
     }
 }

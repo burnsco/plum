@@ -5,12 +5,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
-import androidx.media3.common.util.UnstableApi
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.media3.common.util.UnstableApi
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import plum.tv.core.data.LibraryScanStatusPoller
@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
                     libraryScanStatusPoller = libraryScanStatusPoller,
                     defaultServerUrl = BuildConfig.DEFAULT_SERVER_URL,
                     defaultAdminEmail = BuildConfig.DEFAULT_ADMIN_EMAIL,
-                    defaultAdminPassword = BuildConfig.DEFAULT_ADMIN_PASSWORD,
+                    defaultAdminPassword = BuildConfig.DEFAULT_ADMIN_PASSWORD
                 )
             }
         }
@@ -67,7 +67,7 @@ private fun PlumTvRoot(
     libraryScanStatusPoller: LibraryScanStatusPoller,
     defaultServerUrl: String,
     defaultAdminEmail: String,
-    defaultAdminPassword: String,
+    defaultAdminPassword: String
 ) {
     var authed by remember { mutableStateOf(false) }
     if (!authed) {
@@ -75,7 +75,7 @@ private fun PlumTvRoot(
             onAuthenticated = { authed = true },
             defaultServerUrl = defaultServerUrl,
             defaultAdminEmail = defaultAdminEmail,
-            defaultAdminPassword = defaultAdminPassword,
+            defaultAdminPassword = defaultAdminPassword
         )
     } else {
         MainNavHost(
@@ -85,7 +85,7 @@ private fun PlumTvRoot(
             onLogout = {
                 webSocketManager.stop()
                 authed = false
-            },
+            }
         )
     }
 }

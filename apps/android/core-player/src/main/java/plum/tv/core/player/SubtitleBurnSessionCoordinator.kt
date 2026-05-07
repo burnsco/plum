@@ -14,7 +14,7 @@ enum class SubtitleBurnReloadPhase {
     Detaching,
     CreatingSession,
     ApplyingPlayback,
-    Failed,
+    Failed
 }
 
 /**
@@ -37,7 +37,7 @@ interface SubtitleBurnReloadHost {
 
 class SubtitleBurnSessionCoordinator(
     private val host: SubtitleBurnReloadHost,
-    private val mutex: Mutex = Mutex(),
+    private val mutex: Mutex = Mutex()
 ) {
     @Volatile
     var phase: SubtitleBurnReloadPhase = SubtitleBurnReloadPhase.Idle
@@ -68,7 +68,7 @@ class SubtitleBurnSessionCoordinator(
                     phase = SubtitleBurnReloadPhase.Failed
                     host.onBurnReloadSessionCreateFailed(e)
                     phase = SubtitleBurnReloadPhase.Idle
-                },
+                }
             )
         } catch (e: CancellationException) {
             phase = SubtitleBurnReloadPhase.Idle

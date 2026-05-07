@@ -14,7 +14,7 @@ import plum.tv.core.network.HomeDashboardJson
 @Singleton
 class HomeDashboardDiskCache @Inject constructor(
     @ApplicationContext context: Context,
-    moshi: Moshi,
+    moshi: Moshi
 ) {
     private val file = File(context.cacheDir, "plum_home_dashboard_cache.json")
     private val adapter = moshi.adapter(CachedHomeDashboardEnvelope::class.java)
@@ -28,27 +28,25 @@ class HomeDashboardDiskCache @Inject constructor(
         }
     }
 
-    suspend fun read(serverUrl: String): HomeDashboardJson? =
-        withContext(Dispatchers.IO) {
-            val env =
-                synchronized(lock) {
-                    if (!file.exists()) return@withContext null
-                    runCatching { adapter.fromJson(file.readText()) }.getOrNull()
-                } ?: return@withContext null
-            val normalized = serverUrl.trim().trimEnd('/')
-            if (env.serverUrl != normalized) return@withContext null
-            env.dashboard
-        }
-
-    suspend fun write(serverUrl: String, dashboard: HomeDashboardJson) =
-        withContext(Dispatchers.IO) {
-            val normalized = serverUrl.trim().trimEnd('/')
-            val json =
-                adapter.toJson(
-                    CachedHomeDashboardEnvelope(serverUrl = normalized, dashboard = dashboard),
-                )
+    suspend fun read(serverUrl: String): HomeDashboardJson? = withContext(Dispatchers.IO) {
+        val env =
             synchronized(lock) {
-                file.writeText(json)
-            }
+                if (!file.exists()) return@withContext null
+                runCatching { adapter.fromJson(file.readText()) }.getOrNull()
+            } ?: return@withContext null
+        val normalized = serverUrl.trim().trimEnd('/')
+        if (env.serverUrl != normalized) return@withContext null
+        env.dashboard
+    }
+
+    suspend fun write(serverUrl: String, dashboard: HomeDashboardJson) = withContext(Dispatchers.IO) {
+        val normalized = serverUrl.trim().trimEnd('/')
+        val json =
+            adapter.toJson(
+                CachedHomeDashboardEnvelope(serverUrl = normalized, dashboard = dashboard)
+            )
+        synchronized(lock) {
+            file.writeText(json)
         }
+    }
 }

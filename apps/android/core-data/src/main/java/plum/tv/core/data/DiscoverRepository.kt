@@ -3,17 +3,17 @@ package plum.tv.core.data
 import javax.inject.Inject
 import javax.inject.Singleton
 import plum.tv.core.network.DiscoverBrowseResponseJson
-import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.DiscoverGenresResponseJson
 import plum.tv.core.network.DiscoverResponseJson
 import plum.tv.core.network.DiscoverSearchResponseJson
 import plum.tv.core.network.DiscoverTitleDetailsJson
 import plum.tv.core.network.DownloadsResponseJson
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.RemoveDownloadPayloadJson
 
 @Singleton
 class DiscoverRepository @Inject constructor(
-    private val sessionRepository: SessionRepository,
+    private val sessionRepository: SessionRepository
 ) {
     suspend fun discover(originCountry: String? = null): Result<DiscoverResponseJson> = runCatching {
         val res = sessionRepository.getPlumApi().discover(originCountry)
@@ -36,7 +36,7 @@ class DiscoverRepository @Inject constructor(
         mediaType: String? = null,
         genreId: Int? = null,
         page: Int? = null,
-        originCountry: String? = null,
+        originCountry: String? = null
     ): Result<DiscoverBrowseResponseJson> = runCatching {
         val res =
             sessionRepository.getPlumApi().browseDiscover(category, mediaType, genreId, page, originCountry)

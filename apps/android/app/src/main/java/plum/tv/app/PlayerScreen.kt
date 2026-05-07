@@ -1,14 +1,15 @@
 package plum.tv.app
 
+import android.graphics.Color as AndroidGraphicsColor
 import android.text.format.DateFormat
 import android.view.Gravity
-import android.widget.FrameLayout
-import androidx.annotation.OptIn
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -17,8 +18,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +35,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -45,8 +46,8 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,26 +57,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,45 +82,48 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.view.updateLayoutParams
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.R as Media3UiR
-import coil3.compose.AsyncImage
+import androidx.media3.ui.SubtitleView
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import coil3.compose.AsyncImage
 import java.util.Date
-import android.graphics.Color as AndroidGraphicsColor
 import kotlinx.coroutines.delay
 import plum.tv.core.data.SubtitleAppearance
-import plum.tv.core.data.VideoAspectRatioMode
 import plum.tv.core.data.SubtitlePosition
 import plum.tv.core.data.SubtitleSize
+import plum.tv.core.data.VideoAspectRatioMode
 import plum.tv.core.player.TrackPicker
 import plum.tv.core.player.TrackPickerOption
 import plum.tv.core.player.UpNextOverlayState
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumScrims
-import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.plumBorder
+import plum.tv.core.ui.resolveArtworkUrl
 
 private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 private const val CONTROLS_FADE_DURATION_MS = 200
@@ -132,7 +132,7 @@ private const val CONTROLS_FADE_DURATION_MS = 200
 @Composable
 fun PlayerRoute(
     onClose: () -> Unit,
-    viewModel: PlayerViewModel = hiltViewModel(),
+    viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val ui by viewModel.uiState.collectAsState()
     val wallClockMs by viewModel.wallClock.collectAsState()
@@ -231,7 +231,7 @@ fun PlayerRoute(
         trackPicker == null &&
             upNext == null &&
             !subtitleStyleOverlayVisible &&
-            !aspectRatioOverlayVisible,
+            !aspectRatioOverlayVisible
     ) {
         if (controlsVisible) {
             onClose()
@@ -353,6 +353,7 @@ fun PlayerRoute(
                             viewModel.playUpNextNow()
                             true
                         }
+
                         else -> false
                     }
                 }
@@ -364,25 +365,30 @@ fun PlayerRoute(
                         viewModel.togglePlayPause()
                         true
                     }
+
                     AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
                         viewModel.forward10()
                         true
                     }
+
                     AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> {
                         viewModel.rewind10()
                         true
                     }
+
                     AndroidKeyEvent.KEYCODE_MEDIA_NEXT -> {
                         viewModel.nextEpisode()
                         true
                     }
+
                     AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
                         viewModel.previousEpisode()
                         true
                     }
+
                     else -> false
                 }
-            },
+            }
     ) {
         // ── Video surface ────────────────────────────────────────────────────────
         AndroidView(
@@ -410,7 +416,7 @@ fun PlayerRoute(
                 view.subtitleView?.visibility = android.view.View.GONE
                 view.applyPlumSubtitleAppearance(subtitleAppearance)
                 applyVideoAspectToPlayerView(view, videoAspectRatioMode)
-            },
+            }
         )
 
         AndroidView(
@@ -426,19 +432,19 @@ fun PlayerRoute(
             update = { view ->
                 view.setCues(subtitleCues)
                 view.applyPlumSubtitleAppearance(subtitleAppearance)
-            },
+            }
         )
 
         // ── Gradient overlay — fades with controls for a polished transition ─────────────────────
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(tween(CONTROLS_FADE_DURATION_MS)),
-            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(PlumScrims.playerControls),
+                    .background(PlumScrims.playerControls)
             )
         }
 
@@ -446,13 +452,13 @@ fun PlayerRoute(
         if (ui.isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
+                contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(48.dp),
                     color = PlumTheme.palette.accent.copy(alpha = 0.9f),
                     trackColor = Color.White.copy(alpha = 0.10f),
-                    strokeWidth = 3.dp,
+                    strokeWidth = 3.dp
                 )
             }
         }
@@ -462,20 +468,20 @@ fun PlayerRoute(
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.TopStart),
             enter = fadeIn(tween(CONTROLS_FADE_DURATION_MS)),
-            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS))
         ) {
             Column(
                 modifier = Modifier
                     .padding(horizontal = 40.dp, vertical = 28.dp)
                     .widthIn(max = 640.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 ui.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
                     Text(
                         text = sub,
                         style = PlumTheme.typography.labelMedium,
                         color = PlumTheme.palette.accent,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Bold
                     )
                 }
                 Text(
@@ -484,14 +490,14 @@ fun PlayerRoute(
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis
                 )
                 val showStatus = ui.status != "Playing" && ui.error == null
                 if (showStatus) {
                     Text(
                         text = ui.status,
                         style = PlumTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.55f),
+                        color = Color.White.copy(alpha = 0.55f)
                     )
                 }
                 ui.error?.takeIf { it.isNotBlank() }?.let { err ->
@@ -501,7 +507,7 @@ fun PlayerRoute(
                         color = PlumTheme.palette.error,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -512,14 +518,14 @@ fun PlayerRoute(
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.TopEnd),
             enter = fadeIn(tween(CONTROLS_FADE_DURATION_MS)),
-            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(tween(CONTROLS_FADE_DURATION_MS))
         ) {
             Text(
                 text = timeFormat.format(Date(wallClockMs)),
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.9f),
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 40.dp, vertical = 28.dp),
+                modifier = Modifier.padding(horizontal = 40.dp, vertical = 28.dp)
             )
         }
 
@@ -531,7 +537,7 @@ fun PlayerRoute(
                     .fillMaxWidth()
                     .padding(horizontal = 40.dp)
                     .padding(bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 TimelineSeekRow(
                     positionMs = ui.positionMs,
@@ -540,18 +546,18 @@ fun PlayerRoute(
                     progressFraction = ui.progressFraction,
                     seekBarFocusRequester = seekBarFocusRequester,
                     playFocusRequester = playFocusRequester,
-                    onSeekStep = { viewModel.seekTimelineBySteps(it) },
+                    onSeekStep = { viewModel.seekTimelineBySteps(it) }
                 )
 
                 // Buttons row: display (left) | transport (center) | tracks & exit (right)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.Start,
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         PlayerControlButton(
                             icon = Icons.Filled.AspectRatio,
@@ -562,27 +568,27 @@ fun PlayerRoute(
                                 showControls()
                             },
                             utility = true,
-                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                         )
                     }
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (ui.canPrev) {
                             PlayerControlButton(
                                 icon = Icons.Filled.SkipPrevious,
                                 contentDescription = "Previous",
                                 onClick = { viewModel.previousEpisode() },
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                             )
                         }
                         PlayerControlButton(
                             icon = Icons.Filled.Replay10,
                             contentDescription = "Rewind 10 seconds",
                             onClick = { viewModel.rewind10() },
-                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                         )
                         PlayerControlButton(
                             icon = if (ui.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -591,20 +597,20 @@ fun PlayerRoute(
                             modifier =
                                 controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                                     .focusRequester(playFocusRequester),
-                            primary = true,
+                            primary = true
                         )
                         PlayerControlButton(
                             icon = Icons.Filled.Forward10,
                             contentDescription = "Forward 10 seconds",
                             onClick = { viewModel.forward10() },
-                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                            modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                         )
                         if (ui.canNext) {
                             PlayerControlButton(
                                 icon = Icons.Filled.SkipNext,
                                 contentDescription = "Next",
                                 onClick = { viewModel.nextEpisode() },
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                             )
                         }
                     }
@@ -612,7 +618,7 @@ fun PlayerRoute(
                     Row(
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (ui.canCycleAudio) {
@@ -624,7 +630,7 @@ fun PlayerRoute(
                                         showControls()
                                     },
                                     utility = true,
-                                    modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                    modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                                 )
                             }
                             if (ui.canCycleSubtitles) {
@@ -632,14 +638,14 @@ fun PlayerRoute(
                                     icon = Icons.Filled.Subtitles,
                                     contentDescription = subtitleContentDescription(
                                         ui.subtitleTrackLabel,
-                                        ui.subtitleTrackSourceLabel,
+                                        ui.subtitleTrackSourceLabel
                                     ),
                                     onClick = {
                                         viewModel.openSubtitlePicker()
                                         showControls()
                                     },
                                     utility = true,
-                                    modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                    modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                                 )
                             }
                             PlayerControlButton(
@@ -650,7 +656,7 @@ fun PlayerRoute(
                                     showControls()
                                 },
                                 utility = true,
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                             )
                             PlayerControlButton(
                                 icon = Icons.AutoMirrored.Filled.ArrowBack,
@@ -658,7 +664,7 @@ fun PlayerRoute(
                                 onClick = onClose,
                                 ghost = true,
                                 utility = true,
-                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester),
+                                modifier = controlUpToSeekBar(ui.durationMs, seekBarFocusRequester)
                             )
                         }
                     }
@@ -672,7 +678,7 @@ fun PlayerRoute(
                 state = state,
                 serverBase = LocalServerBaseUrl.current,
                 onConfirm = { viewModel.playUpNextNow() },
-                playNowFocusRequester = upNextPlayFocusRequester,
+                playNowFocusRequester = upNextPlayFocusRequester
             )
         }
 
@@ -680,7 +686,7 @@ fun PlayerRoute(
             TrackPickerOverlay(
                 modifier = Modifier.zIndex(5f),
                 picker = picker,
-                onSelect = { viewModel.selectTrackPickerOption(it) },
+                onSelect = { viewModel.selectTrackPickerOption(it) }
             )
         }
 
@@ -692,7 +698,7 @@ fun PlayerRoute(
                 onSelect = { mode ->
                     viewModel.setVideoAspectRatioMode(mode)
                     aspectRatioOverlayVisible = false
-                },
+                }
             )
         }
 
@@ -702,7 +708,7 @@ fun PlayerRoute(
                 appearance = subtitleAppearance,
                 onAppearanceChange = { viewModel.setSubtitleAppearance(it) },
                 onDismiss = { viewModel.dismissSubtitleStyleSettings() },
-                firstFocusRequester = subtitleStyleFocusRequester,
+                firstFocusRequester = subtitleStyleFocusRequester
             )
         }
     }
@@ -714,7 +720,7 @@ private fun UpNextInterstitial(
     serverBase: String,
     onConfirm: () -> Unit,
     playNowFocusRequester: FocusRequester,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val palette = PlumTheme.palette
     val heroUrl =
@@ -725,14 +731,14 @@ private fun UpNextInterstitial(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(Color.Black),
+                .background(Color.Black)
     ) {
         if (!heroUrl.isNullOrBlank()) {
             AsyncImage(
                 model = heroUrl,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Crop
             )
         }
         Box(
@@ -743,9 +749,9 @@ private fun UpNextInterstitial(
                         Brush.verticalGradient(
                             0f to Color.Black.copy(alpha = 0.35f),
                             0.45f to Color.Black.copy(alpha = 0.78f),
-                            1f to Color.Black.copy(alpha = 0.94f),
-                        ),
-                    ),
+                            1f to Color.Black.copy(alpha = 0.94f)
+                        )
+                    )
         )
         Column(
             modifier =
@@ -754,13 +760,13 @@ private fun UpNextInterstitial(
                     .padding(horizontal = 48.dp)
                     .widthIn(max = 520.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = "UP NEXT",
                 style = PlumTheme.typography.labelMedium,
                 color = palette.accent.copy(alpha = 0.8f),
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Bold
             )
             Text(
                 text = state.title,
@@ -768,26 +774,26 @@ private fun UpNextInterstitial(
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis
             )
             state.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
                 Text(
                     text = sub,
                     style = PlumTheme.typography.titleSmall,
                     color = palette.accent,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
             Text(
                 text = "${state.secondsRemaining}",
                 style = PlumTheme.typography.displaySmall,
                 color = Color.White,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Bold
             )
             Text(
                 text = "seconds",
                 style = PlumTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.55f),
+                color = Color.White.copy(alpha = 0.55f)
             )
             Surface(
                 onClick = onConfirm,
@@ -804,28 +810,28 @@ private fun UpNextInterstitial(
                         focusedContainerColor = palette.accent,
                         focusedContentColor = Color.Black,
                         pressedContainerColor = palette.accent,
-                        pressedContentColor = Color.Black,
+                        pressedContentColor = Color.Black
                     ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 border =
                     ClickableSurfaceDefaults.border(
                         border = plumBorder(Color.White.copy(alpha = 0.2f), 1.dp, shape),
                         focusedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape),
-                        pressedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape),
+                        pressedBorder = plumBorder(Color.White.copy(alpha = 0.55f), 2.dp, shape)
                     ),
-                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
             ) {
                 Box(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .padding(vertical = 12.dp, horizontal = 20.dp),
-                    contentAlignment = Alignment.Center,
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "OK · Play now",
                         style = PlumTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -836,7 +842,7 @@ private fun UpNextInterstitial(
 @OptIn(UnstableApi::class)
 private fun applyVideoAspectToPlayerView(
     playerView: PlayerView,
-    mode: VideoAspectRatioMode,
+    mode: VideoAspectRatioMode
 ) {
     val contentFrame =
         playerView.findViewById<AspectRatioFrameLayout>(Media3UiR.id.exo_content_frame)
@@ -846,22 +852,27 @@ private fun applyVideoAspectToPlayerView(
             contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             contentFrame.setAspectRatio(0f)
         }
+
         VideoAspectRatioMode.ZOOM -> {
             contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             contentFrame.setAspectRatio(0f)
         }
+
         VideoAspectRatioMode.STRETCH -> {
             contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
             contentFrame.setAspectRatio(0f)
         }
+
         VideoAspectRatioMode.RATIO_16_9 -> {
             contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             contentFrame.setAspectRatio(16f / 9f)
         }
+
         VideoAspectRatioMode.RATIO_4_3 -> {
             contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             contentFrame.setAspectRatio(4f / 3f)
         }
+
         VideoAspectRatioMode.RATIO_21_9 -> {
             contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             contentFrame.setAspectRatio(21f / 9f)
@@ -874,7 +885,7 @@ private fun VideoAspectRatioPickerOverlay(
     current: VideoAspectRatioMode,
     detectedLabel: String?,
     onSelect: (VideoAspectRatioMode) -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val options =
         remember(current, detectedLabel) {
@@ -898,7 +909,7 @@ private fun VideoAspectRatioPickerOverlay(
                     id = mode.storageValue,
                     label = label,
                     selected = mode == current,
-                    detail = detail,
+                    detail = detail
                 )
             }
         }
@@ -915,7 +926,7 @@ private fun VideoAspectRatioPickerOverlay(
                 .fillMaxSize()
                 .focusGroup()
                 .background(Color.Black.copy(alpha = 0.75f)),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.Center
     ) {
         val panelShape = RoundedCornerShape(16.dp)
         Column(
@@ -926,14 +937,14 @@ private fun VideoAspectRatioPickerOverlay(
                     .fillMaxHeight(0.82f)
                     .clip(panelShape)
                     .background(PlumTheme.palette.panel)
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text(
                 text = "Aspect ratio",
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 12.dp),
+                modifier = Modifier.padding(bottom = 12.dp)
             )
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -941,13 +952,13 @@ private fun VideoAspectRatioPickerOverlay(
                     Modifier
                         .weight(1f, fill = true)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(rememberScrollState())
             ) {
                 options.forEachIndexed { index, opt ->
                     TrackPickerRow(
                         option = opt,
                         modifier = Modifier.focusRequester(focusRequesters[index]),
-                        onActivate = { onSelect(VideoAspectRatioMode.fromStorage(opt.id)) },
+                        onActivate = { onSelect(VideoAspectRatioMode.fromStorage(opt.id)) }
                     )
                 }
             }
@@ -959,7 +970,7 @@ private fun VideoAspectRatioPickerOverlay(
 private fun TrackPickerOverlay(
     picker: TrackPicker,
     onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val options = picker.options
     val focusRequesters = remember(picker) { List(options.size) { FocusRequester() } }
@@ -975,7 +986,7 @@ private fun TrackPickerOverlay(
                 .fillMaxSize()
                 .focusGroup()
                 .background(Color.Black.copy(alpha = 0.75f)),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.Center
     ) {
         val panelShape = RoundedCornerShape(16.dp)
         Column(
@@ -986,14 +997,14 @@ private fun TrackPickerOverlay(
                     .fillMaxHeight(0.82f)
                     .clip(panelShape)
                     .background(PlumTheme.palette.panel)
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text(
                 text = picker.title,
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 12.dp),
+                modifier = Modifier.padding(bottom = 12.dp)
             )
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1001,13 +1012,13 @@ private fun TrackPickerOverlay(
                     Modifier
                         .weight(1f, fill = true)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(rememberScrollState())
             ) {
                 options.forEachIndexed { index, opt ->
                     TrackPickerRow(
                         option = opt,
                         modifier = Modifier.focusRequester(focusRequesters[index]),
-                        onActivate = { onSelect(opt.id) },
+                        onActivate = { onSelect(opt.id) }
                     )
                 }
             }
@@ -1019,7 +1030,7 @@ private fun TrackPickerOverlay(
 private fun TrackPickerRow(
     option: TrackPickerOption,
     onActivate: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val palette = PlumTheme.palette
     val shape = RoundedCornerShape(10.dp)
@@ -1043,6 +1054,7 @@ private fun TrackPickerRow(
                             onActivate()
                             true
                         }
+
                         else -> false
                     }
                 },
@@ -1066,7 +1078,7 @@ private fun TrackPickerRow(
                         selected -> palette.accent.copy(alpha = 0.30f)
                         else -> Color.White.copy(alpha = 0.18f)
                     },
-                pressedContentColor = Color.White,
+                pressedContentColor = Color.White
             ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
@@ -1075,22 +1087,22 @@ private fun TrackPickerRow(
                     plumBorder(
                         if (selected) palette.accent.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
                         if (selected) 1.5.dp else 1.dp,
-                        shape,
+                        shape
                     ),
                 focusedBorder =
                     plumBorder(
                         palette.accent.copy(alpha = 0.9f),
                         2.dp,
-                        shape,
+                        shape
                     ),
                 pressedBorder =
                     plumBorder(
                         palette.accent.copy(alpha = 0.9f),
                         2.dp,
-                        shape,
-                    ),
+                        shape
+                    )
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
     ) {
         Row(
             modifier =
@@ -1098,27 +1110,27 @@ private fun TrackPickerRow(
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (focused) {
+                Box(
+                    modifier =
+                        Modifier
+                            .padding(end = 10.dp)
+                            .size(width = 4.dp, height = 30.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(palette.accent)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                if (focused) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .padding(end = 10.dp)
-                                .size(width = 4.dp, height = 30.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(palette.accent),
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
                 Text(
                     text = option.label,
                     style = PlumTheme.typography.bodyMedium,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis
                 )
                 option.detail?.takeIf { it.isNotBlank() }?.let { detail ->
                     Text(
@@ -1126,7 +1138,7 @@ private fun TrackPickerRow(
                         style = PlumTheme.typography.bodySmall,
                         color = palette.muted,
                         maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1136,15 +1148,16 @@ private fun TrackPickerRow(
                         text = "▶",
                         style = PlumTheme.typography.labelSmall,
                         color = palette.accent,
-                        modifier = Modifier.padding(start = 10.dp),
+                        modifier = Modifier.padding(start = 10.dp)
                     )
                 }
+
                 option.selected -> {
                     Text(
                         text = "●",
                         style = PlumTheme.typography.labelSmall,
                         color = palette.accent,
-                        modifier = Modifier.padding(start = 10.dp),
+                        modifier = Modifier.padding(start = 10.dp)
                     )
                 }
             }
@@ -1161,7 +1174,7 @@ private val subtitleColorPresets =
         SubtitleColorPreset("Lime", "#7cfc00"),
         SubtitleColorPreset("Cyan", "#00ffff"),
         SubtitleColorPreset("Pink", "#ffb6c1"),
-        SubtitleColorPreset("Orange", "#ffab40"),
+        SubtitleColorPreset("Orange", "#ffab40")
     )
 
 private fun subtitleColorsEqual(stored: String, presetHex: String): Boolean {
@@ -1175,7 +1188,7 @@ private fun SubtitleStyleOverlay(
     onAppearanceChange: (SubtitleAppearance) -> Unit,
     onDismiss: () -> Unit,
     firstFocusRequester: FocusRequester,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val palette = PlumTheme.palette
     val panelShape = RoundedCornerShape(16.dp)
@@ -1185,7 +1198,7 @@ private fun SubtitleStyleOverlay(
                 .fillMaxSize()
                 .focusGroup()
                 .background(Color.Black.copy(alpha = 0.75f)),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier =
@@ -1195,14 +1208,14 @@ private fun SubtitleStyleOverlay(
                     .fillMaxHeight(0.85f)
                     .clip(panelShape)
                     .background(palette.panel)
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text(
                 text = "Subtitle appearance",
                 style = PlumTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 12.dp),
+                modifier = Modifier.padding(bottom = 12.dp)
             )
             Column(
                 modifier =
@@ -1210,16 +1223,16 @@ private fun SubtitleStyleOverlay(
                         .weight(1f)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
                     text = "Size",
                     style = PlumTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = Color.White.copy(alpha = 0.72f)
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     SubtitleSize.entries.forEachIndexed { index, size ->
                         val label =
@@ -1239,18 +1252,18 @@ private fun SubtitleStyleOverlay(
                                         .focusRequester(firstFocusRequester)
                                 } else {
                                     Modifier.weight(1f)
-                                },
+                                }
                         )
                     }
                 }
                 Text(
                     text = "Position",
                     style = PlumTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = Color.White.copy(alpha = 0.72f)
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(SubtitlePosition.BOTTOM, SubtitlePosition.TOP).forEach { position ->
                         val label =
@@ -1262,21 +1275,21 @@ private fun SubtitleStyleOverlay(
                             text = label,
                             selected = appearance.position == position,
                             onClick = { onAppearanceChange(appearance.copy(position = position)) },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
                 Text(
                     text = "Color",
                     style = PlumTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = Color.White.copy(alpha = 0.72f)
                 )
                 Row(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     subtitleColorPresets.forEach { preset ->
                         SubtitleColorDot(
@@ -1284,7 +1297,7 @@ private fun SubtitleStyleOverlay(
                             selected = subtitleColorsEqual(appearance.colorHex, preset.hex),
                             onClick = {
                                 onAppearanceChange(appearance.copy(colorHex = preset.hex))
-                            },
+                            }
                         )
                     }
                 }
@@ -1306,6 +1319,7 @@ private fun SubtitleStyleOverlay(
                                     onDismiss()
                                     true
                                 }
+
                                 else -> false
                             }
                         },
@@ -1317,27 +1331,27 @@ private fun SubtitleStyleOverlay(
                         focusedContainerColor = Color.White.copy(alpha = 0.16f),
                         focusedContentColor = Color.White,
                         pressedContainerColor = Color.White.copy(alpha = 0.16f),
-                        pressedContentColor = Color.White,
+                        pressedContentColor = Color.White
                     ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 border =
                     ClickableSurfaceDefaults.border(
                         border = plumBorder(Color.White.copy(alpha = 0.1f), 1.dp, RoundedCornerShape(10.dp)),
                         focusedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
-                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp)),
+                        pressedBorder = plumBorder(palette.accent.copy(alpha = 0.6f), 1.dp, RoundedCornerShape(10.dp))
                     ),
-                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+                glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
             ) {
                 Box(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .padding(vertical = 9.dp, horizontal = 12.dp),
-                    contentAlignment = Alignment.Center,
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "Done",
-                        style = PlumTheme.typography.labelMedium,
+                        style = PlumTheme.typography.labelMedium
                     )
                 }
             }
@@ -1350,7 +1364,7 @@ private fun SubtitleChoiceChip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val palette = PlumTheme.palette
     val shape = RoundedCornerShape(10.dp)
@@ -1370,7 +1384,7 @@ private fun SubtitleChoiceChip(
                 focusedContainerColor = Color.White.copy(alpha = 0.18f),
                 focusedContentColor = Color.White,
                 pressedContainerColor = Color.White.copy(alpha = 0.18f),
-                pressedContentColor = Color.White,
+                pressedContentColor = Color.White
             ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
@@ -1387,24 +1401,24 @@ private fun SubtitleChoiceChip(
                         } else {
                             1.dp
                         },
-                        shape,
+                        shape
                     ),
                 focusedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
-                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape)
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
     ) {
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .padding(vertical = 10.dp, horizontal = 6.dp),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = text,
                 style = PlumTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
             )
         }
     }
@@ -1414,7 +1428,7 @@ private fun SubtitleChoiceChip(
 private fun SubtitleColorDot(
     preset: SubtitleColorPreset,
     selected: Boolean,
-    onClick: () -> Unit,
+    onClick: () -> Unit
 ) {
     val palette = PlumTheme.palette
     val fill =
@@ -1441,7 +1455,7 @@ private fun SubtitleColorDot(
                 focusedContainerColor = fill,
                 focusedContentColor = Color.White,
                 pressedContainerColor = fill,
-                pressedContentColor = Color.White,
+                pressedContentColor = Color.White
             ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border =
@@ -1458,12 +1472,12 @@ private fun SubtitleColorDot(
                         } else {
                             1.dp
                         },
-                        shape,
+                        shape
                     ),
                 focusedBorder = plumBorder(palette.accent.copy(alpha = 0.95f), 2.5.dp, shape),
-                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.95f), 2.5.dp, shape),
+                pressedBorder = plumBorder(palette.accent.copy(alpha = 0.95f), 2.5.dp, shape)
             ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
     ) {
         Box(modifier = Modifier.fillMaxSize())
     }
@@ -1471,12 +1485,11 @@ private fun SubtitleColorDot(
 
 // ── Seek bar ─────────────────────────────────────────────────────────────────
 
-private fun controlUpToSeekBar(durationMs: Long, seekBarFocusRequester: FocusRequester): Modifier =
-    if (durationMs > 0) {
-        Modifier.focusProperties { up = seekBarFocusRequester }
-    } else {
-        Modifier
-    }
+private fun controlUpToSeekBar(durationMs: Long, seekBarFocusRequester: FocusRequester): Modifier = if (durationMs > 0) {
+    Modifier.focusProperties { up = seekBarFocusRequester }
+} else {
+    Modifier
+}
 
 @Composable
 private fun TimelineSeekRow(
@@ -1486,7 +1499,7 @@ private fun TimelineSeekRow(
     progressFraction: Float,
     seekBarFocusRequester: FocusRequester,
     playFocusRequester: FocusRequester,
-    onSeekStep: (Int) -> Unit,
+    onSeekStep: (Int) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val seekFocused by interactionSource.collectIsFocusedAsState()
@@ -1495,12 +1508,12 @@ private fun TimelineSeekRow(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
             text = formatPlayerTime(positionMs),
             style = PlumTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.75f),
+            color = Color.White.copy(alpha = 0.75f)
         )
         Box(
             modifier =
@@ -1521,29 +1534,31 @@ private fun TimelineSeekRow(
                                             onSeekStep(-1)
                                             true
                                         }
+
                                         Key.DirectionRight -> {
                                             onSeekStep(1)
                                             true
                                         }
+
                                         else -> false
                                     }
                                 }
                         } else {
                             Modifier
-                        },
+                        }
                     ),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             PlexSeekBar(
                 fraction = progressFraction,
                 focused = seekFocused && seekEnabled,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
             )
         }
         Text(
             text = "-${formatPlayerTime(remainingMs)}",
             style = PlumTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.75f),
+            color = Color.White.copy(alpha = 0.75f)
         )
     }
 }
@@ -1552,7 +1567,7 @@ private fun TimelineSeekRow(
 private fun PlexSeekBar(
     fraction: Float,
     modifier: Modifier = Modifier,
-    focused: Boolean = false,
+    focused: Boolean = false
 ) {
     val accent = PlumTheme.palette.accent
     val f = fraction.coerceIn(0f, 1f)
@@ -1566,8 +1581,8 @@ private fun PlexSeekBar(
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 } else {
                     Modifier
-                },
-            ),
+                }
+            )
     ) {
         val trackH = if (focused) 6.dp.toPx() else 4.dp.toPx()
         val thumbR = if (focused) 8.dp.toPx() else 6.dp.toPx()
@@ -1578,7 +1593,7 @@ private fun PlexSeekBar(
             color = Color.White.copy(alpha = 0.15f),
             topLeft = Offset(0f, cy - trackH / 2f),
             size = Size(size.width, trackH),
-            cornerRadius = CornerRadius(trackH / 2f),
+            cornerRadius = CornerRadius(trackH / 2f)
         )
         if (f > 0f) {
             // Filled portion
@@ -1586,7 +1601,7 @@ private fun PlexSeekBar(
                 color = accent,
                 topLeft = Offset(0f, cy - trackH / 2f),
                 size = Size(size.width * f, trackH),
-                cornerRadius = CornerRadius(trackH / 2f),
+                cornerRadius = CornerRadius(trackH / 2f)
             )
             // Thumb dot — centered at the playhead, clamped within bar bounds
             val thumbCx = (size.width * f).coerceIn(thumbR, size.width - thumbR)
@@ -1609,32 +1624,46 @@ private fun PlayerControlButton(
     enabled: Boolean = true,
     primary: Boolean = false,
     ghost: Boolean = false,
-    utility: Boolean = false,
+    utility: Boolean = false
 ) {
     val palette = PlumTheme.palette
     val buttonSize: Dp
     val iconSize: Dp
     val cornerRadius: Dp
     when {
-        primary -> { buttonSize = 62.dp; iconSize = 32.dp; cornerRadius = 20.dp }
-        utility -> { buttonSize = 48.dp; iconSize = 22.dp; cornerRadius = 14.dp }
-        else    -> { buttonSize = 52.dp; iconSize = 26.dp; cornerRadius = 16.dp }
+        primary -> {
+            buttonSize = 62.dp
+            iconSize = 32.dp
+            cornerRadius = 20.dp
+        }
+
+        utility -> {
+            buttonSize = 48.dp
+            iconSize = 22.dp
+            cornerRadius = 14.dp
+        }
+
+        else -> {
+            buttonSize = 52.dp
+            iconSize = 26.dp
+            cornerRadius = 16.dp
+        }
     }
     val shape = RoundedCornerShape(cornerRadius)
     val containerColor = when {
-        ghost   -> Color.Transparent
+        ghost -> Color.Transparent
         primary -> palette.accent
-        else    -> Color.White.copy(alpha = 0.20f)
+        else -> Color.White.copy(alpha = 0.20f)
     }
     val focusedContainerColor = when {
-        ghost   -> Color.White.copy(alpha = 0.14f)
+        ghost -> Color.White.copy(alpha = 0.14f)
         primary -> palette.accent
-        else    -> Color.White.copy(alpha = 0.34f)
+        else -> Color.White.copy(alpha = 0.34f)
     }
     val contentColor = when {
         primary -> palette.onAccent
-        ghost   -> Color.White.copy(alpha = 0.70f)
-        else    -> Color.White
+        ghost -> Color.White.copy(alpha = 0.70f)
+        else -> Color.White
     }
 
     Surface(
@@ -1650,29 +1679,29 @@ private fun PlayerControlButton(
             pressedContainerColor = focusedContainerColor,
             pressedContentColor = if (primary) palette.onAccent else Color.White,
             disabledContainerColor = if (ghost) Color.Transparent else Color.White.copy(alpha = 0.05f),
-            disabledContentColor = Color.White.copy(alpha = 0.25f),
+            disabledContentColor = Color.White.copy(alpha = 0.25f)
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
             border = plumBorder(
                 if (ghost) Color.Transparent else Color.White.copy(alpha = 0.26f),
                 if (ghost) 0.dp else 1.5.dp,
-                shape,
+                shape
             ),
             focusedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
-            pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape),
+            pressedBorder = plumBorder(palette.accent.copy(alpha = 0.85f), 2.dp, shape)
         ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
     ) {
         Box(
             modifier = Modifier.size(buttonSize),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = LocalContentColor.current,
-                modifier = Modifier.size(iconSize),
+                modifier = Modifier.size(iconSize)
             )
         }
     }
@@ -1680,18 +1709,19 @@ private fun PlayerControlButton(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-private fun audioContentDescription(value: String?): String =
-    if (!value.isNullOrBlank()) "Audio: ${value.trim()}"
-    else "Change audio track"
+private fun audioContentDescription(value: String?): String = if (!value.isNullOrBlank()) {
+    "Audio: ${value.trim()}"
+} else {
+    "Change audio track"
+}
 
-private fun subtitleContentDescription(value: String?, source: String?): String =
-    if (!value.isNullOrBlank()) {
-        val label = value.trim()
-        val sourceLabel = source?.trim().takeUnless { it.isNullOrBlank() }
-        if (sourceLabel != null) "Subtitles: $label · $sourceLabel" else "Subtitles: $label"
-    } else {
-        "Change subtitles"
-    }
+private fun subtitleContentDescription(value: String?, source: String?): String = if (!value.isNullOrBlank()) {
+    val label = value.trim()
+    val sourceLabel = source?.trim().takeUnless { it.isNullOrBlank() }
+    if (sourceLabel != null) "Subtitles: $label · $sourceLabel" else "Subtitles: $label"
+} else {
+    "Change subtitles"
+}
 
 @OptIn(UnstableApi::class)
 private fun PlayerView.applyPlumSubtitleAppearance(appearance: SubtitleAppearance) {
@@ -1710,8 +1740,8 @@ private fun SubtitleView.applyPlumSubtitleAppearance(appearance: SubtitleAppeara
             AndroidGraphicsColor.TRANSPARENT,
             CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
             AndroidGraphicsColor.BLACK,
-            null,
-        ),
+            null
+        )
     )
     setApplyEmbeddedStyles(false)
     setApplyEmbeddedFontSizes(false)
@@ -1726,7 +1756,7 @@ private fun SubtitleView.applyPlumSubtitleAppearance(appearance: SubtitleAppeara
         when (appearance.position) {
             SubtitlePosition.BOTTOM -> 0.12f
             SubtitlePosition.TOP -> 0.04f
-        },
+        }
     )
     val frameLayoutParams = layoutParams as? FrameLayout.LayoutParams
     if (frameLayoutParams != null) {
@@ -1734,6 +1764,7 @@ private fun SubtitleView.applyPlumSubtitleAppearance(appearance: SubtitleAppeara
             when (appearance.position) {
                 SubtitlePosition.TOP ->
                     Gravity.TOP or Gravity.CENTER_HORIZONTAL
+
                 SubtitlePosition.BOTTOM ->
                     Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             }

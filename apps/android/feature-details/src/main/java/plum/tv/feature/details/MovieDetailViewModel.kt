@@ -5,10 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.LibraryCatalogRefreshCoordinator
@@ -24,7 +24,7 @@ sealed interface MovieDetailUiState {
 class MovieDetailViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
     catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
-    savedStateHandle: SavedStateHandle,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val libraryId: Int = savedStateHandle.get<Int>("libraryId")!!
@@ -50,7 +50,10 @@ class MovieDetailViewModel @Inject constructor(
                 _state.value = MovieDetailUiState.Loading
                 browseRepository.movieDetails(libraryId, mediaId).fold(
                     onSuccess = { _state.value = MovieDetailUiState.Ready(it) },
-                    onFailure = { e -> _state.value = MovieDetailUiState.Error(e.message ?: "Failed to load") },
+                    onFailure = { e ->
+                        _state.value =
+                            MovieDetailUiState.Error(e.message ?: "Failed to load")
+                    }
                 )
             }
     }

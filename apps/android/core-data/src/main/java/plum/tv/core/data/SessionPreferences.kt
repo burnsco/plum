@@ -16,12 +16,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import plum.tv.core.data.di.ApplicationScope
 
-private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "plum_session")
+private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "plum_session"
+)
 
 @Singleton
 class SessionPreferences @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    @param:ApplicationScope private val scope: CoroutineScope,
+    @param:ApplicationScope private val scope: CoroutineScope
 ) {
     private val store get() = context.sessionDataStore
 
@@ -45,7 +47,12 @@ class SessionPreferences @Inject constructor(
 
     suspend fun setSessionToken(value: String?) {
         store.edit {
-            if (value.isNullOrEmpty()) it.remove(Keys.sessionToken) else it[Keys.sessionToken] = value
+            if (value.isNullOrEmpty()) {
+                it.remove(Keys.sessionToken)
+            } else {
+                it[Keys.sessionToken] =
+                    value
+            }
         }
     }
 

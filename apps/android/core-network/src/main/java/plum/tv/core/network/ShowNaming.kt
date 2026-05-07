@@ -9,5 +9,4 @@ fun getShowName(title: String): String {
     return match?.groupValues?.getOrNull(1)?.trim() ?: title
 }
 
-fun normalizeShowKeyTitle(title: String): String =
-    getShowName(title).lowercase().replace(nonAlphaNumericRegex, "")
+fun normalizeShowKeyTitle(title: String): String = getShowName(title).lowercase().replace(nonAlphaNumericRegex, "")

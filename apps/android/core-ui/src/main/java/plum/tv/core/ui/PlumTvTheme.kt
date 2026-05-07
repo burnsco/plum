@@ -37,21 +37,21 @@ object PlumScrims {
     val backdropVertical: Brush = Brush.verticalGradient(
         0.0f to Color(0xCC000000),
         0.35f to Color(0xDD000000),
-        1.0f to Color(0xF5000000),
+        1.0f to Color(0xF5000000)
     )
 
     /** Left-heavy horizontal scrim for movie detail — keeps right side semi-visible. */
     val backdropHorizontal: Brush = Brush.horizontalGradient(
         0.0f to Color(0xF2000000),
         0.55f to Color(0xCC000000),
-        1.0f to Color(0x44000000),
+        1.0f to Color(0x44000000)
     )
 
     /** Bottom-heavy vertical scrim for the home hero section. */
     val heroBottom: Brush = Brush.verticalGradient(
         0.0f to Color(0x44000000),
         0.45f to Color(0x88000000),
-        1.0f to Color(0xEE000000),
+        1.0f to Color(0xEE000000)
     )
 
     /** Player controls overlay — darker at top and bottom for text readability, lighter center. */
@@ -61,7 +61,7 @@ object PlumScrims {
         0.45f to Color(0x18000000),
         0.65f to Color(0x18000000),
         0.82f to Color(0x66000000),
-        1.0f to Color(0xEE000000),
+        1.0f to Color(0xEE000000)
     )
 }
 
@@ -89,7 +89,7 @@ data class PlumTvPalette(
     val ring: Color,
     val success: Color,
     val warning: Color,
-    val error: Color,
+    val error: Color
 )
 
 @Immutable
@@ -115,7 +115,7 @@ data class PlumTvMetrics(
     val posterCornerRadius: Dp,
     val buttonRadius: Dp,
     val railWidth: Dp,
-    val railCollapsedWidth: Dp,
+    val railCollapsedWidth: Dp
 )
 
 private val plumPalette =
@@ -139,7 +139,7 @@ private val plumPalette =
         ring = Color(0x70B57BFF),
         success = Color(0xFF4ADE80),
         warning = Color(0xFFFBBF24),
-        error = Color(0xFFF87171),
+        error = Color(0xFFF87171)
     )
 
 private val plumMetrics =
@@ -163,8 +163,8 @@ private val plumMetrics =
         posterCornerRadius = 8.dp,
         buttonRadius = 999.dp,
         railWidth = 200.dp,
-        /** Wide enough for a centered ~26dp icon after padding; narrower rails clip/squash icons. */
-        railCollapsedWidth = 76.dp,
+        // Wide enough for a centered ~26dp icon after padding; narrower rails clip/squash icons.
+        railCollapsedWidth = 76.dp
     )
 
 private val LocalPlumPalette = staticCompositionLocalOf { plumPalette }
@@ -173,12 +173,12 @@ private val LocalPlumMetrics = staticCompositionLocalOf { plumMetrics }
 private val interFamily = FontFamily(
     Font(R.font.inter_variable, weight = FontWeight.Normal),
     Font(R.font.inter_variable, weight = FontWeight.Medium),
-    Font(R.font.inter_variable, weight = FontWeight.SemiBold),
+    Font(R.font.inter_variable, weight = FontWeight.SemiBold)
 )
 private val outfitFamily = FontFamily(
     Font(R.font.outfit_variable, weight = FontWeight.Medium),
     Font(R.font.outfit_variable, weight = FontWeight.SemiBold),
-    Font(R.font.outfit_variable, weight = FontWeight.Bold),
+    Font(R.font.outfit_variable, weight = FontWeight.Bold)
 )
 
 private val plumTypography =
@@ -197,7 +197,7 @@ private val plumTypography =
         bodySmall = TextStyle(fontFamily = interFamily, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 19.sp),
         labelLarge = TextStyle(fontFamily = interFamily, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 21.sp),
         labelMedium = TextStyle(fontFamily = interFamily, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 19.sp),
-        labelSmall = TextStyle(fontFamily = interFamily, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp),
+        labelSmall = TextStyle(fontFamily = interFamily, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp)
     )
 
 private val plumShapes =
@@ -206,7 +206,7 @@ private val plumShapes =
         small = RoundedCornerShape(10.dp),
         medium = RoundedCornerShape(12.dp),
         large = RoundedCornerShape(16.dp),
-        extraLarge = RoundedCornerShape(24.dp),
+        extraLarge = RoundedCornerShape(24.dp)
     )
 
 private val plumColorScheme =
@@ -239,7 +239,7 @@ private val plumColorScheme =
         onErrorContainer = Color.White,
         border = plumPalette.borderStrong,
         borderVariant = plumPalette.border,
-        scrim = Color(0xCC000000),
+        scrim = Color(0xCC000000)
     )
 
 @Composable
@@ -248,13 +248,13 @@ fun PlumTvTheme(serverBaseUrl: String = "", content: @Composable () -> Unit) {
         MaterialTheme(
             colorScheme = plumColorScheme,
             shapes = plumShapes,
-            typography = plumTypography,
+            typography = plumTypography
         ) {
             androidx.compose.runtime.CompositionLocalProvider(
                 LocalPlumPalette provides plumPalette,
                 LocalPlumMetrics provides plumMetrics,
                 LocalServerBaseUrl provides serverBaseUrl,
-                content = content,
+                content = content
             )
         }
     }
@@ -285,14 +285,14 @@ object PlumTheme {
 @Composable
 fun PlumTvScaffold(
     modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit,
+    content: @Composable BoxScope.() -> Unit
 ) {
     val palette = PlumTheme.palette
     Box(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(palette.background),
+                .background(palette.background)
     ) {
         content()
     }
@@ -301,9 +301,8 @@ fun PlumTvScaffold(
 @Composable
 fun PlumScreenPadding(): PaddingValues = PlumTheme.metrics.screenPadding
 
-fun plumBorder(color: Color, width: Dp, shape: RoundedCornerShape): androidx.tv.material3.Border =
-    androidx.tv.material3.Border(
-        border = BorderStroke(width, color),
-        inset = 0.dp,
-        shape = shape,
-    )
+fun plumBorder(color: Color, width: Dp, shape: RoundedCornerShape): androidx.tv.material3.Border = androidx.tv.material3.Border(
+    border = BorderStroke(width, color),
+    inset = 0.dp,
+    shape = shape
+)

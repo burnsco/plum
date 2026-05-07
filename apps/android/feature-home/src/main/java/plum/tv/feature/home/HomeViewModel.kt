@@ -21,7 +21,7 @@ sealed interface HomeUiState {
     data object Loading : HomeUiState
     data class Ready(
         val continueWatching: List<ContinueWatchingEntryJson>,
-        val recentlyAdded: List<RecentlyAddedEntryJson>,
+        val recentlyAdded: List<RecentlyAddedEntryJson>
     ) : HomeUiState
     data class Error(val message: String) : HomeUiState
 }
@@ -31,7 +31,7 @@ class HomeViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
     private val homeDashboardDiskCache: HomeDashboardDiskCache,
     private val sessionPreferences: SessionPreferences,
-    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
+    catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -87,7 +87,7 @@ class HomeViewModel @Inject constructor(
                     return@fold
                 }
                 _state.value = HomeUiState.Error(e.message ?: "Failed to load home")
-            },
+            }
         )
     }
 
@@ -102,11 +102,10 @@ class HomeViewModel @Inject constructor(
             }
         return HomeUiState.Ready(
             continueWatching = continueWatching.filterNot { it.media.isMissingFromLibrary() },
-            recentlyAdded = mergedRecentlyAdded,
+            recentlyAdded = mergedRecentlyAdded
         )
     }
 }
 
 /** Matches server/dashboard rules: soft-removed files must not appear in Continue watching. */
-private fun MediaItemJson.isMissingFromLibrary(): Boolean =
-    missing == true || !missingSince.isNullOrBlank()
+private fun MediaItemJson.isMissingFromLibrary(): Boolean = missing == true || !missingSince.isNullOrBlank()

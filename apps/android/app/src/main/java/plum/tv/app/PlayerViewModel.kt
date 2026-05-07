@@ -16,11 +16,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
-import plum.tv.core.data.PlayerSubtitlePreferences
-import plum.tv.core.data.VideoAspectRatioMode
-import plum.tv.core.data.SubtitleAppearance
 import plum.tv.core.data.PlaybackRepository
+import plum.tv.core.data.PlayerSubtitlePreferences
 import plum.tv.core.data.PlumWebSocketManager
+import plum.tv.core.data.SubtitleAppearance
+import plum.tv.core.data.VideoAspectRatioMode
 import plum.tv.core.data.di.ApplicationScope
 import plum.tv.core.player.PlayerUiState
 import plum.tv.core.player.PlumPlayerController
@@ -36,7 +36,7 @@ class PlayerViewModel @Inject constructor(
     private val playbackRepository: PlaybackRepository,
     private val wsManager: PlumWebSocketManager,
     private val playerSubtitlePreferences: PlayerSubtitlePreferences,
-    savedStateHandle: SavedStateHandle,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val mediaId: Int = savedStateHandle.get<Int>("mediaId")!!
@@ -74,7 +74,7 @@ class PlayerViewModel @Inject constructor(
             libraryId = libraryId,
             showKey = showKey,
             navDisplayTitle = displayTitle,
-            navDisplaySubtitle = displaySubtitle,
+            navDisplaySubtitle = displaySubtitle
         )
 
     val player: ExoPlayer = controller.player

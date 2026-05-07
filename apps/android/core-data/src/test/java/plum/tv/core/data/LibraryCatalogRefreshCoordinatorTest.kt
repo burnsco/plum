@@ -62,9 +62,13 @@ class LibraryCatalogRefreshCoordinatorTest {
     fun applyScanStatusFromRest_matchesWebSocketScanningPath() {
         val browse = mockk<BrowseRepository>(relaxed = true)
         val coordinator = LibraryCatalogRefreshCoordinator(browse)
-        coordinator.applyScanStatusFromRest(LibraryScanStatusJson(libraryId = 1, phase = "scanning"))
+        coordinator.applyScanStatusFromRest(
+            LibraryScanStatusJson(libraryId = 1, phase = "scanning")
+        )
         verify(exactly = 1) { browse.invalidateLibrariesCache() }
-        coordinator.applyScanStatusFromRest(LibraryScanStatusJson(libraryId = 1, phase = "scanning"))
+        coordinator.applyScanStatusFromRest(
+            LibraryScanStatusJson(libraryId = 1, phase = "scanning")
+        )
         verify(exactly = 1) { browse.invalidateLibrariesCache() }
     }
 }

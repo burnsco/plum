@@ -17,8 +17,14 @@ class PlumHttpMessagesTest {
 
     @Test
     fun statusWithAppendedBody_matchesWebLibrariesShape() {
-        assertEquals("Libraries: 500", PlumHttpMessages.statusWithAppendedBody("Libraries", 500, null))
-        assertEquals("Libraries: 500 oops", PlumHttpMessages.statusWithAppendedBody("Libraries", 500, "oops"))
+        assertEquals(
+            "Libraries: 500",
+            PlumHttpMessages.statusWithAppendedBody("Libraries", 500, null)
+        )
+        assertEquals(
+            "Libraries: 500 oops",
+            PlumHttpMessages.statusWithAppendedBody("Libraries", 500, "oops")
+        )
     }
 
     @Test

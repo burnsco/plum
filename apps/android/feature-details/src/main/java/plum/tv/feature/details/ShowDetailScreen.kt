@@ -3,21 +3,21 @@ package plum.tv.feature.details
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,31 +26,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import kotlinx.coroutines.delay
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import plum.tv.core.network.LibraryBrowseItemJson
-import plum.tv.core.ui.PlumCastMember
-import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumCastMember
+import plum.tv.core.ui.PlumCastSection
 import plum.tv.core.ui.PlumDetailBackground
 import plum.tv.core.ui.PlumDetailHeroHeader
-import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumImageSizes
+import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumScrims
 import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumStatePanel
@@ -62,7 +62,7 @@ import plum.tv.core.ui.resolveArtworkUrl
 fun ShowDetailRoute(
     onBack: () -> Unit,
     onPlayEpisode: (mediaId: Int, resumeSec: Float, libraryId: Int, showKey: String) -> Unit,
-    viewModel: ShowDetailViewModel = hiltViewModel(),
+    viewModel: ShowDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val serverBase = LocalServerBaseUrl.current
@@ -70,16 +70,17 @@ fun ShowDetailRoute(
     when (val s = state) {
         is ShowDetailUiState.Loading -> Box(
             Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             PlumStatePanel(
                 title = "Loading",
-                message = "Fetching show details…",
+                message = "Fetching show details…"
             )
         }
+
         is ShowDetailUiState.Error -> Box(
             Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             PlumStatePanel(
                 title = "Could not load show",
@@ -89,9 +90,10 @@ fun ShowDetailRoute(
                         PlumActionButton("Retry", onClick = { viewModel.load() }, leadingBadge = "R")
                         PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
                     }
-                },
+                }
             )
         }
+
         is ShowDetailUiState.Ready -> {
             val d = s.details
             val selectedEpisodes = s.seasons.getOrNull(s.selectedSeasonIndex)?.episodes.orEmpty()
@@ -102,9 +104,12 @@ fun ShowDetailRoute(
                     val fromReturn = activeReturnMediaId?.let { id -> selectedEpisodes.indexOfFirst { it.id == id } }
                     when {
                         fromReturn != null && fromReturn >= 0 -> fromReturn
+
                         s.selectedSeasonIndex == s.resumeSeasonIndex && selectedEpisodes.isNotEmpty() ->
                             s.resumeEpisodeIndex.coerceIn(0, selectedEpisodes.lastIndex)
+
                         selectedEpisodes.isNotEmpty() -> 0
+
                         else -> 0
                     }
                 }
@@ -145,14 +150,14 @@ fun ShowDetailRoute(
 
             PlumDetailBackground(
                 backdropUrl = backdropUrl,
-                scrim = PlumScrims.backdropVertical,
+                scrim = PlumScrims.backdropVertical
             ) {
                 // LazyColumn avoids rendering all episodes upfront for long seasons.
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 36.dp, vertical = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
                         PlumDetailHeroHeader(posterUrl = posterUrl) {
@@ -160,7 +165,7 @@ fun ShowDetailRoute(
                                 text = d.name,
                                 style = PlumTheme.typography.headlineMedium,
                                 color = Color.White,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Bold
                             )
 
                             PlumMetadataChips(
@@ -175,7 +180,7 @@ fun ShowDetailRoute(
                                         totalEps > 0 && left == 0 -> add("Fully watched")
                                         left > 0 && left < totalEps -> add("$left episode${if (left == 1) "" else "s"} left")
                                     }
-                                },
+                                }
                             )
 
                             if (d.overview.isNotBlank()) {
@@ -184,7 +189,7 @@ fun ShowDetailRoute(
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis,
                                     style = PlumTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.8f),
+                                    color = Color.White.copy(alpha = 0.8f)
                                 )
                             }
 
@@ -198,7 +203,7 @@ fun ShowDetailRoute(
                                             val resume = (resumeEp.progressSeconds ?: 0.0).toFloat()
                                             onPlayEpisode(resumeEp.id, resume, d.libraryId, d.showKey)
                                         },
-                                        leadingBadge = "\u25B6",
+                                        leadingBadge = "\u25B6"
                                     )
                                     PlumActionButton("Back", onClick = onBack, variant = PlumButtonVariant.Ghost)
                                 } else {
@@ -206,7 +211,7 @@ fun ShowDetailRoute(
                                         modifier = Modifier.focusRequester(backFocus),
                                         label = "Back",
                                         onClick = onBack,
-                                        variant = PlumButtonVariant.Secondary,
+                                        variant = PlumButtonVariant.Secondary
                                     )
                                 }
                             }
@@ -220,7 +225,7 @@ fun ShowDetailRoute(
                         item {
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                contentPadding = PaddingValues(vertical = 4.dp),
+                                contentPadding = PaddingValues(vertical = 4.dp)
                             ) {
                                 itemsIndexed(s.seasons) { index, season ->
                                     PlumActionButton(
@@ -232,7 +237,7 @@ fun ShowDetailRoute(
                                             },
                                         label = season.label,
                                         onClick = { viewModel.selectSeason(index) },
-                                        variant = if (index == s.selectedSeasonIndex) PlumButtonVariant.Primary else PlumButtonVariant.Ghost,
+                                        variant = if (index == s.selectedSeasonIndex) PlumButtonVariant.Primary else PlumButtonVariant.Ghost
                                     )
                                 }
                             }
@@ -252,7 +257,7 @@ fun ShowDetailRoute(
                                 }
                             }
                             PlumSectionHeader(
-                                "${selSeason?.label ?: "Episodes"} — $summary",
+                                "${selSeason?.label ?: "Episodes"} — $summary"
                             )
                         }
                         itemsIndexed(selectedEpisodes, key = { _, ep -> ep.id }) { index, ep ->
@@ -268,7 +273,7 @@ fun ShowDetailRoute(
                                 onPlay = {
                                     val resume = (ep.progressSeconds ?: 0.0).toFloat()
                                     onPlayEpisode(ep.id, resume, d.libraryId, d.showKey)
-                                },
+                                }
                             )
                         }
                     }
@@ -282,9 +287,9 @@ fun ShowDetailRoute(
                                         PlumCastMember(
                                             name = member.name,
                                             character = member.character,
-                                            profilePath = member.profilePath,
+                                            profilePath = member.profilePath
                                         )
-                                    },
+                                    }
                             )
                         }
                     }
@@ -309,7 +314,7 @@ private fun EpisodeRow(
     modifier: Modifier = Modifier,
     ep: LibraryBrowseItemJson,
     serverBase: String,
-    onPlay: () -> Unit,
+    onPlay: () -> Unit
 ) {
     val palette = PlumTheme.palette
     val shape = RoundedCornerShape(10.dp)
@@ -332,39 +337,39 @@ private fun EpisodeRow(
             focusedContainerColor = palette.panelAlt,
             focusedContentColor = palette.text,
             pressedContainerColor = palette.panelAlt,
-            pressedContentColor = palette.text,
+            pressedContentColor = palette.text
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
             border = plumBorder(Color.Transparent, 0.dp, shape),
             focusedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
-            pressedBorder = plumBorder(palette.borderStrong, 2.dp, shape),
+            pressedBorder = plumBorder(palette.borderStrong, 2.dp, shape)
         ),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp)),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Transparent, 0.dp))
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
                     .width(160.dp)
                     .height(90.dp)
-                    .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)),
+                    .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp))
             ) {
                 if (thumbUrl != null) {
                     AsyncImage(
                         model = thumbUrl,
                         contentDescription = ep.title,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Crop
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(palette.surface),
-                        contentAlignment = Alignment.Center,
+                        contentAlignment = Alignment.Center
                     ) {
                         val se = ep.season
                         val epn = ep.episode
@@ -372,7 +377,7 @@ private fun EpisodeRow(
                             Text(
                                 text = "S${se.toString().padStart(2, '0')}E${epn.toString().padStart(2, '0')}",
                                 style = PlumTheme.typography.labelMedium,
-                                color = palette.muted,
+                                color = palette.muted
                             )
                         }
                     }
@@ -381,7 +386,7 @@ private fun EpisodeRow(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.45f)),
+                            .background(Color.Black.copy(alpha = 0.45f))
                     )
                     Text(
                         text = "\u2713",
@@ -393,7 +398,7 @@ private fun EpisodeRow(
                             .padding(4.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(palette.accent.copy(alpha = 0.85f))
-                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
                     )
                 }
                 if (!watched && rowProgress > 0.02f) {
@@ -401,18 +406,18 @@ private fun EpisodeRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(3.dp)
-                            .align(Alignment.BottomCenter),
+                            .align(Alignment.BottomCenter)
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color.White.copy(alpha = 0.18f)),
+                                .background(Color.White.copy(alpha = 0.18f))
                         )
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(rowProgress)
                                 .fillMaxHeight()
-                                .background(palette.accent),
+                                .background(palette.accent)
                         )
                     }
                 }
@@ -422,20 +427,20 @@ private fun EpisodeRow(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 val se = ep.season
                 val epn = ep.episode
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (se != null && epn != null) {
                         Text(
                             text = "S${se.toString().padStart(2, '0')}E${epn.toString().padStart(2, '0')}",
                             style = PlumTheme.typography.labelSmall,
                             color = if (watched) palette.accent else palette.muted,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                     Text(
@@ -444,7 +449,7 @@ private fun EpisodeRow(
                         color = if (watched) palette.textSecondary else palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                 }
                 ep.overview?.takeIf { it.isNotBlank() }?.let { overview ->
@@ -453,7 +458,7 @@ private fun EpisodeRow(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         style = PlumTheme.typography.bodySmall,
-                        color = palette.muted,
+                        color = palette.muted
                     )
                 }
             }

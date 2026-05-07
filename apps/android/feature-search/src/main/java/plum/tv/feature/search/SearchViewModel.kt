@@ -8,13 +8,13 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.collectLatest
 import plum.tv.core.data.SearchRepository
 import plum.tv.core.network.SearchResultJson
 
@@ -23,17 +23,17 @@ data class SearchUiState(
     val type: SearchType? = null,
     val loading: Boolean = false,
     val error: String? = null,
-    val results: List<SearchResultJson> = emptyList(),
+    val results: List<SearchResultJson> = emptyList()
 )
 
 enum class SearchType(val queryParamValue: String) {
     Movies("movie"),
-    Shows("show"),
+    Shows("show")
 }
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val searchRepository: SearchRepository,
+    private val searchRepository: SearchRepository
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -73,7 +73,7 @@ class SearchViewModel @Inject constructor(
                             type = type,
                             loading = false,
                             error = null,
-                            results = emptyList(),
+                            results = emptyList()
                         )
                     }
                     if (trimmedQuery.length < 2) {
@@ -84,7 +84,7 @@ class SearchViewModel @Inject constructor(
                         searchRepository.searchLibraryMedia(
                             query = trimmedQuery,
                             type = type?.queryParamValue,
-                            limit = 30,
+                            limit = 30
                         )
                     res.fold(
                         onSuccess = { response ->
@@ -92,7 +92,7 @@ class SearchViewModel @Inject constructor(
                                 it.copy(
                                     loading = false,
                                     error = null,
-                                    results = response.results,
+                                    results = response.results
                                 )
                             }
                         },
@@ -101,10 +101,10 @@ class SearchViewModel @Inject constructor(
                                 it.copy(
                                     loading = false,
                                     error = e.message ?: "Search failed",
-                                    results = emptyList(),
+                                    results = emptyList()
                                 )
                             }
-                        },
+                        }
                     )
                 }
         }

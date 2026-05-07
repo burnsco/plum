@@ -22,8 +22,7 @@ internal fun computeResumeSeasonAndEpisode(seasons: List<ShowSeasonEpisodesJson>
     if (ordered.isEmpty()) return 0 to 0
 
     fun LibraryBrowseItemJson.watched(): Boolean = completed == true
-    fun LibraryBrowseItemJson.hasProgress(): Boolean =
-        (progressSeconds ?: 0.0) > 0.0 || (progressPercent ?: 0.0) > 0.0
+    fun LibraryBrowseItemJson.hasProgress(): Boolean = (progressSeconds ?: 0.0) > 0.0 || (progressPercent ?: 0.0) > 0.0
 
     val inProgress = ordered.filter { !it.ep.watched() && it.ep.hasProgress() }
     if (inProgress.isNotEmpty()) {
@@ -31,7 +30,7 @@ internal fun computeResumeSeasonAndEpisode(seasons: List<ShowSeasonEpisodesJson>
             inProgress.maxWith(
                 compareBy<Ref> { it.ep.lastWatchedAt.orEmpty() }
                     .thenBy { it.seasonIdx }
-                    .thenBy { it.epIdx },
+                    .thenBy { it.epIdx }
             )
         return best.seasonIdx to best.epIdx
     }

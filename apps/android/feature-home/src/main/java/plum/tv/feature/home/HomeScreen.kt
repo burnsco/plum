@@ -23,8 +23,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +44,7 @@ import plum.tv.core.network.RecentlyAddedEntryJson
 import plum.tv.core.ui.LocalServerBaseUrl
 import plum.tv.core.ui.PlumActionButton
 import plum.tv.core.ui.PlumButtonVariant
+import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.PlumMetadataChips
 import plum.tv.core.ui.PlumPosterCard
 import plum.tv.core.ui.PlumScrims
@@ -51,7 +52,6 @@ import plum.tv.core.ui.PlumSectionHeader
 import plum.tv.core.ui.PlumStatePanel
 import plum.tv.core.ui.PlumTheme
 import plum.tv.core.ui.PlumTvMetrics
-import plum.tv.core.ui.PlumImageSizes
 import plum.tv.core.ui.resolveArtworkUrl
 import plum.tv.core.ui.resolveImageUrl
 
@@ -63,10 +63,10 @@ fun HomeRoute(
         libraryId: Int?,
         showKey: String?,
         displayTitle: String?,
-        displaySubtitle: String?,
+        displaySubtitle: String?
     ) -> Unit,
     onOpenShow: (libraryId: Int, showKey: String) -> Unit,
-    viewModel: HomeViewModel = hiltViewModel(),
+    viewModel: HomeViewModel = hiltViewModel()
 ) {
     LaunchedEffect(Unit) {
         viewModel.onAppear()
@@ -76,9 +76,10 @@ fun HomeRoute(
         is HomeUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PlumStatePanel(
                 title = "Loading",
-                message = "Fetching your dashboard\u2026",
+                message = "Fetching your dashboard\u2026"
             )
         }
+
         is HomeUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PlumStatePanel(
                 title = "Something went wrong",
@@ -87,16 +88,17 @@ fun HomeRoute(
                     PlumActionButton(
                         label = "Retry",
                         onClick = { viewModel.refresh() },
-                        variant = PlumButtonVariant.Primary,
+                        variant = PlumButtonVariant.Primary
                     )
-                },
+                }
             )
         }
+
         is HomeUiState.Ready -> HomeContent(
             continueWatching = s.continueWatching,
             recentlyAdded = s.recentlyAdded,
             onPlayMedia = onPlayMedia,
-            onOpenShow = onOpenShow,
+            onOpenShow = onOpenShow
         )
     }
 }
@@ -121,9 +123,9 @@ private fun HomeContent(
         libraryId: Int?,
         showKey: String?,
         displayTitle: String?,
-        displaySubtitle: String?,
+        displaySubtitle: String?
     ) -> Unit,
-    onOpenShow: (libraryId: Int, showKey: String) -> Unit,
+    onOpenShow: (libraryId: Int, showKey: String) -> Unit
 ) {
     val metrics = PlumTheme.metrics
     val hero = continueWatching.firstOrNull()
@@ -133,7 +135,7 @@ private fun HomeContent(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         // Cinematic hero — first continue-watching item
         if (hero != null) {
@@ -150,8 +152,9 @@ private fun HomeContent(
                                     hero.media.libraryId,
                                     null,
                                     hero.media.title,
-                                    hero.media.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                    hero.media.releaseDate?.take(4)?.takeIf { it.length == 4 }
                                 )
+
                             "show" ->
                                 onPlayMedia(
                                     hero.media.id,
@@ -159,10 +162,10 @@ private fun HomeContent(
                                     hero.media.libraryId,
                                     hero.showKey,
                                     null,
-                                    null,
+                                    null
                                 )
                         }
-                    },
+                    }
                 )
             }
         }
@@ -174,7 +177,7 @@ private fun HomeContent(
                 HomeRail(
                     title = "Continue watching",
                     metrics = metrics,
-                    isLast = false,
+                    isLast = false
                 ) {
                     items(cwRail, key = { it.media.id }) { entry ->
                         val remaining = formatRemainingTime(entry.remainingSeconds)
@@ -207,8 +210,9 @@ private fun HomeContent(
                                             entry.media.libraryId,
                                             null,
                                             entry.media.title,
-                                            entry.media.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                            entry.media.releaseDate?.take(4)?.takeIf { it.length == 4 }
                                         )
+
                                     "show" ->
                                         onPlayMedia(
                                             entry.media.id,
@@ -216,10 +220,10 @@ private fun HomeContent(
                                             entry.media.libraryId,
                                             entry.showKey,
                                             null,
-                                            null,
+                                            null
                                         )
                                 }
-                            },
+                            }
                         )
                     }
                 }
@@ -232,7 +236,7 @@ private fun HomeContent(
                 HomeRail(
                     title = "Recently added TV shows",
                     metrics = metrics,
-                    isLast = recentlyAddedMovies.isEmpty(),
+                    isLast = recentlyAddedMovies.isEmpty()
                 ) {
                     items(recentlyAddedTv, key = { "tv-${it.media.id}" }) { entry ->
                         MediaEntryCard(
@@ -245,7 +249,7 @@ private fun HomeContent(
                                 val key = entry.showKey
                                 val lib = entry.media.libraryId ?: 0
                                 if (key != null) onOpenShow(lib, key)
-                            },
+                            }
                         )
                     }
                 }
@@ -258,7 +262,7 @@ private fun HomeContent(
                 HomeRail(
                     title = "Recently added movies",
                     metrics = metrics,
-                    isLast = true,
+                    isLast = true
                 ) {
                     items(recentlyAddedMovies, key = { "mv-${it.media.id}" }) { entry ->
                         MediaEntryCard(
@@ -273,9 +277,9 @@ private fun HomeContent(
                                     entry.media.libraryId,
                                     null,
                                     entry.media.title,
-                                    entry.media.releaseDate?.take(4)?.takeIf { it.length == 4 },
+                                    entry.media.releaseDate?.take(4)?.takeIf { it.length == 4 }
                                 )
-                            },
+                            }
                         )
                     }
                 }
@@ -289,7 +293,7 @@ private fun HomeRail(
     title: String,
     metrics: PlumTvMetrics,
     isLast: Boolean,
-    content: LazyListScope.() -> Unit,
+    content: LazyListScope.() -> Unit
 ) {
     // Start inset lives on the LazyRow's contentPadding (not the Column) so the LazyRow's clip
     // boundary extends to the content area's left edge — giving the first focused card room to
@@ -298,17 +302,17 @@ private fun HomeRail(
     Column(
         modifier = Modifier.padding(
             top = metrics.sectionGap,
-            bottom = if (isLast) metrics.sectionGap else 0.dp,
+            bottom = if (isLast) metrics.sectionGap else 0.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         PlumSectionHeader(
             title = title,
-            modifier = Modifier.padding(start = startInset, end = 28.dp),
+            modifier = Modifier.padding(start = startInset, end = 28.dp)
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(metrics.cardGap),
-            contentPadding = PaddingValues(start = startInset, end = 28.dp),
+            contentPadding = PaddingValues(start = startInset, end = 28.dp)
         ) {
             content()
         }
@@ -318,7 +322,7 @@ private fun HomeRail(
 @Composable
 private fun HeroSection(
     entry: ContinueWatchingEntryJson,
-    onPlay: () -> Unit,
+    onPlay: () -> Unit
 ) {
     val palette = PlumTheme.palette
     val serverBase = LocalServerBaseUrl.current
@@ -355,7 +359,7 @@ private fun HeroSection(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(metrics.heroHeight),
+            .height(metrics.heroHeight)
     ) {
         // Background artwork
         if (heroImageRequest != null) {
@@ -363,13 +367,13 @@ private fun HeroSection(
                 model = heroImageRequest,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Crop
             )
         } else {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(palette.panel),
+                    .background(palette.panel)
             )
         }
 
@@ -377,7 +381,7 @@ private fun HeroSection(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(PlumScrims.heroBottom),
+                .background(PlumScrims.heroBottom)
         )
 
         Column(
@@ -385,13 +389,13 @@ private fun HeroSection(
                 .align(Alignment.BottomStart)
                 .padding(horizontal = 28.dp, vertical = 24.dp)
                 .widthIn(max = 640.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = "Continue watching",
                 style = PlumTheme.typography.labelMedium,
                 color = PlumTheme.palette.accent.copy(alpha = 0.85f),
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Bold
             )
             val heroTitle =
                 if (entry.kind == "show") {
@@ -405,7 +409,7 @@ private fun HeroSection(
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis
             )
 
             val subtitle =
@@ -419,7 +423,7 @@ private fun HeroSection(
                     text = subtitle,
                     style = PlumTheme.typography.titleSmall,
                     color = Color.White.copy(alpha = 0.8f),
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Medium
                 )
             }
 
@@ -441,19 +445,19 @@ private fun HeroSection(
                     style = PlumTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.58f),
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             Row(
                 modifier = Modifier.padding(top = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 PlumActionButton(
                     label = if ((media.progressSeconds ?: 0.0) > 0) "Resume" else "Play",
                     onClick = onPlay,
                     variant = PlumButtonVariant.Primary,
-                    leadingIcon = Icons.Filled.PlayArrow,
+                    leadingIcon = Icons.Filled.PlayArrow
                 )
             }
         }
@@ -467,7 +471,7 @@ private fun MediaEntryCard(
     title: String? = null,
     subtitle: String?,
     progressPercent: Double?,
-    onClick: () -> Unit,
+    onClick: () -> Unit
 ) {
     val serverBase = LocalServerBaseUrl.current
     val showArt =
@@ -488,6 +492,6 @@ private fun MediaEntryCard(
         imageUrl = imageUrl,
         onClick = onClick,
         compact = true,
-        progressPercent = progressPercent,
+        progressPercent = progressPercent
     )
 }

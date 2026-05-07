@@ -6,12 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import plum.tv.core.data.BrowseRepository
 import plum.tv.core.data.LibraryCatalogRefreshCoordinator
@@ -27,7 +27,7 @@ sealed interface ShowDetailUiState {
         /** Season tab chosen on first open (resume / next episode). */
         val resumeSeasonIndex: Int,
         /** Episode row to focus within [resumeSeasonIndex] on first open; when user switches season, UI uses 0. */
-        val resumeEpisodeIndex: Int,
+        val resumeEpisodeIndex: Int
     ) : ShowDetailUiState
     data class Error(val message: String) : ShowDetailUiState
 }
@@ -36,7 +36,7 @@ sealed interface ShowDetailUiState {
 class ShowDetailViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
     catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
-    private val savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     companion object {
@@ -75,11 +75,17 @@ class ShowDetailViewModel @Inject constructor(
                     val det = d.await()
                     val eps = e.await()
                     if (det.isFailure) {
-                        _state.value = ShowDetailUiState.Error(det.exceptionOrNull()?.message ?: "Failed to load show")
+                        _state.value =
+                            ShowDetailUiState.Error(
+                                det.exceptionOrNull()?.message ?: "Failed to load show"
+                            )
                         return@coroutineScope
                     }
                     if (eps.isFailure) {
-                        _state.value = ShowDetailUiState.Error(eps.exceptionOrNull()?.message ?: "Failed to load episodes")
+                        _state.value =
+                            ShowDetailUiState.Error(
+                                eps.exceptionOrNull()?.message ?: "Failed to load episodes"
+                            )
                         return@coroutineScope
                     }
                     val seasons = eps.getOrNull()?.seasons.orEmpty()
@@ -90,7 +96,7 @@ class ShowDetailViewModel @Inject constructor(
                             seasons = seasons,
                             selectedSeasonIndex = resumeSeason,
                             resumeSeasonIndex = resumeSeason,
-                            resumeEpisodeIndex = resumeEp,
+                            resumeEpisodeIndex = resumeEp
                         )
                 }
             }
@@ -102,7 +108,7 @@ class ShowDetailViewModel @Inject constructor(
         if (index in cur.seasons.indices) {
             _state.value =
                 cur.copy(
-                    selectedSeasonIndex = index,
+                    selectedSeasonIndex = index
                 )
         }
     }

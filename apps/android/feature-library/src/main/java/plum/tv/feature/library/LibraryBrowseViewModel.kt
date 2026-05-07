@@ -22,7 +22,7 @@ sealed interface LibraryBrowseUiState {
     data class Ready(
         val rows: List<LibraryBrowseGridRow>,
         val hasMore: Boolean,
-        val loadingMore: Boolean,
+        val loadingMore: Boolean
     ) : LibraryBrowseUiState
     data class Error(val message: String) : LibraryBrowseUiState
 }
@@ -31,7 +31,7 @@ sealed interface LibraryBrowseUiState {
 class LibraryBrowseViewModel @Inject constructor(
     private val browseRepository: BrowseRepository,
     catalogRefreshCoordinator: LibraryCatalogRefreshCoordinator,
-    savedStateHandle: SavedStateHandle,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val libraryId: Int = savedStateHandle.get<Int>("libraryId")
@@ -58,7 +58,7 @@ class LibraryBrowseViewModel @Inject constructor(
                 LibraryBrowseUiState.Ready(
                     rows = rebuildRows(),
                     hasMore = cachedPages.last().hasMore,
-                    loadingMore = false,
+                    loadingMore = false
                 )
         }
         viewModelScope.launch {
@@ -96,7 +96,7 @@ class LibraryBrowseViewModel @Inject constructor(
      */
     private fun appendRows(
         newItems: List<LibraryBrowseItemJson>,
-        existingRows: List<LibraryBrowseGridRow>,
+        existingRows: List<LibraryBrowseGridRow>
     ): List<LibraryBrowseGridRow> = when (isShowLibrary) {
         false -> existingRows + newItems.map { LibraryBrowseGridRow.Movie(it) }
         else -> rebuildRows()
@@ -132,14 +132,14 @@ class LibraryBrowseViewModel @Inject constructor(
                     LibraryBrowseUiState.Ready(
                         rows = rebuildRows(),
                         hasMore = page.hasMore,
-                        loadingMore = false,
+                        loadingMore = false
                     )
             },
             onFailure = { e ->
                 if (_state.value !is LibraryBrowseUiState.Ready) {
                     _state.value = LibraryBrowseUiState.Error(e.message ?: "Failed to load library")
                 }
-            },
+            }
         )
     }
 
@@ -160,12 +160,12 @@ class LibraryBrowseViewModel @Inject constructor(
                             LibraryBrowseUiState.Ready(
                                 rows = appendRows(page.items, latest.rows),
                                 hasMore = page.hasMore,
-                                loadingMore = false,
+                                loadingMore = false
                             )
                     },
                     onFailure = {
                         _state.value = latest.copy(loadingMore = false)
-                    },
+                    }
                 )
             }
         }

@@ -9,12 +9,12 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import java.io.File
-import java.util.concurrent.TimeUnit
 import plum.tv.core.data.AuthTokenBridge
 
 @Module
@@ -28,7 +28,7 @@ object NetworkModule {
     @Singleton
     fun providePlumOkHttpClient(
         @ApplicationContext context: Context,
-        bridge: AuthTokenBridge,
+        bridge: AuthTokenBridge
     ): OkHttpClient {
         val auth = Interceptor { chain ->
             val token = bridge.bearerToken()
@@ -65,26 +65,33 @@ object NetworkModule {
             .addInterceptor(slowEndpoints)
             .apply {
                 val debugLoggingEnabled =
-                    (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                    (
+                        context.applicationInfo.flags and
+                            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE
+                        ) !=
+                        0
                 if (debugLoggingEnabled) {
                     addInterceptor { chain ->
                         val request = chain.request()
                         val startedAt = SystemClock.elapsedRealtime()
-                        Log.d(TAG, "http request method=${request.method} path=${request.url.encodedPath}")
+                        Log.d(
+                            TAG,
+                            "http request method=${request.method} path=${request.url.encodedPath}"
+                        )
                         try {
                             val response = chain.proceed(request)
                             val elapsedMs = SystemClock.elapsedRealtime() - startedAt
                             Log.d(
                                 TAG,
-                                "http response method=${request.method} path=${request.url.encodedPath} code=${response.code} durationMs=${elapsedMs}",
+                                "http response method=${request.method} path=${request.url.encodedPath} code=${response.code} durationMs=$elapsedMs"
                             )
                             response
                         } catch (t: Throwable) {
                             val elapsedMs = SystemClock.elapsedRealtime() - startedAt
                             Log.w(
                                 TAG,
-                                "http failure method=${request.method} path=${request.url.encodedPath} durationMs=${elapsedMs} error=${t.message}",
-                                t,
+                                "http failure method=${request.method} path=${request.url.encodedPath} durationMs=$elapsedMs error=${t.message}",
+                                t
                             )
                             throw t
                         }

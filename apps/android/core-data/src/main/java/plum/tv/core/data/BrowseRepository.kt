@@ -9,11 +9,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import plum.tv.core.network.HomeDashboardJson
-import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.LibraryJson
 import plum.tv.core.network.LibraryMediaPageJson
 import plum.tv.core.network.LibraryMovieDetailsJson
 import plum.tv.core.network.LibraryShowDetailsJson
+import plum.tv.core.network.PlumHttpMessages
 import plum.tv.core.network.ShowEpisodesResponseJson
 
 private data class LibraryMediaCacheKey(val libraryId: Int, val offset: Int, val limit: Int)
@@ -21,21 +21,22 @@ private data class LibraryMediaCacheKey(val libraryId: Int, val offset: Int, val
 @Singleton
 class BrowseRepository @Inject constructor(
     private val sessionRepository: SessionRepository,
-    private val homeDashboardDiskCache: HomeDashboardDiskCache,
+    private val homeDashboardDiskCache: HomeDashboardDiskCache
 ) {
     private val librariesCacheLock = Any()
+
     @Volatile
     private var cachedLibraries: List<LibraryJson>? = null
 
     private val prefetchLock = Any()
+
     @Volatile
     private var prefetchInProgress = false
 
     private val mediaCacheLock = Any()
     private val mediaPageCache =
         object : LinkedHashMap<LibraryMediaCacheKey, LibraryMediaPageJson>(64, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LibraryMediaCacheKey, LibraryMediaPageJson>?): Boolean =
-                size > 60
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LibraryMediaCacheKey, LibraryMediaPageJson>?): Boolean = size > 60
         }
 
     /** Synchronous read for instant UI when [libraryMedia] was fetched earlier in the session. */
@@ -112,7 +113,7 @@ class BrowseRepository @Inject constructor(
         libraryId: Int,
         offset: Int? = null,
         limit: Int? = null,
-        forceRefresh: Boolean = false,
+        forceRefresh: Boolean = false
     ): Result<LibraryMediaPageJson> {
         val cacheOffset = offset ?: 0
         val cacheLimit = limit ?: 0
@@ -129,8 +130,8 @@ class BrowseRepository @Inject constructor(
                     PlumHttpMessages.statusWithAppendedBody(
                         "Library media",
                         res.code(),
-                        res.errorBody()?.string(),
-                    ),
+                        res.errorBody()?.string()
+                    )
                 )
             }
             val body = res.body() ?: error("Empty library media")
@@ -147,7 +148,7 @@ class BrowseRepository @Inject constructor(
      */
     suspend fun prefetchFirstLibraryMediaPages(
         firstPageLimit: Int = 60,
-        maxConcurrent: Int = 3,
+        maxConcurrent: Int = 3
     ) {
         synchronized(prefetchLock) {
             if (prefetchInProgress) return
@@ -211,7 +212,6 @@ class BrowseRepository @Inject constructor(
         res.body() ?: error("Empty show episodes")
     }
 
-    private fun encodeShowKey(showKey: String): String =
-        URLEncoder.encode(showKey, StandardCharsets.UTF_8.toString())
-            .replace("+", "%20")
+    private fun encodeShowKey(showKey: String): String = URLEncoder.encode(showKey, StandardCharsets.UTF_8.toString())
+        .replace("+", "%20")
 }

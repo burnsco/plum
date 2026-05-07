@@ -1,0 +1,31 @@
+complexity:
+  CyclomaticComplexMethod:
+    active: false
+  ComplexCondition:
+    active: false
+  LargeClass:
+    active: false
+  LongMethod:
+    active: false
+  TooManyFunctions:
+    active: false
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
+
+naming:
+  FunctionNaming:
+    active: false
+  MatchingDeclarationName:
+    active: false
+
+style:
+  LoopWithTooManyJumpStatements:
+    active: false
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: false
+  ReturnCount:
+    active: false
