@@ -118,7 +118,7 @@ func (m *LibraryScanManager) ConfigureLibraryAutomation(
 }
 
 func (m *LibraryScanManager) startPollingWatcher(libraryID int, path, libraryType string) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	m.mu.Lock()
 	m.watcherStops[libraryID] = cancel
 	m.mu.Unlock()
@@ -154,7 +154,7 @@ func (m *LibraryScanManager) startPollingWatcher(libraryID int, path, libraryTyp
 }
 
 func (m *LibraryScanManager) startScheduler(libraryID int, path, libraryType string, intervalMinutes int) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	m.mu.Lock()
 	m.schedulerStops[libraryID] = cancel
 	m.mu.Unlock()
@@ -190,7 +190,7 @@ func (m *LibraryScanManager) startFSWatcher(libraryID int, path, libraryType str
 		_ = watcher.Close()
 		return err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	m.mu.Lock()
 	m.watcherStops[libraryID] = func() {
 		cancel()

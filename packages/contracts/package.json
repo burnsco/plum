@@ -15,7 +15,7 @@
     "format:check": "bunx oxfmt --config ../../.oxfmtrc.json --check package.json src scripts"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.52"
+    "effect": "4.0.0-beta.78"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
