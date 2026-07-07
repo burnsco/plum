@@ -111,3 +111,32 @@ func TestDecidePlaybackRemuxTranscodesMP3AudioForHLS(t *testing.T) {
 		t.Fatal("expected audio transcode for MP3 remux")
 	}
 }
+
+func TestDecidePlaybackTranscodesHighBitDepthH264AnimeRelease(t *testing.T) {
+	probe := playbackSourceProbe{
+		Container: "mkv",
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "h264", PixelFmt: "yuv420p10le", Height: 1080},
+			{Index: 1, CodecType: "audio", CodecName: "aac"},
+			{Index: 2, CodecType: "subtitle", CodecName: "ass"},
+		},
+	}
+	capabilities := ClientPlaybackCapabilities{
+		SupportsMSEHLS: true,
+		Containers:     []string{"mp4", "mkv"},
+		VideoCodecs:    []string{"h264"},
+		AudioCodecs:    []string{"aac"},
+	}
+
+	decision := decidePlayback(42, probe, capabilities, -1, nil)
+
+	if decision.Delivery != "transcode" {
+		t.Fatalf("delivery = %q, want transcode", decision.Delivery)
+	}
+	if decision.VideoCopy {
+		t.Fatal("expected 10-bit H.264 video to be transcoded, not copied")
+	}
+	if !decision.AudioCopy {
+		t.Fatal("expected AAC audio to remain copy-safe")
+	}
+}

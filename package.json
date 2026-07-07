@@ -49,7 +49,7 @@
     "android:format": "bash ./scripts/android-tv.sh spotlessApply"
   },
   "dependencies": {
-    "@radix-ui/react-dialog": "^1.1.17"
+    "@radix-ui/react-dialog": "^1.1.19"
   },
   "devDependencies": {
     "concurrently": "^10.0.3",

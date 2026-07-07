@@ -61,7 +61,7 @@ func decidePlayback(
 	}
 
 	containerSupported := containsContainerCapability(capabilities.Containers, probe.Container)
-	videoSupported := !hasVideo || containsCapability(capabilities.VideoCodecs, videoCodec)
+	videoSupported := !hasVideo || videoStreamSupportedByCapabilities(capabilities, video)
 	audioSupported := !hasAudio || containsCapability(capabilities.AudioCodecs, audioCodec)
 
 	decision := playbackDecision{
@@ -188,6 +188,27 @@ func isHLSSafeVideoCodec(codec string) bool {
 	default:
 		return false
 	}
+}
+
+func videoStreamSupportedByCapabilities(capabilities ClientPlaybackCapabilities, stream playbackStreamProbe) bool {
+	codec := normalizeCodecName(stream.CodecName)
+	if !containsCapability(capabilities.VideoCodecs, codec) {
+		return false
+	}
+	// H.264 Hi10P is common in anime releases. Browsers often report H.264 support but cannot
+	// decode 10/12-bit H.264, so copying/remuxing this stream can leave playback stuck.
+	if codec == "h264" && isHighBitDepthPixelFormat(stream.PixelFmt) {
+		return false
+	}
+	return true
+}
+
+func isHighBitDepthPixelFormat(pixelFormat string) bool {
+	pixelFormat = strings.ToLower(strings.TrimSpace(pixelFormat))
+	return strings.Contains(pixelFormat, "10le") ||
+		strings.Contains(pixelFormat, "10be") ||
+		strings.Contains(pixelFormat, "12le") ||
+		strings.Contains(pixelFormat, "12be")
 }
 
 func isHLSSafeAudioCodec(codec string) bool {

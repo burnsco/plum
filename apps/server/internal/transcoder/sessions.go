@@ -32,6 +32,7 @@ var ffmpegCommandContext = exec.CommandContext
 var previousRevisionCancelDelay = 20 * time.Second
 var playbackDisconnectGracePeriod = 10 * time.Second
 var playbackCloseWait = 2 * time.Second
+var playbackRevisionReadyTimeout = 2 * time.Minute
 
 func maxPlaybackSessionsPerUser() int {
 	raw := strings.TrimSpace(os.Getenv("PLUM_MAX_PLAYBACK_SESSIONS_PER_USER"))
@@ -1138,19 +1139,47 @@ func (m *PlaybackSessionManager) runRevision(
 		}()
 
 		ticker := time.NewTicker(250 * time.Millisecond)
+		readyDeadline := time.NewTimer(playbackRevisionReadyTimeout)
 		ready := false
 	loop:
 		for {
 			select {
 			case <-ctx.Done():
 				ticker.Stop()
+				readyDeadline.Stop()
 				if cmd.Process != nil {
 					_ = cmd.Process.Kill()
 				}
 				<-waitCh
 				return
+			case <-readyDeadline.C:
+				if ready {
+					continue
+				}
+				ticker.Stop()
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+				waitErr := <-waitCh
+				if ctx.Err() != nil {
+					return
+				}
+				finalState.Error = fmt.Sprintf("playback stream did not become ready within %s", playbackRevisionReadyTimeout)
+				if waitErr != nil {
+					finalState.Error = compactFFmpegError(stderrBuf.String(), errors.Join(errors.New(finalState.Error), waitErr))
+				}
+				slog.Error("playback revision readiness timeout",
+					"session_id", session.id,
+					"media_id", session.media.ID,
+					"revision", revision.number,
+					"mode", plan.Mode,
+					"timeout", playbackRevisionReadyTimeout,
+					"error", finalState.Error,
+				)
+				break loop
 			case err := <-waitCh:
 				ticker.Stop()
+				readyDeadline.Stop()
 				if err != nil {
 					if ctx.Err() != nil {
 						return

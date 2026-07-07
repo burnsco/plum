@@ -414,6 +414,49 @@ func TestRunRevisionMarksErrorAfterAllPlansFail(t *testing.T) {
 	}
 }
 
+func TestRunRevisionMarksErrorWhenFFmpegNeverProducesPlaylist(t *testing.T) {
+	root := t.TempDir()
+	manager := NewPlaybackSessionManager(context.Background(), root, nil)
+	session := &playbackSession{
+		id: "session-never-ready",
+		media: db.MediaItem{
+			ID:   8,
+			Path: filepath.Join(root, "media.mkv"),
+		},
+		revisions: make(map[int]*playbackRevision),
+	}
+
+	previousReadyTimeout := playbackRevisionReadyTimeout
+	playbackRevisionReadyTimeout = 100 * time.Millisecond
+	t.Cleanup(func() {
+		playbackRevisionReadyTimeout = previousReadyTimeout
+	})
+
+	previousCommandContext := ffmpegCommandContext
+	ffmpegCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return fakeHangingCommand(ctx)
+	}
+	t.Cleanup(func() {
+		ffmpegCommandContext = previousCommandContext
+	})
+
+	if _, err := manager.startRevision(session, db.DefaultTranscodingSettings(), -1, playbackDecision{Delivery: "transcode"}, nil); err != nil {
+		t.Fatalf("startRevision: %v", err)
+	}
+
+	revision := waitForRevisionStatus(t, session, 1, "error")
+	if !strings.Contains(revision.err, "did not become ready") {
+		t.Fatalf("revision error = %q, want readiness timeout", revision.err)
+	}
+
+	session.mu.Lock()
+	activeRevision := session.activeRevision
+	session.mu.Unlock()
+	if activeRevision != 0 {
+		t.Fatalf("activeRevision = %d, want 0", activeRevision)
+	}
+}
+
 func TestSeekStartsOffsetRevisionPreservingTracks(t *testing.T) {
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "media.mkv")
@@ -1062,4 +1105,8 @@ exit "$exit_code"
 func fakeFFProbeCommand(ctx context.Context, output string) *exec.Cmd {
 	script := "printf '%s' '" + strings.ReplaceAll(output, "'", "'\\''") + "'"
 	return exec.CommandContext(ctx, "bash", "-lc", script)
+}
+
+func fakeHangingCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "bash", "-lc", "trap 'exit 143' TERM INT; while true; do sleep 1; done")
 }

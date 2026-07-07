@@ -23,7 +23,7 @@ export function PlaybackDockShell({
   children,
 }: PlaybackDockShellProps) {
   return (
-    <section
+    <div
       ref={playerRootRef}
       className={`fullscreen-player fullscreen-player--aspect-${videoAspectMode}${
         controlsVisible ? "" : " fullscreen-player--hidden"
@@ -37,6 +37,6 @@ export function PlaybackDockShell({
       onKeyDown={onKeyDown}
     >
       {children}
-    </section>
+    </div>
   );
 }

@@ -30,11 +30,12 @@ interface JassubRendererProps {
  */
 const ASS_LOAD_TIMEOUT_MS = 45_000;
 const EMBEDDED_ASS_LOAD_TIMEOUT_MS = 600_000;
+const EMPTY_FONT_URLS: readonly string[] = [];
 
 export function JassubRenderer({
   videoElement,
   assSrc,
-  fontUrls = [],
+  fontUrls = EMPTY_FONT_URLS,
   timeOffsetSeconds = 0,
   onStatusChange,
 }: JassubRendererProps) {

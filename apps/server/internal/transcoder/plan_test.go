@@ -586,6 +586,97 @@ func TestBuildPlaybackHLSPlans_RemuxTagsHEVCAsHvc1(t *testing.T) {
 	}
 }
 
+func TestBuildPlaybackHLSPlans_AnimeProfileTranscodesVideoWithoutMappingTextSubtitles(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = false
+	settings.HardwareEncodingEnabled = false
+	probe := playbackSourceProbe{
+		Container: "mkv",
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "h264", PixelFmt: "yuv420p10le", Height: 1080},
+			{Index: 1, CodecType: "audio", CodecName: "aac"},
+			{Index: 2, CodecType: "audio", CodecName: "flac"},
+			{Index: 3, CodecType: "subtitle", CodecName: "ass"},
+		},
+	}
+	capabilities := ClientPlaybackCapabilities{
+		SupportsMSEHLS: true,
+		Containers:     []string{"mp4", "mkv"},
+		VideoCodecs:    []string{"h264"},
+		AudioCodecs:    []string{"aac", "flac"},
+	}
+	decision := decidePlayback(42, probe, capabilities, -1, nil)
+	plans := buildPlaybackHLSPlans("/media/Bleach S01E03.mkv", "/tmp/out", settings, probe, decision, 0, db.MediaItem{
+		EmbeddedSubtitles: []db.EmbeddedSubtitle{{StreamIndex: 3, Codec: "ass", Language: "en"}},
+	})
+
+	if decision.Delivery != "transcode" || decision.VideoCopy {
+		t.Fatalf("unexpected decision: %#v", decision)
+	}
+	if len(plans) != 1 || plans[0].Mode != "software" {
+		t.Fatalf("expected one software plan, got %#v", plans)
+	}
+	args := plans[0].Args
+	if !containsArgs(args, "libx264") {
+		t.Fatalf("expected libx264 transcode args: %v", args)
+	}
+	if !containsFilter(args, "format=yuv420p") {
+		t.Fatalf("expected 8-bit yuv420p output filter: %v", args)
+	}
+	if !containsArgPair(args, "-c:a:0", "copy") {
+		t.Fatalf("expected primary AAC audio to be copied: %v", args)
+	}
+	if containsArgPair(args, "-map", "0:3") {
+		t.Fatalf("ASS subtitle stream must not be mapped into video HLS output unless burn-in is requested: %v", args)
+	}
+}
+
+func TestBuildPlaybackHLSPlans_AnimeAlternateFlacAudioTranscodesAudioOnly(t *testing.T) {
+	settings := db.DefaultTranscodingSettings()
+	settings.VAAPIEnabled = false
+	settings.HardwareEncodingEnabled = false
+	probe := playbackSourceProbe{
+		Container: "mkv",
+		Streams: []playbackStreamProbe{
+			{Index: 0, CodecType: "video", CodecName: "h264", PixelFmt: "yuv420p", Height: 720},
+			{Index: 1, CodecType: "audio", CodecName: "aac"},
+			{Index: 2, CodecType: "audio", CodecName: "flac"},
+			{Index: 3, CodecType: "subtitle", CodecName: "ass"},
+		},
+	}
+	capabilities := ClientPlaybackCapabilities{
+		SupportsMSEHLS: true,
+		Containers:     []string{"mp4", "mkv"},
+		VideoCodecs:    []string{"h264"},
+		AudioCodecs:    []string{"aac", "flac"},
+	}
+	decision := decidePlayback(42, probe, capabilities, 2, nil)
+	plans := buildPlaybackHLSPlans("/media/anime.mkv", "/tmp/out", settings, probe, decision, 0, db.MediaItem{})
+
+	if decision.Delivery != "remux" || !decision.VideoCopy {
+		t.Fatalf("unexpected decision: %#v", decision)
+	}
+	if decision.AudioCopy || !decision.AudioTranscode {
+		t.Fatalf("expected FLAC to transcode for HLS audio compatibility: %#v", decision)
+	}
+	if len(plans) != 1 || plans[0].Mode != "remux" {
+		t.Fatalf("expected one remux plan, got %#v", plans)
+	}
+	args := plans[0].Args
+	if !containsArgPair(args, "-map", "0:2") {
+		t.Fatalf("expected selected FLAC audio stream to be mapped: %v", args)
+	}
+	if !containsArgPair(args, "-c:v", "copy") {
+		t.Fatalf("expected video copy remux: %v", args)
+	}
+	if !containsArgPair(args, "-c:a", "aac") {
+		t.Fatalf("expected selected FLAC audio to transcode to AAC: %v", args)
+	}
+	if containsArgPair(args, "-map", "0:3") {
+		t.Fatalf("subtitle stream must not be mapped into remux output: %v", args)
+	}
+}
+
 func containsArgs(args []string, needle string) bool {
 	for _, arg := range args {
 		if arg == needle {
