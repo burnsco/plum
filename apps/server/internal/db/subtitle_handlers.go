@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"plum/internal/ffopts"
@@ -153,9 +152,6 @@ func handleStreamEmbeddedSubtitleBody(w http.ResponseWriter, r *http.Request, db
 	lockKey := cachePath
 	if lockKey == "" {
 		lockKey = fmt.Sprintf("%s|%d", sourcePath, streamIndex)
-	}
-	if !offsetApplied && cacheErr == nil {
-		cancelWarmEmbeddedSubtitleCacheJob(lockKey, mediaID, streamIndex)
 	}
 	lock := acquireSharedKeyLock(lockKey)
 	defer releaseSharedKeyLock(lockKey, lock)
@@ -657,10 +653,8 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 				slog.Warn("subtitle cache warm mkdir", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", mkErr)
 				return
 			}
-			warmCtx, unregisterWarm := registerWarmEmbeddedSubtitleCacheJob(ctx, lockKey)
-			defer unregisterWarm()
-			if matErr := materializeEmbeddedSubtitleCacheFile(warmCtx, sourcePath, sub.StreamIndex, sub.Codec, cachePath, mediaID); matErr != nil {
-				if warmCtx.Err() != nil {
+			if matErr := materializeEmbeddedSubtitleCacheFile(ctx, sourcePath, sub.StreamIndex, sub.Codec, cachePath, mediaID); matErr != nil {
+				if ctx.Err() != nil {
 					slog.Info("subtitle cache warm yielded", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
 				} else {
 					slog.Warn("subtitle cache warm failed", "media_id", mediaID, "stream_index", sub.StreamIndex, "error", matErr)
@@ -668,42 +662,6 @@ func WarmEmbeddedSubtitleCachesForMedia(ctx context.Context, dbConn *sql.DB, med
 			}
 		}()
 	}
-}
-
-var warmEmbeddedSubtitleKeyMu sync.Mutex
-var warmEmbeddedSubtitleKeyNextID uint64
-var warmEmbeddedSubtitleKeyCancels = make(map[string]warmEmbeddedSubtitleKeyJob)
-
-type warmEmbeddedSubtitleKeyJob struct {
-	id     uint64
-	cancel context.CancelFunc
-}
-
-func registerWarmEmbeddedSubtitleCacheJob(ctx context.Context, lockKey string) (context.Context, func()) {
-	warmCtx, cancel := context.WithCancel(ctx)
-	id := atomic.AddUint64(&warmEmbeddedSubtitleKeyNextID, 1)
-	warmEmbeddedSubtitleKeyMu.Lock()
-	warmEmbeddedSubtitleKeyCancels[lockKey] = warmEmbeddedSubtitleKeyJob{id: id, cancel: cancel}
-	warmEmbeddedSubtitleKeyMu.Unlock()
-	return warmCtx, func() {
-		warmEmbeddedSubtitleKeyMu.Lock()
-		if current, ok := warmEmbeddedSubtitleKeyCancels[lockKey]; ok && current.id == id {
-			delete(warmEmbeddedSubtitleKeyCancels, lockKey)
-		}
-		warmEmbeddedSubtitleKeyMu.Unlock()
-		cancel()
-	}
-}
-
-func cancelWarmEmbeddedSubtitleCacheJob(lockKey string, mediaID int, streamIndex int) {
-	warmEmbeddedSubtitleKeyMu.Lock()
-	job := warmEmbeddedSubtitleKeyCancels[lockKey]
-	warmEmbeddedSubtitleKeyMu.Unlock()
-	if job.cancel == nil {
-		return
-	}
-	slog.Info("embedded subtitle on-demand request yielding warm cache job", "media_id", mediaID, "stream_index", streamIndex)
-	job.cancel()
 }
 
 type sharedKeyLock struct {

@@ -121,7 +121,9 @@ func RefreshPlaybackTrackMetadata(ctx context.Context, db *sql.DB, item *MediaIt
 		metadata.MediaAttachments = mediaAttachments
 	} else {
 		probedMediaAttachments := mediaAttachmentsWithMediaID(item.ID, probed.MediaAttachments)
-		persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks, probedMediaAttachments)
+		if err := persistEmbeddedStreams(ctx, db, item.ID, probed.EmbeddedSubtitles, probed.EmbeddedAudioTracks, probedMediaAttachments); err != nil {
+			slog.Warn("persist embedded playback tracks", "media_id", item.ID, "error", err)
+		}
 		metadata.EmbeddedSubtitles = append(metadata.EmbeddedSubtitles, probed.EmbeddedSubtitles...)
 		metadata.EmbeddedAudioTracks = append(metadata.EmbeddedAudioTracks, probed.EmbeddedAudioTracks...)
 		metadata.MediaAttachments = append(metadata.MediaAttachments, probedMediaAttachments...)
@@ -1498,59 +1500,69 @@ func scanForSubtitles(ctx context.Context, dbConn *sql.DB, mediaID int, videoPat
 			return err
 		}
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	return err
 }
 
-func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, subtitles []EmbeddedSubtitle, audioTracks []EmbeddedAudioTrack, attachments []MediaAttachment) {
+func persistEmbeddedStreams(ctx context.Context, dbConn *sql.DB, mediaID int, subtitles []EmbeddedSubtitle, audioTracks []EmbeddedAudioTrack, attachments []MediaAttachment) error {
 	if mediaID <= 0 {
-		return
+		return nil
 	}
-	if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, mediaID); err != nil {
-		slog.Warn("clear embedded_subtitles", "media_id", mediaID, "error", err)
-	} else {
-		for _, s := range subtitles {
-			var supportedVal interface{}
-			if s.Supported != nil {
-				if *s.Supported {
-					supportedVal = 1
-				} else {
-					supportedVal = 0
-				}
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, `DELETE FROM embedded_subtitles WHERE media_id = ?`, mediaID); err != nil {
+		return err
+	}
+	for _, s := range subtitles {
+		var supportedVal interface{}
+		if s.Supported != nil {
+			if *s.Supported {
+				supportedVal = 1
+			} else {
+				supportedVal = 0
 			}
-			if _, err := dbConn.ExecContext(ctx,
-				`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported, forced, is_default, hearing_impaired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				mediaID, s.StreamIndex, s.Language, s.Title, s.Codec, supportedVal, s.Forced, s.Default, s.HearingImpaired,
-			); err != nil {
-				slog.Warn("insert embedded_subtitles", "media_id", mediaID, "error", err)
-			}
+		}
+		if _, err = tx.ExecContext(ctx,
+			`INSERT INTO embedded_subtitles (media_id, stream_index, language, title, codec, supported, forced, is_default, hearing_impaired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			mediaID, s.StreamIndex, s.Language, s.Title, s.Codec, supportedVal, s.Forced, s.Default, s.HearingImpaired,
+		); err != nil {
+			return err
 		}
 	}
 
-	if _, err := dbConn.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, mediaID); err != nil {
-		slog.Warn("clear embedded_audio_tracks", "media_id", mediaID, "error", err)
-	} else {
-		for _, track := range audioTracks {
-			if _, err := dbConn.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, mediaID, track.StreamIndex, track.Language, track.Title); err != nil {
-				slog.Warn("insert embedded_audio_tracks", "media_id", mediaID, "error", err)
-			}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM embedded_audio_tracks WHERE media_id = ?`, mediaID); err != nil {
+		return err
+	}
+	for _, track := range audioTracks {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO embedded_audio_tracks (media_id, stream_index, language, title) VALUES (?, ?, ?, ?)`, mediaID, track.StreamIndex, track.Language, track.Title); err != nil {
+			return err
 		}
 	}
 
-	if _, err := dbConn.ExecContext(ctx, `DELETE FROM media_attachments WHERE media_id = ?`, mediaID); err != nil {
-		slog.Warn("clear media_attachments", "media_id", mediaID, "error", err)
-	} else {
-		for _, attachment := range attachments {
-			if _, err := dbConn.ExecContext(ctx,
-				`INSERT INTO media_attachments (media_id, stream_index, file_name, mime_type, codec, comment) VALUES (?, ?, ?, ?, ?, ?)`,
-				mediaID,
-				attachment.StreamIndex,
-				attachment.FileName,
-				attachment.MimeType,
-				attachment.Codec,
-				attachment.Comment,
-			); err != nil {
-				slog.Warn("insert media_attachments", "media_id", mediaID, "error", err)
-			}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM media_attachments WHERE media_id = ?`, mediaID); err != nil {
+		return err
+	}
+	for _, attachment := range attachments {
+		if _, err = tx.ExecContext(ctx,
+			`INSERT INTO media_attachments (media_id, stream_index, file_name, mime_type, codec, comment) VALUES (?, ?, ?, ?, ?, ?)`,
+			mediaID,
+			attachment.StreamIndex,
+			attachment.FileName,
+			attachment.MimeType,
+			attachment.Codec,
+			attachment.Comment,
+		); err != nil {
+			return err
 		}
 	}
+	err = tx.Commit()
+	return err
 }

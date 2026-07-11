@@ -770,34 +770,42 @@ func enrichTask(
 	}
 	item.FileHash = hash
 	item.FileHashKind = hashKind
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := updateScannedItem(ctx, dbConn, table, existing.RefID, item, now); err != nil {
-		return err
-	}
 	globalID := task.GlobalID
 	if globalID <= 0 {
 		globalID = existing.GlobalID
 	}
-	if globalID > 0 {
-		if err := upsertMediaFileForMediaID(ctx, dbConn, globalID, item, true); err != nil {
+
+	return RetryOnBusy(ctx, 4, 250*time.Millisecond, func() error {
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := updateScannedItem(ctx, dbConn, table, existing.RefID, item, now); err != nil {
 			return err
 		}
-		if probedVideo != nil {
-			if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, task.Path, *probedVideo); err != nil {
-				slog.Warn("persist intro chapters", "media_id", globalID, "path", task.Path, "error", err)
+		if globalID > 0 {
+			if err := upsertMediaFileForMediaID(ctx, dbConn, globalID, item, true); err != nil {
+				return err
+			}
+			if probedVideo != nil {
+				if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, globalID, task.Path, *probedVideo); err != nil {
+					if IsSQLiteBusy(err) {
+						return err
+					}
+					slog.Warn("persist intro chapters", "media_id", globalID, "path", task.Path, "error", err)
+				}
 			}
 		}
-	}
-	if mediaType == LibraryTypeMusic {
-		return nil
-	}
-	if options.ScanSidecarSubtitles && globalID > 0 {
-		if err := scanForSubtitles(ctx, dbConn, globalID, task.Path); err != nil {
-			slog.Warn("scan subtitles", "path", task.Path, "error", err)
+		if mediaType == LibraryTypeMusic {
+			return nil
 		}
-	}
-	persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubtitles, embeddedAudio, mediaAttachments)
-	return nil
+		if options.ScanSidecarSubtitles && globalID > 0 {
+			if err := scanForSubtitles(ctx, dbConn, globalID, task.Path); err != nil {
+				if IsSQLiteBusy(err) {
+					return err
+				}
+				slog.Warn("scan subtitles", "path", task.Path, "error", err)
+			}
+		}
+		return persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubtitles, embeddedAudio, mediaAttachments)
+	})
 }
 
 func EnrichLibraryTasks(
@@ -1087,7 +1095,9 @@ func HandleScanLibraryWithOptions(
 							if err := UpdateMediaFileIntroFromProbe(ctx, dbConn, existing.GlobalID, path, probed); err != nil {
 								slog.Warn("persist intro chapters", "media_id", existing.GlobalID, "path", path, "error", err)
 							}
-							persistEmbeddedStreams(ctx, dbConn, existing.GlobalID, embeddedSubs, embeddedAudioTracks, mediaAttachments)
+							if err := persistEmbeddedStreams(ctx, dbConn, existing.GlobalID, embeddedSubs, embeddedAudioTracks, mediaAttachments); err != nil {
+								return err
+							}
 						}
 					}
 				}
@@ -1227,8 +1237,7 @@ func HandleScanLibraryWithOptions(
 					}
 				}
 			}
-			persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubs, embeddedAudioTracks, mediaAttachments)
-			return nil
+			return persistEmbeddedStreams(ctx, dbConn, globalID, embeddedSubs, embeddedAudioTracks, mediaAttachments)
 		})
 		if err != nil {
 			return result, err
